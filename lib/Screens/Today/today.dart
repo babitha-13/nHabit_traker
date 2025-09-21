@@ -133,11 +133,9 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   void _recomputeTasksTodayOrder() {
-    // Get tasks from HabitRecord collection (items with isRecurring = false)
     final open = _tasks.where((t) {
       if (!t.isActive) return false;
-
-      // Check if task is completed based on tracking type
+      if (t.dueDate == null) return false; // <-- skip tasks without dueDate
       switch (t.trackingType) {
         case 'binary':
           return t.taskStatus != 'done';

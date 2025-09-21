@@ -236,40 +236,43 @@ class _HomeState extends State<Home> {
               key: _parentKey,
               children: [
                 Container(color: Colors.white, child: cWidget),
-                Positioned(
-                  right: 16,
-                  bottom: 88, // above bottom nav
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      FloatingActionButton(
-                        heroTag: 'fab_add_habit',
-                        onPressed: () {
-                          Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (context) => const CreateHabitPage(),
-                            ),
-                          ).then((value){
-                            if(value){
-                              NotificationCenter.post("loadToday", "");
-                            }
-                          });
-                        },
-                        tooltip: 'Add Habit',
-                        backgroundColor: FlutterFlowTheme.of(context).primary,
-                        child: const Icon(Icons.add, color: Colors.white),
-                      ),
-                      const SizedBox(height: 12),
-                      FloatingActionButton(
-                        heroTag: 'fab_add_category',
-                        onPressed: _showAddCategoryDialog,
-                        tooltip: 'Add Category',
-                        backgroundColor: FlutterFlowTheme.of(context).secondary,
-                        child: const Icon(Icons.create_new_folder,
-                            color: Colors.white),
-                      ),
-                    ],
+                Visibility(
+                  visible: title != "Tasks",
+                  child: Positioned(
+                    right: 16,
+                    bottom: 88, // above bottom nav
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        FloatingActionButton(
+                          heroTag: 'fab_add_habit',
+                          onPressed: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const CreateHabitPage(),
+                              ),
+                            ).then((value){
+                              if(value){
+                                NotificationCenter.post("loadToday", "");
+                              }
+                            });
+                          },
+                          tooltip: 'Add Habit',
+                          backgroundColor: FlutterFlowTheme.of(context).primary,
+                          child: const Icon(Icons.add, color: Colors.white),
+                        ),
+                        const SizedBox(height: 12),
+                        FloatingActionButton(
+                          heroTag: 'fab_add_category',
+                          onPressed: _showAddCategoryDialog,
+                          tooltip: 'Add Category',
+                          backgroundColor: FlutterFlowTheme.of(context).secondary,
+                          child: const Icon(Icons.create_new_folder,
+                              color: Colors.white),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ],

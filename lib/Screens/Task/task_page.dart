@@ -527,7 +527,11 @@ class _TaskPageState extends State<TaskPage> {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     for (final t in _tasks) {
       if (!t.isActive || t.taskStatus == 'done') continue;
-      final due = t.dueDate ?? today;
+      final due = t.dueDate;
+      if (due == null) {
+        buckets['Later']!.add(t);
+        continue;
+      }
       if (due.isBefore(today)) {
         buckets['Overdue']!.add(t);
       } else if (_isSameDay(due, today)) {

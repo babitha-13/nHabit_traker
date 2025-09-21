@@ -70,12 +70,16 @@ class _FloatingTimerState extends State<FloatingTimer> {
     try {
       await habit.reference.update({
         'accumulatedTime': 0,
-        'timerStartTime': DateTime.now(),
-        'isTimerActive': true,
+        'timerStartTime': null,
+        'isTimerActive': false,
         'showInFloatingTimer': true,
       });
       final updatedHabit = HabitRecord.getDocumentFromData(
-        {...habit.snapshotData, 'accumulatedTime': 0, 'timerStartTime': DateTime.now(), 'isTimerActive': true, 'showInFloatingTimer': true},
+        {...habit.snapshotData,
+          'accumulatedTime': 0,
+          'timerStartTime': null,
+          'isTimerActive': false,
+          'showInFloatingTimer': true},
         habit.reference,
       );
       widget.onHabitUpdated?.call(updatedHabit);

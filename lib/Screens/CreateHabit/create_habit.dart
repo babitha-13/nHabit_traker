@@ -172,7 +172,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
             Navigator.pop(context, false);
           },
         ),
-        title: const Text('Create Habit'),
+        title: const Text('Create Habit', style: TextStyle(color: Colors.white),),
       ),
       body: SafeArea(
         child: Form(
