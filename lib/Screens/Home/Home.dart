@@ -10,6 +10,7 @@ import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
+import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Today/today.dart';
 import 'package:habit_tracker/main.dart';
 
@@ -366,7 +367,7 @@ class _HomeState extends State<Home> {
         }
         if (s == "Tasks") {
           title = s;
-          cWidget = const TaskPage();
+          cWidget = const TaskTab();
         }
         if (s == "Today") {
           title = s;

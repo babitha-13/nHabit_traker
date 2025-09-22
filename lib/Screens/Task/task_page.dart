@@ -11,7 +11,9 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart' show CompactHabitItem;
 
 class TaskPage extends StatefulWidget {
-  const TaskPage({super.key});
+  final String? categoryId;
+
+  const TaskPage({super.key, this.categoryId});
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -97,8 +99,14 @@ class _TaskPageState extends State<TaskPage> {
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryCategoriesRecordOnce(userId: uid);
       setState(() {
-        _tasks = allHabits.where((h) => !h.isRecurring).toList();
-        _habits = allHabits.where((h) => h.isRecurring).toList();
+        _tasks = allHabits
+            .where((h) => !h.isRecurring &&
+            (widget.categoryId == null || h.categoryId == widget.categoryId))
+            .toList();
+        _habits = allHabits
+            .where((h) => h.isRecurring &&
+            (widget.categoryId == null || h.categoryId == widget.categoryId))
+            .toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
           _selectedQuickCategoryId = categories.first.reference.id;
