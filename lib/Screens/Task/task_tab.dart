@@ -25,6 +25,7 @@ class _TaskTabState extends State<TaskTab>
     _loadCategories();
   }
 
+
   Future<void> _loadCategories() async {
     final fetched = await queryCategoriesRecordOnce(userId: currentUserUid);
     setState(() {
