@@ -25,12 +25,9 @@ class TodayPage extends StatefulWidget {
 class _TodayPageState extends State<TodayPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-
   List<HabitRecord> _habits = [];
   List<CategoryRecord> _categories = [];
-  List<HabitRecord> _tasks =
-      []; // Tasks are now HabitRecord with isRecurring=false
-
+  List<HabitRecord> _tasks = [];
   List<HabitRecord> _tasksTodayOrder = [];
   final Map<String, bool> _categoryExpanded = {};
   bool _isLoading = true;
@@ -39,7 +36,6 @@ class _TodayPageState extends State<TodayPage> {
   bool _tasksExpanded = true;
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
-  // Score tracking
   double _netImpactScore = 0;
   double _dailyCompletionPercent = 0;
   int _completedHabits = 0;
@@ -79,7 +75,6 @@ class _TodayPageState extends State<TodayPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Refresh when returning to this page so newly created habits appear
     if (_didInitialDependencies) {
       final route = ModalRoute.of(context);
       if (route != null && route.isCurrent && _shouldReloadOnReturn) {
@@ -90,8 +85,6 @@ class _TodayPageState extends State<TodayPage> {
       _didInitialDependencies = true;
     }
   }
-
-  // Scroll listener removed with bottom bar
 
   Future<void> _loadHabits() async {
     setState(() {
@@ -106,9 +99,7 @@ class _TodayPageState extends State<TodayPage> {
         setState(() {
           _habits = habits;
           _categories = categories;
-          _tasks = habits
-              .where((h) => !h.isRecurring)
-              .toList(); // Filter tasks from habits
+          _tasks = habits.where((h) => !h.isRecurring).toList();
           _recomputeTasksTodayOrder();
           _calculateScores();
           _isLoading = false;
@@ -136,7 +127,6 @@ class _TodayPageState extends State<TodayPage> {
   void _recomputeTasksTodayOrder() {
     final open = _tasks.where((t) {
       if (!t.isActive) return false;
-      if (t.dueDate == null) return false; // <-- skip tasks without dueDate
       switch (t.trackingType) {
         case 'binary':
           return t.taskStatus != 'done';
@@ -159,8 +149,6 @@ class _TodayPageState extends State<TodayPage> {
       return ao.compareTo(bo);
     });
     _tasksTodayOrder = open;
-
-    // Debug information
     print(
         '_recomputeTasksTodayOrder: ${_tasks.length} total tasks, ${open.length} open tasks');
     if (_tasks.isNotEmpty) {
@@ -173,7 +161,6 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   void _calculateScores() {
-    // Only count actual habits (isRecurring = true) for habit completion metrics
     final actualHabits = _habits.where((h) => h.isRecurring).toList();
     _totalHabits = actualHabits.length;
     _completedHabits = 0;
@@ -184,8 +171,6 @@ class _TodayPageState extends State<TodayPage> {
 
       if (isCompleted) {
         _completedHabits++;
-
-        // Calculate impact score based on impact level
         final impactPoints = _getImpactPoints(habit.impactLevel);
         _netImpactScore += impactPoints;
       }
@@ -193,9 +178,7 @@ class _TodayPageState extends State<TodayPage> {
 
     _dailyCompletionPercent =
         _totalHabits > 0 ? (_completedHabits / _totalHabits) * 100 : 0;
-
-    // Thrive score is cumulative - for now using a placeholder
-    _thriveScore = 1247; // TODO: Calculate from historical data
+    _thriveScore = 1247;
   }
 
   double _getImpactPoints(String impactLevel) {
@@ -230,7 +213,6 @@ class _TodayPageState extends State<TodayPage> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Date header
             Text(
               DateFormat('EEEE, MMMM d, y').format(DateTime.now()),
               style: FlutterFlowTheme.of(context).titleMedium.override(
@@ -240,11 +222,8 @@ class _TodayPageState extends State<TodayPage> {
                   ),
             ),
             const SizedBox(height: 12),
-
-            // Score metrics row
             Row(
               children: [
-                // Net Impact Score
                 Expanded(
                   child: NeumorphicContainer(
                     padding: const EdgeInsets.all(12),
@@ -281,8 +260,6 @@ class _TodayPageState extends State<TodayPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-
-                // Daily Completion
                 Expanded(
                   child: NeumorphicContainer(
                     padding: const EdgeInsets.all(12),
@@ -327,8 +304,6 @@ class _TodayPageState extends State<TodayPage> {
                   ),
                 ),
                 const SizedBox(width: 8),
-
-                // Thrive Score
                 Expanded(
                   child: NeumorphicContainer(
                     padding: const EdgeInsets.all(12),
@@ -372,7 +347,6 @@ class _TodayPageState extends State<TodayPage> {
     final grouped = <String, List<HabitRecord>>{};
 
     for (final habit in _habits) {
-      // Skip tasks (items with isRecurring = false) - they should appear under Tasks section only
       if (!habit.isRecurring) continue;
 
       if (!_shouldShowInTodayMain(habit)) continue;
@@ -388,18 +362,32 @@ class _TodayPageState extends State<TodayPage> {
     return grouped;
   }
 
-  // Weekly goals (Today): flexible weekly habits not promoted to main list,
-  // still having remaining completions this week
+  bool _isTaskCompleted(HabitRecord task) {
+    if (!task.isActive) return false;
+    switch (task.trackingType) {
+      case 'binary':
+        return task.taskStatus == 'done';
+      case 'quantitative':
+        final currentValue = task.currentValue ?? 0;
+        final target = task.target ?? 0;
+        return target > 0 && currentValue >= target;
+      case 'time':
+        final currentMinutes = (task.accumulatedTime) ~/ 60000;
+        final targetMinutes = task.target ?? 0;
+        return targetMinutes > 0 && currentMinutes >= targetMinutes;
+      default:
+        return task.taskStatus == 'done';
+    }
+  }
+
   Map<String, List<HabitRecord>> get _groupedWeeklyGoals {
     final grouped = <String, List<HabitRecord>>{};
     for (final habit in _habits) {
-      // Skip tasks (items with isRecurring = false) - they should appear under Tasks section only
       if (!habit.isRecurring) continue;
 
       if (!_isFlexibleWeekly(habit)) continue;
-      if (_shouldShowInTodayMain(habit)) continue; // promoted
+      if (_shouldShowInTodayMain(habit)) continue;
       if (_remainingCompletionsThisWeek(habit) <= 0) continue;
-      // skip if user explicitly skipped today
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       if (habit.skippedDates.any((d) =>
@@ -433,7 +421,7 @@ class _TodayPageState extends State<TodayPage> {
 
   int _daysRemainingThisWeekInclusiveToday() {
     final now = DateTime.now();
-    return DateTime.sunday - now.weekday + 1; // inclusive of today
+    return DateTime.sunday - now.weekday + 1;
   }
 
   int _remainingCompletionsThisWeek(HabitRecord habit) {
@@ -443,20 +431,16 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   bool _shouldShowInTodayMain(HabitRecord habit) {
-    // Respect explicit skip
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (habit.skippedDates.any((d) =>
         d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
-
-    // Respect snoozedUntil: hide until the day after snoozedUntil
     if (habit.hasSnoozedUntil()) {
       final until = habit.snoozedUntil!;
       final untilDate = DateTime(until.year, until.month, until.day);
       if (!today.isAfter(untilDate)) {
-        // Today is on or before snoozedUntil -> don't show
         return false;
       }
     }
@@ -466,16 +450,12 @@ class _TodayPageState extends State<TodayPage> {
     if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
       return habit.specificDays.contains(now.weekday);
     }
-
     if (_isFlexibleWeekly(habit)) {
       final remaining = _remainingCompletionsThisWeek(habit);
       if (remaining <= 0) return false;
       final daysRemaining = _daysRemainingThisWeekInclusiveToday();
-      // Promote to Today if must-day (==) or behind (>)
       return remaining >= daysRemaining;
     }
-
-    // For other schedules (monthly, etc.) not shown on Today for now
     return false;
   }
 
@@ -488,9 +468,7 @@ class _TodayPageState extends State<TodayPage> {
               ? const Center(child: CircularProgressIndicator())
               : Column(
                   children: [
-                    // Score bar
                     _buildScoreBar(),
-                    // Today view content
                     Expanded(
                       child: _buildDailyView(),
                     ),
@@ -542,7 +520,6 @@ class _TodayPageState extends State<TodayPage> {
             ElevatedButton(
               onPressed: () {
                 _shouldReloadOnReturn = true;
-                // context.pushNamed('AddHabitPg');
               },
               child: const Text('Add Habit'),
             ),
@@ -553,7 +530,6 @@ class _TodayPageState extends State<TodayPage> {
 
     final slivers = <Widget>[];
 
-    // Tasks header
     if (_tasksTodayOrder.isNotEmpty) {
       slivers.add(
         SliverToBoxAdapter(
@@ -690,14 +666,10 @@ class _TodayPageState extends State<TodayPage> {
           ),
         );
       }
-      // Spacer after Tasks card before Category groups
       slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 10)));
     }
-
-    // Category groups
     for (final categoryName in _groupedHabits.keys) {
       final habits = _groupedHabits[categoryName]!;
-      // Resolve category record
       CategoryRecord? category;
       try {
         category = _categories.firstWhere((c) => c.name == categoryName);
@@ -717,10 +689,7 @@ class _TodayPageState extends State<TodayPage> {
           FirebaseFirestore.instance.collection('categories').doc(),
         );
       }
-
       final expanded = _categoryExpanded[categoryName] ?? true;
-
-      // Header
       slivers.add(
         SliverToBoxAdapter(
           child: Container(
@@ -826,10 +795,7 @@ class _TodayPageState extends State<TodayPage> {
           ),
         ),
       );
-
-      // Habits reorderable list (within category)
       if (expanded) {
-        // Sort by manualOrder, fallback to in-category index
         final sortedHabits = List<HabitRecord>.from(habits);
         sortedHabits.sort((a, b) {
           final ao = a.hasManualOrder() ? a.manualOrder : habits.indexOf(a);
@@ -905,8 +871,6 @@ class _TodayPageState extends State<TodayPage> {
               if (newIndex > oldIndex) newIndex -= 1;
               final item = sortedHabits.removeAt(oldIndex);
               sortedHabits.insert(newIndex, item);
-
-              // Persist manualOrder sequentially within this category
               for (int i = 0; i < sortedHabits.length; i++) {
                 final h = sortedHabits[i];
                 try {
@@ -919,10 +883,7 @@ class _TodayPageState extends State<TodayPage> {
         );
       }
     }
-
-    // Weekly goals section (at the bottom)
     if (weeklyGoals.isNotEmpty) {
-      // Add spacing before weekly section
       slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 10)));
       slivers.add(
           SliverToBoxAdapter(child: _buildWeeklyGoalsSection(weeklyGoals)));
@@ -933,19 +894,16 @@ class _TodayPageState extends State<TodayPage> {
       slivers: [
         ...slivers,
         const SliverToBoxAdapter(
-          child:
-              SizedBox(height: 140), // Space for FABs + nav bar + extra padding
+          child: SizedBox(height: 140),
         ),
       ],
     );
   }
 
-  // Quick add task removed from Habits page
   Widget _buildWeeklyGoalsSection(Map<String, List<HabitRecord>> weeklyGoals) {
     if (weeklyGoals.isEmpty) return const SizedBox.shrink();
     return Column(
       children: [
-        // Weekly Goals Header (like category header)
         Container(
           margin: EdgeInsets.fromLTRB(16, 8, 16, _weeklyGoalsExpanded ? 0 : 6),
           padding: EdgeInsets.fromLTRB(12, 8, 12, _weeklyGoalsExpanded ? 2 : 6),
@@ -1006,7 +964,6 @@ class _TodayPageState extends State<TodayPage> {
             ],
           ),
         ),
-        // Weekly Goals Content (when expanded)
         if (_weeklyGoalsExpanded)
           Container(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
@@ -1125,7 +1082,6 @@ class _TodayPageState extends State<TodayPage> {
         const SizedBox(width: 8),
         TextButton(
           onPressed: () async {
-            // Promote to Today by clearing today's skip (if any)
             final now = DateTime.now();
             final today = DateTime(now.year, now.month, now.day);
             final skipped = List<DateTime>.from(habit.skippedDates);
@@ -1150,7 +1106,6 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  // Helper function to build category weight stars
   Widget _buildCategoryWeightStars(CategoryRecord category) {
     final current = category.weight.round().clamp(1, 3);
     return Row(
@@ -1228,9 +1183,7 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  // Helper function to get task category color
   String _getTaskCategoryColor(HabitRecord task) {
-    // Prefer matching category by ID; fallback to name match
     CategoryRecord? matchedCategory;
     try {
       if (task.categoryId.isNotEmpty) {
@@ -1242,28 +1195,22 @@ class _TodayPageState extends State<TodayPage> {
           (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
-    } catch (_) {
-      // No match; fall through to fallbacks
-    }
+    } catch (_) {}
 
     if (matchedCategory != null && matchedCategory.color.isNotEmpty) {
       return matchedCategory.color;
     }
-
-    // Fallbacks: themed colors for generic names else default blue
     final name = task.categoryName.trim().toLowerCase();
     if (name == 'tasks' || name == 'task') {
-      return '#2196F3'; // Default blue
+      return '#2196F3';
     }
-    return '#2196F3'; // Default blue
+    return '#2196F3';
   }
 
-  // Helper function to get or create a default "Tasks" category
   CategoryRecord _getTasksCategory() {
     try {
       return _categories.firstWhere((c) => c.name.toLowerCase() == 'tasks');
     } catch (e) {
-      // Create a fallback category for Tasks
       final categoryData = createCategoryRecordData(
         name: 'Tasks',
         color: '#2196F3',
@@ -1288,22 +1235,49 @@ class _TodayPageState extends State<TodayPage> {
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
-
       final taskIndex =
           _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
+        if (_isTaskCompleted(updated)) {
+          _tasksTodayOrder
+              .removeWhere((t) => t.reference.id == updated.reference.id);
+        } else {
+          if (!_tasksTodayOrder
+              .any((t) => t.reference.id == updated.reference.id)) {
+            _tasksTodayOrder.add(updated);
+          }
+        }
       } else if (updated.trackingType == 'time' && updated.isTimerActive) {
         _tasks.add(updated);
       } else {
         _tasks.removeWhere((t) => t.reference.id == updated.reference.id);
+        _tasksTodayOrder
+            .removeWhere((t) => t.reference.id == updated.reference.id);
       }
       _recomputeTasksTodayOrder();
+      _removeEmptyCategories();
     });
     _loadDataSilently();
   }
 
-  // Handle category menu actions
+  void _removeEmptyCategories() {
+    final categoriesWithTasks = <String>{};
+    for (final task in _tasks) {
+      if (!task.isRecurring && task.categoryName.isNotEmpty) {
+        categoriesWithTasks.add(task.categoryName);
+      }
+    }
+    for (final habit in _habits) {
+      if (habit.isRecurring && habit.categoryName.isNotEmpty) {
+        categoriesWithTasks.add(habit.categoryName);
+      }
+    }
+    _categories.removeWhere((category) {
+      return !categoriesWithTasks.contains(category.name);
+    });
+  }
+
   void _handleCategoryMenuAction(String action, CategoryRecord category) {
     switch (action) {
       case 'edit':
@@ -1340,8 +1314,6 @@ class _TodayPageState extends State<TodayPage> {
               Navigator.of(context).pop();
               try {
                 await deleteCategory(category.uid, userId: currentUserUid);
-
-                // Update local state
                 setState(() {
                   _categories.removeWhere(
                       (c) => c.reference.id == category.reference.id);
@@ -1379,7 +1351,6 @@ class _TodayPageState extends State<TodayPage> {
     );
   }
 
-  // Helper method to update task in local state
   void _updateTaskInLocalState(HabitRecord task, String? newStatus,
       [dynamic newCurrentValue,
       bool? newIsTimerActive,
@@ -1402,6 +1373,15 @@ class _TodayPageState extends State<TodayPage> {
           _tasks[idx].reference,
         );
         _tasks[idx] = updated;
+        if (_isTaskCompleted(updated)) {
+          _tasksTodayOrder
+              .removeWhere((t) => t.reference.id == updated.reference.id);
+        } else {
+          if (!_tasksTodayOrder
+              .any((t) => t.reference.id == updated.reference.id)) {
+            _tasksTodayOrder.add(updated);
+          }
+        }
         _recomputeTasksTodayOrder();
       }
       _loadDataSilently();
