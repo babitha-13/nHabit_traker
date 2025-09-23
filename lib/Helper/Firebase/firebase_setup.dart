@@ -23,8 +23,8 @@ class DefaultFirebaseOptions {
 
   // 👉 You don’t have web config yet, keep placeholders
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'YOUR_WEB_API_KEY',
-    appId: 'YOUR_WEB_APP_ID',
+    apiKey: 'AIzaSyD__9QHHjtXsbFJs9R6bwrKY1bGjZ3fKxU',
+    appId: '1:53810020944:android:253fc3d7df084c25fb0755',
     messagingSenderId: '53810020944',
     projectId: 'habit-tracker-cc8f8',
     authDomain: 'habit-tracker-cc8f8.firebaseapp.com',
