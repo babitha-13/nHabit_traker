@@ -860,7 +860,6 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
           : (currentProgress is double)
               ? currentProgress.round()
               : int.tryParse(currentProgress.toString()) ?? 0;
-
       int newProgress = current + delta;
       if (newProgress < 0) {
         newProgress = 0;
@@ -868,6 +867,8 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
       _quantProgressOverride = newProgress;
       if (mounted) setState(() {});
       await HabitTrackingUtil.updateProgress(widget.habit, newProgress);
+      final updated = await HabitRecord.getDocumentOnce(widget.habit.reference);
+      widget.onHabitUpdated?.call(updated);
     } catch (e) {
       print('Error updating progress: $e');
       if (mounted) {
