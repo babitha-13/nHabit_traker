@@ -114,7 +114,7 @@ class _DashboardState extends State<Dashboard> {
   void _recomputeTasksTodayOrder() {
     // Get tasks from TaskRecord collection
     final tasksFromTaskCollection =
-    _tasks.where((t) => t.isActive && t.status != 'done').toList();
+        _tasks.where((t) => t.isActive && t.status != 'done').toList();
 
     // Get tasks from HabitRecord collection (items with isRecurring = false)
     final tasksFromHabitCollection = _habits
@@ -128,9 +128,9 @@ class _DashboardState extends State<Dashboard> {
     // Sort by manual order
     allTasks.sort((a, b) {
       final ao =
-      a.hasManualOrder() ? a.manualOrder : 1000000 + allTasks.indexOf(a);
+          a.hasManualOrder() ? a.manualOrder : 1000000 + allTasks.indexOf(a);
       final bo =
-      b.hasManualOrder() ? b.manualOrder : 1000000 + allTasks.indexOf(b);
+          b.hasManualOrder() ? b.manualOrder : 1000000 + allTasks.indexOf(b);
       return ao.compareTo(bo);
     });
     _tasksTodayOrder = allTasks;
@@ -173,7 +173,7 @@ class _DashboardState extends State<Dashboard> {
     }
 
     _dailyCompletionPercent =
-    _totalHabits > 0 ? (_completedHabits / _totalHabits) * 100 : 0;
+        _totalHabits > 0 ? (_completedHabits / _totalHabits) * 100 : 0;
 
     // Thrive score is cumulative - for now using a placeholder
     _thriveScore = 1247; // TODO: Calculate from historical data
@@ -215,10 +215,10 @@ class _DashboardState extends State<Dashboard> {
             Text(
               DateFormat('EEEE, MMMM d, y').format(DateTime.now()),
               style: FlutterFlowTheme.of(context).titleMedium.override(
-                fontFamily: 'Readex Pro',
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
+                    fontFamily: 'Readex Pro',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
             ),
             const SizedBox(height: 12),
 
@@ -236,11 +236,11 @@ class _DashboardState extends State<Dashboard> {
                         Text(
                           'Net Impact',
                           style:
-                          FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              FlutterFlowTheme.of(context).bodySmall.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -248,14 +248,14 @@ class _DashboardState extends State<Dashboard> {
                               ? '+${_netImpactScore.toStringAsFixed(1)}'
                               : _netImpactScore.toStringAsFixed(1),
                           style:
-                          FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: _netImpactScore >= 0
-                                ? Colors.green
-                                : Colors.red,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    color: _netImpactScore >= 0
+                                        ? Colors.green
+                                        : Colors.red,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                       ],
                     ),
@@ -274,22 +274,22 @@ class _DashboardState extends State<Dashboard> {
                         Text(
                           'Completion',
                           style:
-                          FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              FlutterFlowTheme.of(context).bodySmall.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           '${_dailyCompletionPercent.toStringAsFixed(0)}%',
                           style:
-                          FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: FlutterFlowTheme.of(context).primary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -297,11 +297,11 @@ class _DashboardState extends State<Dashboard> {
                           style: FlutterFlowTheme.of(context)
                               .bodySmall
                               .override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 10,
-                            color:
-                            FlutterFlowTheme.of(context).secondaryText,
-                          ),
+                                fontFamily: 'Readex Pro',
+                                fontSize: 10,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
                         ),
                       ],
                     ),
@@ -320,22 +320,22 @@ class _DashboardState extends State<Dashboard> {
                         Text(
                           'Thrive',
                           style:
-                          FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              FlutterFlowTheme.of(context).bodySmall.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           _thriveScore.toString(),
                           style:
-                          FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: FlutterFlowTheme.of(context).primary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                       ],
                     ),
@@ -362,7 +362,7 @@ class _DashboardState extends State<Dashboard> {
       if (!_showCompleted && isCompleted) continue;
 
       final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
 
@@ -384,14 +384,14 @@ class _DashboardState extends State<Dashboard> {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       if (habit.skippedDates.any((d) =>
-      d.year == today.year &&
+          d.year == today.year &&
           d.month == today.month &&
           d.day == today.day)) {
         continue;
       }
 
       final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
     return grouped;
@@ -428,7 +428,7 @@ class _DashboardState extends State<Dashboard> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (habit.skippedDates.any((d) =>
-    d.year == today.year && d.month == today.month && d.day == today.day)) {
+        d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
 
@@ -469,13 +469,13 @@ class _DashboardState extends State<Dashboard> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
-            children: [
-              _buildScoreBar(),
-              Expanded(
-                child: _buildDailyView(),
-              ),
-            ],
-          ),
+                  children: [
+                    _buildScoreBar(),
+                    Expanded(
+                      child: _buildDailyView(),
+                    ),
+                  ],
+                ),
           FloatingTimer(
             activeHabits: _habits,
             onRefresh: _loadHabits,
@@ -540,9 +540,9 @@ class _DashboardState extends State<Dashboard> {
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
                 bottomLeft:
-                _tasksExpanded ? Radius.zero : const Radius.circular(16),
+                    _tasksExpanded ? Radius.zero : const Radius.circular(16),
                 bottomRight:
-                _tasksExpanded ? Radius.zero : const Radius.circular(16),
+                    _tasksExpanded ? Radius.zero : const Radius.circular(16),
               ),
               boxShadow: _tasksExpanded
                   ? []
@@ -557,9 +557,9 @@ class _DashboardState extends State<Dashboard> {
                     Text(
                       'Tasks',
                       style: FlutterFlowTheme.of(context).titleMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     const SizedBox(width: 5),
                     Container(
@@ -578,7 +578,7 @@ class _DashboardState extends State<Dashboard> {
                     _buildCategoryWeightStars(_getTasksCategory()),
                     const SizedBox(width: 5),
                     GestureDetector(
-                      onTap: (){
+                      onTap: () {
                         _tasksExpanded = !_tasksExpanded;
                       },
                       child: Icon(
@@ -588,7 +588,6 @@ class _DashboardState extends State<Dashboard> {
                     )
                   ],
                 )
-
               ],
             ),
           ),
@@ -609,29 +608,29 @@ class _DashboardState extends State<Dashboard> {
                   margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                   decoration: BoxDecoration(
                     gradient:
-                    FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
                     border: Border(
                       left: BorderSide(
                           color:
-                          FlutterFlowTheme.of(context).surfaceBorderColor,
+                              FlutterFlowTheme.of(context).surfaceBorderColor,
                           width: 1),
                       right: BorderSide(
                           color:
-                          FlutterFlowTheme.of(context).surfaceBorderColor,
+                              FlutterFlowTheme.of(context).surfaceBorderColor,
                           width: 1),
                       top: BorderSide.none,
                       bottom: isLast
                           ? BorderSide(
-                          color: FlutterFlowTheme.of(context)
-                              .surfaceBorderColor,
-                          width: 1)
+                              color: FlutterFlowTheme.of(context)
+                                  .surfaceBorderColor,
+                              width: 1)
                           : BorderSide.none,
                     ),
                     borderRadius: isLast
                         ? const BorderRadius.only(
-                      bottomLeft: Radius.circular(16),
-                      bottomRight: Radius.circular(16),
-                    )
+                            bottomLeft: Radius.circular(16),
+                            bottomRight: Radius.circular(16),
+                          )
                         : BorderRadius.zero,
                     // No individual shadows - let section container handle shadows
                     boxShadow: const [],
@@ -696,6 +695,7 @@ class _DashboardState extends State<Dashboard> {
           weight: 1.0,
           createdTime: DateTime.now(),
           lastUpdated: DateTime.now(),
+          categoryType: 'habit', // Dashboard is for habits
         );
         category = CategoryRecord.getDocumentFromData(
           categoryData,
@@ -736,9 +736,9 @@ class _DashboardState extends State<Dashboard> {
                     Text(
                       category.name,
                       style: FlutterFlowTheme.of(context).titleMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     const SizedBox(width: 8),
                     Container(
@@ -799,7 +799,7 @@ class _DashboardState extends State<Dashboard> {
                     ),
                     const SizedBox(width: 5),
                     GestureDetector(
-                      onTap: (){
+                      onTap: () {
                         _categoryExpanded[categoryName] = !expanded;
                       },
                       child: Icon(
@@ -838,29 +838,29 @@ class _DashboardState extends State<Dashboard> {
                   margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
                   decoration: BoxDecoration(
                     gradient:
-                    FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
                     border: Border(
                       left: BorderSide(
                           color:
-                          FlutterFlowTheme.of(context).surfaceBorderColor,
+                              FlutterFlowTheme.of(context).surfaceBorderColor,
                           width: 1),
                       right: BorderSide(
                           color:
-                          FlutterFlowTheme.of(context).surfaceBorderColor,
+                              FlutterFlowTheme.of(context).surfaceBorderColor,
                           width: 1),
                       top: BorderSide.none,
                       bottom: isLast
                           ? BorderSide(
-                          color: FlutterFlowTheme.of(context)
-                              .surfaceBorderColor,
-                          width: 1)
+                              color: FlutterFlowTheme.of(context)
+                                  .surfaceBorderColor,
+                              width: 1)
                           : BorderSide.none,
                     ),
                     borderRadius: isLast
                         ? const BorderRadius.only(
-                      bottomLeft: Radius.circular(16),
-                      bottomRight: Radius.circular(16),
-                    )
+                            bottomLeft: Radius.circular(16),
+                            bottomRight: Radius.circular(16),
+                          )
                         : BorderRadius.zero,
                     // No individual shadows - let section container handle shadows
                     boxShadow: const [],
@@ -933,7 +933,7 @@ class _DashboardState extends State<Dashboard> {
         ...slivers,
         const SliverToBoxAdapter(
           child:
-          SizedBox(height: 140), // Space for FABs + nav bar + extra padding
+              SizedBox(height: 140), // Space for FABs + nav bar + extra padding
         ),
       ],
     );
@@ -976,9 +976,9 @@ class _DashboardState extends State<Dashboard> {
                   Text(
                     'Weekly goals',
                     style: FlutterFlowTheme.of(context).titleMedium.override(
-                      fontFamily: 'Readex Pro',
-                      fontWeight: FontWeight.w600,
-                    ),
+                          fontFamily: 'Readex Pro',
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                   const SizedBox(width: 8),
                   Container(
@@ -1000,7 +1000,7 @@ class _DashboardState extends State<Dashboard> {
                   _weeklyGoalsExpanded ? Icons.expand_less : Icons.expand_more,
                 ),
                 onPressed: () => setState(
-                        () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
+                    () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
               ),
             ],
           ),
@@ -1034,12 +1034,12 @@ class _DashboardState extends State<Dashboard> {
                 final habits = entry.value;
                 return Container(
                   margin:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   decoration: BoxDecoration(
                     gradient:
-                    FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                         color: FlutterFlowTheme.of(context).surfaceBorderColor,
@@ -1056,9 +1056,9 @@ class _DashboardState extends State<Dashboard> {
                               style: FlutterFlowTheme.of(context)
                                   .bodyLarge
                                   .override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                           ),
                         ],
@@ -1098,9 +1098,9 @@ class _DashboardState extends State<Dashboard> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: FlutterFlowTheme.of(context).bodyMedium.override(
-              fontFamily: 'Readex Pro',
-              fontWeight: FontWeight.w600,
-            ),
+                  fontFamily: 'Readex Pro',
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         Container(
@@ -1113,10 +1113,10 @@ class _DashboardState extends State<Dashboard> {
           child: Text(
             statusLabel,
             style: FlutterFlowTheme.of(context).bodySmall.override(
-              fontFamily: 'Readex Pro',
-              color: statusColor,
-              fontWeight: FontWeight.w600,
-            ),
+                  fontFamily: 'Readex Pro',
+                  color: statusColor,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         const SizedBox(width: 8),
@@ -1129,7 +1129,7 @@ class _DashboardState extends State<Dashboard> {
             final today = DateTime(now.year, now.month, now.day);
             final skipped = List<DateTime>.from(habit.skippedDates);
             skipped.removeWhere((d) =>
-            d.year == today.year &&
+                d.year == today.year &&
                 d.month == today.month &&
                 d.day == today.day);
             await habit.reference.update(
@@ -1157,7 +1157,7 @@ class _DashboardState extends State<Dashboard> {
         final level = i + 1;
         final filled = current >= level;
         return GestureDetector(
-          onTap: () async{
+          onTap: () async {
             try {
               final next = current % 3 + 1;
               setState(() {
@@ -1166,6 +1166,7 @@ class _DashboardState extends State<Dashboard> {
                 if (categoryIndex != -1) {
                   final updatedCategoryData = createCategoryRecordData(
                     weight: next.toDouble(),
+                    categoryType: 'habit', // Dashboard is for habits
                   );
                   final updatedCategory = CategoryRecord.getDocumentFromData(
                     {
@@ -1188,6 +1189,7 @@ class _DashboardState extends State<Dashboard> {
                 if (categoryIndex != -1) {
                   final revertedCategoryData = createCategoryRecordData(
                     weight: current.toDouble(),
+                    categoryType: 'habit', // Dashboard is for habits
                   );
                   final revertedCategory = CategoryRecord.getDocumentFromData(
                     {
@@ -1204,9 +1206,9 @@ class _DashboardState extends State<Dashboard> {
                 SnackBar(content: Text('Error updating category weight: $e')),
               );
             }
-        },
+          },
           child: Icon(
-              filled ? Icons.star : Icons.star_border,
+            filled ? Icons.star : Icons.star_border,
             color: filled
                 ? Colors.amber
                 : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
@@ -1216,6 +1218,7 @@ class _DashboardState extends State<Dashboard> {
       }),
     );
   }
+
   CategoryRecord _getTasksCategory() {
     try {
       return _categories.firstWhere((c) => c.name.toLowerCase() == 'tasks');
@@ -1228,6 +1231,7 @@ class _DashboardState extends State<Dashboard> {
         weight: 1.0,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
+        categoryType: 'task', // This is for tasks
       );
       return CategoryRecord.getDocumentFromData(
         categoryData,
@@ -1261,10 +1265,10 @@ class _DashboardState extends State<Dashboard> {
   void _showEditCategoryDialog(CategoryRecord category) {
     final nameController = TextEditingController(text: category.name);
     final descriptionController =
-    TextEditingController(text: category.description);
+        TextEditingController(text: category.description);
     int weight = category.weight.round();
     String selectedColor =
-    category.color.isNotEmpty ? category.color : '#2196F3';
+        category.color.isNotEmpty ? category.color : '#2196F3';
 
     showDialog(
       context: context,
@@ -1328,28 +1332,28 @@ class _DashboardState extends State<Dashboard> {
                     '#607D8B'
                   ]
                       .map((color) => GestureDetector(
-                    onTap: () =>
-                        setLocalState(() => selectedColor = color),
-                    child: Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Color(
-                            int.parse(color.replaceFirst('#', '0xFF'))),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color: selectedColor == color
-                              ? FlutterFlowTheme.of(context).accent1
-                              : Colors.transparent,
-                          width: 2,
-                        ),
-                      ),
-                      child: selectedColor == color
-                          ? const Icon(Icons.check,
-                          size: 16, color: Colors.white)
-                          : null,
-                    ),
-                  ))
+                            onTap: () =>
+                                setLocalState(() => selectedColor = color),
+                            child: Container(
+                              width: 28,
+                              height: 28,
+                              decoration: BoxDecoration(
+                                color: Color(
+                                    int.parse(color.replaceFirst('#', '0xFF'))),
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: selectedColor == color
+                                      ? FlutterFlowTheme.of(context).accent1
+                                      : Colors.transparent,
+                                  width: 2,
+                                ),
+                              ),
+                              child: selectedColor == color
+                                  ? const Icon(Icons.check,
+                                      size: 16, color: Colors.white)
+                                  : null,
+                            ),
+                          ))
                       .toList(),
                 ),
               ],
@@ -1372,6 +1376,7 @@ class _DashboardState extends State<Dashboard> {
                           : null,
                       weight: weight.toDouble(),
                       color: selectedColor,
+                      categoryType: 'habit', // Dashboard is for habits
                     );
 
                     // Update local state
@@ -1382,6 +1387,7 @@ class _DashboardState extends State<Dashboard> {
                           : null,
                       weight: weight.toDouble(),
                       color: selectedColor,
+                      categoryType: 'habit', // Dashboard is for habits
                     );
                     final updatedCategory = CategoryRecord.getDocumentFromData(
                       {
@@ -1392,7 +1398,7 @@ class _DashboardState extends State<Dashboard> {
                     );
                     setState(() {
                       final categoryIndex = _categories.indexWhere(
-                              (c) => c.reference.id == category.reference.id);
+                          (c) => c.reference.id == category.reference.id);
                       if (categoryIndex != -1) {
                         _categories[categoryIndex] = updatedCategory;
                       }
@@ -1453,7 +1459,7 @@ class _DashboardState extends State<Dashboard> {
                 // Update local state
                 setState(() {
                   _categories.removeWhere(
-                          (c) => c.reference.id == category.reference.id);
+                      (c) => c.reference.id == category.reference.id);
                 });
 
                 if (mounted) {
@@ -1570,17 +1576,17 @@ class _DashboardState extends State<Dashboard> {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: FlutterFlowTheme.of(context).bodyMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     if (task.categoryName.isNotEmpty)
                       Text(
                         task.categoryName,
                         style: FlutterFlowTheme.of(context).bodySmall.override(
-                          fontFamily: 'Readex Pro',
-                          color: FlutterFlowTheme.of(context).secondaryText,
-                        ),
+                              fontFamily: 'Readex Pro',
+                              color: FlutterFlowTheme.of(context).secondaryText,
+                            ),
                       ),
                   ],
                 ),
@@ -1592,27 +1598,26 @@ class _DashboardState extends State<Dashboard> {
                   _buildTaskPriorityStars(task),
                   const SizedBox(width: 5),
                   Builder(
-                    builder: (btnCtx) =>
-                        GestureDetector(
-                          onTap: (){
-                            _showTaskSnoozeMenu(btnCtx, task);
-                          },
-                          child: const Icon(
-                              Icons.snooze, size: 20,
-                          ),
-                        )
-                  ),
+                      builder: (btnCtx) => GestureDetector(
+                            onTap: () {
+                              _showTaskSnoozeMenu(btnCtx, task);
+                            },
+                            child: const Icon(
+                              Icons.snooze,
+                              size: 20,
+                            ),
+                          )),
                   const SizedBox(width: 5),
                   Builder(
-                    builder: (btnCtx) =>
-                        GestureDetector(
-                          onTap: (){
-                            _showTaskOverflowMenu(btnCtx, task);
-                          },
-                          child: const Icon(
-                            Icons.more_vert, size: 20,
-                          ),
-                        ),
+                    builder: (btnCtx) => GestureDetector(
+                      onTap: () {
+                        _showTaskOverflowMenu(btnCtx, task);
+                      },
+                      child: const Icon(
+                        Icons.more_vert,
+                        size: 20,
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1631,13 +1636,13 @@ class _DashboardState extends State<Dashboard> {
         final level = index + 1;
         final filled = current >= level;
         return GestureDetector(
-          onTap: () async{
+          onTap: () async {
             try {
               final next = current == 0 ? 1 : (current % 3) + 1;
               await updateTask(taskRef: task.reference, priority: next);
               // Local update to avoid full page reload
               final idx =
-              _tasks.indexWhere((t) => t.reference.id == task.reference.id);
+                  _tasks.indexWhere((t) => t.reference.id == task.reference.id);
               if (idx != -1) {
                 final data = createTaskRecordData(priority: next);
                 final updated = TaskRecord.getDocumentFromData(
@@ -1662,7 +1667,7 @@ class _DashboardState extends State<Dashboard> {
             }
           },
           child: Icon(
-              filled ? Icons.star : Icons.star_border,
+            filled ? Icons.star : Icons.star_border,
             color: filled
                 ? Colors.amber
                 : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
@@ -1687,7 +1692,7 @@ class _DashboardState extends State<Dashboard> {
       } else if (task.categoryName.isNotEmpty) {
         final taskName = task.categoryName.trim().toLowerCase();
         matchedCategory = _categories.firstWhere(
-              (c) => c.name.trim().toLowerCase() == taskName,
+          (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
     } catch (_) {
@@ -1718,7 +1723,7 @@ class _DashboardState extends State<Dashboard> {
       BuildContext anchorContext, TaskRecord task) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(
@@ -1782,7 +1787,7 @@ class _DashboardState extends State<Dashboard> {
       BuildContext anchorContext, TaskRecord task) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(

@@ -1,0 +1,93 @@
+Flutter crash report.
+Please report a bug at https://github.com/flutter/flutter/issues.
+
+## command
+
+flutter run --machine --start-paused -d chrome --devtools-server-address http://127.0.0.1:9100/ --target C:\Projects\nHabit_traker-main\lib\main.dart
+
+## exception
+
+StateError: Bad state: No running isolate (inspector is not set).
+
+```
+#0      ChromeProxyService.inspector (package:dwds/src/services/chrome_proxy_service.dart:79:7)
+#1      _waitForResumeEventToRunMain.<anonymous closure> (package:dwds/src/dwds_vm_client.dart:464:30)
+#2      _rootRunUnary (dart:async/zone.dart:1546:13)
+#3      _CustomZone.runUnary (dart:async/zone.dart:1429:19)
+#4      _CustomZone.runUnaryGuarded (dart:async/zone.dart:1329:7)
+#5      _BufferingStreamSubscription._sendData (dart:async/stream_impl.dart:381:11)
+#6      _DelayedData.perform (dart:async/stream_impl.dart:573:14)
+#7      _PendingEvents.handleNext (dart:async/stream_impl.dart:678:11)
+#8      _PendingEvents.schedule.<anonymous closure> (dart:async/stream_impl.dart:649:7)
+#9      StackZoneSpecification._run (package:stack_trace/src/stack_zone_specification.dart:207:15)
+#10     StackZoneSpecification._registerCallback.<anonymous closure> (package:stack_trace/src/stack_zone_specification.dart:114:48)
+#11     _rootRun (dart:async/zone.dart:1517:47)
+#12     _CustomZone.run (dart:async/zone.dart:1422:19)
+#13     _CustomZone.runGuarded (dart:async/zone.dart:1321:7)
+#14     _CustomZone.bindCallbackGuarded.<anonymous closure> (dart:async/zone.dart:1362:23)
+#15     StackZoneSpecification._run (package:stack_trace/src/stack_zone_specification.dart:207:15)
+#16     StackZoneSpecification._registerCallback.<anonymous closure> (package:stack_trace/src/stack_zone_specification.dart:114:48)
+#17     _rootRun (dart:async/zone.dart:1525:13)
+#18     _CustomZone.run (dart:async/zone.dart:1422:19)
+#19     _CustomZone.runGuarded (dart:async/zone.dart:1321:7)
+#20     _CustomZone.bindCallbackGuarded.<anonymous closure> (dart:async/zone.dart:1362:23)
+#21     _microtaskLoop (dart:async/schedule_microtask.dart:40:21)
+#22     _startMicrotaskLoop (dart:async/schedule_microtask.dart:49:5)
+#23     _runPendingImmediateCallback (dart:isolate-patch/isolate_patch.dart:128:13)
+#24     _RawReceivePort._handleMessage (dart:isolate-patch/isolate_patch.dart:195:5)
+```
+
+## flutter doctor
+
+```
+[✓] Flutter (Channel stable, 3.29.2, on Microsoft Windows [Version 10.0.26100.6584], locale en-IN) [474ms]
+    • Flutter version 3.29.2 on channel stable at C:\flutter
+    • Upstream repository https://github.com/flutter/flutter.git
+    • Framework revision c236373904 (6 months ago), 2025-03-13 16:17:06 -0400
+    • Engine revision 18b71d647a
+    • Dart version 3.7.2
+    • DevTools version 2.42.3
+
+[✓] Windows Version (11 Home Single Language 64-bit, 24H2, 2009) [1,778ms]
+
+[✓] Android toolchain - develop for Android devices (Android SDK version 35.0.1) [3.4s]
+    • Android SDK at C:\Android
+    • Platform android-35, build-tools 35.0.1
+    • ANDROID_HOME = C:\Android
+    • Java binary at: C:\Program Files\Eclipse Adoptium\jdk-21.0.7.6-hotspot\bin\java
+      This JDK is specified in your Flutter configuration.
+      To change the current JDK, run: `flutter config --jdk-dir="path/to/jdk"`.
+    • Java version OpenJDK Runtime Environment Temurin-21.0.7+6 (build 21.0.7+6-LTS)
+    • All Android licenses accepted.
+
+[✓] Chrome - develop for the web [15ms]
+    • Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
+
+[✗] Visual Studio - develop Windows apps [14ms]
+    ✗ Visual Studio not installed; this is necessary to develop Windows apps.
+      Download at https://visualstudio.microsoft.com/downloads/.
+      Please install the "Desktop development with C++" workload, including all of its default components
+
+[!] Android Studio (version 2024.3.2) [13ms]
+    • Android Studio at C:\Program Files\Android\Android Studio
+    • Flutter plugin can be installed from:
+      🔨 https://plugins.jetbrains.com/plugin/9212-flutter
+    • Dart plugin can be installed from:
+      🔨 https://plugins.jetbrains.com/plugin/6351-dart
+    ✗ Unable to determine bundled Java version.
+    • Try updating or re-installing Android Studio.
+
+[✓] VS Code (version 1.104.1) [11ms]
+    • VS Code at C:\Users\Nikhil Mathew\AppData\Local\Programs\Microsoft VS Code
+    • Flutter extension version 3.118.0
+
+[✓] Connected device (3 available) [261ms]
+    • Windows (desktop) • windows • windows-x64    • Microsoft Windows [Version 10.0.26100.6584]
+    • Chrome (web)      • chrome  • web-javascript • Google Chrome 140.0.7339.185
+    • Edge (web)        • edge    • web-javascript • Microsoft Edge 139.0.3405.119
+
+[✓] Network resources [499ms]
+    • All expected network resources are available.
+
+! Doctor found issues in 2 categories.
+```

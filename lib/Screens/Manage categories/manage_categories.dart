@@ -90,140 +90,140 @@ class _ManageCategoriesState extends State<ManageCategories> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : Column(
-          children: [
-            // Categories list
-            Expanded(
-              child: _categories.isEmpty
-                  ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.category,
-                      size: 64,
-                      color: FlutterFlowTheme.of(context)
-                          .secondaryText,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No categories yet',
-                      style:
-                      FlutterFlowTheme.of(context).titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Create categories to organize your habits!',
-                      style:
-                      FlutterFlowTheme.of(context).bodyMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _showAddCategoryDialog,
-                      child: const Text('Add Category'),
-                    ),
-                  ],
-                ),
-              )
-                  : ListView.builder(
-                itemCount: _categories.length,
-                itemBuilder: (context, index) {
-                  final category = _categories[index];
-                  return Container(
-                    margin: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: FlutterFlowTheme.of(context)
-                          .secondaryBackground,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color:
-                        FlutterFlowTheme.of(context).alternate,
-                        width: 1,
-                      ),
-                    ),
-                    child: ListTile(
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color: _parseColor(category.color),
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.category,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      title: Text(
-                        category.name,
-                        style: FlutterFlowTheme.of(context)
-                            .titleMedium,
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                        children: [
-                          if (category.description.isNotEmpty)
-                            Text(
-                              category.description,
-                              style: FlutterFlowTheme.of(context)
-                                  .bodyMedium,
-                            ),
-                          const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color:
-                                  FlutterFlowTheme.of(context)
-                                      .primary
-                                      .withOpacity(0.1),
-                                  borderRadius:
-                                  BorderRadius.circular(12),
+                children: [
+                  // Categories list
+                  Expanded(
+                    child: _categories.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.category,
+                                  size: 64,
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryText,
                                 ),
-                                child: Text(
-                                  'Weight: ${category.weight.toStringAsFixed(1)}',
-                                  style: TextStyle(
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No categories yet',
+                                  style:
+                                      FlutterFlowTheme.of(context).titleMedium,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Create categories to organize your habits!',
+                                  style:
+                                      FlutterFlowTheme.of(context).bodyMedium,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: _showAddCategoryDialog,
+                                  child: const Text('Add Category'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: _categories.length,
+                            itemBuilder: (context, index) {
+                              final category = _categories[index];
+                              return Container(
+                                margin: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryBackground,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
                                     color:
-                                    FlutterFlowTheme.of(context)
-                                        .primary,
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
+                                        FlutterFlowTheme.of(context).alternate,
+                                    width: 1,
                                   ),
                                 ),
-                              ),
-                            ],
+                                child: ListTile(
+                                  leading: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color: _parseColor(category.color),
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.category,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    category.name,
+                                    style: FlutterFlowTheme.of(context)
+                                        .titleMedium,
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (category.description.isNotEmpty)
+                                        Text(
+                                          category.description,
+                                          style: FlutterFlowTheme.of(context)
+                                              .bodyMedium,
+                                        ),
+                                      const SizedBox(height: 4),
+                                      Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 8, vertical: 2),
+                                            decoration: BoxDecoration(
+                                              color:
+                                                  FlutterFlowTheme.of(context)
+                                                      .primary
+                                                      .withOpacity(0.1),
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                            ),
+                                            child: Text(
+                                              'Weight: ${category.weight.toStringAsFixed(1)}',
+                                              style: TextStyle(
+                                                color:
+                                                    FlutterFlowTheme.of(context)
+                                                        .primary,
+                                                fontSize: 12,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.edit),
+                                        onPressed: () =>
+                                            _showEditCategoryDialog(category),
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete),
+                                        onPressed: () =>
+                                            _showDeleteConfirmation(category),
+                                        color: Colors.red,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              );
+                            },
                           ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.edit),
-                            onPressed: () =>
-                                _showEditCategoryDialog(category),
-                            color: FlutterFlowTheme.of(context)
-                                .secondaryText,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete),
-                            onPressed: () =>
-                                _showDeleteConfirmation(category),
-                            color: Colors.red,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -268,8 +268,8 @@ class _ManageCategoriesState extends State<ManageCategories> {
   void _showAddCategoryDialog() {
     showDialog(
       context: context,
-      builder: (context) =>
-          StatefulBuilder(builder: (context, setLocalState) => const CreateCategory()),
+      builder: (context) => StatefulBuilder(
+          builder: (context, setLocalState) => const CreateCategory()),
     );
   }
 }

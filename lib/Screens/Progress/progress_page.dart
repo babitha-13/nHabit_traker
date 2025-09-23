@@ -8,7 +8,6 @@ import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Progress/weekly_category_group.dart';
 
-
 class ProgressPage extends StatefulWidget {
   const ProgressPage({super.key});
 
@@ -108,72 +107,73 @@ class _ProgressPageState extends State<ProgressPage> {
   Widget _buildProgressContent() {
     return _groupedHabitsWeekly.isEmpty
         ? Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.view_week,
-            size: 64,
-            color: FlutterFlowTheme.of(context).secondaryText,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No habits found',
-            style: FlutterFlowTheme.of(context).titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Create your first habit to get started!',
-            style: FlutterFlowTheme.of(context).bodyMedium,
-          ),
-          const SizedBox(height: 16),
-          ElevatedButton(
-            onPressed: () {
-              _shouldReloadOnReturn = true;
-            },
-            child: const Text('Add Habit'),
-          ),
-        ],
-      ),
-    )
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                Icon(
+                  Icons.view_week,
+                  size: 64,
+                  color: FlutterFlowTheme.of(context).secondaryText,
+                ),
+                const SizedBox(height: 16),
+                Text(
+                  'No habits found',
+                  style: FlutterFlowTheme.of(context).titleMedium,
+                ),
+                const SizedBox(height: 8),
+                Text(
+                  'Create your first habit to get started!',
+                  style: FlutterFlowTheme.of(context).bodyMedium,
+                ),
+                const SizedBox(height: 16),
+                ElevatedButton(
+                  onPressed: () {
+                    _shouldReloadOnReturn = true;
+                  },
+                  child: const Text('Add Habit'),
+                ),
+              ],
+            ),
+          )
         : ListView.builder(
-      controller: _scrollController,
-      itemCount: _groupedHabitsWeekly.keys.length,
-      itemBuilder: (context, index) {
-        final categoryName = _groupedHabitsWeekly.keys.elementAt(index);
-        final habits = _groupedHabitsWeekly[categoryName]!;
+            controller: _scrollController,
+            itemCount: _groupedHabitsWeekly.keys.length,
+            itemBuilder: (context, index) {
+              final categoryName = _groupedHabitsWeekly.keys.elementAt(index);
+              final habits = _groupedHabitsWeekly[categoryName]!;
 
-        // Find the category record or create a fallback
-        CategoryRecord? category;
-        try {
-          category = _categories.firstWhere(
-                (cat) => cat.name == categoryName,
-          );
-        } catch (e) {
-          // Create a fallback category for display
-          final categoryData = createCategoryRecordData(
-            name: categoryName,
-            color: '#2196F3',
-            userId: currentUserUid,
-            isActive: true,
-            weight: 1.0,
-            createdTime: DateTime.now(),
-            lastUpdated: DateTime.now(),
-          );
-          category = CategoryRecord.getDocumentFromData(
-            categoryData,
-            FirebaseFirestore.instance.collection('categories').doc(),
-          );
-        }
+              // Find the category record or create a fallback
+              CategoryRecord? category;
+              try {
+                category = _categories.firstWhere(
+                  (cat) => cat.name == categoryName,
+                );
+              } catch (e) {
+                // Create a fallback category for display
+                final categoryData = createCategoryRecordData(
+                  name: categoryName,
+                  color: '#2196F3',
+                  userId: currentUserUid,
+                  isActive: true,
+                  weight: 1.0,
+                  createdTime: DateTime.now(),
+                  lastUpdated: DateTime.now(),
+                  categoryType: 'habit', // Progress page shows habits
+                );
+                category = CategoryRecord.getDocumentFromData(
+                  categoryData,
+                  FirebaseFirestore.instance.collection('categories').doc(),
+                );
+              }
 
-        return WeeklyCategoryGroup(
-          key: Key('weekly_${category.reference.id}'),
-          category: category,
-          habits: habits,
-          onRefresh: _loadHabits,
-        );
-      },
-    );
+              return WeeklyCategoryGroup(
+                key: Key('weekly_${category.reference.id}'),
+                category: category,
+                habits: habits,
+                onRefresh: _loadHabits,
+              );
+            },
+          );
   }
 
   Map<String, List<HabitRecord>> get _groupedHabitsWeekly {
@@ -181,7 +181,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
     for (final habit in _habits) {
       final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       if (!grouped.containsKey(categoryName)) {
         grouped[categoryName] = [];
       }

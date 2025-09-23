@@ -8,7 +8,8 @@ import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart' show CompactHabitItem;
+import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart'
+    show CompactHabitItem;
 
 class TaskPage extends StatefulWidget {
   final String? categoryId;
@@ -65,24 +66,25 @@ class _TaskPageState extends State<TaskPage> {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Stack(
-          children: [
-            RefreshIndicator(
-              onRefresh: _loadData,
-              child: ListView(
-                children: [
-                  _buildQuickAdd(),
-                  ..._buildSections(),
-                ],
+            children: [
+              RefreshIndicator(
+                onRefresh: _loadData,
+                child: ListView(
+                  children: [
+                    _buildQuickAdd(),
+                    ..._buildSections(),
+                  ],
+                ),
               ),
-            ),
-            FloatingTimer(
-              activeHabits: _activeFloatingHabits,
-              onRefresh: _loadData,
-              onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-            ),
-          ],
-        );
+              FloatingTimer(
+                activeHabits: _activeFloatingHabits,
+                onRefresh: _loadData,
+                onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+              ),
+            ],
+          );
   }
+
   List<HabitRecord> get _activeFloatingHabits {
     final all = [..._tasks, ..._habits];
     return all.where((h) => h.showInFloatingTimer == true).toList();
@@ -97,15 +99,19 @@ class _TaskPageState extends State<TaskPage> {
         return;
       }
       final allHabits = await queryHabitsRecordOnce(userId: uid);
-      final categories = await queryCategoriesRecordOnce(userId: uid);
+      final categories = await queryTaskCategoriesOnce(userId: uid);
       setState(() {
         _tasks = allHabits
-            .where((h) => !h.isRecurring &&
-            (widget.categoryId == null || h.categoryId == widget.categoryId))
+            .where((h) =>
+                !h.isRecurring &&
+                (widget.categoryId == null ||
+                    h.categoryId == widget.categoryId))
             .toList();
         _habits = allHabits
-            .where((h) => h.isRecurring &&
-            (widget.categoryId == null || h.categoryId == widget.categoryId))
+            .where((h) =>
+                h.isRecurring &&
+                (widget.categoryId == null ||
+                    h.categoryId == widget.categoryId))
             .toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -476,7 +482,9 @@ class _TaskPageState extends State<TaskPage> {
         showInFloatingTimer: true,
         name: title,
         categoryId: _selectedQuickCategoryId!,
-        categoryName: _categories.firstWhere((c) => c.reference.id == _selectedQuickCategoryId).name,
+        categoryName: _categories
+            .firstWhere((c) => c.reference.id == _selectedQuickCategoryId)
+            .name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
         taskStatus: 'todo',
@@ -489,7 +497,8 @@ class _TaskPageState extends State<TaskPage> {
         priority: 1,
         unit: _quickUnit,
       );
-      final docRef = await HabitRecord.collectionForUser(currentUserUid).add(taskData);
+      final docRef =
+          await HabitRecord.collectionForUser(currentUserUid).add(taskData);
       final newTask = HabitRecord.getDocumentFromData(taskData, docRef);
       setState(() {
         _tasks.add(newTask);
@@ -612,7 +621,8 @@ class _TaskPageState extends State<TaskPage> {
     return DateTime(now.year, now.month, now.day);
   }
 
-  bool _isSameDay(DateTime a, DateTime b) => a.year == b.year && a.month == b.month && a.day == b.day;
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
 
@@ -641,19 +651,20 @@ class _TaskPageState extends State<TaskPage> {
       key: Key(task.reference.id),
       habit: task,
       onRefresh: _loadData,
-      onHabitUpdated: (updated) =>
-          _updateHabitInLocalState(updated),
+      onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
       onHabitDeleted: (deleted) async => _loadData(),
     );
   }
 
   void _updateHabitInLocalState(HabitRecord updatedHabit) {
     setState(() {
-      final habitIndex = _habits.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      final habitIndex = _habits
+          .indexWhere((h) => h.reference.id == updatedHabit.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updatedHabit;
       }
-      final taskIndex = _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      final taskIndex =
+          _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updatedHabit;
       }
@@ -666,7 +677,7 @@ class _TaskPageState extends State<TaskPage> {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
       final allHabits = await queryHabitsRecordOnce(userId: uid);
-      final categories = await queryCategoriesRecordOnce(userId: uid);
+      final categories = await queryTaskCategoriesOnce(userId: uid);
       if (!mounted) return;
       setState(() {
         _tasks = allHabits.where((h) => !h.isRecurring).toList();

@@ -77,10 +77,10 @@ class _HomeState extends State<Home> {
             title: Text(
               title,
               style: FlutterFlowTheme.of(context).headlineMedium.override(
-                fontFamily: 'Outfit',
-                color: Colors.white,
-                fontSize: 22,
-              ),
+                    fontFamily: 'Outfit',
+                    color: Colors.white,
+                    fontSize: 22,
+                  ),
             ),
             actions: [
               Visibility(
@@ -93,17 +93,18 @@ class _HomeState extends State<Home> {
                       Text(
                         'Show Completed',
                         style: FlutterFlowTheme.of(context).bodyMedium.override(
-                          fontFamily: 'Readex Pro',
-                          color: Colors.white,
-                        ),
+                              fontFamily: 'Readex Pro',
+                              color: Colors.white,
+                            ),
                       ),
                       const SizedBox(width: 8),
                       Switch(
                         value: _showCompleted,
                         onChanged: (value) {
                           setState(() => _showCompleted = value);
-                          NotificationCenter.post("showCompleted", _showCompleted);
-                          },
+                          NotificationCenter.post(
+                              "showCompleted", _showCompleted);
+                        },
                         activeColor: Colors.white,
                       ),
                     ],
@@ -111,29 +112,29 @@ class _HomeState extends State<Home> {
                 ),
               ),
               Visibility(
-                  visible: title == "Tasks",
-                  child: PopupMenuButton<String>(
-                    icon: const Icon(Icons.sort, color: Colors.white),
-                    onSelected: (value) {
-                      setState(() => _sortMode = value);
-                    },
-                    itemBuilder: (context) => const [
-                      PopupMenuItem(
-                        value: 'default',
-                        child: ListTile(
-                          leading: Icon(Icons.sort_by_alpha),
-                          title: Text('Default sort'),
-                        ),
+                visible: title == "Tasks",
+                child: PopupMenuButton<String>(
+                  icon: const Icon(Icons.sort, color: Colors.white),
+                  onSelected: (value) {
+                    setState(() => _sortMode = value);
+                  },
+                  itemBuilder: (context) => const [
+                    PopupMenuItem(
+                      value: 'default',
+                      child: ListTile(
+                        leading: Icon(Icons.sort_by_alpha),
+                        title: Text('Default sort'),
                       ),
-                      PopupMenuItem(
-                        value: 'importance',
-                        child: ListTile(
-                          leading: Icon(Icons.star),
-                          title: Text('Sort by importance'),
-                        ),
+                    ),
+                    PopupMenuItem(
+                      value: 'importance',
+                      child: ListTile(
+                        leading: Icon(Icons.star),
+                        title: Text('Sort by importance'),
                       ),
-                    ],
-                  ),
+                    ),
+                  ],
+                ),
               )
             ],
             centerTitle: false,
@@ -253,8 +254,8 @@ class _HomeState extends State<Home> {
                               MaterialPageRoute(
                                 builder: (context) => const CreateHabitPage(),
                               ),
-                            ).then((value){
-                              if(value){
+                            ).then((value) {
+                              if (value) {
                                 NotificationCenter.post("loadToday", "");
                               }
                             });
@@ -268,7 +269,8 @@ class _HomeState extends State<Home> {
                           heroTag: 'fab_add_category',
                           onPressed: _showAddCategoryDialog,
                           tooltip: 'Add Category',
-                          backgroundColor: FlutterFlowTheme.of(context).secondary,
+                          backgroundColor:
+                              FlutterFlowTheme.of(context).secondary,
                           child: const Icon(Icons.create_new_folder,
                               color: Colors.white),
                         ),
@@ -349,7 +351,9 @@ class _HomeState extends State<Home> {
       if (mounted) {
         title = "Today";
         setState(() {
-          cWidget =  TodayPage( showCompleted: _showCompleted,);
+          cWidget = TodayPage(
+            showCompleted: _showCompleted,
+          );
         });
       }
       return false;
@@ -361,7 +365,7 @@ class _HomeState extends State<Home> {
       setState(() {
         if (s == "Today") {
           title = s;
-          cWidget =  TodayPage(
+          cWidget = TodayPage(
             showCompleted: _showCompleted,
           );
         }
@@ -371,7 +375,7 @@ class _HomeState extends State<Home> {
         }
         if (s == "Today") {
           title = s;
-          cWidget =  TodayPage(
+          cWidget = TodayPage(
             showCompleted: _showCompleted,
           );
         }
@@ -379,11 +383,11 @@ class _HomeState extends State<Home> {
           title = s;
           cWidget = const ProgressPage();
         }
-        if(s == "Manage Categories"){
+        if (s == "Manage Categories") {
           title = s;
           cWidget = const ManageCategories();
         }
-        if(s == "Sequences"){
+        if (s == "Sequences") {
           title = s;
           cWidget = const Sequences();
         }
@@ -394,8 +398,9 @@ class _HomeState extends State<Home> {
   void _showAddCategoryDialog() {
     showDialog(
       context: context,
-      builder: (context) =>
-          StatefulBuilder(builder: (context, setLocalState) => const CreateCategory()),
+      builder: (context) => StatefulBuilder(
+          builder: (context, setLocalState) =>
+              const CreateCategory(categoryType: 'habit')),
     );
   }
 }

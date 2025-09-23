@@ -28,7 +28,8 @@ class _TodayPageState extends State<TodayPage> {
 
   List<HabitRecord> _habits = [];
   List<CategoryRecord> _categories = [];
-  List<HabitRecord> _tasks = []; // Tasks are now HabitRecord with isRecurring=false
+  List<HabitRecord> _tasks =
+      []; // Tasks are now HabitRecord with isRecurring=false
 
   List<HabitRecord> _tasksTodayOrder = [];
   final Map<String, bool> _categoryExpanded = {};
@@ -60,7 +61,7 @@ class _TodayPageState extends State<TodayPage> {
       }
     });
     NotificationCenter.addObserver(this, 'loadToday', (param) {
-      if ( mounted) {
+      if (mounted) {
         setState(() {
           _loadHabits();
         });
@@ -101,7 +102,7 @@ class _TodayPageState extends State<TodayPage> {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final habits = await queryHabitsRecordOnce(userId: userId);
-        final categories = await queryCategoriesRecordOnce(userId: userId);
+        final categories = await queryHabitCategoriesOnce(userId: userId);
         setState(() {
           _habits = habits;
           _categories = categories;
@@ -191,7 +192,7 @@ class _TodayPageState extends State<TodayPage> {
     }
 
     _dailyCompletionPercent =
-    _totalHabits > 0 ? (_completedHabits / _totalHabits) * 100 : 0;
+        _totalHabits > 0 ? (_completedHabits / _totalHabits) * 100 : 0;
 
     // Thrive score is cumulative - for now using a placeholder
     _thriveScore = 1247; // TODO: Calculate from historical data
@@ -233,10 +234,10 @@ class _TodayPageState extends State<TodayPage> {
             Text(
               DateFormat('EEEE, MMMM d, y').format(DateTime.now()),
               style: FlutterFlowTheme.of(context).titleMedium.override(
-                fontFamily: 'Readex Pro',
-                fontWeight: FontWeight.w600,
-                fontSize: 16,
-              ),
+                    fontFamily: 'Readex Pro',
+                    fontWeight: FontWeight.w600,
+                    fontSize: 16,
+                  ),
             ),
             const SizedBox(height: 12),
 
@@ -254,11 +255,11 @@ class _TodayPageState extends State<TodayPage> {
                         Text(
                           'Net Impact',
                           style:
-                          FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              FlutterFlowTheme.of(context).bodySmall.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -266,14 +267,14 @@ class _TodayPageState extends State<TodayPage> {
                               ? '+${_netImpactScore.toStringAsFixed(1)}'
                               : _netImpactScore.toStringAsFixed(1),
                           style:
-                          FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: _netImpactScore >= 0
-                                ? Colors.green
-                                : Colors.red,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    color: _netImpactScore >= 0
+                                        ? Colors.green
+                                        : Colors.red,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                       ],
                     ),
@@ -292,22 +293,22 @@ class _TodayPageState extends State<TodayPage> {
                         Text(
                           'Completion',
                           style:
-                          FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              FlutterFlowTheme.of(context).bodySmall.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           '${_dailyCompletionPercent.toStringAsFixed(0)}%',
                           style:
-                          FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: FlutterFlowTheme.of(context).primary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
@@ -315,11 +316,11 @@ class _TodayPageState extends State<TodayPage> {
                           style: FlutterFlowTheme.of(context)
                               .bodySmall
                               .override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 10,
-                            color:
-                            FlutterFlowTheme.of(context).secondaryText,
-                          ),
+                                fontFamily: 'Readex Pro',
+                                fontSize: 10,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
                         ),
                       ],
                     ),
@@ -338,22 +339,22 @@ class _TodayPageState extends State<TodayPage> {
                         Text(
                           'Thrive',
                           style:
-                          FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
+                              FlutterFlowTheme.of(context).bodySmall.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontSize: 12,
+                                    fontWeight: FontWeight.w500,
+                                  ),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           _thriveScore.toString(),
                           style:
-                          FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: FlutterFlowTheme.of(context).primary,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                         ),
                       ],
                     ),
@@ -380,7 +381,7 @@ class _TodayPageState extends State<TodayPage> {
       if (!_showCompleted && isCompleted) continue;
 
       final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
 
@@ -402,14 +403,14 @@ class _TodayPageState extends State<TodayPage> {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       if (habit.skippedDates.any((d) =>
-      d.year == today.year &&
+          d.year == today.year &&
           d.month == today.month &&
           d.day == today.day)) {
         continue;
       }
 
       final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
     return grouped;
@@ -446,7 +447,7 @@ class _TodayPageState extends State<TodayPage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (habit.skippedDates.any((d) =>
-    d.year == today.year && d.month == today.month && d.day == today.day)) {
+        d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
 
@@ -486,15 +487,15 @@ class _TodayPageState extends State<TodayPage> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
-            children: [
-              // Score bar
-              _buildScoreBar(),
-              // Today view content
-              Expanded(
-                child: _buildDailyView(),
-              ),
-            ],
-          ),
+                  children: [
+                    // Score bar
+                    _buildScoreBar(),
+                    // Today view content
+                    Expanded(
+                      child: _buildDailyView(),
+                    ),
+                  ],
+                ),
           FloatingTimer(
             activeHabits: _activeFloatingHabits,
             onRefresh: _loadHabits,
@@ -512,7 +513,6 @@ class _TodayPageState extends State<TodayPage> {
     ];
     return all.where((h) => h.showInFloatingTimer == true).toList();
   }
-
 
   Widget _buildDailyView() {
     final weeklyGoals = _groupedWeeklyGoals;
@@ -570,9 +570,9 @@ class _TodayPageState extends State<TodayPage> {
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
                 bottomLeft:
-                _tasksExpanded ? Radius.zero : const Radius.circular(16),
+                    _tasksExpanded ? Radius.zero : const Radius.circular(16),
                 bottomRight:
-                _tasksExpanded ? Radius.zero : const Radius.circular(16),
+                    _tasksExpanded ? Radius.zero : const Radius.circular(16),
               ),
               boxShadow: _tasksExpanded
                   ? []
@@ -587,9 +587,9 @@ class _TodayPageState extends State<TodayPage> {
                     Text(
                       'Tasks',
                       style: FlutterFlowTheme.of(context).titleMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     const SizedBox(width: 5),
                     Container(
@@ -608,8 +608,8 @@ class _TodayPageState extends State<TodayPage> {
                     _buildCategoryWeightStars(_getTasksCategory()),
                     const SizedBox(width: 5),
                     GestureDetector(
-                      onTap: (){
-                        if(mounted){
+                      onTap: () {
+                        if (mounted) {
                           setState(() {
                             _tasksExpanded = !_tasksExpanded;
                           });
@@ -646,8 +646,10 @@ class _TodayPageState extends State<TodayPage> {
                       _updateTaskInLocalState(updated, null),
                   onHabitDeleted: (deleted) {
                     setState(() {
-                      _tasks.removeWhere((t) => t.reference.id == deleted.reference.id);
-                      _tasksTodayOrder.removeWhere((t) => t.reference.id == deleted.reference.id);
+                      _tasks.removeWhere(
+                          (t) => t.reference.id == deleted.reference.id);
+                      _tasksTodayOrder.removeWhere(
+                          (t) => t.reference.id == deleted.reference.id);
                     });
                   },
                 ),
@@ -708,6 +710,7 @@ class _TodayPageState extends State<TodayPage> {
           weight: 1.0,
           createdTime: DateTime.now(),
           lastUpdated: DateTime.now(),
+          categoryType: 'habit',
         );
         category = CategoryRecord.getDocumentFromData(
           categoryData,
@@ -747,9 +750,9 @@ class _TodayPageState extends State<TodayPage> {
                     Text(
                       category.name,
                       style: FlutterFlowTheme.of(context).titleMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.w600,
+                          ),
                     ),
                     const SizedBox(width: 8),
                     Container(
@@ -806,8 +809,8 @@ class _TodayPageState extends State<TodayPage> {
                   ),
                 ),
                 GestureDetector(
-                  onTap: (){
-                    if(mounted){
+                  onTap: () {
+                    if (mounted) {
                       setState(() {
                         _categoryExpanded[categoryName] = !expanded;
                       });
@@ -850,21 +853,25 @@ class _TodayPageState extends State<TodayPage> {
                   categoryColorHex: category!.color,
                   onRefresh: _loadHabits,
                   onHabitUpdated: (updated) {
-                    final habitIndex = _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+                    final habitIndex = _habits.indexWhere(
+                        (h) => h.reference.id == updated.reference.id);
                     if (habitIndex != -1) {
                       _habits[habitIndex] = updated;
                     }
 
-                    final taskIndex = _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
+                    final taskIndex = _tasks.indexWhere(
+                        (t) => t.reference.id == updated.reference.id);
                     if (taskIndex != -1) {
                       _tasks[taskIndex] = updated;
-                    } else if (updated.trackingType == 'time' && updated.isTimerActive) {
+                    } else if (updated.trackingType == 'time' &&
+                        updated.isTimerActive) {
                       setState(() {
                         _tasks.add(updated);
                       });
                     } else {
                       setState(() {
-                        _tasks.removeWhere((t) => t.reference.id == updated.reference.id);
+                        _tasks.removeWhere(
+                            (t) => t.reference.id == updated.reference.id);
                       });
                     }
                   },
@@ -927,7 +934,7 @@ class _TodayPageState extends State<TodayPage> {
         ...slivers,
         const SliverToBoxAdapter(
           child:
-          SizedBox(height: 140), // Space for FABs + nav bar + extra padding
+              SizedBox(height: 140), // Space for FABs + nav bar + extra padding
         ),
       ],
     );
@@ -970,9 +977,9 @@ class _TodayPageState extends State<TodayPage> {
                   Text(
                     'Weekly goals',
                     style: FlutterFlowTheme.of(context).titleMedium.override(
-                      fontFamily: 'Readex Pro',
-                      fontWeight: FontWeight.w600,
-                    ),
+                          fontFamily: 'Readex Pro',
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                   const SizedBox(width: 8),
                   Container(
@@ -994,7 +1001,7 @@ class _TodayPageState extends State<TodayPage> {
                   _weeklyGoalsExpanded ? Icons.expand_less : Icons.expand_more,
                 ),
                 onPressed: () => setState(
-                        () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
+                    () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
               ),
             ],
           ),
@@ -1028,12 +1035,12 @@ class _TodayPageState extends State<TodayPage> {
                 final habits = entry.value;
                 return Container(
                   margin:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   decoration: BoxDecoration(
                     gradient:
-                    FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                         color: FlutterFlowTheme.of(context).surfaceBorderColor,
@@ -1050,9 +1057,9 @@ class _TodayPageState extends State<TodayPage> {
                               style: FlutterFlowTheme.of(context)
                                   .bodyLarge
                                   .override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                           ),
                         ],
@@ -1092,9 +1099,9 @@ class _TodayPageState extends State<TodayPage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: FlutterFlowTheme.of(context).bodyMedium.override(
-              fontFamily: 'Readex Pro',
-              fontWeight: FontWeight.w600,
-            ),
+                  fontFamily: 'Readex Pro',
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         Container(
@@ -1107,10 +1114,10 @@ class _TodayPageState extends State<TodayPage> {
           child: Text(
             statusLabel,
             style: FlutterFlowTheme.of(context).bodySmall.override(
-              fontFamily: 'Readex Pro',
-              color: statusColor,
-              fontWeight: FontWeight.w600,
-            ),
+                  fontFamily: 'Readex Pro',
+                  color: statusColor,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         const SizedBox(width: 8),
@@ -1123,7 +1130,7 @@ class _TodayPageState extends State<TodayPage> {
             final today = DateTime(now.year, now.month, now.day);
             final skipped = List<DateTime>.from(habit.skippedDates);
             skipped.removeWhere((d) =>
-            d.year == today.year &&
+                d.year == today.year &&
                 d.month == today.month &&
                 d.day == today.day);
             await habit.reference.update(
@@ -1152,66 +1159,69 @@ class _TodayPageState extends State<TodayPage> {
         final level = i + 1;
         final filled = current >= level;
         return GestureDetector(
-          onTap: () async{
-                try {
-                  final next = current % 3 + 1;
+          onTap: () async {
+            try {
+              final next = current % 3 + 1;
 
-                  // Update local state immediately for instant UI feedback
-                  setState(() {
-                    // Find and update the category in the local list
-                    final categoryIndex = _categories
-                        .indexWhere((c) => c.reference.id == category.reference.id);
-                    if (categoryIndex != -1) {
-                      final updatedCategoryData = createCategoryRecordData(
-                        weight: next.toDouble(),
-                      );
-                      final updatedCategory = CategoryRecord.getDocumentFromData(
-                        {
-                          ..._categories[categoryIndex].snapshotData,
-                          ...updatedCategoryData,
-                        },
-                        _categories[categoryIndex].reference,
-                      );
-                      _categories[categoryIndex] = updatedCategory;
-                    }
-                  });
-
-                  // Update backend in the background
-                  await updateCategory(
-                    categoryId: category.reference.id,
+              // Update local state immediately for instant UI feedback
+              setState(() {
+                // Find and update the category in the local list
+                final categoryIndex = _categories
+                    .indexWhere((c) => c.reference.id == category.reference.id);
+                if (categoryIndex != -1) {
+                  final updatedCategoryData = createCategoryRecordData(
                     weight: next.toDouble(),
+                    categoryType: 'habit', // Today page is for habits
                   );
-                } catch (e) {
-                  // If backend update fails, revert the local change
-                  setState(() {
-                    final categoryIndex = _categories
-                        .indexWhere((c) => c.reference.id == category.reference.id);
-                    if (categoryIndex != -1) {
-                      final revertedCategoryData = createCategoryRecordData(
-                        weight: current.toDouble(),
-                      );
-                      final revertedCategory = CategoryRecord.getDocumentFromData(
-                        {
-                          ..._categories[categoryIndex].snapshotData,
-                          ...revertedCategoryData,
-                        },
-                        _categories[categoryIndex].reference,
-                      );
-                      _categories[categoryIndex] = revertedCategory;
-                    }
-                  });
-
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error updating category weight: $e')),
+                  final updatedCategory = CategoryRecord.getDocumentFromData(
+                    {
+                      ..._categories[categoryIndex].snapshotData,
+                      ...updatedCategoryData,
+                    },
+                    _categories[categoryIndex].reference,
                   );
+                  _categories[categoryIndex] = updatedCategory;
                 }
+              });
+
+              // Update backend in the background
+              await updateCategory(
+                categoryId: category.reference.id,
+                weight: next.toDouble(),
+              );
+            } catch (e) {
+              // If backend update fails, revert the local change
+              setState(() {
+                final categoryIndex = _categories
+                    .indexWhere((c) => c.reference.id == category.reference.id);
+                if (categoryIndex != -1) {
+                  final revertedCategoryData = createCategoryRecordData(
+                    weight: current.toDouble(),
+                    categoryType: 'habit', // Today page is for habits
+                  );
+                  final revertedCategory = CategoryRecord.getDocumentFromData(
+                    {
+                      ..._categories[categoryIndex].snapshotData,
+                      ...revertedCategoryData,
+                    },
+                    _categories[categoryIndex].reference,
+                  );
+                  _categories[categoryIndex] = revertedCategory;
+                }
+              });
+
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error updating category weight: $e')),
+              );
+            }
           },
-          child: Icon(filled ? Icons.star : Icons.star_border,
-          size: 24,
-              color: filled
-                  ? Colors.amber
-                  : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
+          child: Icon(
+            filled ? Icons.star : Icons.star_border,
+            size: 24,
+            color: filled
+                ? Colors.amber
+                : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
           ),
         );
       }),
@@ -1229,7 +1239,7 @@ class _TodayPageState extends State<TodayPage> {
       } else if (task.categoryName.isNotEmpty) {
         final taskName = task.categoryName.trim().toLowerCase();
         matchedCategory = _categories.firstWhere(
-              (c) => c.name.trim().toLowerCase() == taskName,
+          (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
     } catch (_) {
@@ -1262,6 +1272,7 @@ class _TodayPageState extends State<TodayPage> {
         weight: 1.0,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
+        categoryType: 'task',
       );
       return CategoryRecord.getDocumentFromData(
         categoryData,
@@ -1272,12 +1283,14 @@ class _TodayPageState extends State<TodayPage> {
 
   void _updateHabitInLocalState(HabitRecord updated) {
     setState(() {
-      final habitIndex = _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+      final habitIndex =
+          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
 
-      final taskIndex = _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
+      final taskIndex =
+          _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
       } else if (updated.trackingType == 'time' && updated.isTimerActive) {
@@ -1331,7 +1344,7 @@ class _TodayPageState extends State<TodayPage> {
                 // Update local state
                 setState(() {
                   _categories.removeWhere(
-                          (c) => c.reference.id == category.reference.id);
+                      (c) => c.reference.id == category.reference.id);
                 });
 
                 if (mounted) {
@@ -1369,9 +1382,9 @@ class _TodayPageState extends State<TodayPage> {
   // Helper method to update task in local state
   void _updateTaskInLocalState(HabitRecord task, String? newStatus,
       [dynamic newCurrentValue,
-        bool? newIsTimerActive,
-        int? newAccumulatedTime,
-        DateTime? newTimerStartTime]) {
+      bool? newIsTimerActive,
+      int? newAccumulatedTime,
+      DateTime? newTimerStartTime]) {
     setState(() {
       final idx = _tasks.indexWhere((t) => t.reference.id == task.reference.id);
       if (idx != -1) {
@@ -1392,7 +1405,6 @@ class _TodayPageState extends State<TodayPage> {
         _recomputeTasksTodayOrder();
       }
       _loadDataSilently();
-
     });
   }
 
@@ -1419,4 +1431,3 @@ class _TodayPageState extends State<TodayPage> {
     }
   }
 }
-

@@ -1,5 +1,3 @@
-
-
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -278,6 +276,54 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
   return result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
 }
 
+/// Query to get habit categories for a specific user
+Future<List<CategoryRecord>> queryHabitCategoriesOnce({
+  required String userId,
+}) async {
+  try {
+    final query = CategoryRecord.collectionForUser(userId)
+        .where('isActive', isEqualTo: true)
+        .where('categoryType', isEqualTo: 'habit');
+
+    final result = await query.get();
+    final categories =
+        result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+
+    // Sort in memory instead of in query
+    categories.sort((a, b) => a.name.compareTo(b.name));
+    return categories;
+  } catch (e) {
+    print('Error querying habit categories: $e');
+    // Fallback: get all categories and filter in memory
+    final allCategories = await queryCategoriesRecordOnce(userId: userId);
+    return allCategories.where((c) => c.categoryType == 'habit').toList();
+  }
+}
+
+/// Query to get task categories for a specific user
+Future<List<CategoryRecord>> queryTaskCategoriesOnce({
+  required String userId,
+}) async {
+  try {
+    final query = CategoryRecord.collectionForUser(userId)
+        .where('isActive', isEqualTo: true)
+        .where('categoryType', isEqualTo: 'task');
+
+    final result = await query.get();
+    final categories =
+        result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+
+    // Sort in memory instead of in query
+    categories.sort((a, b) => a.name.compareTo(b.name));
+    return categories;
+  } catch (e) {
+    print('Error querying task categories: $e');
+    // Fallback: get all categories and filter in memory
+    final allCategories = await queryCategoriesRecordOnce(userId: userId);
+    return allCategories.where((c) => c.categoryType == 'task').toList();
+  }
+}
+
 /// Query to get tasks for a specific user
 Future<List<TaskRecord>> queryTasksRecordOnce({
   required String userId,
@@ -349,6 +395,7 @@ Future<DocumentReference> createCategory({
   double weight = 1.0,
   String? color,
   String? userId,
+  required String categoryType, // Must be 'habit' or 'task'
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
@@ -365,6 +412,7 @@ Future<DocumentReference> createCategory({
     createdTime: DateTime.now(),
     lastUpdated: DateTime.now(),
     userId: uid,
+    categoryType: categoryType,
   );
 
   return await CategoryRecord.collectionForUser(uid).add(categoryData);
@@ -386,30 +434,31 @@ Future<DocumentReference> createTask({
   final uid = userId ?? currentUser?.uid ?? '';
 
   // Ensure we have a category; if not, fallback to default
-  String resolvedCategoryName = categoryName ?? 'default';
+  String resolvedCategoryName = categoryName ?? 'inbox';
   String resolvedCategoryId = categoryId ?? '';
 
   if (resolvedCategoryId.isEmpty) {
     // Try to find existing default category
     final defaultQuery = await CategoryRecord.collectionForUser(uid)
-        .where('name', isEqualTo: 'default')
+        .where('name', isEqualTo: 'inbox')
         .limit(1)
         .get();
     if (defaultQuery.docs.isNotEmpty) {
       resolvedCategoryId = defaultQuery.docs.first.id;
       resolvedCategoryName =
           (defaultQuery.docs.first.data() as Map<String, dynamic>)['name'] ??
-              'default';
+              'inbox';
     } else {
       // Create default category for this user
       final newDefault = await createCategory(
-        name: 'default',
-        color: CategoryColorUtil.hexForName('default'),
+        name: 'inbox',
+        color: CategoryColorUtil.hexForName('inbox'),
         weight: 1.0,
         userId: uid,
+        categoryType: 'task',
       );
       resolvedCategoryId = newDefault.id;
-      resolvedCategoryName = 'default';
+      resolvedCategoryName = 'inbox';
     }
   }
 
@@ -427,6 +476,32 @@ Future<DocumentReference> createTask({
   );
 
   return await TaskRecord.collectionForUser(uid).add(taskData);
+}
+
+/// Migrate existing categories to have categoryType field
+/// This should be called once to update old categories
+Future<int> migrateCategoryTypes({String? userId}) async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  final uid = userId ?? currentUser?.uid ?? '';
+  if (uid.isEmpty) return 0;
+
+  final query = await CategoryRecord.collectionForUser(uid).get();
+  int updated = 0;
+  for (final doc in query.docs) {
+    final data = doc.data() as Map<String, dynamic>;
+    final categoryType = data['categoryType'] as String?;
+
+    // If categoryType is missing, set default to 'habit'
+    if (categoryType == null || categoryType.isEmpty) {
+      await doc.reference.update({
+        'categoryType': 'habit', // Default to habit for existing categories
+        'lastUpdated': DateTime.now(),
+      });
+      updated += 1;
+      print('Migrated category ${data['name']} to habit type');
+    }
+  }
+  return updated;
 }
 
 /// Normalize all existing category colors for the current user to the
@@ -621,6 +696,7 @@ Future<void> updateCategory({
   String? color,
   bool? isActive,
   String? userId,
+  String? categoryType,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
@@ -635,6 +711,7 @@ Future<void> updateCategory({
   if (weight != null) updateData['weight'] = weight;
   if (color != null) updateData['color'] = color;
   if (isActive != null) updateData['isActive'] = isActive;
+  if (categoryType != null) updateData['categoryType'] = categoryType;
 
   await categoryRef.update(updateData);
 }

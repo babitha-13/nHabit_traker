@@ -12,11 +12,10 @@ class TaskTab extends StatefulWidget {
   State<TaskTab> createState() => _TaskTabState();
 }
 
-class _TaskTabState extends State<TaskTab>
-    with TickerProviderStateMixin {
+class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   late TabController _tabController;
   List<CategoryRecord> _categories = [];
-  List<String> _tabNames = ["Default"];
+  List<String> _tabNames = ["Inbox"];
 
   @override
   void initState() {
@@ -25,9 +24,32 @@ class _TaskTabState extends State<TaskTab>
     _loadCategories();
   }
 
-
   Future<void> _loadCategories() async {
-    final fetched = await queryCategoriesRecordOnce(userId: currentUserUid);
+    final fetched = await queryTaskCategoriesOnce(userId: currentUserUid);
+
+    // Ensure default task category exists
+    try {
+      fetched.firstWhere((c) => c.name.toLowerCase() == 'inbox');
+    } catch (e) {
+      // Default category doesn't exist, create it
+      await createCategory(
+        name: 'Inbox',
+        description: 'Inbox task category',
+        weight: 1.0,
+        categoryType: 'task',
+      );
+      // Reload categories after creating default
+      final updatedFetched =
+          await queryTaskCategoriesOnce(userId: currentUserUid);
+      setState(() {
+        _categories = updatedFetched;
+        _tabNames = ["Inbox", ..._categories.map((c) => c.name)];
+        _tabController.dispose();
+        _tabController = TabController(length: _tabNames.length, vsync: this);
+      });
+      return;
+    }
+
     setState(() {
       _categories = fetched;
       _tabNames = ["Default", ..._categories.map((c) => c.name)];
@@ -57,16 +79,15 @@ class _TaskTabState extends State<TaskTab>
                   child: _tabNames.isEmpty
                       ? const SizedBox()
                       : TabBar(
-                    indicatorColor: Colors.black,
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabs: _tabNames
-                        .map((name) => Tab(text: name))
-                        .toList(),
-                  ),
+                          indicatorColor: Colors.black,
+                          controller: _tabController,
+                          isScrollable: true,
+                          tabs:
+                              _tabNames.map((name) => Tab(text: name)).toList(),
+                        ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons. add, color: Colors.black),
+                  icon: const Icon(Icons.add, color: Colors.black),
                   onPressed: () async {
                     await _showAddCategoryDialog(context);
                     _loadCategories();
@@ -79,11 +100,18 @@ class _TaskTabState extends State<TaskTab>
             child: TabBarView(
               controller: _tabController,
               children: _tabNames.map((name) {
-                if (name == "Default") {
-                  return const TaskPage();
+                if (name == "Inbox") {
+                  // Find the actual Inbox category
+                  final defaultCategory = _categories.firstWhere(
+                    (c) => c.name.toLowerCase() == 'inbox',
+                    orElse: () => _categories.isNotEmpty
+                        ? _categories.first
+                        : throw Exception('No categories found'),
+                  );
+                  return TaskPage(categoryId: defaultCategory.reference.id);
                 } else {
                   final category = _categories.firstWhere(
-                        (c) => c.name == name,
+                    (c) => c.name == name,
                   );
                   return TaskPage(categoryId: category.reference.id);
                 }
@@ -143,6 +171,7 @@ class _TaskTabState extends State<TaskTab>
                       name: tabController.text,
                       description: null,
                       weight: 1,
+                      categoryType: 'task',
                     );
                     if (context.mounted) Navigator.pop(context);
                   },

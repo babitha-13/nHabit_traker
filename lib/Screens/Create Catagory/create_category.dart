@@ -5,7 +5,8 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
 class CreateCategory extends StatefulWidget {
   final CategoryRecord? category;
-  const CreateCategory({super.key, this.category});
+  final String? categoryType; // 'habit' or 'task'
+  const CreateCategory({super.key, this.category, this.categoryType});
 
   @override
   State<CreateCategory> createState() => _CreateCategoryState();
@@ -136,6 +137,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                       : null,
                   weight: weight.toDouble(),
                   color: selectedColor,
+                  categoryType: widget.categoryType, // Only update if provided
                 );
 
                 if (mounted) {
@@ -156,6 +158,8 @@ class _CreateCategoryState extends State<CreateCategory> {
                       : null,
                   weight: weight.toDouble(),
                   color: selectedColor,
+                  categoryType: widget.categoryType ??
+                      'habit', // Default to habit if not specified
                 );
 
                 if (mounted) {
