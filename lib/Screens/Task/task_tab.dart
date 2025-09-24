@@ -13,73 +13,59 @@ class TaskTab extends StatefulWidget {
 }
 
 class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
-  TabController? _tabController;
+  late TabController _tabController;
   List<CategoryRecord> _categories = [];
   List<String> _tabNames = ["Inbox"];
-  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    // _tabController = TabController(length: _tabNames.length, vsync: this);
+    _tabController = TabController(length: _tabNames.length, vsync: this);
     _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    final fetched = await queryTaskCategoriesOnce(userId: currentUserUid);
+
+    // Ensure default task category exists
+    try {
+      fetched.firstWhere((c) => c.name.toLowerCase() == 'inbox');
+    } catch (e) {
+      // Default category doesn't exist, create it
+      await createCategory(
+        name: 'Inbox',
+        description: 'Inbox task category',
+        weight: 1.0,
+        categoryType: 'task',
+      );
+      // Reload categories after creating default
+      final updatedFetched =
+          await queryTaskCategoriesOnce(userId: currentUserUid);
+      setState(() {
+        _categories = updatedFetched;
+        _tabNames = ["Inbox", ..._categories.map((c) => c.name)];
+        _tabController.dispose();
+        _tabController = TabController(length: _tabNames.length, vsync: this);
+      });
+      return;
+    }
+
+    setState(() {
+      _categories = fetched;
+      _tabNames = ["Default", ..._categories.map((c) => c.name)];
+      _tabController.dispose();
+      _tabController = TabController(length: _tabNames.length, vsync: this);
+    });
   }
 
   @override
   void dispose() {
-    _tabController?.dispose();
+    _tabController.dispose();
     super.dispose();
-  }
-
-  Future<void> _loadCategories() async {
-    setState(() => _isLoading = true);
-
-    try {
-      final fetched = await queryCategoriesRecordOnce(
-        userId: currentUserUid,
-      );
-      bool inboxExists =
-      fetched.any((c) => c.name.trim().toLowerCase() == 'inbox');
-      if (!inboxExists) {
-        await createCategory(
-          name: 'Inbox',
-          description: 'Inbox task category',
-          weight: 1,
-          categoryType: 'task',
-        );
-        final updatedFetched = await queryCategoriesRecordOnce(
-          userId: currentUserUid,
-        );
-        fetched.clear();
-        fetched.addAll(updatedFetched);
-      }
-      List<String> tabNames = fetched.map((c) => c.name.trim()).toList();
-      tabNames.removeWhere((name) => name.toLowerCase() == 'inbox');
-      tabNames.insert(0, 'Inbox');
-      _tabController?.dispose();
-      setState(() {
-        _categories = fetched;
-        _tabNames = tabNames;
-        _tabController = TabController(length: _tabNames.length, vsync: this);
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() => _isLoading = false);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-              content: Text('Error loading categories: $e'),
-              backgroundColor: Colors.red),
-        );
-      }
-    }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
-    }
     return Scaffold(
       backgroundColor: Colors.white,
       body: Column(
@@ -104,7 +90,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   icon: const Icon(Icons.add, color: Colors.black),
                   onPressed: () async {
                     await _showAddCategoryDialog(context);
-                    // _loadCategories();
+                    await _loadCategories();
                   },
                 ),
               ],
@@ -115,16 +101,16 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
               controller: _tabController,
               children: _tabNames.map((name) {
                 if (name == "Inbox") {
-                  final defaultCategory = _categories.firstWhere(
-                    (c) => c.name.toLowerCase() == 'inbox',
-                    orElse: () => _categories.isNotEmpty
-                        ? _categories.first
-                        : throw Exception('No categories found'),
+                  // Find the actual Inbox category
+                  final inboxCategory = _categories.firstWhere(
+                        (c) => c.name.toLowerCase() == 'inbox',
+                    orElse: () => _categories.first,
                   );
-                  return TaskPage(categoryId: defaultCategory.reference.id);
+                  return TaskPage(categoryId: inboxCategory.reference.id);
                 } else {
                   final category = _categories.firstWhere(
-                    (c) => c.name == name,
+                        (c) => c.name == name,
+                    orElse: () => _categories.first,
                   );
                   return TaskPage(categoryId: category.reference.id);
                 }
@@ -138,6 +124,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   Future<void> _showAddCategoryDialog(BuildContext context) async {
     final TextEditingController tabController = TextEditingController();
+    String? errorText;
+
     await showDialog(
       context: context,
       builder: (context) {
@@ -179,37 +167,41 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                 width: double.infinity,
                 child: ElevatedButton(
                   onPressed: () async {
-                    final name = tabController.text.trim();
-                    if (name.isEmpty) return;
-
-                    // Check for duplicate
-                    final exists = _categories.any(
-                            (cat) => cat.name.toLowerCase() == name.toLowerCase());
-                    if (exists) {
+                    final newName = tabController.text.trim();
+                    if (newName.isEmpty) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
-                            content: Text(
-                                'Category with this name already exists!'),
+                            content: Text("Category name cannot be empty"),
                             backgroundColor: Colors.red,
                           ),
                         );
+                        return;
                       }
-                      return;
                     }
 
-                    // Create category
+                    final exists = _categories.any(
+                          (c) => c.name.toLowerCase() == newName.toLowerCase(),
+                    );
+                    if (exists || newName.toLowerCase() == "inbox") {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content: Text("Category already exists"),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                        return;
+                      }
+                    }
                     await createCategory(
-                      name: name,
+                      name: newName,
                       description: null,
                       weight: 1,
                       categoryType: 'task',
                     );
 
-                    if (context.mounted) {
-                      Navigator.pop(context);
-                      await _loadCategories(); // reload tabs after adding
-                    }
+                    if (context.mounted) Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(
                     backgroundColor: FlutterFlowTheme.of(context).primary,
@@ -220,7 +212,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                     style: TextStyle(color: Colors.white, fontSize: 16),
                   ),
                 ),
-              ),
+              )
             ],
           ),
         );
