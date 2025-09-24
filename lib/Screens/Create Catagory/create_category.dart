@@ -1,11 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
 class CreateCategory extends StatefulWidget {
   final CategoryRecord? category;
-  const CreateCategory({super.key, this.category});
+  final String? categoryType; // 'habit' or 'task'
+  const CreateCategory({super.key, this.category, this.categoryType});
 
   @override
   State<CreateCategory> createState() => _CreateCategoryState();
@@ -16,6 +18,8 @@ class _CreateCategoryState extends State<CreateCategory> {
   late TextEditingController descriptionController;
   int weight = 1;
   String selectedColor = '#2196F3';
+  List<CategoryRecord> existingCategories = [];
+  bool _isValidating = false;
 
   @override
   void initState() {
@@ -28,6 +32,26 @@ class _CreateCategoryState extends State<CreateCategory> {
     selectedColor = widget.category?.color.isNotEmpty == true
         ? widget.category!.color
         : '#2196F3';
+    _loadExistingCategories();
+  }
+
+  Future<void> _loadExistingCategories() async {
+    try {
+      final fetchedCategories =
+      await queryCategoriesRecordOnce(userId: currentUserUid);
+      setState(() {
+        existingCategories = fetchedCategories;
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading categories: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 
   @override
@@ -122,12 +146,43 @@ class _CreateCategoryState extends State<CreateCategory> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: () async {
+          onPressed: _isValidating ? null : () async {
             if (nameController.text.isEmpty) return;
 
+            setState(() {
+              _isValidating = true;
+            });
+
             try {
+              // Get fresh categories from database
+              final freshCategories = await queryCategoriesRecordOnce(userId: currentUserUid);
+
+              // Check for duplicate names, but exclude the current category when editing
+              final newName = nameController.text.trim().toLowerCase();
+              final nameExists = freshCategories.any((cat) {
+                // Skip the current category when editing
+                if (isEdit && cat.reference.id == widget.category!.reference.id) {
+                  return false;
+                }
+                final existingName = cat.name.trim().toLowerCase();
+                return existingName == newName;
+              });
+
+              if (nameExists) {
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Category with this name already exists!'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+                setState(() {
+                  _isValidating = false;
+                });
+                return;
+              }
               if (isEdit) {
-                // ✅ Update existing
                 await updateCategory(
                   categoryId: widget.category!.reference.id,
                   name: nameController.text,
@@ -136,6 +191,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                       : null,
                   weight: weight.toDouble(),
                   color: selectedColor,
+                  categoryType: widget.categoryType, // Only update if provided
                 );
 
                 if (mounted) {
@@ -156,6 +212,8 @@ class _CreateCategoryState extends State<CreateCategory> {
                       : null,
                   weight: weight.toDouble(),
                   color: selectedColor,
+                  categoryType: widget.categoryType ??
+                      'habit', // Default to habit if not specified
                 );
 
                 if (mounted) {
@@ -172,12 +230,29 @@ class _CreateCategoryState extends State<CreateCategory> {
               Navigator.of(context).pop();
             } catch (e) {
               if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Error: $e'),
-                    backgroundColor: Colors.red,
-                  ),
-                );
+                // Check if it's a duplicate name error from backend
+                final errorMessage = e.toString();
+                if (errorMessage.contains('already exists')) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Category with this name already exists!'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                } else {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Error: $e'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                }
+              }
+            } finally {
+              if (mounted) {
+                setState(() {
+                  _isValidating = false;
+                });
               }
             }
           },

@@ -7,9 +7,9 @@ import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 class CategoryRecord extends FirestoreRecord {
   CategoryRecord._(
-      super.reference,
-      super.data,
-      ) {
+    super.reference,
+    super.data,
+  ) {
     _initializeFields();
   }
 
@@ -58,6 +58,12 @@ class CategoryRecord extends FirestoreRecord {
   String get userId => _userId ?? '';
   bool hasUserId() => _userId != null;
 
+  // "categoryType" field.
+  String? _categoryType;
+  String get categoryType =>
+      _categoryType ?? 'habit'; // Default to habit for backwards compatibility
+  bool hasCategoryType() => _categoryType != null;
+
   void _initializeFields() {
     _uid = snapshotData['uid'] as String?;
     _name = snapshotData['name'] as String?;
@@ -78,6 +84,7 @@ class CategoryRecord extends FirestoreRecord {
     _createdTime = snapshotData['createdTime'] as DateTime?;
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
     _userId = snapshotData['userId'] as String?;
+    _categoryType = snapshotData['categoryType'] as String?;
   }
 
   static CollectionReference get collection =>
@@ -102,9 +109,9 @@ class CategoryRecord extends FirestoreRecord {
       );
 
   static CategoryRecord getDocumentFromData(
-      Map<String, dynamic> data,
-      DocumentReference reference,
-      ) =>
+    Map<String, dynamic> data,
+    DocumentReference reference,
+  ) =>
       CategoryRecord._(reference, mapFromFirestore(data));
 
   @override
@@ -117,7 +124,7 @@ class CategoryRecord extends FirestoreRecord {
   @override
   bool operator ==(other) =>
       other is CategoryRecord &&
-          reference.path.hashCode == other.reference.path.hashCode;
+      reference.path.hashCode == other.reference.path.hashCode;
 }
 
 Map<String, dynamic> createCategoryRecordData({
@@ -130,6 +137,7 @@ Map<String, dynamic> createCategoryRecordData({
   DateTime? createdTime,
   DateTime? lastUpdated,
   String? userId,
+  required String categoryType, // REQUIRED - no categories without type!
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -142,6 +150,7 @@ Map<String, dynamic> createCategoryRecordData({
       'createdTime': createdTime,
       'lastUpdated': lastUpdated,
       'userId': userId,
+      'categoryType': categoryType,
     }.withoutNulls,
   );
 
@@ -161,21 +170,23 @@ class CategoryRecordDocumentEquality implements Equality<CategoryRecord> {
         e1?.isActive == e2?.isActive &&
         e1?.createdTime == e2?.createdTime &&
         e1?.lastUpdated == e2?.lastUpdated &&
-        e1?.userId == e2?.userId;
+        e1?.userId == e2?.userId &&
+        e1?.categoryType == e2?.categoryType;
   }
 
   @override
   int hash(CategoryRecord? e) => const ListEquality().hash([
-    e?.uid,
-    e?.name,
-    e?.description,
-    e?.weight,
-    e?.color,
-    e?.isActive,
-    e?.createdTime,
-    e?.lastUpdated,
-    e?.userId,
-  ]);
+        e?.uid,
+        e?.name,
+        e?.description,
+        e?.weight,
+        e?.color,
+        e?.isActive,
+        e?.createdTime,
+        e?.lastUpdated,
+        e?.userId,
+        e?.categoryType,
+      ]);
 
   @override
   bool isValidKey(Object? o) => o is CategoryRecord;

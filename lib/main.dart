@@ -52,6 +52,8 @@ class _MyAppState extends State<MyApp> {
     userStream.listen((user) {
       if (user.uid != null && user.uid!.isNotEmpty) {
         finalizeHabitData(user.uid!);
+        // Migration removed - all leaks plugged at source
+        // Categories now always created with proper categoryType
       }
     });
     jwtTokenStream.listen((_) {});
@@ -80,5 +82,6 @@ class _MyAppState extends State<MyApp> {
         home: (BuildContext context) => const Home(),
         login: (BuildContext context) => const SignIn(),
       },
-    );  }
+    );
+  }
 }

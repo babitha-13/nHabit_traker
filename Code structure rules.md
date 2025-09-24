@@ -1,0 +1,267 @@
+# Code Structure Rules
+
+## 🚀 AI EXECUTIVE SUMMARY (READ THIS FIRST)
+**Core Principle:** Separate UI from business logic - UI in `Screens/`, logic in `Helper/`
+
+**Before writing ANY code, ask:** "Is this business logic or UI?"
+
+**Decision Tree:**
+- Database operations → `Helper/backend/`
+- Data validation → `Helper/utils/`  
+- UI rendering → `Screens/`
+- Authentication → `Helper/auth/`
+
+**File Limits:** 400 lines max per file, 50 lines max per function
+
+**🚫 Red Flags (NEVER DO):**
+- `FirebaseFirestore.instance` calls in Screen files
+- Business calculations in `build()` methods
+- Validation logic mixed with UI widgets
+
+**✅ Correct Pattern:**
+```dart
+// UI calls business logic, doesn't implement it
+await HabitService.createHabit(data);  // ✅ Good
+```
+
+**Tags to Use:**
+- `#REFACTOR_NOW` - Immediate separation needed
+- `#CHECK_LOCATION` - Verify code placement
+- `#EXTRACT_LOGIC` - Move business logic to Helper/
+
+---
+
+## 1. Overview and Principles
+Separate UI from business logic to create a clean architecture. This ensures maintainable, reusable code where each file has a single responsibility.
+
+### Key Structure
+Organize your codebase as follows:
+- **lib/Screens/**: UI layer (presentation and user interaction only).
+- **lib/Helper/**: Business logic layer (e.g., auth/, backend/, utils/, Firebase/ for configuration).
+
+#REFACTOR: No business logic in Screens/, no UI code in Helper/.
+
+### AI Action Tags
+- `#REFACTOR_NOW` - Immediate action required
+- `#VALIDATE_INPUT` - Check data before processing
+- `#EXTRACT_LOGIC` - Move business logic to Helper/
+- `#SPLIT_FILE` - File exceeds size limits
+- `#TEST_SEPARATELY` - Logic must be unit testable
+- `#CHECK_LOCATION` - Verify code is in correct directory
+
+### Priority Levels
+- **High Priority**: Enforce separation of concerns and file size limits (essential for core stability).
+- **Medium Priority**: Focus on reusability and naming conventions (improves scalability).
+- **Low Priority**: Advanced maintainability tips (nice-to-have for optimization).
+
+### Glossary
+- **Business Logic**: Non-UI operations like data validation, calculations, or database interactions.
+- **Presentation Logic**: UI-related tasks like rendering widgets, handling user input, or navigation.
+- **Single Responsibility**: Each file/class handles only one core concern.
+
+## 1.1. AI Enforcement Patterns
+**ALWAYS check file location before adding code:**
+- Business logic → must go in `lib/Helper/`
+- UI components → must go in `lib/Screens/`
+
+**Before writing any function, ask:** "Is this business logic or UI logic?"
+
+**Red flags to watch for:**
+- Database calls in UI files
+- Widget building in Helper files
+- Complex calculations in build() methods
+- Validation logic mixed with UI rendering
+
+## 1.2. Decision Flow for AI
+When adding new code:
+1. Is this a database operation? → `Helper/backend/`
+2. Is this data validation? → `Helper/utils/`
+3. Is this UI rendering? → `Screens/`
+4. Is this navigation logic? → `Screens/` (but keep minimal)
+5. Is this authentication? → `Helper/auth/`
+6. Is this Firebase configuration? → `Helper/Firebase/`
+
+## 2. File Size and Quality Standards
+Keep files under 400 lines. If exceeded:
+- #REFACTOR: Extract business logic to Helper/.
+- Split UI into smaller components.
+- Create separate files for different concerns.
+
+#VALIDATE: Aim for functions under 50 lines to maintain readability.
+
+## 3. Refactoring Guidelines
+### Step 1: Identify Mixed Concerns
+Look for:
+- Database operations or validation in UI files.
+- Business logic mixed with presentation.
+- Hardcoded values or calculations in UI.
+
+### Step 2: Extract and Organize
+- Move database operations to Helper/backend/.
+- Move validation/calculations to Helper/utils/.
+- #REFACTOR: Make business logic static and reusable (e.g., as helper functions).
+- Create reusable UI components in Helper/utils/ if needed.
+
+### Step 3: Ensure Clean Interfaces
+- UI calls business logic (doesn't implement it).
+- Business logic returns data (doesn't handle UI).
+- Use clear, descriptive function names.
+
+### Examples
+**Good Example** (Separated Concerns):
+```dart
+// UI Layer - only presentation
+class CreateHabitPage extends StatefulWidget {
+  Future<void> _saveHabit() async {
+    await Backend.createHabit(habitData);  // Call business logic
+    Navigator.pop(context);  // Handle UI response
+  }
+}
+
+// Business Logic Layer - pure logic
+class Backend {
+  static Future<void> createHabit(HabitData data) async {
+    ValidationHelper.validateHabit(data);  // #VALIDATE
+    await DatabaseHelper.saveHabit(data);  // Database operation
+  }
+}
+```
+
+**Bad Example** (Mixed Concerns - Avoid):
+```dart
+// DON'T DO THIS - everything mixed
+class CreateHabitPage extends StatefulWidget {
+  Future<void> _saveHabit() async {
+    // UI and validation mixed
+    if (_nameController.text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(...);
+      return;
+    }
+    // Database logic in UI
+    await HabitRecord.collectionForUser(userId).add(data);
+    context.goNamed('HabitsListPg');  // Navigation
+  }
+}
+```
+
+### State Management Examples
+**Good - Business Logic Separated:**
+```dart
+// Helper/backend/habit_service.dart
+class HabitService {
+  static Future<List<Habit>> getUserHabits(String userId) async {
+    // Pure business logic - #TEST_SEPARATELY
+    final habits = await DatabaseHelper.getHabitsForUser(userId);
+    return habits.where((h) => h.isActive).toList();
+  }
+  
+  static Future<bool> validateHabitData(HabitData data) async {
+    // #VALIDATE_INPUT - Pure validation logic
+    return data.name.isNotEmpty && data.frequency > 0;
+  }
+}
+
+// Screens/Home/home_page.dart  
+class HomePage extends StatefulWidget {
+  // Only UI and state management
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<Habit>>(
+      future: HabitService.getUserHabits(userId), // #CHECK_LOCATION - correct call
+      builder: (context, snapshot) {
+        // Only UI rendering
+        if (snapshot.hasData) {
+          return ListView.builder(...);
+        }
+        return CircularProgressIndicator();
+      },
+    );
+  }
+}
+```
+
+## 4. Common Anti-Patterns for AI to Avoid
+**These patterns indicate code is in the wrong location:**
+- ❌ `FirebaseFirestore.instance` calls in Screen files
+- ❌ Business calculations in `build()` methods
+- ❌ Validation logic mixed with UI widgets
+- ❌ Direct database queries in StatefulWidget classes
+- ❌ Complex business logic in event handlers (`onPressed`, `onChanged`)
+- ❌ Authentication logic in UI components
+- ❌ Data transformations in widget constructors
+- ❌ API calls directly in Screen files
+
+**Correct patterns to follow:**
+- ✅ UI files only call Helper/ functions
+- ✅ Helper/ functions return data, never build widgets
+- ✅ Business logic is static and testable
+- ✅ Database operations centralized in Helper/backend/
+- ✅ Validation functions in Helper/utils/
+
+## 5. Pre-Commit AI Checklist
+**Before suggesting any code changes:**
+- [ ] Does this file have a single, clear responsibility?
+- [ ] Are all database operations in Helper/backend/?
+- [ ] Are all validations in Helper/utils/?
+- [ ] Can business logic be tested without UI?
+- [ ] Is the file under 400 lines?
+- [ ] Are functions under 50 lines?
+- [ ] Does the code follow the decision flow?
+- [ ] Are there any anti-patterns present?
+- [ ] Is this code in the correct directory?
+- [ ] Can this logic be reused across multiple screens?
+
+## 6. Unified Checklist
+Use this to verify adherence:
+- **Separation**: UI files contain only presentation logic; business logic is in Helper/; database operations are centralized.
+- **Reusability**: Business logic is reusable across screens; helper functions are static; no UI dependencies.
+- **Maintainability**: Files are under 400 lines; functions under 50 lines; each class has single responsibility; consistent naming.
+- **Quality**: No hardcoded values; clear interfaces; easy to test and modify.
+
+## 7. Tools for Enforcement and Edge Cases
+### Tools for Enforcement
+- Use linters (e.g., `dart analyze`) to check file sizes and flag mixed concerns.
+- Integrate static analysis tools to scan for UI in Helper/ or business logic in Screens/.
+- Set up CI/CD checks to enforce these rules automatically.
+
+### Edge Case Guidance
+- **Stateful Widgets**: In Flutter, keep state management (e.g., via Provider) in Helper/ and limit UI to rendering.
+- **Third-Party Libraries**: Wrap integrations (e.g., Firebase) in Helper/ to isolate dependencies.
+- **Testing**: Write unit tests for Helper/ logic without UI; use integration tests for full flows.
+- **Performance**: If files grow large, consider code splitting or lazy loading for UI components.
+
+## 8. Step-by-Step Audit Process
+After refactoring, run this audit:
+1. Test business logic independently (no UI required)?
+2. Reuse logic in multiple screens?
+3. Allow parallel development without conflicts?
+4. Each file focused on one responsibility?
+5. Database operations centralized?
+6. Code easy to understand and maintain?
+
+If yes to all, refactoring is successful. #REFACTOR if needed.
+
+## 9. Quick Reference
+**AI Decision Matrix:**
+| Code Type | Location | Key Questions |
+|-----------|----------|---------------|
+| Database ops | Helper/backend/ | Does it query/modify data? |
+| Validation | Helper/utils/ | Does it check/transform data? |
+| UI rendering | Screens/ | Does it build widgets? |
+| Navigation | Screens/ | Does it change routes? |
+| Auth logic | Helper/auth/ | Does it handle login/permissions? |
+
+**File Size Limits:**
+| Component | Max Lines | Action if Exceeded |
+|-----------|-----------|--------------------|
+| Any file | 400 | #SPLIT_FILE |
+| Any function | 50 | #REFACTOR_NOW |
+| UI build() method | 30 | Extract widgets |
+
+**Original Reference Table:**
+| Rule | Priority | Key Action |
+|------|----------|------------|
+| Separate UI/Business Logic | High | Move logic to Helper/ |
+| File Size Limit | High | Split files under 400 lines |
+| Reusable Helpers | Medium | Make functions static |
+| Clear Naming | Medium | Use descriptive names |
+| Audit Checklist | Low | Run post-refactoring checks |
