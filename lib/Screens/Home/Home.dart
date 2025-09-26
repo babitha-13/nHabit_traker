@@ -26,7 +26,7 @@ class _HomeState extends State<Home> {
   DateTime preBackPress = DateTime.now();
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  bool _showCompleted = false;
+  bool _showCompleted = false, _showTaskCompleted = false;
   int currentIndex = 1;
   late Widget cWidget;
   String _sortMode = 'default';
@@ -102,13 +102,36 @@ class _HomeState extends State<Home> {
                         value: _showCompleted,
                         onChanged: (value) {
                           setState(() => _showCompleted = value);
-                          NotificationCenter.post(
-                              "showCompleted", _showCompleted);
+                          NotificationCenter.post("showCompleted", _showCompleted);
                         },
                         activeColor: Colors.white,
                       ),
                     ],
                   ),
+                ),
+              ),
+              Visibility(
+                visible: title != "Progress" && title != "Today",
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      'Show Completed',
+                      style: FlutterFlowTheme.of(context).bodyMedium.override(
+                        fontFamily: 'Readex Pro',
+                        color: Colors.white,
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Switch(
+                      value: _showTaskCompleted,
+                      onChanged: (value) {
+                        setState(() => _showTaskCompleted = value);
+                        NotificationCenter.post("showTaskCompleted", _showTaskCompleted);
+                      },
+                      activeColor: Colors.white,
+                    ),
+                  ],
                 ),
               ),
               Visibility(
@@ -371,7 +394,7 @@ class _HomeState extends State<Home> {
         }
         if (s == "Tasks") {
           title = s;
-          cWidget = const TaskTab();
+          cWidget = TaskTab(showCompleted: _showTaskCompleted,);
         }
         if (s == "Today") {
           title = s;

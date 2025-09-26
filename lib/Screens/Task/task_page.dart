@@ -13,8 +13,9 @@ import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart'
 
 class TaskPage extends StatefulWidget {
   final String? categoryId;
+  final bool showCompleted;
 
-  const TaskPage({super.key, this.categoryId});
+  const TaskPage({super.key, this.categoryId, required this.showCompleted});
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -35,15 +36,25 @@ class _TaskPageState extends State<TaskPage> {
   Duration _quickTargetDuration = const Duration(hours: 1);
   String _quickUnit = '';
   final TextEditingController _quickUnitController = TextEditingController();
+  late bool _showCompleted;
 
   @override
   void initState() {
     super.initState();
+    _showCompleted = widget.showCompleted;
     _loadData();
+    NotificationCenter.addObserver(this, 'showTaskCompleted', (param) {
+      if (param is bool && mounted) {
+        setState(() {
+          _showCompleted = param;
+        });
+      }
+    });
   }
 
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this);
     _quickAddController.dispose();
     super.dispose();
   }
@@ -66,23 +77,23 @@ class _TaskPageState extends State<TaskPage> {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: _loadData,
+          child: ListView(
             children: [
-              RefreshIndicator(
-                onRefresh: _loadData,
-                child: ListView(
-                  children: [
-                    _buildQuickAdd(),
-                    ..._buildSections(),
-                  ],
-                ),
-              ),
-              FloatingTimer(
-                activeHabits: _activeFloatingHabits,
-                onRefresh: _loadData,
-                onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-              ),
+              _buildQuickAdd(),
+              ..._buildSections(),
             ],
-          );
+          ),
+        ),
+        FloatingTimer(
+          activeHabits: _activeFloatingHabits,
+          onRefresh: _loadData,
+          onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+        ),
+      ],
+    );
   }
 
   List<HabitRecord> get _activeFloatingHabits {
@@ -103,15 +114,15 @@ class _TaskPageState extends State<TaskPage> {
       setState(() {
         _tasks = allHabits
             .where((h) =>
-                !h.isRecurring &&
-                (widget.categoryId == null ||
-                    h.categoryId == widget.categoryId))
+        !h.isRecurring &&
+            (widget.categoryId == null ||
+                h.categoryId == widget.categoryId))
             .toList();
         _habits = allHabits
             .where((h) =>
-                h.isRecurring &&
-                (widget.categoryId == null ||
-                    h.categoryId == widget.categoryId))
+        h.isRecurring &&
+            (widget.categoryId == null ||
+                h.categoryId == widget.categoryId))
             .toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -294,7 +305,7 @@ class _TaskPageState extends State<TaskPage> {
                           flex: 2,
                           child: TextFormField(
                             initialValue:
-                                (_quickTargetDuration.inHours).toString(),
+                            (_quickTargetDuration.inHours).toString(),
                             decoration: const InputDecoration(
                               labelText: 'Hours',
                               labelStyle: TextStyle(
@@ -354,6 +365,24 @@ class _TaskPageState extends State<TaskPage> {
     );
   }
 
+  bool _isTaskCompleted(HabitRecord task) {
+    if (!task.isActive) return false;
+    switch (task.trackingType) {
+      case 'binary':
+        return task.taskStatus == 'done';
+      case 'quantitative':
+        final currentValue = task.currentValue ?? 0;
+        final target = task.target ?? 0;
+        return target > 0 && currentValue >= target;
+      case 'time':
+        final currentMinutes = (task.accumulatedTime) ~/ 60000;
+        final targetMinutes = task.target ?? 0;
+        return targetMinutes > 0 && currentMinutes >= targetMinutes;
+      default:
+        return task.taskStatus == 'done';
+    }
+  }
+
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
@@ -363,7 +392,8 @@ class _TaskPageState extends State<TaskPage> {
       final items = List<dynamic>.from(buckets[key]!);
       final visibleItems = items.where((item) {
         if (item is HabitRecord) {
-          return !HabitTrackingUtil.isCompletedToday(item);
+          final isCompleted = _isTaskCompleted(item);
+          return _showCompleted || !isCompleted;
         }
         return true;
       }).toList();
@@ -457,16 +487,16 @@ class _TaskPageState extends State<TaskPage> {
         unit: _quickUnit,
       );
       final docRef =
-          await HabitRecord.collectionForUser(currentUserUid).add(taskData);
+      await HabitRecord.collectionForUser(currentUserUid).add(taskData);
       final newTask = HabitRecord.getDocumentFromData(taskData, docRef);
       setState(() {
         _tasks.add(newTask);
         _quickAddController.clear();
-        _selectedQuickDueDate = null;
         _quickTargetNumber = 1;
         _quickTargetDuration = const Duration(hours: 1);
         _quickUnit = '';
         _quickUnitController.clear();
+        _selectedQuickDueDate = null;
       });
     } catch (e) {
       if (!mounted) return;
@@ -503,6 +533,7 @@ class _TaskPageState extends State<TaskPage> {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     for (final t in _tasks) {
       if (!t.isActive || t.taskStatus == 'done') continue;
+      if (!_showCompleted && _isTaskCompleted(t)) continue;
       final due = t.dueDate;
       if (due == null) {
         buckets['Later']!.add(t);
@@ -609,6 +640,7 @@ class _TaskPageState extends State<TaskPage> {
     return CompactHabitItem(
       key: Key(task.reference.id),
       habit: task,
+      showCompleted: _showCompleted,
       onRefresh: _loadData,
       onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
       onHabitDeleted: (deleted) async => _loadData(),
@@ -623,9 +655,12 @@ class _TaskPageState extends State<TaskPage> {
         _habits[habitIndex] = updatedHabit;
       }
       final taskIndex =
-          _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updatedHabit;
+      }
+      if (!_showCompleted && _isTaskCompleted(updatedHabit)) {
+        _tasks.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
       }
       _loadDataSilently();
     });
@@ -655,3 +690,4 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 }
+

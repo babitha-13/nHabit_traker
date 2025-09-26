@@ -3,10 +3,13 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
-  const TaskTab({super.key});
+  final bool showCompleted;
+
+  const TaskTab({super.key, required this.showCompleted});
 
   @override
   State<TaskTab> createState() => _TaskTabState();
@@ -16,10 +19,12 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   late TabController _tabController;
   List<CategoryRecord> _categories = [];
   List<String> _tabNames = ["Inbox"];
+  late bool _showCompleted;
 
   @override
   void initState() {
     super.initState();
+    _showCompleted = widget.showCompleted;
     _tabController = TabController(length: _tabNames.length, vsync: this);
     _loadCategories();
   }
@@ -40,7 +45,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       );
       // Reload categories after creating default
       final updatedFetched =
-          await queryTaskCategoriesOnce(userId: currentUserUid);
+      await queryTaskCategoriesOnce(userId: currentUserUid);
       setState(() {
         _categories = updatedFetched;
         _tabNames = ["Inbox", ..._categories.map((c) => c.name)];
@@ -79,12 +84,12 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   child: _tabNames.isEmpty
                       ? const SizedBox()
                       : TabBar(
-                          indicatorColor: Colors.black,
-                          controller: _tabController,
-                          isScrollable: true,
-                          tabs:
-                              _tabNames.map((name) => Tab(text: name)).toList(),
-                        ),
+                    indicatorColor: Colors.black,
+                    controller: _tabController,
+                    isScrollable: true,
+                    tabs:
+                    _tabNames.map((name) => Tab(text: name)).toList(),
+                  ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.add, color: Colors.black),
@@ -97,26 +102,31 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
             ),
           ),
           Expanded(
-            child: TabBarView(
+            child: _categories.isEmpty
+                ? const Center(child: CircularProgressIndicator())
+                : TabBarView(
               controller: _tabController,
               children: _tabNames.map((name) {
-                if (name == "Inbox") {
-                  // Find the actual Inbox category
-                  final inboxCategory = _categories.firstWhere(
-                        (c) => c.name.toLowerCase() == 'inbox',
-                    orElse: () => _categories.first,
-                  );
-                  return TaskPage(categoryId: inboxCategory.reference.id);
-                } else {
-                  final category = _categories.firstWhere(
-                        (c) => c.name == name,
-                    orElse: () => _categories.first,
-                  );
-                  return TaskPage(categoryId: category.reference.id);
+                final category = _categories.isEmpty
+                    ? null
+                    : (name.toLowerCase() == "inbox"
+                    ? _categories.firstWhere(
+                      (c) => c.name.toLowerCase() == 'inbox',
+                  orElse: () => _categories.first,
+                )
+                    : _categories.firstWhere(
+                      (c) => c.name == name,
+                  orElse: () => _categories.first,
+                ));
+
+                if (category == null) {
+                  return const Center(child: Text("No category found"));
                 }
+
+                return TaskPage(categoryId: category.reference.id, showCompleted: _showCompleted,);
               }).toList(),
             ),
-          ),
+          )
         ],
       ),
     );
@@ -125,7 +135,6 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   Future<void> _showAddCategoryDialog(BuildContext context) async {
     final TextEditingController tabController = TextEditingController();
     String? errorText;
-
     await showDialog(
       context: context,
       builder: (context) {
@@ -220,3 +229,4 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     );
   }
 }
+

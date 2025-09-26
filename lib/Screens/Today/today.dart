@@ -96,10 +96,22 @@ class _TodayPageState extends State<TodayPage> {
       if (userId.isNotEmpty) {
         final habits = await queryHabitsRecordOnce(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
+        final taskCategories = await queryTaskCategoriesOnce(userId: userId);
+        final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
+        final today = DateTime.now();
+        final todayDate = DateTime(today.year, today.month, today.day);
         setState(() {
           _habits = habits;
           _categories = categories;
-          _tasks = habits.where((h) => !h.isRecurring).toList();
+          _tasks = habits.where((h) {
+            if (h.isRecurring) return false;
+            if (h.dueDate == null) return false;
+            final due = DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
+            return due == todayDate &&
+                (taskCategoryNames.contains(h.categoryName) ||
+                    h.categoryName.toLowerCase() == 'tasks' ||
+                    h.categoryName.toLowerCase() == 'task');
+          }).toList();
           _recomputeTasksTodayOrder();
           _calculateScores();
           _isLoading = false;
@@ -1201,22 +1213,27 @@ class _TodayPageState extends State<TodayPage> {
 
   CategoryRecord _getTasksCategory() {
     try {
-      return _categories.firstWhere((c) => c.name.toLowerCase() == 'tasks');
+      return _categories.firstWhere((c) =>
+      c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
     } catch (e) {
-      final categoryData = createCategoryRecordData(
-        name: 'Tasks',
-        color: '#2196F3',
-        userId: currentUserUid,
-        isActive: true,
-        weight: 1.0,
-        createdTime: DateTime.now(),
-        lastUpdated: DateTime.now(),
-        categoryType: 'task',
-      );
-      return CategoryRecord.getDocumentFromData(
-        categoryData,
-        FirebaseFirestore.instance.collection('categories').doc(),
-      );
+      try {
+        return _categories.firstWhere((c) => c.categoryType == 'task');
+      } catch (e2) {
+        final categoryData = createCategoryRecordData(
+          name: 'Tasks',
+          color: '#2196F3',
+          userId: currentUserUid,
+          isActive: true,
+          weight: 1.0,
+          createdTime: DateTime.now(),
+          lastUpdated: DateTime.now(),
+          categoryType: 'task',
+        );
+        return CategoryRecord.getDocumentFromData(
+          categoryData,
+          FirebaseFirestore.instance.collection('categories').doc(),
+        );
+      }
     }
   }
 
@@ -1386,9 +1403,21 @@ class _TodayPageState extends State<TodayPage> {
       if (uid.isEmpty) return;
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryCategoriesRecordOnce(userId: uid);
+      final taskCategories = await queryTaskCategoriesOnce(userId: uid);
+      final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
+      final today = DateTime.now();
+      final todayDate = DateTime(today.year, today.month, today.day);
       if (!mounted) return;
       setState(() {
-        _tasks = allHabits.where((h) => !h.isRecurring).toList();
+        _tasks = allHabits.where((h) {
+          if (h.isRecurring) return false;
+          if (h.dueDate == null) return false;
+          final due = DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
+          return due == todayDate &&
+              (taskCategoryNames.contains(h.categoryName) ||
+                  h.categoryName.toLowerCase() == 'tasks' ||
+                  h.categoryName.toLowerCase() == 'task');
+        }).toList();
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
         _recomputeTasksTodayOrder();
