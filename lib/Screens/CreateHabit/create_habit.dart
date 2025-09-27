@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 
 class CreateHabitPage extends StatefulWidget {
   final HabitRecord? habitToEdit;
@@ -196,16 +197,56 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                       ),
                       const SizedBox(height: 12),
                       if (_isLoading) const Center(child: CircularProgressIndicator())
-                      else DropdownButtonFormField<String>(
-                        value: _selectedCategoryId,
-                        decoration: const InputDecoration(
-                          labelText: 'Category *',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: _categories.map((c) => DropdownMenuItem(
-                            value: c.reference.id, child: Text(c.name))).toList(),
-                        onChanged: (v) => setState(() => _selectedCategoryId = v),
-                        validator: (v) => v == null ? 'Select a category' : null,
+                      else Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: DropdownButtonFormField<String>(
+                              value: _selectedCategoryId,
+                              decoration: const InputDecoration(
+                                labelText: 'Category *',
+                                border: OutlineInputBorder(),
+                              ),
+                              items: _categories.map((c) => DropdownMenuItem(
+                                  value: c.reference.id, child: Text(c.name))).toList(),
+                              onChanged: (v) => setState(() => _selectedCategoryId = v),
+                              validator: (v) => v == null ? 'Select a category' : null,
+                            ),
+                          ),
+                          const SizedBox(width: 5,),
+                          GestureDetector(
+                            onTap: (){
+                              showDialog(
+                                context: context,
+                                builder: (context) => const CreateCategory(categoryType: 'habit'),
+                              ).then((value){
+                                _loadCategories();
+                              });
+                            },
+                            child: Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: FlutterFlowTheme.of(context).primary,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: FlutterFlowTheme.of(context).primary,
+                                  width: 1,
+                                ),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: Colors.black.withOpacity(0.1),
+                                    blurRadius: 3,
+                                    offset: const Offset(0, 2),
+                                  ),
+                                ],
+                              ),
+                              child: const Icon(
+                                Icons.add,
+                                color: Colors.white,
+                              ),
+                            ),
+                          )
+                        ],
                       ),
                       const SizedBox(height: 24),
 

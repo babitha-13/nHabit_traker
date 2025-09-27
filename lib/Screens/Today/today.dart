@@ -100,9 +100,10 @@ class _TodayPageState extends State<TodayPage> {
         final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
         final today = DateTime.now();
         final todayDate = DateTime(today.year, today.month, today.day);
+        final allCategories = [...categories, ...taskCategories];
         setState(() {
           _habits = habits;
-          _categories = categories;
+          _categories = allCategories;
           _tasks = habits.where((h) {
             if (h.isRecurring) return false;
             if (h.dueDate == null) return false;
@@ -617,6 +618,9 @@ class _TodayPageState extends State<TodayPage> {
                 key: ValueKey('task_${task.reference.id}'),
                 index: index,
                 child: CompactHabitItem(
+                  tasks: _tasks,
+                  showTaskEdit: true,
+                  categories: _categories.where((c) => c.categoryType == 'task').toList(),
                   showCompleted: _showCompleted,
                   key: Key(task.reference.id),
                   habit: task,

@@ -1,410 +1,262 @@
 import 'package:flutter/material.dart';
-// import 'package:go_router/go_router.dart';
-import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
-class CreateTaskPage extends StatefulWidget {
-  const CreateTaskPage({Key? key}) : super(key: key);
+class CreateTask extends StatefulWidget {
+  final HabitRecord task;
+  final List<CategoryRecord> categories;
+  final Function(HabitRecord) onSave;
+
+  const CreateTask({
+    super.key,
+    required this.task,
+    required this.categories,
+    required this.onSave,
+  });
 
   @override
-  State<CreateTaskPage> createState() => _CreateTaskPageState();
+  State<CreateTask> createState() => _CreateTaskState();
 }
 
-class _CreateTaskPageState extends State<CreateTaskPage> {
-  final _formKey = GlobalKey<FormState>();
-  final _nameController = TextEditingController();
-  final _unitController = TextEditingController();
-
-  // Form state
+class _CreateTaskState extends State<CreateTask> {
+  late TextEditingController _titleController;
   String? _selectedCategoryId;
-  String? _selectedTrackingType = 'binary'; // default binary
-  List<CategoryRecord> _categories = [];
-  bool _isLoading = true;
-  bool _isSaving = false;
-
-  // Tracking type fields
+  String? _selectedTrackingType;
   int _targetNumber = 1;
   Duration _targetDuration = const Duration(hours: 1);
-
-  // Task-specific fields
-  DateTime? _selectedDueDate;
-  int _priority = 1; // default Low
+  String _unit = '';
+  DateTime? _dueDate;
 
   @override
   void initState() {
     super.initState();
-    _loadCategories();
+    final t = widget.task;
+    _titleController = TextEditingController(text: t.name);
+    _selectedCategoryId = t.categoryId;
+    _selectedTrackingType = t.trackingType;
+    _targetNumber = t.target is int ? t.target as int : 1;
+    _targetDuration = t.trackingType == 'time'
+        ? Duration(minutes: t.target as int)
+        : const Duration(hours: 1);
+    _unit = t.unit;
+    _dueDate = t.dueDate;
   }
 
   @override
   void dispose() {
-    _nameController.dispose();
-    _unitController.dispose();
+    _titleController.dispose();
     super.dispose();
   }
 
-  Future<void> _loadCategories() async {
+  void _save() async {
+    final docRef = widget.task.reference;
+    final updateData = createHabitRecordData(
+      name: _titleController.text.trim(),
+      categoryId: _selectedCategoryId,
+      categoryName: widget.categories
+          .firstWhere((c) => c.reference.id == _selectedCategoryId)
+          .name,
+      trackingType: _selectedTrackingType,
+      unit: _unit,
+      target: _selectedTrackingType == 'quantitative'
+          ? _targetNumber
+          : _selectedTrackingType == 'time'
+          ? _targetDuration.inMinutes
+          : null,
+      dueDate: _dueDate,
+      lastUpdated: DateTime.now(),
+    );
     try {
-      final userId = currentUserUid;
-      if (userId.isEmpty) return;
-      final categories = await queryCategoriesRecordOnce(userId: userId);
-      if (mounted) {
-        setState(() {
-          _categories = categories;
-          _isLoading = false;
-        });
-      }
+      await docRef.update(updateData);
+      final updatedHabit = HabitRecord.getDocumentFromData(updateData, docRef);
+      widget.onSave(updatedHabit);
+      Navigator.pop(context, true);
     } catch (e) {
-      if (mounted) {
-        setState(() => _isLoading = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading categories: $e')),
-        );
-      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error updating task: $e')),
+      );
     }
   }
 
-  Future<void> _selectDueDate() async {
+  Future<void> _pickDueDate() async {
     final picked = await showDatePicker(
       context: context,
-      initialDate: _selectedDueDate ?? DateTime.now(),
+      initialDate: _dueDate ?? DateTime.now(),
       firstDate: DateTime.now().subtract(const Duration(days: 365)),
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
-    if (picked != null) {
-      setState(() => _selectedDueDate = picked);
-    }
-  }
-
-  bool _canSave() {
-    if (_nameController.text.trim().isEmpty) return false;
-    if (_selectedCategoryId == null) return false;
-    if (_selectedTrackingType == null) return false;
-
-    if (_selectedTrackingType == 'quantitative' && _targetNumber <= 0) {
-      return false;
-    }
-    if (_selectedTrackingType == 'time' && _targetDuration.inMinutes <= 0) {
-      return false;
-    }
-
-    return true;
-  }
-
-  Future<void> _saveTask() async {
-    if (!_formKey.currentState!.validate()) return;
-    if (!_canSave()) return;
-
-    setState(() => _isSaving = true);
-
-    try {
-      final userId = currentUserUid;
-      if (userId.isEmpty) throw Exception("User not authenticated");
-
-      final selectedCategory = _categories.firstWhere(
-            (c) => c.reference.id == _selectedCategoryId,
-        orElse: () => throw Exception("Category not found"),
-      );
-
-      // Target based on tracking type
-      dynamic targetValue;
-      switch (_selectedTrackingType) {
-        case 'binary':
-          targetValue = true;
-          break;
-        case 'quantitative':
-          targetValue = _targetNumber;
-          break;
-        case 'time':
-          targetValue = _targetDuration.inMinutes;
-          break;
-      }
-
-      final recordData = createHabitRecordData(
-        name: _nameController.text.trim(),
-        categoryId: selectedCategory.reference.id,
-        categoryName: selectedCategory.name,
-        impactLevel: 'Medium',
-        trackingType: _selectedTrackingType,
-        target: targetValue,
-        unit: _unitController.text.trim(),
-        priority: _priority,
-        dueDate: _selectedDueDate,
-        taskStatus: 'todo',
-        isRecurring: false, // tasks are one-time
-        isActive: true,
-        createdTime: DateTime.now(),
-        lastUpdated: DateTime.now(),
-        userId: userId,
-      );
-
-      await HabitRecord.collectionForUser(userId).add(recordData);
-
-      if (mounted) {
-        // context.goNamed('TasksPg');
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error saving task: $e')),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
+    if (picked != null) setState(() => _dueDate = picked);
   }
 
   @override
+  @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
-      appBar: AppBar(
-        title: const Text("Create Task"),
-        backgroundColor: FlutterFlowTheme.of(context).primary,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back, color: Colors.white),
-          onPressed: () {
-            if (Navigator.of(context).canPop()) {
-              Navigator.of(context).pop();
-            } else {
-              // context.goNamed('TasksPg');
-            }
-          },
+    return Dialog(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(12),
+        side: BorderSide(
+          color: Theme.of(context).dividerColor,
+          width: 1,
         ),
       ),
-      body: SafeArea(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            children: [
-              // Save Button
-              Container(
-                padding: const EdgeInsets.all(16),
-                width: double.infinity,
-                child: ElevatedButton(
-                  onPressed: (_canSave() && !_isSaving) ? _saveTask : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: FlutterFlowTheme.of(context).primary,
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+      insetPadding: const EdgeInsets.all(16),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 400),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  'Edit Task',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.bold,
                   ),
-                  child: _isSaving
-                      ? const CircularProgressIndicator(color: Colors.white)
-                      : const Text("Create Task",
-                      style: TextStyle(
-                          color: Colors.white,
-                          fontWeight: FontWeight.w600)),
                 ),
-              ),
-
-              // Scrollable Form
-              Expanded(
-                child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                const SizedBox(height: 16),
+                TextField(
+                  controller: _titleController,
+                  decoration: InputDecoration(
+                    labelText: 'Task name',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                // Category
+                DropdownButtonFormField<String>(
+                  value: widget.categories.any((c) => c.reference.id == _selectedCategoryId)
+                      ? _selectedCategoryId
+                      : null,
+                  decoration: InputDecoration(
+                    labelText: 'Category',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  ),
+                  items: widget.categories
+                      .map((c) => DropdownMenuItem(value: c.reference.id, child: Text(c.name)))
+                      .toList(),
+                  onChanged: (v) => setState(() => _selectedCategoryId = v),
+                ),
+                const SizedBox(height: 12),
+                // Tracking Type
+                DropdownButtonFormField<String>(
+                  value: _selectedTrackingType,
+                  decoration: InputDecoration(
+                    labelText: 'Type',
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                  ),
+                  items: const [
+                    DropdownMenuItem(value: 'binary', child: Text('To-do')),
+                    DropdownMenuItem(value: 'quantitative', child: Text('Qty')),
+                    DropdownMenuItem(value: 'time', child: Text('Time')),
+                  ],
+                  onChanged: (v) => setState(() => _selectedTrackingType = v),
+                ),
+                const SizedBox(height: 12),
+                if (_selectedTrackingType == 'quantitative') ...[
+                  TextField(
+                    keyboardType: TextInputType.number,
+                    decoration: InputDecoration(
+                      labelText: 'Target',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    controller: TextEditingController(text: _targetNumber.toString()),
+                    onChanged: (v) => _targetNumber = int.tryParse(v) ?? 1,
+                  ),
+                  const SizedBox(height: 8),
+                  TextField(
+                    decoration: InputDecoration(
+                      labelText: 'Unit',
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    ),
+                    controller: TextEditingController(text: _unit),
+                    onChanged: (v) => _unit = v,
+                  ),
+                ],
+                if (_selectedTrackingType == 'time') ...[
+                  const SizedBox(height: 8),
+                  Row(
                     children: [
-                      _buildSectionHeader("Basic Information"),
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: "Task Name *",
-                          hintText: "e.g., Read Chapter 5",
-                          border: OutlineInputBorder(),
+                      Expanded(
+                        child: TextField(
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Hours',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          ),
+                          controller:
+                          TextEditingController(text: _targetDuration.inHours.toString()),
+                          onChanged: (v) {
+                            final h = int.tryParse(v) ?? 1;
+                            setState(() => _targetDuration =
+                                Duration(hours: h, minutes: _targetDuration.inMinutes % 60));
+                          },
                         ),
-                        validator: (val) {
-                          if (val == null || val.trim().isEmpty) {
-                            return "Please enter a name";
-                          }
-                          return null;
-                        },
                       ),
-                      const SizedBox(height: 12),
-
-                      if (_isLoading)
-                        const Center(child: CircularProgressIndicator())
-                      else
-                        DropdownButtonFormField<String>(
-                          value: _selectedCategoryId,
-                          decoration: const InputDecoration(
-                            labelText: "Category *",
-                            border: OutlineInputBorder(),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            labelText: 'Minutes',
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                           ),
-                          items: _categories
-                              .map((cat) => DropdownMenuItem(
-                            value: cat.reference.id,
-                            child: Text(cat.name),
-                          ))
-                              .toList(),
-                          onChanged: (v) =>
-                              setState(() => _selectedCategoryId = v),
-                          validator: (val) =>
-                          val == null ? "Please select a category" : null,
+                          controller: TextEditingController(text: (_targetDuration.inMinutes % 60).toString()),
+                          onChanged: (v) {
+                            final m = int.tryParse(v) ?? 0;
+                            setState(() => _targetDuration =
+                                Duration(hours: _targetDuration.inHours, minutes: m));
+                          },
                         ),
-                      const SizedBox(height: 24),
-
-                      _buildSectionHeader("Tracking Type"),
-                      DropdownButtonFormField<String>(
-                        value: _selectedTrackingType,
-                        decoration: const InputDecoration(
-                          labelText: "Type *",
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'binary',
-                              child: Text("Binary (Done/Not Done)")),
-                          DropdownMenuItem(
-                              value: 'quantitative',
-                              child: Text("Quantity (Number)")),
-                          DropdownMenuItem(
-                              value: 'time',
-                              child: Text("Time (Duration)")),
-                        ],
-                        onChanged: (val) =>
-                            setState(() => _selectedTrackingType = val),
-                        validator: (val) =>
-                        val == null ? "Please select a type" : null,
-                      ),
-                      const SizedBox(height: 24),
-
-                      if (_selectedTrackingType == 'quantitative') ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                initialValue: _targetNumber.toString(),
-                                decoration: const InputDecoration(
-                                  labelText: "Target *",
-                                  border: OutlineInputBorder(),
-                                ),
-                                keyboardType: TextInputType.number,
-                                onChanged: (val) => setState(() =>
-                                _targetNumber = int.tryParse(val) ?? 1),
-                                validator: (val) {
-                                  final num = int.tryParse(val ?? "");
-                                  if (num == null || num <= 0) {
-                                    return "Enter a valid number";
-                                  }
-                                  return null;
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextFormField(
-                                controller: _unitController,
-                                decoration: const InputDecoration(
-                                  labelText: "Unit",
-                                  hintText: "e.g., pages, km",
-                                  border: OutlineInputBorder(),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                      ] else if (_selectedTrackingType == 'time') ...[
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextFormField(
-                                initialValue: _targetDuration.inHours.toString(),
-                                decoration: const InputDecoration(
-                                  labelText: "Hours *",
-                                  border: OutlineInputBorder(),
-                                ),
-                                keyboardType: TextInputType.number,
-                                onChanged: (val) {
-                                  final h = int.tryParse(val) ?? 1;
-                                  setState(() => _targetDuration =
-                                      Duration(hours: h));
-                                },
-                              ),
-                            ),
-                            const SizedBox(width: 12),
-                            Expanded(
-                              child: TextFormField(
-                                initialValue:
-                                (_targetDuration.inMinutes % 60).toString(),
-                                decoration: const InputDecoration(
-                                  labelText: "Minutes",
-                                  border: OutlineInputBorder(),
-                                ),
-                                keyboardType: TextInputType.number,
-                                onChanged: (val) {
-                                  final m = int.tryParse(val) ?? 0;
-                                  setState(() => _targetDuration = Duration(
-                                    hours: _targetDuration.inHours,
-                                    minutes: m,
-                                  ));
-                                },
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 24),
-                      ],
-
-                      _buildSectionHeader("Task Details"),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: _selectDueDate,
-                              child: InputDecorator(
-                                decoration: const InputDecoration(
-                                  labelText: "Due Date (Optional)",
-                                  border: OutlineInputBorder(),
-                                ),
-                                child: Text(
-                                  _selectedDueDate != null
-                                      ? "${_selectedDueDate!.day}/${_selectedDueDate!.month}/${_selectedDueDate!.year}"
-                                      : "No due date",
-                                ),
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: DropdownButtonFormField<int>(
-                              value: _priority,
-                              decoration: const InputDecoration(
-                                labelText: "Priority",
-                                border: OutlineInputBorder(),
-                              ),
-                              items: const [
-                                DropdownMenuItem(value: 1, child: Text("Low")),
-                                DropdownMenuItem(value: 2, child: Text("Medium")),
-                                DropdownMenuItem(value: 3, child: Text("High")),
-                              ],
-                              onChanged: (v) =>
-                                  setState(() => _priority = v ?? 1),
-                            ),
-                          ),
-                        ],
                       ),
                     ],
                   ),
+                ],
+                const SizedBox(height: 12),
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Due Date: ${_dueDate != null ? "${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}" : "None"}',
+                      ),
+                    ),
+                    IconButton(icon: const Icon(Icons.calendar_today), onPressed: _pickDueDate)
+                  ],
                 ),
-              ),
-            ],
+                const SizedBox(height: 16),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                    const SizedBox(width: 8),
+                    ElevatedButton(onPressed: _save, child: const Text('Save')),
+                  ],
+                )
+              ],
+            ),
           ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(
-        title,
-        style: FlutterFlowTheme.of(context).titleMedium.override(
-          fontFamily: 'Readex Pro',
-          fontWeight: FontWeight.w600,
         ),
       ),
     );

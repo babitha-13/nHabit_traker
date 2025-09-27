@@ -638,9 +638,13 @@ class _TaskPageState extends State<TaskPage> {
 
   Widget _buildTaskTile(HabitRecord task) {
     return CompactHabitItem(
+      showCalendar: true,
+      showTaskEdit: true,
       key: Key(task.reference.id),
       habit: task,
       showCompleted: _showCompleted,
+      categories: _categories,
+      tasks: _tasks,
       onRefresh: _loadData,
       onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
       onHabitDeleted: (deleted) async => _loadData(),

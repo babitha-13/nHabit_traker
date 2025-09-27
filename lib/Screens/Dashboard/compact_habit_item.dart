@@ -2,10 +2,12 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+import 'package:habit_tracker/Screens/Create%20Task/create_task.dart';
 import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
 
 class CompactHabitItem extends StatefulWidget {
@@ -15,6 +17,11 @@ class CompactHabitItem extends StatefulWidget {
   final void Function(HabitRecord deletedHabit)? onHabitDeleted;
   final String? categoryColorHex;
   final bool? showCompleted;
+  final bool showCalendar;
+  final bool showTaskEdit;
+  final List<CategoryRecord>? categories;
+  final List<HabitRecord>? tasks;
+
 
   const CompactHabitItem({
     Key? key,
@@ -23,7 +30,11 @@ class CompactHabitItem extends StatefulWidget {
     this.onHabitUpdated,
     this.onHabitDeleted,
     this.categoryColorHex,
-    this.showCompleted
+    this.showCompleted,
+    this.showCalendar = false,
+    this.categories,
+    this.tasks,
+    this.showTaskEdit = false
   }) : super(key: key);
 
   @override
@@ -325,6 +336,39 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                                 ),
                               ),
                         ),
+                        Visibility(
+                          visible: widget.showCalendar,
+                          child: Row(
+                            children: [
+                              const SizedBox(width: 5),
+                              GestureDetector(
+                                child: const Icon(Icons.calendar_today, size: 20, color: Colors.blueGrey),
+                                onTap: () {
+                                  showDatePicker(
+                                    context: context,
+                                    initialDate: widget.habit.dueDate ?? DateTime.now(),
+                                    firstDate: DateTime.now().subtract(const Duration(days: 365)),
+                                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                                  ).then((selectedDate) {
+                                    if (selectedDate != null) {
+                                      widget.habit.reference.update({
+                                        'dueDate': DateTime(
+                                          selectedDate.year,
+                                          selectedDate.month,
+                                          selectedDate.day,
+                                        ),
+                                      }).then((_) {
+                                        if (widget.onHabitUpdated != null) {
+                                          widget.onHabitUpdated!(widget.habit);
+                                        }
+                                      });
+                                    }
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
                         const SizedBox(width: 5),
                         Builder(
                           builder: (btnCtx) =>
@@ -465,12 +509,45 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
     );
     if (selected == null) return;
     if (selected == 'edit') {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => CreateHabitPage(habitToEdit: widget.habit),
-        ),
-      );
+      if(widget.showTaskEdit){
+        showDialog(
+          context: context,
+          builder: (_) => CreateTask(
+            task: widget.habit,
+            categories: widget.categories??[],
+            onSave: (updatedHabit) async {
+              await updatedHabit.reference.update({
+                'name': updatedHabit.name,
+                'categoryId': updatedHabit.categoryId,
+                'categoryName': updatedHabit.categoryName,
+                'trackingType': updatedHabit.trackingType,
+                'target': updatedHabit.target,
+                'unit': updatedHabit.unit,
+                'dueDate': updatedHabit.dueDate,
+              });
+              if (widget.tasks != null) {
+                final index = widget.tasks!.indexWhere((t) => t.reference.id == updatedHabit.reference.id);
+                if (index != -1) {
+                  widget.tasks![index] = updatedHabit;
+                }
+              }
+            },
+          ),
+        ).then((value){
+          if(value){
+            if (widget.onHabitUpdated != null) {
+              widget.onHabitUpdated!(widget.habit);
+            }
+          }
+        });
+      }else{
+        Navigator.push(
+          context,
+          MaterialPageRoute(
+            builder: (context) => CreateHabitPage(habitToEdit: widget.habit),
+          ),
+        );
+      }
     } else if (selected == 'copy') {
       await _copyHabit();
     } else if (selected == 'delete') {
