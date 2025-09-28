@@ -26,6 +26,7 @@ class _CreateTaskState extends State<CreateTask> {
   Duration _targetDuration = const Duration(hours: 1);
   String _unit = '';
   DateTime? _dueDate;
+  bool quickIsRecurring = false;
 
   @override
   void initState() {
@@ -51,6 +52,7 @@ class _CreateTaskState extends State<CreateTask> {
   void _save() async {
     final docRef = widget.task.reference;
     final updateData = createHabitRecordData(
+      isRecurring: quickIsRecurring,
       name: _titleController.text.trim(),
       categoryId: _selectedCategoryId,
       categoryName: widget.categories
@@ -242,7 +244,22 @@ class _CreateTaskState extends State<CreateTask> {
                         'Due Date: ${_dueDate != null ? "${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}" : "None"}',
                       ),
                     ),
-                    IconButton(icon: const Icon(Icons.calendar_today), onPressed: _pickDueDate)
+                    Row(
+                      children: [
+                        IconButton(icon: const Icon(Icons.calendar_today), onPressed: _pickDueDate),
+                        Transform.scale(
+                          scale: 0.7, // make the switch smaller
+                          child: Switch(
+                            value: quickIsRecurring,
+                            onChanged: (val) {
+                              setState(() {
+                                quickIsRecurring = val;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    )
                   ],
                 ),
                 const SizedBox(height: 16),

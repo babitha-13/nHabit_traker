@@ -170,7 +170,7 @@ class HabitRecord extends FirestoreRecord {
 
   // "taskStatus" field for task completion status ('todo' | 'doing' | 'done').
   String? _taskStatus;
-  String get taskStatus => _taskStatus ?? 'todo';
+  String get taskStatus => _taskStatus ?? 'incomplete';
   bool hasTaskStatus() => _taskStatus != null;
 
   void _initializeFields() {

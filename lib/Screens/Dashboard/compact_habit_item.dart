@@ -436,7 +436,7 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
   }
 
   Widget _buildHabitPriorityStars() {
-    final current = widget.habit.hasPriority() ? widget.habit.priority : 0;
+    final current = widget.habit.weight ?? 0;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {

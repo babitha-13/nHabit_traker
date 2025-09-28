@@ -37,6 +37,7 @@ class _TaskPageState extends State<TaskPage> {
   String _quickUnit = '';
   final TextEditingController _quickUnitController = TextEditingController();
   late bool _showCompleted;
+  bool quickIsRecurring = false;
 
   @override
   void initState() {
@@ -113,7 +114,7 @@ class _TaskPageState extends State<TaskPage> {
       final categories = await queryTaskCategoriesOnce(userId: uid);
       setState(() {
         _tasks = allHabits
-            .where((h) =>
+            .where((h) =>h.isRecurring||
         !h.isRecurring &&
             (widget.categoryId == null ||
                 h.categoryId == widget.categoryId))
@@ -246,6 +247,17 @@ class _TaskPageState extends State<TaskPage> {
                       onPressed: _selectQuickDueDate,
                       tooltip: 'Set due date',
                     ),
+                    Transform.scale(
+                      scale: 0.7, // make the switch smaller
+                      child: Switch(
+                        value: quickIsRecurring,
+                        onChanged: (val) {
+                          setState(() {
+                            quickIsRecurring = val;
+                          });
+                        },
+                      ),
+                    ),
                   ],
                 ),
                 if (_selectedQuickTrackingType != null &&
@@ -369,7 +381,7 @@ class _TaskPageState extends State<TaskPage> {
     if (!task.isActive) return false;
     switch (task.trackingType) {
       case 'binary':
-        return task.taskStatus == 'done';
+        return task.taskStatus == 'complete';
       case 'quantitative':
         final currentValue = task.currentValue ?? 0;
         final target = task.target ?? 0;
@@ -379,7 +391,7 @@ class _TaskPageState extends State<TaskPage> {
         final targetMinutes = task.target ?? 0;
         return targetMinutes > 0 && currentMinutes >= targetMinutes;
       default:
-        return task.taskStatus == 'done';
+        return task.taskStatus == 'complete';
     }
   }
 
@@ -476,8 +488,8 @@ class _TaskPageState extends State<TaskPage> {
             .name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
-        taskStatus: 'todo',
-        isRecurring: false,
+        taskStatus: 'incomplete',
+        isRecurring: quickIsRecurring,
         isActive: true,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
@@ -532,7 +544,7 @@ class _TaskPageState extends State<TaskPage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     for (final t in _tasks) {
-      if (!t.isActive || t.taskStatus == 'done') continue;
+      if (!t.isActive || t.taskStatus == 'complete') continue;
       if (!_showCompleted && _isTaskCompleted(t)) continue;
       final due = t.dueDate;
       if (due == null) {
@@ -575,9 +587,9 @@ class _TaskPageState extends State<TaskPage> {
 
   Widget _buildItemTile(dynamic item) {
     if (item is HabitRecord) {
-      if (!item.isRecurring) {
+      // if (!item.isRecurring) {
         return _buildTaskTile(item);
-      }
+      // }
     }
     return const SizedBox.shrink();
   }
@@ -593,7 +605,7 @@ class _TaskPageState extends State<TaskPage> {
       if (ad != null && bd != null) return ad.compareTo(bd);
       if (ad != null) return -1;
       if (bd != null) return 1;
-      return a.title.toLowerCase().compareTo(b.title.toLowerCase());
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
     }
 
     items.sort((x, y) {
@@ -678,7 +690,7 @@ class _TaskPageState extends State<TaskPage> {
       final categories = await queryTaskCategoriesOnce(userId: uid);
       if (!mounted) return;
       setState(() {
-        _tasks = allHabits.where((h) => !h.isRecurring).toList();
+        _tasks = allHabits.where((h) => h.isRecurring||!h.isRecurring).toList();
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {

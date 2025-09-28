@@ -14,16 +14,12 @@ class TaskRecord extends FirestoreRecord {
   }
 
   // Fields
-  String? _title;
-  String get title => _title ?? '';
-  bool hasTitle() => _title != null;
-
-  String? _description;
-  String get description => _description ?? '';
-  bool hasDescription() => _description != null;
+  String? _name;
+  String get name => _name ?? '';
+  bool hasTitle() => _name != null;
 
   String? _status; // todo | doing | done
-  String get status => _status ?? 'todo';
+  String get status => _status ?? 'incomplete';
   bool hasStatus() => _status != null;
 
   DateTime? _dueDate;
@@ -64,8 +60,7 @@ class TaskRecord extends FirestoreRecord {
   bool hasHabitId() => _habitId != null;
 
   void _initializeFields() {
-    _title = snapshotData['title'] as String?;
-    _description = snapshotData['description'] as String?;
+    _name = snapshotData['title'] as String?;
     _status = snapshotData['status'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
     _priority = snapshotData['priority'] as int?;
@@ -154,8 +149,7 @@ class TaskRecordDocumentEquality implements Equality<TaskRecord> {
 
   @override
   bool equals(TaskRecord? e1, TaskRecord? e2) {
-    return e1?.title == e2?.title &&
-        e1?.description == e2?.description &&
+    return e1?.name == e2?.name &&
         e1?.status == e2?.status &&
         e1?.dueDate == e2?.dueDate &&
         e1?.priority == e2?.priority &&
@@ -169,8 +163,7 @@ class TaskRecordDocumentEquality implements Equality<TaskRecord> {
 
   @override
   int hash(TaskRecord? e) => const ListEquality().hash([
-        e?.title,
-        e?.description,
+        e?.name,
         e?.status,
         e?.dueDate,
         e?.priority,

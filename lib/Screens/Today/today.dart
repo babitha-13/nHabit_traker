@@ -105,13 +105,16 @@ class _TodayPageState extends State<TodayPage> {
           _habits = habits;
           _categories = allCategories;
           _tasks = habits.where((h) {
-            if (h.isRecurring) return false;
+            // if (h.isRecurring) return false;
             if (h.dueDate == null) return false;
             final due = DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
-            return due == todayDate &&
-                (taskCategoryNames.contains(h.categoryName) ||
-                    h.categoryName.toLowerCase() == 'tasks' ||
-                    h.categoryName.toLowerCase() == 'task');
+            if (due != todayDate) return false;
+            final isTaskCategory = taskCategoryNames.contains(h.categoryName) ||
+                h.categoryName.toLowerCase() == 'tasks' ||
+                h.categoryName.toLowerCase() == 'task';
+            if (!isTaskCategory) return false;
+            if (_isTaskCompleted(h) && !_showCompleted) return false;
+            return true;
           }).toList();
           _recomputeTasksTodayOrder();
           _calculateScores();
@@ -142,7 +145,7 @@ class _TodayPageState extends State<TodayPage> {
       if (!t.isActive) return false;
       switch (t.trackingType) {
         case 'binary':
-          return t.taskStatus != 'done';
+          return t.taskStatus != 'complete';
         case 'quantitative':
           final currentValue = t.currentValue ?? 0;
           final target = t.target ?? 0;
@@ -152,7 +155,7 @@ class _TodayPageState extends State<TodayPage> {
           final targetMinutes = t.target ?? 0;
           return currentMinutes < targetMinutes;
         default:
-          return t.taskStatus != 'done';
+          return t.taskStatus != 'complete';
       }
     }).toList();
 
@@ -370,7 +373,7 @@ class _TodayPageState extends State<TodayPage> {
     if (!task.isActive) return false;
     switch (task.trackingType) {
       case 'binary':
-        return task.taskStatus == 'done';
+        return task.taskStatus == 'complete';
       case 'quantitative':
         final currentValue = task.currentValue ?? 0;
         final target = task.target ?? 0;
@@ -380,7 +383,7 @@ class _TodayPageState extends State<TodayPage> {
         final targetMinutes = task.target ?? 0;
         return targetMinutes > 0 && currentMinutes >= targetMinutes;
       default:
-        return task.taskStatus == 'done';
+        return task.taskStatus == 'complete';
     }
   }
 
@@ -1414,7 +1417,7 @@ class _TodayPageState extends State<TodayPage> {
       if (!mounted) return;
       setState(() {
         _tasks = allHabits.where((h) {
-          if (h.isRecurring) return false;
+          // if (h.isRecurring) return false;
           if (h.dueDate == null) return false;
           final due = DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
           return due == todayDate &&

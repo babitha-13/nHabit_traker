@@ -471,7 +471,7 @@ Future<DocumentReference> createTask({
   final taskData = createTaskRecordData(
     title: title,
     description: description,
-    status: 'todo',
+    status: 'incomplete',
     dueDate: dueDate,
     priority: priority,
     isActive: true,
