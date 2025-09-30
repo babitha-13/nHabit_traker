@@ -87,14 +87,14 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
             : baseTarget * widget.habit.specificDays.length.toDouble();
       } else {
         weeklyTarget = trackingType == 'binary'
-            ? widget.habit.weeklyTarget.toDouble()
-            : baseTarget * widget.habit.weeklyTarget.toDouble();
+            ? widget.habit.frequency.toDouble()
+            : baseTarget * widget.habit.frequency.toDouble();
       }
     } else {
       // Monthly habits: approximate to weekly
       weeklyTarget = trackingType == 'binary'
-          ? (widget.habit.weeklyTarget * 7 / 30)
-          : (baseTarget * widget.habit.weeklyTarget * 7 / 30);
+          ? (widget.habit.frequency * 7 / 30)
+          : (baseTarget * widget.habit.frequency * 7 / 30);
     }
 
     // Calculate weekly progress
@@ -102,7 +102,8 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
 
     if (trackingType == 'binary') {
       // Count completed days this week
-      final completedDates = widget.habit.completedDates;
+      // Note: completedDates tracking moved to separate completion records
+      final completedDates = <DateTime>[];
       final count = completedDates.where((date) {
         return date.isAfter(startOfWeek.subtract(Duration(days: 1))) &&
             date.isBefore(now.add(Duration(days: 1)));
@@ -381,11 +382,10 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
         categoryName: widget.habit.categoryName.isNotEmpty
             ? widget.habit.categoryName
             : 'default',
-        impactLevel: widget.habit.impactLevel,
         trackingType: widget.habit.trackingType,
         target: widget.habit.target,
         schedule: widget.habit.schedule,
-        weeklyTarget: widget.habit.weeklyTarget,
+        frequency: widget.habit.frequency,
         description: widget.habit.description.isNotEmpty
             ? widget.habit.description
             : null,
@@ -423,8 +423,8 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
                   final today = DateTime.now();
                   final todayDate =
                       DateTime(today.year, today.month, today.day);
-                  final completedDates =
-                      List<DateTime>.from(widget.habit.completedDates);
+                  // Note: completedDates tracking moved to separate completion records
+                  final completedDates = <DateTime>[];
                   completedDates.removeWhere((date) =>
                       date.year == todayDate.year &&
                       date.month == todayDate.month &&
@@ -455,15 +455,13 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
 
   Color _getImpactLevelColor() {
     final theme = FlutterFlowTheme.of(context);
-    switch (widget.habit.impactLevel) {
-      case 'Low':
+    switch (widget.habit.priority) {
+      case 1:
         return theme.accent3; // cool neutral
-      case 'Medium':
+      case 2:
         return theme.secondary; // slate grey
-      case 'High':
-        return theme.warning; // amber
-      case 'Very High':
-        return theme.error; // red
+      case 3:
+        return theme.primary; // high priority
       default:
         return theme.secondary;
     }

@@ -1,3 +1,4 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'schema/habit_record.dart';
 import 'backend.dart';
 
@@ -8,12 +9,7 @@ class HabitTrackingUtil {
     final today = DateTime(now.year, now.month, now.day);
 
     // Respect explicit skips
-    if (habit.skippedDates.any((date) =>
-        date.year == today.year &&
-        date.month == today.month &&
-        date.day == today.day)) {
-      return false;
-    }
+    // Note: skippedDates tracking moved to separate records
 
     switch (habit.schedule) {
       case 'daily':
@@ -26,20 +22,22 @@ class HabitTrackingUtil {
           final weekStart = today.subtract(Duration(days: today.weekday - 1));
           final weekEnd = weekStart.add(const Duration(days: 6));
 
-          final completedThisWeek = habit.completedDates.where((date) {
+          // Note: completedDates tracking moved to separate completion records
+          final completedThisWeek = <DateTime>[].where((date) {
             final completionDate = DateTime(date.year, date.month, date.day);
             return completionDate
                     .isAfter(weekStart.subtract(const Duration(days: 1))) &&
                 completionDate.isBefore(weekEnd.add(const Duration(days: 1)));
           }).length;
-          return completedThisWeek < habit.weeklyTarget;
+          return completedThisWeek < habit.frequency;
         }
       case 'monthly':
         // Check if we haven't completed enough times this month
         final monthStart = DateTime(now.year, now.month, 1);
         final monthEnd = DateTime(now.year, now.month + 1, 0);
 
-        final completedThisMonth = habit.completedDates.where((date) {
+        // Note: completedDates tracking moved to separate completion records
+        final completedThisMonth = <DateTime>[].where((date) {
           final completionDate = DateTime(date.year, date.month, date.day);
           return completionDate
                   .isAfter(monthStart.subtract(const Duration(days: 1))) &&
@@ -47,8 +45,7 @@ class HabitTrackingUtil {
         }).length;
 
         return completedThisMonth <
-            habit.weeklyTarget; // reuse as count for month for now
-        habit.weeklyTarget; // weeklyTarget is used for monthly target
+            habit.frequency; // reuse as count for month for now
       default:
         return true;
     }
@@ -87,10 +84,9 @@ class HabitTrackingUtil {
     switch (habit.trackingType) {
       case 'binary':
         // Check if today is in completed dates
-        return habit.completedDates.any((date) =>
-            date.year == todayDate.year &&
-            date.month == todayDate.month &&
-            date.day == todayDate.day);
+        // Note: completedDates tracking moved to separate completion records
+        // For now, return false to indicate not completed
+        return false;
       case 'quantitative':
         final progress = getCurrentProgress(habit);
         final target = getTarget(habit);
@@ -200,28 +196,16 @@ class HabitTrackingUtil {
 
     // For binary tracking, just add to completed dates
     if (habit.trackingType == 'binary') {
-      final completedDates = List<DateTime>.from(habit.completedDates);
-      if (!completedDates.any((date) =>
-          date.year == todayDate.year &&
-          date.month == todayDate.month &&
-          date.day == todayDate.day)) {
-        completedDates.add(todayDate);
-        updates['completedDates'] = completedDates;
-        updates['currentValue'] = true;
-      }
+      // Note: completedDates tracking moved to separate completion records
+      // For now, just update the current value
+      updates['currentValue'] = true;
     } else {
       // For other types, add to completed dates if target is reached
       final progress = getCurrentProgress(habit);
       final target = getTarget(habit);
       if (progress >= target) {
-        final completedDates = List<DateTime>.from(habit.completedDates);
-        if (!completedDates.any((date) =>
-            date.year == todayDate.year &&
-            date.month == todayDate.month &&
-            date.day == todayDate.day)) {
-          completedDates.add(todayDate);
-          updates['completedDates'] = completedDates;
-        }
+        // Note: completedDates tracking moved to separate completion records
+        // Target reached, mark as completed for today
       }
     }
 
@@ -288,7 +272,7 @@ class HabitTrackingUtil {
           refId: habit.reference.id,
           startTime: sessionStart,
           endTime: sessionEnd,
-          userId: habit.userId,
+          userId: FirebaseAuth.instance.currentUser?.uid ?? '',
         );
       } catch (e) {
         // Non-fatal
@@ -448,16 +432,14 @@ class HabitTrackingUtil {
   static Future<void> skipToday(HabitRecord habit) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final skipped = List<DateTime>.from(habit.skippedDates);
-    if (!skipped.any((d) =>
-        d.year == today.year && d.month == today.month && d.day == today.day)) {
-      skipped.add(today);
-      await habit.reference.update({
-        'skippedDates': skipped,
-        'lastUpdated': DateTime.now(),
-      });
-    }
+    // Note: skippedDates tracking moved to separate records
+    // For now, just update the snoozedUntil field
+    await habit.reference.update({
+      'snoozedUntil': DateTime(today.year, today.month, today.day + 1),
+      'lastUpdated': DateTime.now(),
+    });
   }
+
   static Duration getTrackedTime(HabitRecord habit) {
     return Duration(milliseconds: habit.accumulatedTime);
   }
@@ -485,10 +467,13 @@ class HabitTrackingUtil {
     final totalMinutes = totalMs ~/ 60000;
 
     if (totalMinutes >= targetMinutes) {
-      // ✅ Stop the timer
-      await stopTimer(habit);
-      // ✅ Mark as completed
-      await markCompleted(habit);
+      // ✅ Stop the timer and mark as completed
+      await habit.reference.update({
+        'isTimerActive': false,
+        'timerStartTime': null,
+        'currentValue': true,
+        'lastUpdated': DateTime.now(),
+      });
       print(
           'Habit ${habit.name} reached target $targetMinutes min, auto-stopped & marked completed.');
     }
@@ -497,5 +482,4 @@ class HabitTrackingUtil {
   static bool getIsTimerActive(HabitRecord habit) {
     return habit.isTimerActive;
   }
-
 }

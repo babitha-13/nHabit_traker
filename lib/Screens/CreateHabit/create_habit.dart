@@ -31,7 +31,13 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
   int _weeklyTarget = 1;
   List<int> _selectedDays = [];
   static const List<String> _weekDays = [
-    'Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday'
   ];
 
   @override
@@ -45,8 +51,8 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
       _selectedCategoryId = habit.categoryId;
       _selectedTrackingType = habit.trackingType;
       _selectedSchedule = habit.schedule;
-      weight = habit.weight;
-      _weeklyTarget = habit.weeklyTarget ?? 1;
+      weight = habit.priority;
+      _weeklyTarget = habit.frequency ?? 1;
       if (habit.trackingType == 'quantitative') {
         _targetNumber = habit.target ?? 1;
       } else if (habit.trackingType == 'time') {
@@ -89,8 +95,10 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
     if (_nameController.text.trim().isEmpty) return false;
     if (_selectedCategoryId == null) return false;
     if (_selectedTrackingType == null) return false;
-    if (_selectedTrackingType == 'quantitative' && _targetNumber <= 0) return false;
-    if (_selectedTrackingType == 'time' && _targetDuration.inMinutes <= 0) return false;
+    if (_selectedTrackingType == 'quantitative' && _targetNumber <= 0)
+      return false;
+    if (_selectedTrackingType == 'time' && _targetDuration.inMinutes <= 0)
+      return false;
     if (_selectedSchedule == 'weekly' && _weeklyTarget <= 0) return false;
     if (_selectedSchedule == 'monthly' && _weeklyTarget <= 0) return false;
     return true;
@@ -104,26 +112,31 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
     try {
       final userId = currentUserUid;
       final selectedCategory = _categories.firstWhere(
-            (cat) => cat.reference.id == _selectedCategoryId,
+        (cat) => cat.reference.id == _selectedCategoryId,
       );
 
       dynamic targetValue;
       switch (_selectedTrackingType) {
-        case 'binary': targetValue = true; break;
-        case 'quantitative': targetValue = _targetNumber; break;
-        case 'time': targetValue = _targetDuration.inMinutes; break;
+        case 'binary':
+          targetValue = true;
+          break;
+        case 'quantitative':
+          targetValue = _targetNumber;
+          break;
+        case 'time':
+          targetValue = _targetDuration.inMinutes;
+          break;
       }
 
       final recordData = createHabitRecordData(
-        weight: weight,
+        priority: weight,
         name: _nameController.text.trim(),
         categoryId: selectedCategory.reference.id,
         categoryName: selectedCategory.name,
-        impactLevel: 'Medium',
         trackingType: _selectedTrackingType,
         target: targetValue,
         schedule: _selectedSchedule,
-        weeklyTarget: _weeklyTarget,
+        frequency: _weeklyTarget,
         unit: _unitController.text.trim(),
         dayEndTime: 0,
         specificDays: _selectedDays.isNotEmpty ? _selectedDays : null,
@@ -131,7 +144,6 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
         isActive: true,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
-        userId: userId,
       );
       if (widget.habitToEdit != null) {
         await widget.habitToEdit!.reference.update(recordData);
@@ -173,7 +185,10 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
             Navigator.pop(context, false);
           },
         ),
-        title: const Text('Create Habit', style: TextStyle(color: Colors.white),),
+        title: const Text(
+          'Create Habit',
+          style: TextStyle(color: Colors.white),
+        ),
       ),
       body: SafeArea(
         child: Form(
@@ -193,63 +208,74 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                           labelText: 'Name *',
                           border: OutlineInputBorder(),
                         ),
-                        validator: (v) => v == null || v.trim().isEmpty ? 'Enter a name' : null,
+                        validator: (v) => v == null || v.trim().isEmpty
+                            ? 'Enter a name'
+                            : null,
                       ),
                       const SizedBox(height: 12),
-                      if (_isLoading) const Center(child: CircularProgressIndicator())
-                      else Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: DropdownButtonFormField<String>(
-                              value: _selectedCategoryId,
-                              decoration: const InputDecoration(
-                                labelText: 'Category *',
-                                border: OutlineInputBorder(),
-                              ),
-                              items: _categories.map((c) => DropdownMenuItem(
-                                  value: c.reference.id, child: Text(c.name))).toList(),
-                              onChanged: (v) => setState(() => _selectedCategoryId = v),
-                              validator: (v) => v == null ? 'Select a category' : null,
-                            ),
-                          ),
-                          const SizedBox(width: 5,),
-                          GestureDetector(
-                            onTap: (){
-                              showDialog(
-                                context: context,
-                                builder: (context) => const CreateCategory(categoryType: 'habit'),
-                              ).then((value){
-                                _loadCategories();
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(8),
-                              decoration: BoxDecoration(
-                                color: FlutterFlowTheme.of(context).primary,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: FlutterFlowTheme.of(context).primary,
-                                  width: 1,
+                      if (_isLoading)
+                        const Center(child: CircularProgressIndicator())
+                      else
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            Expanded(
+                              child: DropdownButtonFormField<String>(
+                                value: _selectedCategoryId,
+                                decoration: const InputDecoration(
+                                  labelText: 'Category *',
+                                  border: OutlineInputBorder(),
                                 ),
-                                boxShadow: [
-                                  BoxShadow(
-                                    color: Colors.black.withOpacity(0.1),
-                                    blurRadius: 3,
-                                    offset: const Offset(0, 2),
-                                  ),
-                                ],
-                              ),
-                              child: const Icon(
-                                Icons.add,
-                                color: Colors.white,
+                                items: _categories
+                                    .map((c) => DropdownMenuItem(
+                                        value: c.reference.id,
+                                        child: Text(c.name)))
+                                    .toList(),
+                                onChanged: (v) =>
+                                    setState(() => _selectedCategoryId = v),
+                                validator: (v) =>
+                                    v == null ? 'Select a category' : null,
                               ),
                             ),
-                          )
-                        ],
-                      ),
+                            const SizedBox(
+                              width: 5,
+                            ),
+                            GestureDetector(
+                              onTap: () {
+                                showDialog(
+                                  context: context,
+                                  builder: (context) => const CreateCategory(
+                                      categoryType: 'habit'),
+                                ).then((value) {
+                                  _loadCategories();
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                decoration: BoxDecoration(
+                                  color: FlutterFlowTheme.of(context).primary,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    width: 1,
+                                  ),
+                                  boxShadow: [
+                                    BoxShadow(
+                                      color: Colors.black.withOpacity(0.1),
+                                      blurRadius: 3,
+                                      offset: const Offset(0, 2),
+                                    ),
+                                  ],
+                                ),
+                                child: const Icon(
+                                  Icons.add,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            )
+                          ],
+                        ),
                       const SizedBox(height: 24),
-
                       _buildSectionHeader('Tracking Type'),
                       DropdownButtonFormField<String>(
                         value: _selectedTrackingType,
@@ -258,50 +284,74 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                           border: OutlineInputBorder(),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'binary', child: Text('Binary (Done/Not Done)')),
-                          DropdownMenuItem(value: 'quantitative', child: Text('Quantity (Number)')),
-                          DropdownMenuItem(value: 'time', child: Text('Time (Duration)')),
+                          DropdownMenuItem(
+                              value: 'binary',
+                              child: Text('Binary (Done/Not Done)')),
+                          DropdownMenuItem(
+                              value: 'quantitative',
+                              child: Text('Quantity (Number)')),
+                          DropdownMenuItem(
+                              value: 'time', child: Text('Time (Duration)')),
                         ],
-                        onChanged: (v) => setState(() => _selectedTrackingType = v),
-                        validator: (v) => v == null ? 'Select tracking type' : null,
+                        onChanged: (v) =>
+                            setState(() => _selectedTrackingType = v),
+                        validator: (v) =>
+                            v == null ? 'Select tracking type' : null,
                       ),
                       const SizedBox(height: 24),
-
                       if (_selectedTrackingType == 'quantitative') ...[
                         _buildSectionHeader('Target'),
                         Row(children: [
-                          Expanded(child: TextFormField(
+                          Expanded(
+                              child: TextFormField(
                             initialValue: _targetNumber.toString(),
-                            decoration: const InputDecoration(labelText: 'Target *', border: OutlineInputBorder()),
+                            decoration: const InputDecoration(
+                                labelText: 'Target *',
+                                border: OutlineInputBorder()),
                             keyboardType: TextInputType.number,
-                            onChanged: (v) => setState(() => _targetNumber = int.tryParse(v) ?? 1),
+                            onChanged: (v) => setState(
+                                () => _targetNumber = int.tryParse(v) ?? 1),
                           )),
                           const SizedBox(width: 12),
-                          Expanded(child: TextFormField(
+                          Expanded(
+                              child: TextFormField(
                             controller: _unitController,
-                            decoration: const InputDecoration(labelText: 'Unit', border: OutlineInputBorder()),
+                            decoration: const InputDecoration(
+                                labelText: 'Unit',
+                                border: OutlineInputBorder()),
                           )),
                         ]),
                       ] else if (_selectedTrackingType == 'time') ...[
                         _buildSectionHeader('Target'),
                         Row(children: [
-                          Expanded(child: TextFormField(
+                          Expanded(
+                              child: TextFormField(
                             initialValue: _targetDuration.inHours.toString(),
-                            decoration: const InputDecoration(labelText: 'Hours *', border: OutlineInputBorder()),
+                            decoration: const InputDecoration(
+                                labelText: 'Hours *',
+                                border: OutlineInputBorder()),
                             keyboardType: TextInputType.number,
                             onChanged: (v) {
                               final hours = int.tryParse(v) ?? 1;
-                              setState(() => _targetDuration = Duration(hours: hours, minutes: _targetDuration.inMinutes % 60));
+                              setState(() => _targetDuration = Duration(
+                                  hours: hours,
+                                  minutes: _targetDuration.inMinutes % 60));
                             },
                           )),
                           const SizedBox(width: 12),
-                          Expanded(child: TextFormField(
-                            initialValue: (_targetDuration.inMinutes % 60).toString(),
-                            decoration: const InputDecoration(labelText: 'Minutes', border: OutlineInputBorder()),
+                          Expanded(
+                              child: TextFormField(
+                            initialValue:
+                                (_targetDuration.inMinutes % 60).toString(),
+                            decoration: const InputDecoration(
+                                labelText: 'Minutes',
+                                border: OutlineInputBorder()),
                             keyboardType: TextInputType.number,
                             onChanged: (v) {
                               final mins = int.tryParse(v) ?? 0;
-                              setState(() => _targetDuration = Duration(hours: _targetDuration.inHours, minutes: mins));
+                              setState(() => _targetDuration = Duration(
+                                  hours: _targetDuration.inHours,
+                                  minutes: mins));
                             },
                           )),
                         ]),
@@ -315,27 +365,36 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                           border: OutlineInputBorder(),
                         ),
                         items: const [
-                          DropdownMenuItem(value: 'daily', child: Text('Daily')),
-                          DropdownMenuItem(value: 'weekly', child: Text('Weekly')),
-                          DropdownMenuItem(value: 'monthly', child: Text('Monthly')),
+                          DropdownMenuItem(
+                              value: 'daily', child: Text('Daily')),
+                          DropdownMenuItem(
+                              value: 'weekly', child: Text('Weekly')),
+                          DropdownMenuItem(
+                              value: 'monthly', child: Text('Monthly')),
                         ],
-                        onChanged: (v) => setState(() => _selectedSchedule = v ?? 'daily'),
+                        onChanged: (v) =>
+                            setState(() => _selectedSchedule = v ?? 'daily'),
                       ),
                       const SizedBox(height: 12),
-                      if (_selectedSchedule == 'weekly' || _selectedSchedule == 'monthly') ...[
+                      if (_selectedSchedule == 'weekly' ||
+                          _selectedSchedule == 'monthly') ...[
                         TextFormField(
                           initialValue: _weeklyTarget.toString(),
                           decoration: InputDecoration(
-                            labelText: _selectedSchedule == 'weekly' ? 'Times per week *' : 'Times per month *',
+                            labelText: _selectedSchedule == 'weekly'
+                                ? 'Times per week *'
+                                : 'Times per month *',
                             border: const OutlineInputBorder(),
                           ),
                           keyboardType: TextInputType.number,
-                          onChanged: (v) => setState(() => _weeklyTarget = int.tryParse(v) ?? 1),
+                          onChanged: (v) => setState(
+                              () => _weeklyTarget = int.tryParse(v) ?? 1),
                         ),
                         const SizedBox(height: 12),
                       ],
                       if (_selectedSchedule == 'weekly') ...[
-                        const Text('Days of week:', style: TextStyle(fontSize: 12)),
+                        const Text('Days of week:',
+                            style: TextStyle(fontSize: 12)),
                         Wrap(
                           spacing: 8,
                           children: List.generate(7, (i) {
@@ -344,8 +403,11 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                               label: Text(_weekDays[i].substring(0, 3)),
                               selected: isSelected,
                               onSelected: (s) => setState(() {
-                                if (s) { _selectedDays.add(i + 1); }
-                                else { _selectedDays.remove(i + 1); }
+                                if (s) {
+                                  _selectedDays.add(i + 1);
+                                } else {
+                                  _selectedDays.remove(i + 1);
+                                }
                               }),
                             );
                           }),
@@ -357,7 +419,8 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                       InputDecorator(
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
-                          contentPadding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          contentPadding:
+                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -393,7 +456,8 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                     ),
                     child: _isSaving
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('Create Habit', style: TextStyle(color: Colors.white)),
+                        : const Text('Create Habit',
+                            style: TextStyle(color: Colors.white)),
                   ),
                 ),
               ),

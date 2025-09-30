@@ -22,26 +22,26 @@ class CompactHabitItem extends StatefulWidget {
   final List<CategoryRecord>? categories;
   final List<HabitRecord>? tasks;
 
-
-  const CompactHabitItem({
-    Key? key,
-    required this.habit,
-    this.onRefresh,
-    this.onHabitUpdated,
-    this.onHabitDeleted,
-    this.categoryColorHex,
-    this.showCompleted,
-    this.showCalendar = false,
-    this.categories,
-    this.tasks,
-    this.showTaskEdit = false
-  }) : super(key: key);
+  const CompactHabitItem(
+      {Key? key,
+      required this.habit,
+      this.onRefresh,
+      this.onHabitUpdated,
+      this.onHabitDeleted,
+      this.categoryColorHex,
+      this.showCompleted,
+      this.showCalendar = false,
+      this.categories,
+      this.tasks,
+      this.showTaskEdit = false})
+      : super(key: key);
 
   @override
   State<CompactHabitItem> createState() => _CompactHabitItemState();
 }
 
-class _CompactHabitItemState extends State<CompactHabitItem> with TickerProviderStateMixin {
+class _CompactHabitItemState extends State<CompactHabitItem>
+    with TickerProviderStateMixin {
   bool _isUpdating = false;
   Timer? _timer;
   int? _quantProgressOverride;
@@ -80,11 +80,10 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
         categoryName: widget.habit.categoryName.isNotEmpty
             ? widget.habit.categoryName
             : 'default',
-        impactLevel: widget.habit.impactLevel,
         trackingType: widget.habit.trackingType,
         target: widget.habit.target,
         schedule: widget.habit.schedule,
-        weeklyTarget: widget.habit.weeklyTarget,
+        frequency: widget.habit.frequency,
         description: widget.habit.description.isNotEmpty
             ? widget.habit.description
             : null,
@@ -114,7 +113,7 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
     _timer?.cancel();
     final startTime = widget.habit.timerStartTime ?? DateTime.now();
     final target = HabitTrackingUtil.getTargetDuration(widget.habit);
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) async{
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
       if (mounted) {
         setState(() {});
       }
@@ -123,7 +122,8 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
         timer.cancel();
         setState(() => _timerStateOverride = false);
         await HabitTrackingUtil.stopTimer(widget.habit);
-        final updated = await HabitRecord.getDocumentOnce(widget.habit.reference);
+        final updated =
+            await HabitRecord.getDocumentOnce(widget.habit.reference);
         if (mounted) {
           widget.onHabitUpdated?.call(updated);
         }
@@ -137,15 +137,13 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
 
   Color get _impactLevelColor {
     final theme = FlutterFlowTheme.of(context);
-    switch (widget.habit.impactLevel) {
-      case 'Low':
+    switch (widget.habit.priority) {
+      case 1:
         return theme.accent3;
-      case 'Medium':
+      case 2:
         return theme.secondary;
-      case 'High':
-        return theme.warning;
-      case 'Very High':
-        return theme.error;
+      case 3:
+        return theme.primary;
       default:
         return theme.secondary;
     }
@@ -161,6 +159,7 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
     }
     return widget.habit.isTimerActive;
   }
+
   num _currentProgressLocal() {
     if (widget.habit.trackingType == 'quantitative' &&
         _quantProgressOverride != null) {
@@ -203,8 +202,6 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
     }
   }
 
-
-
   @override
   Widget build(BuildContext context) {
     if (_isFullyCompleted && (widget.showCompleted != true)) {
@@ -214,20 +211,16 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
       decoration: BoxDecoration(
-          gradient:
-          FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+          gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
           border: Border(
             left: BorderSide(
-                color:
-                FlutterFlowTheme.of(context).surfaceBorderColor,
+                color: FlutterFlowTheme.of(context).surfaceBorderColor,
                 width: 1),
             right: BorderSide(
-                color:
-                FlutterFlowTheme.of(context).surfaceBorderColor,
+                color: FlutterFlowTheme.of(context).surfaceBorderColor,
                 width: 1),
             top: BorderSide.none,
-          )
-      ),
+          )),
       padding: const EdgeInsets.fromLTRB(6, 2, 6, 6),
       child: ConstrainedBox(
         constraints: BoxConstraints(maxWidth: screenWidth - 32),
@@ -289,14 +282,16 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                             Align(
                               alignment: Alignment.center,
                               child: Container(
-                                constraints: const BoxConstraints(maxWidth: 160),
+                                constraints:
+                                    const BoxConstraints(maxWidth: 160),
                                 padding: const EdgeInsets.symmetric(
                                     horizontal: 8, vertical: 2),
                                 decoration: BoxDecoration(
                                   color: FlutterFlowTheme.of(context)
                                       .secondaryBackground,
                                   border: Border.all(
-                                    color: FlutterFlowTheme.of(context).alternate,
+                                    color:
+                                        FlutterFlowTheme.of(context).alternate,
                                     width: 1,
                                   ),
                                   borderRadius: BorderRadius.circular(10),
@@ -326,15 +321,12 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                         _buildHabitPriorityStars(),
                         const SizedBox(width: 5),
                         Builder(
-                          builder: (btnCtx) =>
-                              GestureDetector(
-                                onTap: (){
-                                  _showSnoozeRescheduleMenu(btnCtx);
-                                },
-                                child: const Icon(
-                                    Icons.snooze, size: 20
-                                ),
-                              ),
+                          builder: (btnCtx) => GestureDetector(
+                            onTap: () {
+                              _showSnoozeRescheduleMenu(btnCtx);
+                            },
+                            child: const Icon(Icons.snooze, size: 20),
+                          ),
                         ),
                         Visibility(
                           visible: widget.showCalendar,
@@ -342,13 +334,17 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                             children: [
                               const SizedBox(width: 5),
                               GestureDetector(
-                                child: const Icon(Icons.calendar_today, size: 20, color: Colors.blueGrey),
+                                child: const Icon(Icons.calendar_today,
+                                    size: 20, color: Colors.blueGrey),
                                 onTap: () {
                                   showDatePicker(
                                     context: context,
-                                    initialDate: widget.habit.dueDate ?? DateTime.now(),
-                                    firstDate: DateTime.now().subtract(const Duration(days: 365)),
-                                    lastDate: DateTime.now().add(const Duration(days: 365)),
+                                    initialDate:
+                                        widget.habit.dueDate ?? DateTime.now(),
+                                    firstDate: DateTime.now()
+                                        .subtract(const Duration(days: 365)),
+                                    lastDate: DateTime.now()
+                                        .add(const Duration(days: 365)),
                                   ).then((selectedDate) {
                                     if (selectedDate != null) {
                                       widget.habit.reference.update({
@@ -371,15 +367,12 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                         ),
                         const SizedBox(width: 5),
                         Builder(
-                          builder: (btnCtx) =>
-                              GestureDetector(
-                                onTap: (){
-                                  _showHabitOverflowMenu(btnCtx);
-                                },
-                                child: const Icon(
-                                    Icons.more_vert, size: 20
-                                ),
-                              ),
+                          builder: (btnCtx) => GestureDetector(
+                            onTap: () {
+                              _showHabitOverflowMenu(btnCtx);
+                            },
+                            child: const Icon(Icons.more_vert, size: 20),
+                          ),
                         ),
                       ],
                     ),
@@ -436,37 +429,37 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
   }
 
   Widget _buildHabitPriorityStars() {
-    final current = widget.habit.weight ?? 0;
+    final current = widget.habit.priority;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
         final level = i + 1;
         final filled = current >= level;
         return GestureDetector(
-          onTap: () async{
-                try {
-                  final next = current == 0 ? 1 : (current % 3) + 1;
-                  await updateHabit(
-                    habitRef: widget.habit.reference,
-                    priority: next,
-                  );
-                  final updated =
-                      await HabitRecord.getDocumentOnce(widget.habit.reference);
-                  widget.onHabitUpdated?.call(updated);
-                } catch (e) {
-                  if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('Error updating priority: $e')),
-                    );
-                  }
-                }
+          onTap: () async {
+            try {
+              final next = current == 0 ? 1 : (current % 3) + 1;
+              await updateHabit(
+                habitRef: widget.habit.reference,
+                priority: next,
+              );
+              final updated =
+                  await HabitRecord.getDocumentOnce(widget.habit.reference);
+              widget.onHabitUpdated?.call(updated);
+            } catch (e) {
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(content: Text('Error updating priority: $e')),
+                );
+              }
+            }
           },
           child: Icon(
-              filled ? Icons.star : Icons.star_border,
+            filled ? Icons.star : Icons.star_border,
             size: 24,
-              color: filled
-                  ? Colors.amber
-                  : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
+            color: filled
+                ? Colors.amber
+                : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
           ),
         );
       }),
@@ -509,12 +502,12 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
     );
     if (selected == null) return;
     if (selected == 'edit') {
-      if(widget.showTaskEdit){
+      if (widget.showTaskEdit) {
         showDialog(
           context: context,
           builder: (_) => CreateTask(
             task: widget.habit,
-            categories: widget.categories??[],
+            categories: widget.categories ?? [],
             onSave: (updatedHabit) async {
               await updatedHabit.reference.update({
                 'name': updatedHabit.name,
@@ -526,21 +519,22 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                 'dueDate': updatedHabit.dueDate,
               });
               if (widget.tasks != null) {
-                final index = widget.tasks!.indexWhere((t) => t.reference.id == updatedHabit.reference.id);
+                final index = widget.tasks!.indexWhere(
+                    (t) => t.reference.id == updatedHabit.reference.id);
                 if (index != -1) {
                   widget.tasks![index] = updatedHabit;
                 }
               }
             },
           ),
-        ).then((value){
-          if(value){
+        ).then((value) {
+          if (value) {
             if (widget.onHabitUpdated != null) {
               widget.onHabitUpdated!(widget.habit);
             }
           }
         });
-      }else{
+      } else {
         Navigator.push(
           context,
           MaterialPageRoute(
@@ -804,8 +798,8 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                         final today = DateTime.now();
                         final todayDate =
                             DateTime(today.year, today.month, today.day);
-                        final completedDates =
-                            List<DateTime>.from(widget.habit.completedDates);
+                        // Note: completedDates tracking moved to separate completion records
+                        final completedDates = <DateTime>[];
                         completedDates.removeWhere((date) =>
                             date.year == todayDate.year &&
                             date.month == todayDate.month &&
@@ -903,7 +897,8 @@ class _CompactHabitItemState extends State<CompactHabitItem> with TickerProvider
                   }
 
                   // Update UI with latest habit
-                  final updated = await HabitRecord.getDocumentOnce(widget.habit.reference);
+                  final updated =
+                      await HabitRecord.getDocumentOnce(widget.habit.reference);
                   widget.onHabitUpdated?.call(updated);
                 } catch (_) {
                   setState(() => _timerStateOverride = null);

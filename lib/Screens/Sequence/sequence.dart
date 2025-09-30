@@ -52,7 +52,7 @@ class _SequencesState extends State<Sequences> {
 
   Future<void> _deleteSequence(SequenceRecord sequence) async {
     try {
-      await deleteSequence(sequence.uid, userId: currentUserUid);
+      await deleteSequence(sequence.reference.id, userId: currentUserUid);
       await _loadData(); // Reload the list
 
       if (mounted) {
@@ -121,13 +121,13 @@ class _SequencesState extends State<Sequences> {
                       return CheckboxListTile(
                         title: Text(habit.name),
                         subtitle: Text(habit.categoryName),
-                        value: selectedHabitIds.contains(habit.uid),
+                        value: selectedHabitIds.contains(habit.reference.id),
                         onChanged: (bool? value) {
                           setDialogState(() {
                             if (value == true) {
-                              selectedHabitIds.add(habit.uid);
+                              selectedHabitIds.add(habit.reference.id);
                             } else {
-                              selectedHabitIds.remove(habit.uid);
+                              selectedHabitIds.remove(habit.reference.id);
                             }
                           });
                         },
@@ -193,7 +193,7 @@ class _SequencesState extends State<Sequences> {
   void _showEditSequenceDialog(SequenceRecord sequence) {
     final nameController = TextEditingController(text: sequence.name);
     final descriptionController =
-    TextEditingController(text: sequence.description);
+        TextEditingController(text: sequence.description);
     List<String> selectedHabitIds = List.from(sequence.habitIds);
 
     showDialog(
@@ -236,13 +236,13 @@ class _SequencesState extends State<Sequences> {
                       return CheckboxListTile(
                         title: Text(habit.name),
                         subtitle: Text(habit.categoryName),
-                        value: selectedHabitIds.contains(habit.uid),
+                        value: selectedHabitIds.contains(habit.reference.id),
                         onChanged: (bool? value) {
                           setDialogState(() {
                             if (value == true) {
-                              selectedHabitIds.add(habit.uid);
+                              selectedHabitIds.add(habit.reference.id);
                             } else {
-                              selectedHabitIds.remove(habit.uid);
+                              selectedHabitIds.remove(habit.reference.id);
                             }
                           });
                         },
@@ -265,7 +265,7 @@ class _SequencesState extends State<Sequences> {
                     selectedHabitIds.isNotEmpty) {
                   try {
                     await updateSequence(
-                      sequenceId: sequence.uid,
+                      sequenceId: sequence.reference.id,
                       name: nameController.text,
                       description: descriptionController.text.isNotEmpty
                           ? descriptionController.text
@@ -310,7 +310,7 @@ class _SequencesState extends State<Sequences> {
   List<String> _getHabitNames(List<String> habitIds) {
     return habitIds.map((id) {
       try {
-        final habit = _habits.firstWhere((h) => h.uid == id);
+        final habit = _habits.firstWhere((h) => h.reference.id == id);
         return habit.name;
       } catch (e) {
         return 'Unknown Habit';
@@ -328,180 +328,182 @@ class _SequencesState extends State<Sequences> {
         child: _isLoading
             ? const Center(child: CircularProgressIndicator())
             : Column(
-          children: [
-            // Sequences list
-            Expanded(
-              child: _sequences.isEmpty
-                  ? Center(
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Icon(
-                      Icons.playlist_play,
-                      size: 64,
-                      color: FlutterFlowTheme.of(context)
-                          .secondaryText,
-                    ),
-                    const SizedBox(height: 16),
-                    Text(
-                      'No sequences yet',
-                      style:
-                      FlutterFlowTheme.of(context).titleMedium,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Create sequences to group related habits!',
-                      style:
-                      FlutterFlowTheme.of(context).bodyMedium,
-                    ),
-                    const SizedBox(height: 16),
-                    ElevatedButton(
-                      onPressed: _showAddSequenceDialog,
-                      child: const Text('Add Sequence'),
-                    ),
-                  ],
-                ),
-              )
-                  : ListView.builder(
-                itemCount: _sequences.length,
-                itemBuilder: (context, index) {
-                  final sequence = _sequences[index];
-                  final habitNames =
-                  _getHabitNames(sequence.habitIds);
-
-                  return Container(
-                    margin: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: FlutterFlowTheme.of(context)
-                          .secondaryBackground,
-                      borderRadius: BorderRadius.circular(12),
-                      border: Border.all(
-                        color:
-                        FlutterFlowTheme.of(context).alternate,
-                        width: 1,
-                      ),
-                    ),
-                    child: ListTile(
-                      leading: Container(
-                        width: 40,
-                        height: 40,
-                        decoration: BoxDecoration(
-                          color:
-                          FlutterFlowTheme.of(context).primary,
-                          shape: BoxShape.circle,
-                        ),
-                        child: const Icon(
-                          Icons.playlist_play,
-                          color: Colors.white,
-                          size: 20,
-                        ),
-                      ),
-                      title: Text(
-                        sequence.name,
-                        style: FlutterFlowTheme.of(context)
-                            .titleMedium,
-                      ),
-                      subtitle: Column(
-                        crossAxisAlignment:
-                        CrossAxisAlignment.start,
-                        children: [
-                          if (sequence.description.isNotEmpty)
-                            Text(
-                              sequence.description,
-                              style: FlutterFlowTheme.of(context)
-                                  .bodyMedium,
-                            ),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${habitNames.length} habits',
-                            style: FlutterFlowTheme.of(context)
-                                .bodySmall,
-                          ),
-                          const SizedBox(height: 4),
-                          Wrap(
-                            spacing: 4,
-                            children: habitNames
-                                .take(3)
-                                .map(
-                                  (name) => Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 6, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: FlutterFlowTheme.of(
-                                      context)
-                                      .primary
-                                      .withOpacity(0.1),
-                                  borderRadius:
-                                  BorderRadius.circular(8),
+                children: [
+                  // Sequences list
+                  Expanded(
+                    child: _sequences.isEmpty
+                        ? Center(
+                            child: Column(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Icon(
+                                  Icons.playlist_play,
+                                  size: 64,
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryText,
                                 ),
-                                child: Text(
-                                  name,
-                                  style: TextStyle(
-                                    fontSize: 10,
-                                    color: FlutterFlowTheme.of(
-                                        context)
-                                        .primary,
+                                const SizedBox(height: 16),
+                                Text(
+                                  'No sequences yet',
+                                  style:
+                                      FlutterFlowTheme.of(context).titleMedium,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Create sequences to group related habits!',
+                                  style:
+                                      FlutterFlowTheme.of(context).bodyMedium,
+                                ),
+                                const SizedBox(height: 16),
+                                ElevatedButton(
+                                  onPressed: _showAddSequenceDialog,
+                                  child: const Text('Add Sequence'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : ListView.builder(
+                            itemCount: _sequences.length,
+                            itemBuilder: (context, index) {
+                              final sequence = _sequences[index];
+                              final habitNames =
+                                  _getHabitNames(sequence.habitIds);
+
+                              return Container(
+                                margin: const EdgeInsets.symmetric(
+                                    horizontal: 16, vertical: 4),
+                                decoration: BoxDecoration(
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryBackground,
+                                  borderRadius: BorderRadius.circular(12),
+                                  border: Border.all(
+                                    color:
+                                        FlutterFlowTheme.of(context).alternate,
+                                    width: 1,
                                   ),
                                 ),
-                              ),
-                            )
-                                .toList(),
-                          ),
-                          if (habitNames.length > 3)
-                            Text(
-                              '+${habitNames.length - 3} more',
-                              style: FlutterFlowTheme.of(context)
-                                  .bodySmall
-                                  .override(
-                                fontFamily: 'Readex Pro',
-                                color:
-                                FlutterFlowTheme.of(context)
-                                    .secondaryText,
-                              ),
-                            ),
-                        ],
-                      ),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          IconButton(
-                            icon: const Icon(Icons.play_arrow),
-                            onPressed: () {
-                              // TODO: Start sequence
-                              ScaffoldMessenger.of(context)
-                                  .showSnackBar(
-                                SnackBar(
-                                  content: Text(
-                                      'Starting sequence "${sequence.name}"...'),
+                                child: ListTile(
+                                  leading: Container(
+                                    width: 40,
+                                    height: 40,
+                                    decoration: BoxDecoration(
+                                      color:
+                                          FlutterFlowTheme.of(context).primary,
+                                      shape: BoxShape.circle,
+                                    ),
+                                    child: const Icon(
+                                      Icons.playlist_play,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                  title: Text(
+                                    sequence.name,
+                                    style: FlutterFlowTheme.of(context)
+                                        .titleMedium,
+                                  ),
+                                  subtitle: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      if (sequence.description.isNotEmpty)
+                                        Text(
+                                          sequence.description,
+                                          style: FlutterFlowTheme.of(context)
+                                              .bodyMedium,
+                                        ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${habitNames.length} habits',
+                                        style: FlutterFlowTheme.of(context)
+                                            .bodySmall,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Wrap(
+                                        spacing: 4,
+                                        children: habitNames
+                                            .take(3)
+                                            .map(
+                                              (name) => Container(
+                                                padding:
+                                                    const EdgeInsets.symmetric(
+                                                        horizontal: 6,
+                                                        vertical: 2),
+                                                decoration: BoxDecoration(
+                                                  color: FlutterFlowTheme.of(
+                                                          context)
+                                                      .primary
+                                                      .withOpacity(0.1),
+                                                  borderRadius:
+                                                      BorderRadius.circular(8),
+                                                ),
+                                                child: Text(
+                                                  name,
+                                                  style: TextStyle(
+                                                    fontSize: 10,
+                                                    color: FlutterFlowTheme.of(
+                                                            context)
+                                                        .primary,
+                                                  ),
+                                                ),
+                                              ),
+                                            )
+                                            .toList(),
+                                      ),
+                                      if (habitNames.length > 3)
+                                        Text(
+                                          '+${habitNames.length - 3} more',
+                                          style: FlutterFlowTheme.of(context)
+                                              .bodySmall
+                                              .override(
+                                                fontFamily: 'Readex Pro',
+                                                color:
+                                                    FlutterFlowTheme.of(context)
+                                                        .secondaryText,
+                                              ),
+                                        ),
+                                    ],
+                                  ),
+                                  trailing: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      IconButton(
+                                        icon: const Icon(Icons.play_arrow),
+                                        onPressed: () {
+                                          // TODO: Start sequence
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            SnackBar(
+                                              content: Text(
+                                                  'Starting sequence "${sequence.name}"...'),
+                                            ),
+                                          );
+                                        },
+                                        color: FlutterFlowTheme.of(context)
+                                            .primary,
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.edit),
+                                        onPressed: () =>
+                                            _showEditSequenceDialog(sequence),
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
+                                      ),
+                                      IconButton(
+                                        icon: const Icon(Icons.delete),
+                                        onPressed: () =>
+                                            _showDeleteConfirmation(sequence),
+                                        color: Colors.red,
+                                      ),
+                                    ],
+                                  ),
                                 ),
                               );
                             },
-                            color: FlutterFlowTheme.of(context)
-                                .primary,
                           ),
-                          IconButton(
-                            icon: const Icon(Icons.edit),
-                            onPressed: () =>
-                                _showEditSequenceDialog(sequence),
-                            color: FlutterFlowTheme.of(context)
-                                .secondaryText,
-                          ),
-                          IconButton(
-                            icon: const Icon(Icons.delete),
-                            onPressed: () =>
-                                _showDeleteConfirmation(sequence),
-                            color: Colors.red,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
+                  ),
+                ],
               ),
-            ),
-          ],
-        ),
       ),
     );
   }

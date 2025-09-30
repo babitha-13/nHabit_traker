@@ -185,7 +185,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
                                                   BorderRadius.circular(12),
                                             ),
                                             child: Text(
-                                              'Weight: ${category.weight.toStringAsFixed(1)}',
+                                              'Weight: ${(category.weight ?? 1.0).toStringAsFixed(1)}',
                                               style: TextStyle(
                                                 color:
                                                     FlutterFlowTheme.of(context)

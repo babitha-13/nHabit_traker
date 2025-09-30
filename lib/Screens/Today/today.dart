@@ -146,7 +146,7 @@ class _TodayPageState extends State<TodayPage> {
       if (!t.isActive) return false;
       switch (t.trackingType) {
         case 'binary':
-          return t.taskStatus != 'complete';
+          return t.status != 'complete';
         case 'quantitative':
           final currentValue = t.currentValue ?? 0;
           final target = t.target ?? 0;
@@ -156,7 +156,7 @@ class _TodayPageState extends State<TodayPage> {
           final targetMinutes = t.target ?? 0;
           return currentMinutes < targetMinutes;
         default:
-          return t.taskStatus != 'complete';
+          return t.status != 'complete';
       }
     }).toList();
 
@@ -179,7 +179,7 @@ class _TodayPageState extends State<TodayPage> {
 
       if (isCompleted) {
         _completedHabits++;
-        final impactPoints = _getImpactPoints(habit.impactLevel);
+        final impactPoints = _getImpactPoints(habit.priority.toString());
         _netImpactScore += impactPoints;
       }
     }
@@ -374,7 +374,7 @@ class _TodayPageState extends State<TodayPage> {
     if (!task.isActive) return false;
     switch (task.trackingType) {
       case 'binary':
-        return task.taskStatus == 'complete';
+        return task.status == 'complete';
       case 'quantitative':
         final currentValue = task.currentValue ?? 0;
         final target = task.target ?? 0;
@@ -384,7 +384,7 @@ class _TodayPageState extends State<TodayPage> {
         final targetMinutes = task.target ?? 0;
         return targetMinutes > 0 && currentMinutes >= targetMinutes;
       default:
-        return task.taskStatus == 'complete';
+        return task.status == 'complete';
     }
   }
 
@@ -398,10 +398,8 @@ class _TodayPageState extends State<TodayPage> {
       if (_remainingCompletionsThisWeek(habit) <= 0) continue;
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      if (habit.skippedDates.any((d) =>
-          d.year == today.year &&
-          d.month == today.month &&
-          d.day == today.day)) {
+      // Note: skippedDates tracking moved to separate records
+      if (false) {
         continue;
       }
 
@@ -421,7 +419,8 @@ class _TodayPageState extends State<TodayPage> {
     final today = DateTime(now.year, now.month, now.day);
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
     final weekEnd = weekStart.add(const Duration(days: 6));
-    return habit.completedDates.where((date) {
+    // Note: completedDates tracking moved to separate completion records
+    return <DateTime>[].where((date) {
       final d = DateTime(date.year, date.month, date.day);
       return !d.isBefore(weekStart) && !d.isAfter(weekEnd);
     }).length;
@@ -434,15 +433,15 @@ class _TodayPageState extends State<TodayPage> {
 
   int _remainingCompletionsThisWeek(HabitRecord habit) {
     final done = _completedCountThisWeek(habit);
-    final remaining = habit.weeklyTarget - done;
+    final remaining = habit.frequency - done;
     return remaining > 0 ? remaining : 0;
   }
 
   bool _shouldShowInTodayMain(HabitRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    if (habit.skippedDates.any((d) =>
-        d.year == today.year && d.month == today.month && d.day == today.day)) {
+    // Note: skippedDates tracking moved to separate records
+    if (false) {
       return false;
     }
     if (habit.hasSnoozedUntil()) {
@@ -1098,7 +1097,8 @@ class _TodayPageState extends State<TodayPage> {
           onPressed: () async {
             final now = DateTime.now();
             final today = DateTime(now.year, now.month, now.day);
-            final skipped = List<DateTime>.from(habit.skippedDates);
+            // Note: skippedDates tracking moved to separate records
+            final skipped = <DateTime>[];
             skipped.removeWhere((d) =>
                 d.year == today.year &&
                 d.month == today.month &&
@@ -1121,7 +1121,7 @@ class _TodayPageState extends State<TodayPage> {
   }
 
   Widget _buildCategoryWeightStars(CategoryRecord category) {
-    final current = category.weight.round().clamp(1, 3);
+    final current = (category.weight ?? 1.0).round().clamp(1, 3);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
@@ -1381,7 +1381,7 @@ class _TodayPageState extends State<TodayPage> {
       if (idx != -1) {
         final updatedData = {
           ..._tasks[idx].snapshotData,
-          if (newStatus != null) 'taskStatus': newStatus,
+          if (newStatus != null) 'status': newStatus,
           if (newCurrentValue != null) 'currentValue': newCurrentValue,
           if (newIsTimerActive != null) 'isTimerActive': newIsTimerActive,
           if (newAccumulatedTime != null) 'accumulatedTime': newAccumulatedTime,

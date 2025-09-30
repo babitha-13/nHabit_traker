@@ -78,14 +78,18 @@ class _WeeklyCategoryGroupState extends State<WeeklyCategoryGroup> {
                       Text(
                         '(${widget.habits.length})',
                         style: FlutterFlowTheme.of(context).bodyMedium.override(
-                          fontFamily: 'Readex Pro',
-                          color: FlutterFlowTheme.of(context).secondaryText,
-                          fontSize: 14,
-                        ),
+                              fontFamily: 'Readex Pro',
+                              color: FlutterFlowTheme.of(context).secondaryText,
+                              fontSize: 14,
+                            ),
                       ),
-                      const SizedBox(width: 2.5,),
+                      const SizedBox(
+                        width: 2.5,
+                      ),
                       _buildCategoryWeightStars(),
-                      const SizedBox(width: 2.5,),
+                      const SizedBox(
+                        width: 2.5,
+                      ),
                       Icon(
                         _isExpanded ? Icons.expand_less : Icons.expand_more,
                         color: FlutterFlowTheme.of(context).secondaryText,
@@ -119,34 +123,35 @@ class _WeeklyCategoryGroupState extends State<WeeklyCategoryGroup> {
 
   Widget _buildCategoryWeightStars() {
     final int current =
-        (_weightOverride ?? widget.category.weight.round()).clamp(1, 3);
+        (_weightOverride ?? (widget.category.weight ?? 1.0).round())
+            .clamp(1, 3);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
         final level = i + 1;
         final filled = current >= level;
         return GestureDetector(
-          onTap: () async{
-                try {
-                  final next = current % 3 + 1;
-                  await updateCategory(
-                    categoryId: widget.category.reference.id,
-                    weight: next.toDouble(),
-                  );
-                  if (mounted) setState(() => _weightOverride = next);
-                } catch (e) {
-                  if (!mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Error updating category weight: $e')),
-                  );
-                }
+          onTap: () async {
+            try {
+              final next = current % 3 + 1;
+              await updateCategory(
+                categoryId: widget.category.reference.id,
+                weight: next.toDouble(),
+              );
+              if (mounted) setState(() => _weightOverride = next);
+            } catch (e) {
+              if (!mounted) return;
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error updating category weight: $e')),
+              );
+            }
           },
           child: Icon(
             filled ? Icons.star : Icons.star_border,
             size: 24,
-              color: filled
-                  ? Colors.amber
-                  : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
+            color: filled
+                ? Colors.amber
+                : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
           ),
         );
       }),

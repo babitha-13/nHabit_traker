@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
@@ -23,7 +24,7 @@ class TaskPage extends StatefulWidget {
 
 class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickAddController = TextEditingController();
-  List<HabitRecord> _tasks = [];
+  List<TaskRecord> _tasks = [];
   List<HabitRecord> _habits = [];
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
@@ -78,28 +79,32 @@ class _TaskPageState extends State<TaskPage> {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Stack(
-      children: [
-        RefreshIndicator(
-          onRefresh: _loadData,
-          child: ListView(
             children: [
-              _buildQuickAdd(),
-              ..._buildSections(),
+              RefreshIndicator(
+                onRefresh: _loadData,
+                child: ListView(
+                  children: [
+                    _buildQuickAdd(),
+                    ..._buildSections(),
+                  ],
+                ),
+              ),
+              FloatingTimer(
+                activeHabits: _activeFloatingHabits,
+                onRefresh: _loadData,
+                onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+              ),
             ],
-          ),
-        ),
-        FloatingTimer(
-          activeHabits: _activeFloatingHabits,
-          onRefresh: _loadData,
-          onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-        ),
-      ],
-    );
+          );
   }
 
   List<HabitRecord> get _activeFloatingHabits {
-    final all = [..._tasks, ..._habits];
-    return all.where((h) => h.showInFloatingTimer == true).toList();
+    // Include both habits and tasks that have floating timer enabled
+    final floatingHabits =
+        _habits.where((h) => h.showInFloatingTimer == true).toList();
+    // TODO: Add tasks to floating timer when FloatingTimer supports TaskRecord
+    // For now, only return habits
+    return floatingHabits;
   }
 
   Future<void> _loadData() async {
@@ -110,20 +115,32 @@ class _TaskPageState extends State<TaskPage> {
         setState(() => _isLoading = false);
         return;
       }
+      final allTasks = await queryTasksRecordOnce(userId: uid);
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
+
+      // Debug prints
+      print('DEBUG: Loaded ${allTasks.length} tasks');
+      print('DEBUG: Loaded ${allHabits.length} habits');
+      print('DEBUG: Loaded ${categories.length} categories');
+      if (allTasks.isNotEmpty) {
+        print(
+            'DEBUG: First task: ${allTasks.first.name}, status: ${allTasks.first.status}, isActive: ${allTasks.first.isActive}');
+      }
+
       setState(() {
-        _tasks = allHabits
-            .where((h) =>h.isRecurring||
-        !h.isRecurring &&
-            (widget.categoryId == null ||
-                h.categoryId == widget.categoryId))
+        _tasks = allTasks
+            .where((t) =>
+                widget.categoryId == null || t.categoryId == widget.categoryId)
             .toList();
+
+        print(
+            'DEBUG: Filtered to ${_tasks.length} tasks for categoryId: ${widget.categoryId}');
         _habits = allHabits
             .where((h) =>
-        h.isRecurring &&
-            (widget.categoryId == null ||
-                h.categoryId == widget.categoryId))
+                h.isRecurring &&
+                (widget.categoryId == null ||
+                    h.categoryId == widget.categoryId))
             .toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -317,7 +334,7 @@ class _TaskPageState extends State<TaskPage> {
                           flex: 2,
                           child: TextFormField(
                             initialValue:
-                            (_quickTargetDuration.inHours).toString(),
+                                (_quickTargetDuration.inHours).toString(),
                             decoration: const InputDecoration(
                               labelText: 'Hours',
                               labelStyle: TextStyle(
@@ -377,22 +394,27 @@ class _TaskPageState extends State<TaskPage> {
     );
   }
 
-  bool _isTaskCompleted(HabitRecord task) {
-    if (!task.isActive) return false;
-    switch (task.trackingType) {
-      case 'binary':
-        return task.taskStatus == 'complete';
-      case 'quantitative':
-        final currentValue = task.currentValue ?? 0;
-        final target = task.target ?? 0;
-        return target > 0 && currentValue >= target;
-      case 'time':
-        final currentMinutes = (task.accumulatedTime) ~/ 60000;
-        final targetMinutes = task.target ?? 0;
-        return targetMinutes > 0 && currentMinutes >= targetMinutes;
-      default:
-        return task.taskStatus == 'complete';
+  bool _isTaskCompleted(dynamic task) {
+    if (task is TaskRecord) {
+      return task.status == 'complete' || task.status == 'done';
+    } else if (task is HabitRecord) {
+      if (!task.isActive) return false;
+      switch (task.trackingType) {
+        case 'binary':
+          return task.status == 'complete';
+        case 'quantitative':
+          final currentValue = task.currentValue ?? 0;
+          final target = task.target ?? 0;
+          return target > 0 && currentValue >= target;
+        case 'time':
+          final currentMinutes = (task.accumulatedTime) ~/ 60000;
+          final targetMinutes = task.target ?? 0;
+          return targetMinutes > 0 && currentMinutes >= targetMinutes;
+        default:
+          return task.status == 'complete';
+      }
     }
+    return false;
   }
 
   List<Widget> _buildSections() {
@@ -479,30 +501,30 @@ class _TaskPageState extends State<TaskPage> {
         default:
           targetValue = true;
       }
-      final taskData = createHabitRecordData(
-        showInFloatingTimer: true,
-        name: title,
-        categoryId: categoryId,
-        categoryName: _categories
-            .firstWhere((c) => c.reference.id == categoryId)
-            .name,
-        trackingType: _selectedQuickTrackingType!,
-        target: targetValue,
-        taskStatus: 'incomplete',
-        isRecurring: quickIsRecurring,
-        isActive: true,
-        createdTime: DateTime.now(),
-        lastUpdated: DateTime.now(),
-        userId: currentUserUid,
+
+      final taskData = createTaskRecordData(
+        title: title,
+        description: '',
+        status: 'incomplete',
         dueDate: _selectedQuickDueDate,
         priority: 1,
+        trackingType: _selectedQuickTrackingType ?? 'binary',
+        target: targetValue,
+        schedule: 'daily', // Default schedule
         unit: _quickUnit,
+        showInFloatingTimer: false, // Default to false
+        accumulatedTime: 0,
+        isActive: true,
+        createdTime: DateTime.now(),
+        categoryId: categoryId,
+        categoryName:
+            _categories.firstWhere((c) => c.reference.id == categoryId).name,
       );
-      final docRef =
-      await HabitRecord.collectionForUser(currentUserUid).add(taskData);
-      final newTask = HabitRecord.getDocumentFromData(taskData, docRef);
+      await TaskRecord.collectionForUser(currentUserUid).add(taskData);
       setState(() {
-        _tasks.add(newTask);
+        // Note: _tasks is still List<HabitRecord> for now, we'll fix this in step 2
+        // For now, we'll reload data to get the new task
+        _loadData();
         _quickAddController.clear();
         _quickTargetNumber = 1;
         _quickTargetDuration = const Duration(hours: 1);
@@ -544,8 +566,17 @@ class _TaskPageState extends State<TaskPage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     for (final t in _tasks) {
-      if (!t.isActive || t.taskStatus == 'complete') continue;
-      if (!_showCompleted && _isTaskCompleted(t)) continue;
+      print(
+          'DEBUG: Processing task: ${t.name}, isActive: ${t.isActive}, status: ${t.status}');
+      if (!t.isActive || t.status == 'complete') {
+        print('DEBUG: Skipping task ${t.name} - not active or complete');
+        continue;
+      }
+      if (!_showCompleted && _isTaskCompleted(t)) {
+        print(
+            'DEBUG: Skipping task ${t.name} - completed and not showing completed');
+        continue;
+      }
       final due = t.dueDate;
       if (due == null) {
         buckets['Later']!.add(t);
@@ -586,10 +617,11 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Widget _buildItemTile(dynamic item) {
+    if (item is TaskRecord) {
+      return _buildTaskTile(item);
+    }
     if (item is HabitRecord) {
-      // if (!item.isRecurring) {
-        return _buildTaskTile(item);
-      // }
+      return _buildTaskTile(item);
     }
     return const SizedBox.shrink();
   }
@@ -648,19 +680,210 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 
-  Widget _buildTaskTile(HabitRecord task) {
-    return CompactHabitItem(
-      showCalendar: true,
-      showTaskEdit: true,
-      key: Key(task.reference.id),
-      habit: task,
-      showCompleted: _showCompleted,
-      categories: _categories,
-      tasks: _tasks,
-      onRefresh: _loadData,
-      onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-      onHabitDeleted: (deleted) async => _loadData(),
+  Widget _buildTaskTile(dynamic task) {
+    if (task is TaskRecord) {
+      // Convert TaskRecord to HabitRecord-like structure for CompactHabitItem
+      // Since both now have the same fields, we can create a unified display
+      return _buildUnifiedTaskTile(task);
+    } else if (task is HabitRecord) {
+      return CompactHabitItem(
+        showCalendar: true,
+        showTaskEdit: true,
+        key: Key(task.reference.id),
+        habit: task,
+        showCompleted: _showCompleted,
+        categories: _categories,
+        tasks: [], // Empty for now since _tasks is now TaskRecord
+        onRefresh: _loadData,
+        onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+        onHabitDeleted: (deleted) async => _loadData(),
+      );
+    }
+    return const SizedBox.shrink();
+  }
+
+  Widget _buildUnifiedTaskTile(TaskRecord task) {
+    final theme = FlutterFlowTheme.of(context);
+    final isCompleted = _isTaskCompleted(task);
+
+    // Find category color
+    CategoryRecord? category;
+    try {
+      category = _categories.firstWhere(
+        (c) => c.reference.id == task.categoryId,
+      );
+    } catch (e) {
+      category = _categories.isNotEmpty ? _categories.first : null;
+    }
+    final categoryColor = category != null
+        ? Color(int.parse(category.color.replaceFirst('#', '0xFF')))
+        : theme.primary;
+
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.secondaryBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: categoryColor.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: () => _editTask(task),
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Row(
+              children: [
+                // Status indicator (similar to habit completion)
+                GestureDetector(
+                  onTap: () => _toggleTaskStatus(task),
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: isCompleted ? categoryColor : Colors.transparent,
+                      border: Border.all(
+                        color: categoryColor,
+                        width: 2,
+                      ),
+                    ),
+                    child: isCompleted
+                        ? Icon(
+                            Icons.check,
+                            size: 16,
+                            color: Colors.white,
+                          )
+                        : null,
+                  ),
+                ),
+                const SizedBox(width: 12),
+
+                // Task content
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        task.name,
+                        style: theme.bodyLarge.copyWith(
+                          decoration:
+                              isCompleted ? TextDecoration.lineThrough : null,
+                          color: isCompleted
+                              ? theme.secondaryText
+                              : theme.primaryText,
+                        ),
+                      ),
+                      if (task.dueDate != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'Due: ${DateFormat('MMM d').format(task.dueDate!)}',
+                          style: theme.bodySmall.copyWith(
+                            color: _isOverdue(task.dueDate!)
+                                ? Colors.red
+                                : theme.secondaryText,
+                          ),
+                        ),
+                      ],
+                      if (category != null) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          category.name,
+                          style: theme.bodySmall.copyWith(
+                            color: categoryColor,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                      // Show tracking type and target info
+                      if (task.trackingType != 'binary') ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          _getTrackingInfo(task),
+                          style: theme.bodySmall.copyWith(
+                            color: theme.secondaryText,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                // Priority stars
+                if (task.priority > 0) ...[
+                  const SizedBox(width: 8),
+                  Row(
+                    children: List.generate(
+                      task.priority.clamp(1, 3),
+                      (index) => Icon(
+                        Icons.star,
+                        size: 16,
+                        color: Colors.amber,
+                      ),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
     );
+  }
+
+  String _getTrackingInfo(TaskRecord task) {
+    switch (task.trackingType) {
+      case 'quantitative':
+        final target = task.target ?? 0;
+        final unit = task.unit.isNotEmpty ? ' ${task.unit}' : '';
+        return 'Target: $target$unit';
+      case 'time':
+        final targetMinutes = task.target ?? 0;
+        final hours = targetMinutes ~/ 60;
+        final minutes = targetMinutes % 60;
+        if (hours > 0) {
+          return 'Target: ${hours}h ${minutes}m';
+        } else {
+          return 'Target: ${minutes}m';
+        }
+      default:
+        return '';
+    }
+  }
+
+  bool _isOverdue(DateTime dueDate) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    return due.isBefore(today);
+  }
+
+  void _editTask(TaskRecord task) {
+    // TODO: Implement task editing
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Task editing coming soon!')),
+    );
+  }
+
+  void _toggleTaskStatus(TaskRecord task) async {
+    try {
+      final newStatus = task.status == 'complete' ? 'incomplete' : 'complete';
+      await updateTask(
+        taskRef: task.reference,
+        status: newStatus,
+      );
+      _loadData(); // Refresh the list
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating task: $e')),
+        );
+      }
+    }
   }
 
   void _updateHabitInLocalState(HabitRecord updatedHabit) {
@@ -670,14 +893,8 @@ class _TaskPageState extends State<TaskPage> {
       if (habitIndex != -1) {
         _habits[habitIndex] = updatedHabit;
       }
-      final taskIndex =
-      _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
-      if (taskIndex != -1) {
-        _tasks[taskIndex] = updatedHabit;
-      }
-      if (!_showCompleted && _isTaskCompleted(updatedHabit)) {
-        _tasks.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
-      }
+      // For now, just reload data since tasks are now TaskRecord type
+      // TODO: Update this when CompactHabitItem supports TaskRecord
       _loadDataSilently();
     });
   }
@@ -686,11 +903,12 @@ class _TaskPageState extends State<TaskPage> {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
+      final allTasks = await queryTasksRecordOnce(userId: uid);
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
       if (!mounted) return;
       setState(() {
-        _tasks = allHabits.where((h) => h.isRecurring||!h.isRecurring).toList();
+        _tasks = allTasks;
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -706,4 +924,3 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 }
-

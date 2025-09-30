@@ -28,7 +28,7 @@ class _CreateCategoryState extends State<CreateCategory> {
     nameController = TextEditingController(text: widget.category?.name ?? "");
     descriptionController =
         TextEditingController(text: widget.category?.description ?? "");
-    weight = widget.category?.weight.round() ?? 1;
+    weight = (widget.category?.weight ?? 1.0).round();
     selectedColor = widget.category?.color.isNotEmpty == true
         ? widget.category!.color
         : '#2196F3';
@@ -38,7 +38,7 @@ class _CreateCategoryState extends State<CreateCategory> {
   Future<void> _loadExistingCategories() async {
     try {
       final fetchedCategories =
-      await queryCategoriesRecordOnce(userId: currentUserUid);
+          await queryCategoriesRecordOnce(userId: currentUserUid);
       setState(() {
         existingCategories = fetchedCategories;
       });
@@ -146,116 +146,123 @@ class _CreateCategoryState extends State<CreateCategory> {
           child: const Text('Cancel'),
         ),
         ElevatedButton(
-          onPressed: _isValidating ? null : () async {
-            if (nameController.text.isEmpty) return;
+          onPressed: _isValidating
+              ? null
+              : () async {
+                  if (nameController.text.isEmpty) return;
 
-            setState(() {
-              _isValidating = true;
-            });
+                  setState(() {
+                    _isValidating = true;
+                  });
 
-            try {
-              // Get fresh categories from database
-              final freshCategories = await queryCategoriesRecordOnce(userId: currentUserUid);
+                  try {
+                    // Get fresh categories from database
+                    final freshCategories =
+                        await queryCategoriesRecordOnce(userId: currentUserUid);
 
-              // Check for duplicate names, but exclude the current category when editing
-              final newName = nameController.text.trim().toLowerCase();
-              final nameExists = freshCategories.any((cat) {
-                // Skip the current category when editing
-                if (isEdit && cat.reference.id == widget.category!.reference.id) {
-                  return false;
-                }
-                final existingName = cat.name.trim().toLowerCase();
-                return existingName == newName;
-              });
+                    // Check for duplicate names, but exclude the current category when editing
+                    final newName = nameController.text.trim().toLowerCase();
+                    final nameExists = freshCategories.any((cat) {
+                      // Skip the current category when editing
+                      if (isEdit &&
+                          cat.reference.id == widget.category!.reference.id) {
+                        return false;
+                      }
+                      final existingName = cat.name.trim().toLowerCase();
+                      return existingName == newName;
+                    });
 
-              if (nameExists) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Category with this name already exists!'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-                setState(() {
-                  _isValidating = false;
-                });
-                return;
-              }
-              if (isEdit) {
-                await updateCategory(
-                  categoryId: widget.category!.reference.id,
-                  name: nameController.text,
-                  description: descriptionController.text.isNotEmpty
-                      ? descriptionController.text
-                      : null,
-                  weight: weight.toDouble(),
-                  color: selectedColor,
-                  categoryType: widget.categoryType, // Only update if provided
-                );
+                    if (nameExists) {
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text('Category with this name already exists!'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                      setState(() {
+                        _isValidating = false;
+                      });
+                      return;
+                    }
+                    if (isEdit) {
+                      await updateCategory(
+                        categoryId: widget.category!.reference.id,
+                        name: nameController.text,
+                        description: descriptionController.text.isNotEmpty
+                            ? descriptionController.text
+                            : null,
+                        weight: weight.toDouble(),
+                        color: selectedColor,
+                        categoryType:
+                            widget.categoryType, // Only update if provided
+                      );
 
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                          'Category "${nameController.text}" updated successfully!'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } else {
-                // ✅ Create new
-                await createCategory(
-                  name: nameController.text,
-                  description: descriptionController.text.isNotEmpty
-                      ? descriptionController.text
-                      : null,
-                  weight: weight.toDouble(),
-                  color: selectedColor,
-                  categoryType: widget.categoryType ??
-                      'habit', // Default to habit if not specified
-                );
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Category "${nameController.text}" updated successfully!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    } else {
+                      // ✅ Create new
+                      await createCategory(
+                        name: nameController.text,
+                        description: descriptionController.text.isNotEmpty
+                            ? descriptionController.text
+                            : null,
+                        weight: weight.toDouble(),
+                        color: selectedColor,
+                        categoryType: widget.categoryType ??
+                            'habit', // Default to habit if not specified
+                      );
 
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                          'Category "${nameController.text}" created successfully!'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              }
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(
+                                'Category "${nameController.text}" created successfully!'),
+                            backgroundColor: Colors.green,
+                          ),
+                        );
+                      }
+                    }
 
-              Navigator.of(context).pop();
-            } catch (e) {
-              if (mounted) {
-                // Check if it's a duplicate name error from backend
-                final errorMessage = e.toString();
-                if (errorMessage.contains('already exists')) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Category with this name already exists!'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            } finally {
-              if (mounted) {
-                setState(() {
-                  _isValidating = false;
-                });
-              }
-            }
-          },
+                    Navigator.of(context).pop();
+                  } catch (e) {
+                    if (mounted) {
+                      // Check if it's a duplicate name error from backend
+                      final errorMessage = e.toString();
+                      if (errorMessage.contains('already exists')) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text('Category with this name already exists!'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      } else {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Error: $e'),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                      }
+                    }
+                  } finally {
+                    if (mounted) {
+                      setState(() {
+                        _isValidating = false;
+                      });
+                    }
+                  }
+                },
           child: Text(isEdit ? 'Update' : 'Create'),
         ),
       ],

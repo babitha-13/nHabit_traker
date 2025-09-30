@@ -360,11 +360,10 @@ Future<List<SequenceRecord>> querySequenceRecordOnce({
 Future<DocumentReference> createHabit({
   required String name,
   required String categoryName,
-  required String impactLevel,
   required String trackingType,
   dynamic target,
   required String schedule,
-  int weeklyTarget = 1,
+  int frequency = 1,
   String? description,
   String? userId,
 }) async {
@@ -374,11 +373,10 @@ Future<DocumentReference> createHabit({
   final habitData = createHabitRecordData(
     name: name,
     categoryName: categoryName,
-    impactLevel: impactLevel,
     trackingType: trackingType,
     target: target,
     schedule: schedule,
-    weeklyTarget: weeklyTarget,
+    frequency: frequency,
     description: description,
     isActive: true,
     createdTime: DateTime.now(),
@@ -434,7 +432,6 @@ Future<DocumentReference> createTask({
       1, // Changed from 0 to 1 - all tasks should have at least 1 star
   String? categoryId,
   String? categoryName,
-  String? habitId,
   String? userId,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
@@ -475,11 +472,25 @@ Future<DocumentReference> createTask({
     status: 'incomplete',
     dueDate: dueDate,
     priority: priority,
+    trackingType: 'binary',
+    target: null,
+    schedule: 'daily',
+    unit: '',
+    showInFloatingTimer: false,
+    accumulatedTime: 0,
     isActive: true,
     createdTime: DateTime.now(),
     categoryId: resolvedCategoryId,
     categoryName: resolvedCategoryName,
-    habitId: habitId,
+    specificDays: null,
+    isTimerActive: false,
+    timerStartTime: null,
+    snoozedUntil: null,
+    isRecurring: false,
+    frequency: 1,
+    lastUpdated: DateTime.now(),
+    dayEndTime: 0,
+    currentValue: null,
   );
 
   return await TaskRecord.collectionForUser(uid).add(taskData);
@@ -551,13 +562,12 @@ Future<void> updateTask({
   DateTime? completedTime,
   String? categoryId,
   String? categoryName,
-  String? habitId,
 }) async {
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
   };
 
-  if (title != null) updateData['title'] = title;
+  if (title != null) updateData['name'] = title;
   if (description != null) updateData['description'] = description;
   if (status != null) updateData['status'] = status;
   if (dueDate != null) updateData['dueDate'] = dueDate;
@@ -567,7 +577,6 @@ Future<void> updateTask({
   if (completedTime != null) updateData['completedTime'] = completedTime;
   if (categoryId != null) updateData['categoryId'] = categoryId;
   if (categoryName != null) updateData['categoryName'] = categoryName;
-  if (habitId != null) updateData['habitId'] = habitId;
 
   await taskRef.update(updateData);
 }
@@ -655,7 +664,6 @@ Future<void> updateHabit({
   required DocumentReference habitRef,
   String? name,
   String? categoryName,
-  String? impactLevel,
   String? trackingType,
   dynamic target,
   String? schedule,
@@ -672,7 +680,6 @@ Future<void> updateHabit({
 
   if (name != null) updateData['name'] = name;
   if (categoryName != null) updateData['categoryName'] = categoryName;
-  if (impactLevel != null) updateData['impactLevel'] = impactLevel;
   if (trackingType != null) updateData['trackingType'] = trackingType;
   if (target != null) updateData['target'] = target;
   if (schedule != null) updateData['schedule'] = schedule;
