@@ -394,6 +394,7 @@ Future<DocumentReference> createCategory({
   String? color,
   String? userId,
   required String categoryType, // Must be 'habit' or 'task'
+  bool isSystemCategory = false,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
@@ -418,12 +419,75 @@ Future<DocumentReference> createCategory({
     lastUpdated: DateTime.now(),
     userId: uid,
     categoryType: categoryType,
+    isSystemCategory: isSystemCategory,
   );
 
   return await CategoryRecord.collectionForUser(uid).add(categoryData);
 }
 
-/// Create a default or new task (defaults to default category if none provided)
+/// Get or create the inbox category for a user
+Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  final uid = userId ?? currentUser?.uid ?? '';
+
+  if (uid.isEmpty) {
+    throw Exception('User not authenticated');
+  }
+
+  try {
+    // Use simple query to avoid Firestore composite index requirements
+    final allCategories = await queryTaskCategoriesOnce(userId: uid);
+
+    // Find inbox category in memory
+    final inboxCategory = allCategories.firstWhere(
+      (c) => c.name == 'Inbox' && c.isSystemCategory,
+      orElse: () => allCategories.firstWhere(
+        (c) => c.name == 'Inbox',
+        orElse: () => throw StateError('No inbox found'),
+      ),
+    );
+
+    return inboxCategory;
+  } catch (e) {
+    // Create inbox category if it doesn't exist
+    final inboxRef = await createCategory(
+      name: 'Inbox',
+      description: 'Default inbox for tasks',
+      weight: 1.0,
+      userId: uid,
+      categoryType: 'task',
+      isSystemCategory: true,
+    );
+
+    return await CategoryRecord.getDocumentOnce(inboxRef);
+  }
+}
+
+/// Query to get user-created (non-system) categories only
+Future<List<CategoryRecord>> queryUserCategoriesOnce({
+  required String userId,
+  String? categoryType,
+}) async {
+  try {
+    // Use simple query and filter in memory to avoid Firestore composite index requirements
+    final allCategories = await queryCategoriesRecordOnce(userId: userId);
+
+    // Filter in memory (no Firestore index needed)
+    var filtered = allCategories.where((c) => !c.isSystemCategory);
+    if (categoryType != null) {
+      filtered = filtered.where((c) => c.categoryType == categoryType);
+    }
+
+    final result = filtered.toList();
+    result.sort((a, b) => a.name.compareTo(b.name));
+    return result;
+  } catch (e) {
+    print('Error querying user categories: $e');
+    return []; // Return empty list on error
+  }
+}
+
+/// Create a default or new task (defaults to inbox category if none provided)
 Future<DocumentReference> createTask({
   required String title,
   String? description,
@@ -437,33 +501,15 @@ Future<DocumentReference> createTask({
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
 
-  // Ensure we have a category; if not, fallback to default
-  String resolvedCategoryName = categoryName ?? 'inbox';
+  // Ensure we have a category; if not, fallback to inbox
+  String resolvedCategoryName = categoryName ?? 'Inbox';
   String resolvedCategoryId = categoryId ?? '';
 
   if (resolvedCategoryId.isEmpty) {
-    // Try to find existing default category
-    final defaultQuery = await CategoryRecord.collectionForUser(uid)
-        .where('name', isEqualTo: 'inbox')
-        .limit(1)
-        .get();
-    if (defaultQuery.docs.isNotEmpty) {
-      resolvedCategoryId = defaultQuery.docs.first.id;
-      resolvedCategoryName =
-          (defaultQuery.docs.first.data() as Map<String, dynamic>)['name'] ??
-              'inbox';
-    } else {
-      // Create default category for this user
-      final newDefault = await createCategory(
-        name: 'inbox',
-        color: CategoryColorUtil.hexForName('inbox'),
-        weight: 1.0,
-        userId: uid,
-        categoryType: 'task',
-      );
-      resolvedCategoryId = newDefault.id;
-      resolvedCategoryName = 'inbox';
-    }
+    // Get or create the inbox category
+    final inboxCategory = await getOrCreateInboxCategory(userId: uid);
+    resolvedCategoryId = inboxCategory.reference.id;
+    resolvedCategoryName = inboxCategory.name;
   }
 
   final taskData = createTaskRecordData(

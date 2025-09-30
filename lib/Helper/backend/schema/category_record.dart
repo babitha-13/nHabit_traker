@@ -64,6 +64,11 @@ class CategoryRecord extends FirestoreRecord {
       _categoryType ?? 'habit'; // Default to habit for backwards compatibility
   bool hasCategoryType() => _categoryType != null;
 
+  // "isSystemCategory" field.
+  bool? _isSystemCategory;
+  bool get isSystemCategory => _isSystemCategory ?? false;
+  bool hasIsSystemCategory() => _isSystemCategory != null;
+
   void _initializeFields() {
     _uid = snapshotData['uid'] as String?;
     _name = snapshotData['name'] as String?;
@@ -85,6 +90,7 @@ class CategoryRecord extends FirestoreRecord {
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
     _userId = snapshotData['userId'] as String?;
     _categoryType = snapshotData['categoryType'] as String?;
+    _isSystemCategory = snapshotData['isSystemCategory'] as bool?;
   }
 
   static CollectionReference get collection =>
@@ -138,6 +144,7 @@ Map<String, dynamic> createCategoryRecordData({
   DateTime? lastUpdated,
   String? userId,
   required String categoryType, // REQUIRED - no categories without type!
+  bool? isSystemCategory,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -151,6 +158,7 @@ Map<String, dynamic> createCategoryRecordData({
       'lastUpdated': lastUpdated,
       'userId': userId,
       'categoryType': categoryType,
+      'isSystemCategory': isSystemCategory,
     }.withoutNulls,
   );
 
@@ -171,7 +179,8 @@ class CategoryRecordDocumentEquality implements Equality<CategoryRecord> {
         e1?.createdTime == e2?.createdTime &&
         e1?.lastUpdated == e2?.lastUpdated &&
         e1?.userId == e2?.userId &&
-        e1?.categoryType == e2?.categoryType;
+        e1?.categoryType == e2?.categoryType &&
+        e1?.isSystemCategory == e2?.isSystemCategory;
   }
 
   @override
@@ -186,6 +195,7 @@ class CategoryRecordDocumentEquality implements Equality<CategoryRecord> {
         e?.lastUpdated,
         e?.userId,
         e?.categoryType,
+        e?.isSystemCategory,
       ]);
 
   @override

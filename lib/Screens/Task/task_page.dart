@@ -117,6 +117,8 @@ class _TaskPageState extends State<TaskPage> {
       }
       final allTasks = await queryTasksRecordOnce(userId: uid);
       final allHabits = await queryHabitsRecordOnce(userId: uid);
+      // Ensure inbox category exists
+      await getOrCreateInboxCategory(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
 
       // Debug prints
@@ -905,6 +907,8 @@ class _TaskPageState extends State<TaskPage> {
       if (uid.isEmpty) return;
       final allTasks = await queryTasksRecordOnce(userId: uid);
       final allHabits = await queryHabitsRecordOnce(userId: uid);
+      // Ensure inbox category exists
+      await getOrCreateInboxCategory(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
       if (!mounted) return;
       setState(() {

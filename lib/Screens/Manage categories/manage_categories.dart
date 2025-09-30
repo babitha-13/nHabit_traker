@@ -32,7 +32,8 @@ class _ManageCategoriesState extends State<ManageCategories> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final categories = await queryCategoriesRecordOnce(userId: userId);
+        // Load only user-created categories (exclude system categories like Inbox)
+        final categories = await queryUserCategoriesOnce(userId: userId);
 
         setState(() {
           _categories = categories;
@@ -49,6 +50,19 @@ class _ManageCategoriesState extends State<ManageCategories> {
 
   Future<void> _deleteCategory(CategoryRecord category) async {
     try {
+      // Safety check: prevent deletion of system categories
+      if (category.isSystemCategory) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('System categories cannot be deleted'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
       await deleteCategory(category.reference.id, userId: currentUserUid);
       await _loadCategories(); // Reload the list
 
@@ -185,7 +199,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
                                                   BorderRadius.circular(12),
                                             ),
                                             child: Text(
-                                              'Weight: ${(category.weight ?? 1.0).toStringAsFixed(1)}',
+                                              'Weight: ${category.weight.toStringAsFixed(1)}',
                                               style: TextStyle(
                                                 color:
                                                     FlutterFlowTheme.of(context)

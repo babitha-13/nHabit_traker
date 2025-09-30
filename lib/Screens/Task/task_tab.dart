@@ -3,7 +3,6 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
@@ -30,34 +29,21 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   }
 
   Future<void> _loadCategories() async {
-    final fetched = await queryTaskCategoriesOnce(userId: currentUserUid);
+    // Ensure inbox category exists first
+    await getOrCreateInboxCategory(userId: currentUserUid);
 
-    // Ensure default task category exists
-    try {
-      fetched.firstWhere((c) => c.name.toLowerCase() == 'inbox');
-    } catch (e) {
-      // Default category doesn't exist, create it
-      await createCategory(
-        name: 'Inbox',
-        description: 'Inbox task category',
-        weight: 1.0,
-        categoryType: 'task',
-      );
-      // Reload categories after creating default
-      final updatedFetched =
-      await queryTaskCategoriesOnce(userId: currentUserUid);
-      setState(() {
-        _categories = updatedFetched;
-        _tabNames = ["Inbox", ..._categories.map((c) => c.name)];
-        _tabController.dispose();
-        _tabController = TabController(length: _tabNames.length, vsync: this);
-      });
-      return;
-    }
+    // Get all task categories (including system categories like inbox)
+    final allTaskCategories =
+        await queryTaskCategoriesOnce(userId: currentUserUid);
+
+    // Get user-created categories only (excluding system categories)
+    final userCategories = await queryUserCategoriesOnce(
+        userId: currentUserUid, categoryType: 'task');
 
     setState(() {
-      _categories = fetched;
-      _tabNames = ["Default", ..._categories.map((c) => c.name)];
+      _categories = allTaskCategories;
+      // Always show Inbox first, then user-created categories
+      _tabNames = ["Inbox", ...userCategories.map((c) => c.name)];
       _tabController.dispose();
       _tabController = TabController(length: _tabNames.length, vsync: this);
     });
@@ -84,12 +70,12 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   child: _tabNames.isEmpty
                       ? const SizedBox()
                       : TabBar(
-                    indicatorColor: Colors.black,
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabs:
-                    _tabNames.map((name) => Tab(text: name)).toList(),
-                  ),
+                          indicatorColor: Colors.black,
+                          controller: _tabController,
+                          isScrollable: true,
+                          tabs:
+                              _tabNames.map((name) => Tab(text: name)).toList(),
+                        ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.add, color: Colors.black),
@@ -105,27 +91,39 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
             child: _categories.isEmpty
                 ? const Center(child: CircularProgressIndicator())
                 : TabBarView(
-              controller: _tabController,
-              children: _tabNames.map((name) {
-                final category = _categories.isEmpty
-                    ? null
-                    : (name.toLowerCase() == "inbox"
-                    ? _categories.firstWhere(
-                      (c) => c.name.toLowerCase() == 'inbox',
-                  orElse: () => _categories.first,
-                )
-                    : _categories.firstWhere(
-                      (c) => c.name == name,
-                  orElse: () => _categories.first,
-                ));
+                    controller: _tabController,
+                    children: _tabNames.map((name) {
+                      CategoryRecord? category;
 
-                if (category == null) {
-                  return const Center(child: Text("No category found"));
-                }
+                      if (name == "Inbox") {
+                        // Find the inbox category (system category)
+                        category = _categories.firstWhere(
+                          (c) => c.name == 'Inbox' && c.isSystemCategory,
+                          orElse: () => _categories.firstWhere(
+                            (c) => c.name == 'Inbox',
+                            orElse: () => _categories.first,
+                          ),
+                        );
+                      } else {
+                        // Find user-created category by name
+                        category = _categories.firstWhere(
+                          (c) => c.name == name && !c.isSystemCategory,
+                          orElse: () => _categories.firstWhere(
+                            (c) => c.name == name,
+                            orElse: () => _categories.first,
+                          ),
+                        );
+                      }
 
-                return TaskPage(categoryId: category.reference.id, showCompleted: _showCompleted,);
-              }).toList(),
-            ),
+                      // category should never be null due to our logic above
+                      // but keeping this check for safety
+
+                      return TaskPage(
+                        categoryId: category.reference.id,
+                        showCompleted: _showCompleted,
+                      );
+                    }).toList(),
+                  ),
           )
         ],
       ),
@@ -134,7 +132,6 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   Future<void> _showAddCategoryDialog(BuildContext context) async {
     final TextEditingController tabController = TextEditingController();
-    String? errorText;
     await showDialog(
       context: context,
       builder: (context) {
@@ -190,13 +187,27 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                     }
 
                     final exists = _categories.any(
-                          (c) => c.name.toLowerCase() == newName.toLowerCase(),
+                      (c) => c.name.toLowerCase() == newName.toLowerCase(),
                     );
-                    if (exists || newName.toLowerCase() == "inbox") {
+                    if (exists) {
                       if (context.mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           const SnackBar(
                             content: Text("Category already exists"),
+                            backgroundColor: Colors.red,
+                          ),
+                        );
+                        return;
+                      }
+                    }
+
+                    // Prevent creating categories with reserved names
+                    if (newName.toLowerCase() == "inbox") {
+                      if (context.mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(
+                            content:
+                                Text("'Inbox' is a reserved category name"),
                             backgroundColor: Colors.red,
                           ),
                         );
@@ -229,4 +240,3 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     );
   }
 }
-
