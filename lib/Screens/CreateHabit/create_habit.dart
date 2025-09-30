@@ -74,7 +74,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
-      final categories = await queryCategoriesRecordOnce(userId: userId);
+      final categories = await queryHabitCategoriesOnce(userId: userId);
       if (mounted) {
         setState(() {
           _categories = categories;
