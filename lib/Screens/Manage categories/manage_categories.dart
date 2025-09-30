@@ -126,7 +126,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Create categories to organize your habits!',
+                                  'Create categories to organize your habits and tasks!',
                                   style:
                                       FlutterFlowTheme.of(context).bodyMedium,
                                 ),
@@ -138,106 +138,235 @@ class _ManageCategoriesState extends State<ManageCategories> {
                               ],
                             ),
                           )
-                        : ListView.builder(
-                            itemCount: _categories.length,
-                            itemBuilder: (context, index) {
-                              final category = _categories[index];
-                              return Container(
-                                margin: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryBackground,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color:
-                                        FlutterFlowTheme.of(context).alternate,
-                                    width: 1,
-                                  ),
-                                ),
-                                child: ListTile(
-                                  leading: Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color: _parseColor(category.color),
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.category,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    category.name,
-                                    style: FlutterFlowTheme.of(context)
-                                        .titleMedium,
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (category.description.isNotEmpty)
-                                        Text(
-                                          category.description,
-                                          style: FlutterFlowTheme.of(context)
-                                              .bodyMedium,
-                                        ),
-                                      const SizedBox(height: 4),
-                                      Row(
-                                        children: [
-                                          Container(
-                                            padding: const EdgeInsets.symmetric(
-                                                horizontal: 8, vertical: 2),
-                                            decoration: BoxDecoration(
-                                              color:
-                                                  FlutterFlowTheme.of(context)
-                                                      .primary
-                                                      .withOpacity(0.1),
-                                              borderRadius:
-                                                  BorderRadius.circular(12),
-                                            ),
-                                            child: Text(
-                                              'Weight: ${category.weight.toStringAsFixed(1)}',
-                                              style: TextStyle(
-                                                color:
-                                                    FlutterFlowTheme.of(context)
-                                                        .primary,
-                                                fontSize: 12,
-                                                fontWeight: FontWeight.w500,
-                                              ),
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.edit),
-                                        onPressed: () =>
-                                            _showEditCategoryDialog(category),
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete),
-                                        onPressed: () =>
-                                            _showDeleteConfirmation(category),
-                                        color: Colors.red,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
+                        : _buildCategorizedList(),
                   ),
                 ],
               ),
+      ),
+    );
+  }
+
+  Widget _buildCategorizedList() {
+    // Separate categories by type
+    final habitCategories =
+        _categories.where((cat) => cat.categoryType == 'habit').toList();
+    final taskCategories =
+        _categories.where((cat) => cat.categoryType == 'task').toList();
+
+    return SingleChildScrollView(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Habit Categories Section
+          if (habitCategories.isNotEmpty) ...[
+            _buildSectionHeader(
+                'Habit Categories', Icons.repeat, habitCategories.length),
+            ...habitCategories
+                .map((category) => _buildCategoryItem(category, 'habit')),
+            const SizedBox(height: 16),
+          ],
+
+          // Task Categories Section
+          if (taskCategories.isNotEmpty) ...[
+            _buildSectionHeader(
+                'Task Categories', Icons.task_alt, taskCategories.length),
+            ...taskCategories
+                .map((category) => _buildCategoryItem(category, 'task')),
+            const SizedBox(height: 16),
+          ],
+
+          // Show message if only one type exists
+          if (habitCategories.isEmpty && taskCategories.isNotEmpty)
+            _buildEmptyTypeMessage('habit'),
+          if (taskCategories.isEmpty && habitCategories.isNotEmpty)
+            _buildEmptyTypeMessage('task'),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildSectionHeader(String title, IconData icon, int count) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).primary.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            icon,
+            color: FlutterFlowTheme.of(context).primary,
+            size: 24,
+          ),
+          const SizedBox(width: 12),
+          Text(
+            title,
+            style: FlutterFlowTheme.of(context).titleMedium.override(
+                  fontWeight: FontWeight.w600,
+                  color: FlutterFlowTheme.of(context).primary,
+                ),
+          ),
+          const Spacer(),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: FlutterFlowTheme.of(context).primary,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              count.toString(),
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCategoryItem(CategoryRecord category, String type) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).secondaryBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate,
+          width: 1,
+        ),
+      ),
+      child: ListTile(
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: _parseColor(category.color),
+            shape: BoxShape.circle,
+          ),
+          child: Icon(
+            type == 'habit' ? Icons.repeat : Icons.task_alt,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+        title: Row(
+          children: [
+            Expanded(
+              child: Text(
+                category.name,
+                style: FlutterFlowTheme.of(context).titleMedium,
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+              decoration: BoxDecoration(
+                color: type == 'habit'
+                    ? Colors.green.withOpacity(0.2)
+                    : Colors.blue.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                type.toUpperCase(),
+                style: TextStyle(
+                  color: type == 'habit' ? Colors.green[700] : Colors.blue[700],
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ),
+          ],
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (category.description.isNotEmpty)
+              Text(
+                category.description,
+                style: FlutterFlowTheme.of(context).bodyMedium,
+              ),
+            const SizedBox(height: 4),
+            Row(
+              children: [
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+                  decoration: BoxDecoration(
+                    color:
+                        FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    'Weight: ${category.weight.toStringAsFixed(1)}',
+                    style: TextStyle(
+                      color: FlutterFlowTheme.of(context).primary,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.edit),
+              onPressed: () => _showEditCategoryDialog(category),
+              color: FlutterFlowTheme.of(context).secondaryText,
+            ),
+            IconButton(
+              icon: const Icon(Icons.delete),
+              onPressed: () => _showDeleteConfirmation(category),
+              color: Colors.red,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyTypeMessage(String missingType) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color:
+            FlutterFlowTheme.of(context).secondaryBackground.withOpacity(0.5),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate.withOpacity(0.5),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            missingType == 'habit' ? Icons.repeat : Icons.task_alt,
+            color: FlutterFlowTheme.of(context).secondaryText,
+            size: 20,
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Text(
+              'No ${missingType} categories yet. Create one to organize your ${missingType}s!',
+              style: FlutterFlowTheme.of(context).bodyMedium.override(
+                    color: FlutterFlowTheme.of(context).secondaryText,
+                    fontStyle: FontStyle.italic,
+                  ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -84,7 +84,9 @@ class _HomeState extends State<Home> {
             ),
             actions: [
               Visibility(
-                visible: title != "Progress" && title != "Tasks",
+                visible: title != "Progress" &&
+                    title != "Tasks" &&
+                    title != "Manage Categories",
                 child: Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: Row(
@@ -102,7 +104,8 @@ class _HomeState extends State<Home> {
                         value: _showCompleted,
                         onChanged: (value) {
                           setState(() => _showCompleted = value);
-                          NotificationCenter.post("showCompleted", _showCompleted);
+                          NotificationCenter.post(
+                              "showCompleted", _showCompleted);
                         },
                         activeColor: Colors.white,
                       ),
@@ -111,23 +114,26 @@ class _HomeState extends State<Home> {
                 ),
               ),
               Visibility(
-                visible: title != "Progress" && title != "Today",
+                visible: title != "Progress" &&
+                    title != "Today" &&
+                    title != "Manage Categories",
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       'Show Completed',
                       style: FlutterFlowTheme.of(context).bodyMedium.override(
-                        fontFamily: 'Readex Pro',
-                        color: Colors.white,
-                      ),
+                            fontFamily: 'Readex Pro',
+                            color: Colors.white,
+                          ),
                     ),
                     const SizedBox(width: 5),
                     Switch(
                       value: _showTaskCompleted,
                       onChanged: (value) {
                         setState(() => _showTaskCompleted = value);
-                        NotificationCenter.post("showTaskCompleted", _showTaskCompleted);
+                        NotificationCenter.post(
+                            "showTaskCompleted", _showTaskCompleted);
                       },
                       activeColor: Colors.white,
                     ),
@@ -262,7 +268,7 @@ class _HomeState extends State<Home> {
               children: [
                 Container(color: Colors.white, child: cWidget),
                 Visibility(
-                  visible: title != "Tasks",
+                  visible: title != "Tasks" && title != "Manage Categories",
                   child: Positioned(
                     right: 16,
                     bottom: 88, // above bottom nav
@@ -394,7 +400,9 @@ class _HomeState extends State<Home> {
         }
         if (s == "Tasks") {
           title = s;
-          cWidget = TaskTab(showCompleted: _showTaskCompleted,);
+          cWidget = TaskTab(
+            showCompleted: _showTaskCompleted,
+          );
         }
         if (s == "Today") {
           title = s;
