@@ -9,6 +9,9 @@ import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
@@ -319,7 +322,7 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
   }
 }
 
-/// Query to get tasks for a specific user
+/// Query to get tasks for a specific user (LEGACY - use queryTodaysTaskInstances for active tasks)
 Future<List<TaskRecord>> queryTasksRecordOnce({
   required String userId,
 }) async {
@@ -336,6 +339,32 @@ Future<List<TaskRecord>> queryTasksRecordOnce({
     return tasks;
   } catch (e) {
     print('Error querying tasks: $e');
+    return []; // Return empty list on error
+  }
+}
+
+/// Query to get today's task instances (current and overdue)
+/// This is the main function to use for displaying active tasks to users
+Future<List<TaskInstanceRecord>> queryTodaysTaskInstances({
+  required String userId,
+}) async {
+  try {
+    return await TaskInstanceService.getTodaysTaskInstances(userId: userId);
+  } catch (e) {
+    print('Error querying today\'s task instances: $e');
+    return []; // Return empty list on error
+  }
+}
+
+/// Query to get today's habit instances (current and overdue)
+/// This is the main function to use for displaying active habits to users
+Future<List<HabitInstanceRecord>> queryTodaysHabitInstances({
+  required String userId,
+}) async {
+  try {
+    return await TaskInstanceService.getTodaysHabitInstances(userId: userId);
+  } catch (e) {
+    print('Error querying today\'s habit instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -379,7 +408,22 @@ Future<DocumentReference> createHabit({
     lastUpdated: DateTime.now(),
   );
 
-  return await HabitRecord.collectionForUser(uid).add(habitData);
+  final habitRef = await HabitRecord.collectionForUser(uid).add(habitData);
+
+  // Create initial habit instance
+  try {
+    final habit = await HabitRecord.getDocumentOnce(habitRef);
+    await TaskInstanceService.initializeHabitInstances(
+      templateId: habitRef.id,
+      template: habit,
+      userId: uid,
+    );
+  } catch (e) {
+    print('Error creating initial habit instance: $e');
+    // Don't fail the habit creation if instance creation fails
+  }
+
+  return habitRef;
 }
 
 /// Create a new category
@@ -493,6 +537,10 @@ Future<DocumentReference> createTask({
   String? categoryId,
   String? categoryName,
   String? userId,
+  bool isRecurring = false,
+  String schedule = 'daily',
+  int frequency = 1,
+  List<int>? specificDays,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
@@ -516,7 +564,7 @@ Future<DocumentReference> createTask({
     priority: priority,
     trackingType: 'binary',
     target: null,
-    schedule: 'daily',
+    schedule: schedule,
     unit: '',
     showInFloatingTimer: false,
     accumulatedTime: 0,
@@ -524,71 +572,109 @@ Future<DocumentReference> createTask({
     createdTime: DateTime.now(),
     categoryId: resolvedCategoryId,
     categoryName: resolvedCategoryName,
-    specificDays: null,
+    specificDays: specificDays,
     isTimerActive: false,
     timerStartTime: null,
     snoozedUntil: null,
-    isRecurring: false,
-    frequency: 1,
+    isRecurring: isRecurring,
+    frequency: frequency,
     lastUpdated: DateTime.now(),
     dayEndTime: 0,
     currentValue: null,
   );
 
-  return await TaskRecord.collectionForUser(uid).add(taskData);
+  final taskRef = await TaskRecord.collectionForUser(uid).add(taskData);
+
+  // Create initial task instance
+  try {
+    final task = await TaskRecord.getDocumentOnce(taskRef);
+    await TaskInstanceService.initializeTaskInstances(
+      templateId: taskRef.id,
+      template: task,
+      userId: uid,
+    );
+  } catch (e) {
+    print('Error creating initial task instance: $e');
+    // Don't fail the task creation if instance creation fails
+  }
+
+  return taskRef;
 }
 
-/// Migrate existing categories to have categoryType field
-/// This should be called once to update old categories
-Future<int> migrateCategoryTypes({String? userId}) async {
+/// Create a task with specific tracking type and target
+Future<DocumentReference> createTaskWithTracking({
+  required String title,
+  String? description,
+  DateTime? dueDate,
+  int priority = 1,
+  String? categoryId,
+  String? categoryName,
+  String? userId,
+  String trackingType = 'binary',
+  dynamic target,
+  String unit = '',
+  bool isRecurring = false,
+  String schedule = 'daily',
+  int frequency = 1,
+  List<int>? specificDays,
+}) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-  if (uid.isEmpty) return 0;
 
-  final query = await CategoryRecord.collectionForUser(uid).get();
-  int updated = 0;
-  for (final doc in query.docs) {
-    final data = doc.data() as Map<String, dynamic>;
-    final categoryType = data['categoryType'] as String?;
+  // Ensure we have a category; if not, fallback to inbox
+  String resolvedCategoryName = categoryName ?? 'Inbox';
+  String resolvedCategoryId = categoryId ?? '';
 
-    // If categoryType is missing, set default to 'habit'
-    if (categoryType == null || categoryType.isEmpty) {
-      await doc.reference.update({
-        'categoryType': 'habit', // Default to habit for existing categories
-        'lastUpdated': DateTime.now(),
-      });
-      updated += 1;
-      print('Migrated category ${data['name']} to habit type');
-    }
+  if (resolvedCategoryId.isEmpty) {
+    // Get or create the inbox category
+    final inboxCategory = await getOrCreateInboxCategory(userId: uid);
+    resolvedCategoryId = inboxCategory.reference.id;
+    resolvedCategoryName = inboxCategory.name;
   }
-  return updated;
-}
 
-/// Normalize all existing category colors for the current user to the
-/// Slate + Copper palette deterministically by category name.
-/// Returns the number of categories updated.
-Future<int> normalizeCategoryColors({String? userId}) async {
-  final currentUser = FirebaseAuth.instance.currentUser;
-  final uid = userId ?? currentUser?.uid ?? '';
-  if (uid.isEmpty) return 0;
+  final taskData = createTaskRecordData(
+    title: title,
+    description: description,
+    status: 'incomplete',
+    dueDate: dueDate,
+    priority: priority,
+    trackingType: trackingType,
+    target: target,
+    schedule: schedule,
+    unit: unit,
+    showInFloatingTimer: trackingType == 'time',
+    accumulatedTime: 0,
+    isActive: true,
+    createdTime: DateTime.now(),
+    categoryId: resolvedCategoryId,
+    categoryName: resolvedCategoryName,
+    specificDays: specificDays,
+    isTimerActive: false,
+    timerStartTime: null,
+    snoozedUntil: null,
+    isRecurring: isRecurring,
+    frequency: frequency,
+    lastUpdated: DateTime.now(),
+    dayEndTime: 0,
+    currentValue: trackingType == 'binary' ? null : 0,
+  );
 
-  final query = await CategoryRecord.collectionForUser(uid).get();
-  int updated = 0;
-  for (final doc in query.docs) {
-    final data = doc.data() as Map<String, dynamic>;
-    final name = (data['name'] ?? '').toString();
-    if (name.isEmpty) continue;
-    final desired = CategoryColorUtil.hexForName(name);
-    final current = (data['color'] ?? '').toString();
-    if (current != desired) {
-      await doc.reference.update({
-        'color': desired,
-        'lastUpdated': DateTime.now(),
-      });
-      updated += 1;
-    }
+  final taskRef = await TaskRecord.collectionForUser(uid).add(taskData);
+
+  // Create initial task instance
+  try {
+    final task = await TaskRecord.getDocumentOnce(taskRef);
+    await TaskInstanceService.initializeTaskInstances(
+      templateId: taskRef.id,
+      template: task,
+      userId: uid,
+    );
+  } catch (e) {
+    print('Error creating initial task instance: $e');
+    // Don't fail the task creation if instance creation fails
   }
-  return updated;
+
+  return taskRef;
 }
 
 /// Update a task
@@ -604,6 +690,10 @@ Future<void> updateTask({
   DateTime? completedTime,
   String? categoryId,
   String? categoryName,
+  dynamic currentValue,
+  bool? isTimerActive,
+  DateTime? timerStartTime,
+  int? accumulatedTime,
 }) async {
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
@@ -619,6 +709,10 @@ Future<void> updateTask({
   if (completedTime != null) updateData['completedTime'] = completedTime;
   if (categoryId != null) updateData['categoryId'] = categoryId;
   if (categoryName != null) updateData['categoryName'] = categoryName;
+  if (currentValue != null) updateData['currentValue'] = currentValue;
+  if (isTimerActive != null) updateData['isTimerActive'] = isTimerActive;
+  if (timerStartTime != null) updateData['timerStartTime'] = timerStartTime;
+  if (accumulatedTime != null) updateData['accumulatedTime'] = accumulatedTime;
 
   await taskRef.update(updateData);
 }
@@ -629,6 +723,17 @@ Future<void> deleteTask(DocumentReference taskRef) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
+
+  // Also delete all instances for this task
+  try {
+    await TaskInstanceService.deleteInstancesForTemplate(
+      templateId: taskRef.id,
+      templateType: 'task',
+    );
+  } catch (e) {
+    print('Error deleting task instances: $e');
+    // Don't fail the task deletion if instance deletion fails
+  }
 }
 
 /// Create a work session entry
@@ -741,6 +846,17 @@ Future<void> deleteHabit(DocumentReference habitRef) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
+
+  // Also delete all instances for this habit
+  try {
+    await TaskInstanceService.deleteInstancesForTemplate(
+      templateId: habitRef.id,
+      templateType: 'habit',
+    );
+  } catch (e) {
+    print('Error deleting habit instances: $e');
+    // Don't fail the habit deletion if instance deletion fails
+  }
 }
 
 /// Update a category
@@ -821,4 +937,150 @@ Future<void> deleteSequence(String sequenceId, {String? userId}) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
+}
+
+// ==================== TASK INSTANCE MANAGEMENT ====================
+
+/// Complete a task instance and generate next occurrence if recurring
+Future<void> completeTaskInstance({
+  required String instanceId,
+  dynamic finalValue,
+  int? finalAccumulatedTime,
+  String? notes,
+  String? userId,
+}) async {
+  await TaskInstanceService.completeTaskInstance(
+    instanceId: instanceId,
+    finalValue: finalValue,
+    finalAccumulatedTime: finalAccumulatedTime,
+    notes: notes,
+    userId: userId,
+  );
+}
+
+/// Skip a task instance and generate next occurrence if recurring
+Future<void> skipTaskInstance({
+  required String instanceId,
+  String? notes,
+  String? userId,
+}) async {
+  await TaskInstanceService.skipTaskInstance(
+    instanceId: instanceId,
+    notes: notes,
+    userId: userId,
+  );
+}
+
+/// Complete a habit instance and generate next occurrence
+Future<void> completeHabitInstance({
+  required String instanceId,
+  dynamic finalValue,
+  int? finalAccumulatedTime,
+  String? notes,
+  String? userId,
+}) async {
+  await TaskInstanceService.completeHabitInstance(
+    instanceId: instanceId,
+    finalValue: finalValue,
+    finalAccumulatedTime: finalAccumulatedTime,
+    notes: notes,
+    userId: userId,
+  );
+}
+
+/// Skip a habit instance and generate next occurrence
+Future<void> skipHabitInstance({
+  required String instanceId,
+  String? notes,
+  String? userId,
+}) async {
+  await TaskInstanceService.skipHabitInstance(
+    instanceId: instanceId,
+    notes: notes,
+    userId: userId,
+  );
+}
+
+/// Update instance progress (for quantity/duration tracking)
+Future<void> updateInstanceProgress({
+  required String instanceId,
+  required String instanceType, // 'task' or 'habit'
+  dynamic currentValue,
+  int? accumulatedTime,
+  bool? isTimerActive,
+  DateTime? timerStartTime,
+  String? userId,
+}) async {
+  await TaskInstanceService.updateInstanceProgress(
+    instanceId: instanceId,
+    instanceType: instanceType,
+    currentValue: currentValue,
+    accumulatedTime: accumulatedTime,
+    isTimerActive: isTimerActive,
+    timerStartTime: timerStartTime,
+    userId: userId,
+  );
+}
+
+// ==================== MIGRATION FUNCTIONS ====================
+
+/// Migrate existing tasks and habits to the new instance system
+/// This should be called once to convert existing data
+Future<Map<String, int>> migrateToInstanceSystem({String? userId}) async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  final uid = userId ?? currentUser?.uid ?? '';
+  if (uid.isEmpty) return {'tasks': 0, 'habits': 0, 'errors': 0};
+
+  int tasksMigrated = 0;
+  int habitsMigrated = 0;
+  int errors = 0;
+
+  try {
+    // Migrate existing tasks
+    final tasks = await queryTasksRecordOnce(userId: uid);
+    for (final task in tasks) {
+      try {
+        await TaskInstanceService.initializeTaskInstances(
+          templateId: task.reference.id,
+          template: task,
+          userId: uid,
+        );
+        tasksMigrated++;
+      } catch (e) {
+        print('Error migrating task ${task.name}: $e');
+        errors++;
+      }
+    }
+
+    // Migrate existing habits
+    final habits = await queryHabitsRecordOnce(userId: uid);
+    for (final habit in habits) {
+      try {
+        await TaskInstanceService.initializeHabitInstances(
+          templateId: habit.reference.id,
+          template: habit,
+          userId: uid,
+        );
+        habitsMigrated++;
+      } catch (e) {
+        print('Error migrating habit ${habit.name}: $e');
+        errors++;
+      }
+    }
+
+    print(
+        'Migration completed: $tasksMigrated tasks, $habitsMigrated habits, $errors errors');
+    return {
+      'tasks': tasksMigrated,
+      'habits': habitsMigrated,
+      'errors': errors,
+    };
+  } catch (e) {
+    print('Error during migration: $e');
+    return {
+      'tasks': tasksMigrated,
+      'habits': habitsMigrated,
+      'errors': errors + 1
+    };
+  }
 }

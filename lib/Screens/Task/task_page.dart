@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
+import 'package:habit_tracker/Helper/utils/task_frequency_helper.dart';
 import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart'
     show CompactHabitItem;
 
@@ -40,6 +41,9 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickUnitController = TextEditingController();
   late bool _showCompleted;
   bool quickIsRecurring = false;
+  String _quickSchedule = 'daily';
+  int _quickFrequency = 1;
+  List<int> _quickSelectedDays = [];
 
   @override
   void initState() {
@@ -233,16 +237,25 @@ class _TaskPageState extends State<TaskPage> {
                       onPressed: _selectQuickDueDate,
                       tooltip: 'Set due date',
                     ),
-                    Transform.scale(
-                      scale: 0.7, // make the switch smaller
-                      child: Switch(
-                        value: quickIsRecurring,
-                        onChanged: (val) {
-                          setState(() {
-                            quickIsRecurring = val;
-                          });
-                        },
+                    IconButton(
+                      icon: Icon(
+                        quickIsRecurring ? Icons.repeat : Icons.repeat_outlined,
+                        color: quickIsRecurring
+                            ? FlutterFlowTheme.of(context).primary
+                            : FlutterFlowTheme.of(context).secondaryText,
                       ),
+                      onPressed: () {
+                        setState(() {
+                          quickIsRecurring = !quickIsRecurring;
+                          if (!quickIsRecurring) {
+                            // Reset recurring options when disabled
+                            _quickSchedule = 'daily';
+                            _quickFrequency = 1;
+                            _quickSelectedDays = [];
+                          }
+                        });
+                      },
+                      tooltip: 'Make recurring',
                     ),
                   ],
                 ),
@@ -354,6 +367,63 @@ class _TaskPageState extends State<TaskPage> {
                       ],
                     ],
                   ),
+                ],
+                // Recurring options section
+                if (quickIsRecurring) ...[
+                  const SizedBox(height: 10),
+                  // Schedule dropdown
+                  Row(
+                    children: [
+                      Expanded(
+                        child: ScheduleDropdown(
+                          selectedSchedule: _quickSchedule,
+                          onChanged: (value) {
+                            setState(() {
+                              _quickSchedule = value ?? 'daily';
+                              // Reset frequency and days when schedule changes
+                              _quickFrequency =
+                                  TaskFrequencyHelper.getDefaultFrequency(
+                                      _quickSchedule);
+                              _quickSelectedDays = [];
+                            });
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                  // Frequency input for weekly/monthly
+                  if (TaskFrequencyHelper.shouldShowFrequencyInput(
+                      _quickSchedule)) ...[
+                    const SizedBox(height: 10),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FrequencyInput(
+                            schedule: _quickSchedule,
+                            frequency: _quickFrequency,
+                            onChanged: (value) {
+                              setState(() {
+                                _quickFrequency = value;
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                  // Day selection for weekly
+                  if (TaskFrequencyHelper.shouldShowDaySelection(
+                      _quickSchedule)) ...[
+                    const SizedBox(height: 10),
+                    DaySelectionChips(
+                      selectedDays: _quickSelectedDays,
+                      onChanged: (days) {
+                        setState(() {
+                          _quickSelectedDays = days;
+                        });
+                      },
+                    ),
+                  ],
                 ],
               ],
             ),
@@ -475,7 +545,7 @@ class _TaskPageState extends State<TaskPage> {
         priority: 1,
         trackingType: _selectedQuickTrackingType ?? 'binary',
         target: targetValue,
-        schedule: 'daily', // Default schedule
+        schedule: quickIsRecurring ? _quickSchedule : 'daily',
         unit: _quickUnit,
         showInFloatingTimer: false, // Default to false
         accumulatedTime: 0,
@@ -484,6 +554,12 @@ class _TaskPageState extends State<TaskPage> {
         categoryId: categoryId,
         categoryName:
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
+        isRecurring: quickIsRecurring,
+        frequency: quickIsRecurring ? _quickFrequency : 1,
+        specificDays: quickIsRecurring && _quickSelectedDays.isNotEmpty
+            ? _quickSelectedDays
+            : null,
+        lastUpdated: DateTime.now(),
       );
       await TaskRecord.collectionForUser(currentUserUid).add(taskData);
       setState(() {
@@ -496,6 +572,10 @@ class _TaskPageState extends State<TaskPage> {
         _quickUnit = '';
         _quickUnitController.clear();
         _selectedQuickDueDate = null;
+        quickIsRecurring = false;
+        _quickSchedule = 'daily';
+        _quickFrequency = 1;
+        _quickSelectedDays = [];
       });
     } catch (e) {
       if (!mounted) return;

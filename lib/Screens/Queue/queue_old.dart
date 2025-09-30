@@ -5,6 +5,8 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/neumorphic_container.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
@@ -14,15 +16,15 @@ import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
-class TodayPage extends StatefulWidget {
+class QueuePage extends StatefulWidget {
   final bool showCompleted;
-  const TodayPage({super.key, required this.showCompleted});
+  const QueuePage({super.key, required this.showCompleted});
 
   @override
-  _TodayPageState createState() => _TodayPageState();
+  _QueuePageState createState() => _QueuePageState();
 }
 
-class _TodayPageState extends State<TodayPage> {
+class _QueuePageState extends State<QueuePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   List<HabitRecord> _habits = [];

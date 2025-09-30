@@ -9,9 +9,9 @@ import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
-import 'package:habit_tracker/Screens/Task/task_page.dart';
-import 'package:habit_tracker/Screens/Task/task_tab.dart';
-import 'package:habit_tracker/Screens/Today/today.dart';
+import 'package:habit_tracker/Screens/Tasks/tasks_page.dart';
+import 'package:habit_tracker/Screens/Queue/queue.dart';
+import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/main.dart';
 
 class Home extends StatefulWidget {
@@ -22,19 +22,18 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
-  String title = "Today";
+  String title = "Queue";
   DateTime preBackPress = DateTime.now();
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
   bool _showCompleted = false, _showTaskCompleted = false;
   int currentIndex = 1;
   late Widget cWidget;
-  String _sortMode = 'default';
 
   @override
   void initState() {
     super.initState();
-    cWidget = TodayPage(showCompleted: _showCompleted);
+    cWidget = QueuePage(showCompleted: _showCompleted);
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.white,
@@ -115,7 +114,8 @@ class _HomeState extends State<Home> {
               ),
               Visibility(
                 visible: title != "Progress" &&
-                    title != "Today" &&
+                    title != "Queue" &&
+                    title != "Habits" &&
                     title != "Manage Categories",
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
@@ -145,7 +145,8 @@ class _HomeState extends State<Home> {
                 child: PopupMenuButton<String>(
                   icon: const Icon(Icons.sort, color: Colors.white),
                   onSelected: (value) {
-                    setState(() => _sortMode = value);
+                    // Sort mode functionality would be implemented here
+                    print('Sort mode selected: $value');
                   },
                   itemBuilder: (context) => const [
                     PopupMenuItem(
@@ -211,9 +212,17 @@ class _HomeState extends State<Home> {
                                 onTap: () {
                                   setState(() {
                                     currentIndex = 1;
-                                    loadPage("Today");
+                                    loadPage("Queue");
                                     Navigator.pop(context);
                                   });
+                                },
+                              ),
+                              _DrawerItem(
+                                icon: Icons.repeat,
+                                label: 'Habits',
+                                onTap: () {
+                                  loadPage("Habits");
+                                  Navigator.pop(context);
                                 },
                               ),
                               _DrawerItem(
@@ -268,10 +277,12 @@ class _HomeState extends State<Home> {
               children: [
                 Container(color: Colors.white, child: cWidget),
                 Visibility(
-                  visible: title != "Tasks" && title != "Manage Categories",
+                  visible: title != "Tasks" &&
+                      title != "Habits" &&
+                      title != "Manage Categories",
                   child: Positioned(
                     right: 16,
-                    bottom: 88, // above bottom nav
+                    bottom: 24, // closer to bottom nav
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -328,8 +339,10 @@ class _HomeState extends State<Home> {
                   if (i == 0) {
                     loadPage("Tasks");
                   } else if (i == 1) {
-                    loadPage("Today");
+                    loadPage("Queue");
                   } else if (i == 2) {
+                    loadPage("Habits");
+                  } else if (i == 3) {
                     loadPage("Progress");
                   }
                 });
@@ -346,8 +359,12 @@ class _HomeState extends State<Home> {
                   label: 'Tasks',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.today),
-                  label: 'Today',
+                  icon: Icon(Icons.queue),
+                  label: 'Queue',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.repeat),
+                  label: 'Habits',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(Icons.trending_up),
@@ -362,7 +379,7 @@ class _HomeState extends State<Home> {
   }
 
   Future<bool> _onWillPop() async {
-    if (title == "Today") {
+    if (title == "Queue") {
       final timeGap = DateTime.now().difference(preBackPress);
       final cantExit = timeGap >= const Duration(seconds: 2);
       preBackPress = DateTime.now();
@@ -378,9 +395,9 @@ class _HomeState extends State<Home> {
       }
     } else {
       if (mounted) {
-        title = "Today";
+        title = "Queue";
         setState(() {
-          cWidget = TodayPage(
+          cWidget = QueuePage(
             showCompleted: _showCompleted,
           );
         });
@@ -392,21 +409,21 @@ class _HomeState extends State<Home> {
   void loadPage(s) {
     if (mounted) {
       setState(() {
-        if (s == "Today") {
+        if (s == "Queue") {
           title = s;
-          cWidget = TodayPage(
+          cWidget = QueuePage(
             showCompleted: _showCompleted,
           );
         }
         if (s == "Tasks") {
           title = s;
-          cWidget = TaskTab(
+          cWidget = TasksPage(
             showCompleted: _showTaskCompleted,
           );
         }
-        if (s == "Today") {
+        if (s == "Habits") {
           title = s;
-          cWidget = TodayPage(
+          cWidget = HabitsPage(
             showCompleted: _showCompleted,
           );
         }
