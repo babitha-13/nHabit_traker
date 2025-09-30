@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart'
     show CompactHabitItem;
 
@@ -205,53 +206,19 @@ class _TaskPageState extends State<TaskPage> {
                 Row(
                   children: [
                     const SizedBox.shrink(),
-                    Expanded(
-                      flex: 2,
-                      child: Container(
-                        decoration: BoxDecoration(
-                          border: Border.all(
-                            color: FlutterFlowTheme.of(context).alternate,
-                            width: 1,
-                          ),
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: DropdownButtonFormField<String>(
-                          value: _selectedQuickTrackingType ?? 'binary',
-                          decoration: const InputDecoration(
-                            labelText: 'Type',
-                            labelStyle: TextStyle(
-                                fontSize: 11, fontWeight: FontWeight.w500),
-                            border: InputBorder.none,
-                            contentPadding: EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 4),
-                            isDense: true,
-                          ),
-                          items: const [
-                            DropdownMenuItem(
-                                value: 'binary',
-                                child: Text('To-do',
-                                    style: TextStyle(fontSize: 11))),
-                            DropdownMenuItem(
-                                value: 'quantitative',
-                                child: Text('Qty',
-                                    style: TextStyle(fontSize: 11))),
-                            DropdownMenuItem(
-                                value: 'time',
-                                child: Text('Time',
-                                    style: TextStyle(fontSize: 11))),
-                          ],
-                          onChanged: (value) {
-                            setState(() {
-                              _selectedQuickTrackingType = value;
-                              if (value == 'binary') {
-                                _quickTargetNumber = 1;
-                                _quickTargetDuration = const Duration(hours: 1);
-                                _quickUnit = '';
-                              }
-                            });
-                          },
-                        ),
-                      ),
+                    IconTaskTypeDropdown(
+                      selectedValue: _selectedQuickTrackingType ?? 'binary',
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedQuickTrackingType = value;
+                          if (value == 'binary') {
+                            _quickTargetNumber = 1;
+                            _quickTargetDuration = const Duration(hours: 1);
+                            _quickUnit = '';
+                          }
+                        });
+                      },
+                      tooltip: 'Select task type',
                     ),
                     const SizedBox(width: 5),
                     IconButton(
@@ -422,7 +389,7 @@ class _TaskPageState extends State<TaskPage> {
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Task', 'Tomorrow', 'This Week', 'Later'];
+    final order = ['Overdue', 'Today', 'Tomorrow', 'This Week', 'Later'];
     final widgets = <Widget>[];
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
@@ -555,7 +522,7 @@ class _TaskPageState extends State<TaskPage> {
   Map<String, List<dynamic>> get _bucketedItems {
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
-      'Task': [],
+      'Today': [],
       'Tomorrow': [],
       'This Week': [],
       'Later': [],
@@ -579,7 +546,7 @@ class _TaskPageState extends State<TaskPage> {
       if (due.isBefore(today)) {
         buckets['Overdue']!.add(t);
       } else if (_isSameDay(due, today)) {
-        buckets['Task']!.add(t);
+        buckets['Today']!.add(t);
       } else if (_isSameDay(due, _tomorrowDate())) {
         buckets['Tomorrow']!.add(t);
       } else if (!due.isAfter(endOfWeek)) {
@@ -591,14 +558,14 @@ class _TaskPageState extends State<TaskPage> {
     for (final h in _habits) {
       if (!h.isActive) continue;
       if (HabitTrackingUtil.shouldTrackToday(h)) {
-        buckets['Task']!.add(h);
+        buckets['Today']!.add(h);
         continue;
       }
       final next = _nextDueDateForHabit(h, today);
       if (next == null) {
         buckets['Later']!.add(h);
       } else if (_isSameDay(next, today)) {
-        buckets['Task']!.add(h);
+        buckets['Today']!.add(h);
       } else if (_isSameDay(next, _tomorrowDate())) {
         buckets['Tomorrow']!.add(h);
       } else if (!next.isAfter(endOfWeek)) {
