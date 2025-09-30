@@ -49,7 +49,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
 
   Future<void> _deleteCategory(CategoryRecord category) async {
     try {
-      await deleteCategory(category.uid, userId: currentUserUid);
+      await deleteCategory(category.reference.id, userId: currentUserUid);
       await _loadCategories(); // Reload the list
 
       if (mounted) {

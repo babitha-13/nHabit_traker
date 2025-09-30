@@ -107,7 +107,8 @@ class _TodayPageState extends State<TodayPage> {
           _tasks = habits.where((h) {
             // if (h.isRecurring) return false;
             if (h.dueDate == null) return false;
-            final due = DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
+            final due =
+                DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
             if (due != todayDate) return false;
             final isTaskCategory = taskCategoryNames.contains(h.categoryName) ||
                 h.categoryName.toLowerCase() == 'tasks' ||
@@ -623,7 +624,9 @@ class _TodayPageState extends State<TodayPage> {
                 child: CompactHabitItem(
                   tasks: _tasks,
                   showTaskEdit: true,
-                  categories: _categories.where((c) => c.categoryType == 'task').toList(),
+                  categories: _categories
+                      .where((c) => c.categoryType == 'task')
+                      .toList(),
                   showCompleted: _showCompleted,
                   key: Key(task.reference.id),
                   habit: task,
@@ -1220,8 +1223,8 @@ class _TodayPageState extends State<TodayPage> {
 
   CategoryRecord _getTasksCategory() {
     try {
-      return _categories.firstWhere((c) =>
-      c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
+      return _categories.firstWhere(
+          (c) => c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
     } catch (e) {
       try {
         return _categories.firstWhere((c) => c.categoryType == 'task');
@@ -1329,7 +1332,8 @@ class _TodayPageState extends State<TodayPage> {
             onPressed: () async {
               Navigator.of(context).pop();
               try {
-                await deleteCategory(category.uid, userId: currentUserUid);
+                await deleteCategory(category.reference.id,
+                    userId: currentUserUid);
                 setState(() {
                   _categories.removeWhere(
                       (c) => c.reference.id == category.reference.id);
@@ -1419,7 +1423,8 @@ class _TodayPageState extends State<TodayPage> {
         _tasks = allHabits.where((h) {
           // if (h.isRecurring) return false;
           if (h.dueDate == null) return false;
-          final due = DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
+          final due =
+              DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
           return due == todayDate &&
               (taskCategoryNames.contains(h.categoryName) ||
                   h.categoryName.toLowerCase() == 'tasks' ||

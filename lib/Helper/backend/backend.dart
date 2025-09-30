@@ -401,7 +401,8 @@ Future<DocumentReference> createCategory({
   final uid = userId ?? currentUser?.uid ?? '';
   final existingCategories = await queryCategoriesRecordOnce(userId: uid);
   final nameExists = existingCategories.any((cat) =>
-  cat.name.toString().trim().toLowerCase() == name.toString().trim().toLowerCase());
+      cat.name.toString().trim().toLowerCase() ==
+      name.toString().trim().toLowerCase());
 
   if (nameExists) {
     throw Exception('Category with name "$name" already exists!');
