@@ -427,15 +427,11 @@ class _TaskPageState extends State<TaskPage> {
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
       final visibleItems = items.where((item) {
-        if (item is HabitRecord) {
-          final isCompleted = _isTaskCompleted(item);
-          return _showCompleted || !isCompleted;
-        }
-        return true;
+        final isCompleted = _isTaskCompleted(item);
+        return _showCompleted || !isCompleted;
       }).toList();
       if (visibleItems.isEmpty) continue;
-      _applySort(items);
-      // if (items.isEmpty) continue;
+      _applySort(visibleItems);
       widgets.add(
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
@@ -448,7 +444,7 @@ class _TaskPageState extends State<TaskPage> {
           ),
         ),
       );
-      widgets.addAll(items.map(_buildItemTile));
+      widgets.addAll(visibleItems.map(_buildItemTile));
       widgets.add(const SizedBox(height: 8));
     }
     if (widgets.isEmpty) {
@@ -570,15 +566,11 @@ class _TaskPageState extends State<TaskPage> {
     for (final t in _tasks) {
       print(
           'DEBUG: Processing task: ${t.name}, isActive: ${t.isActive}, status: ${t.status}');
-      if (!t.isActive || t.status == 'complete') {
-        print('DEBUG: Skipping task ${t.name} - not active or complete');
+      if (!t.isActive) {
+        print('DEBUG: Skipping task ${t.name} - not active');
         continue;
       }
-      if (!_showCompleted && _isTaskCompleted(t)) {
-        print(
-            'DEBUG: Skipping task ${t.name} - completed and not showing completed');
-        continue;
-      }
+      // Note: Completed task filtering will be handled in _buildSections() to respect the toggle
       final due = t.dueDate;
       if (due == null) {
         buckets['Later']!.add(t);

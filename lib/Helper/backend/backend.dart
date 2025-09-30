@@ -249,18 +249,19 @@ Future<List<HabitRecord>> queryHabitsRecordOnce({
   required String userId,
 }) async {
   try {
+    // Use simple query without orderBy to avoid Firestore composite index requirements
     final query = HabitRecord.collectionForUser(userId)
-        .where('isActive', isEqualTo: true)
-        .orderBy('createdTime', descending: true);
-    final result = await query.get();
-    return result.docs.map((doc) => HabitRecord.fromSnapshot(doc)).toList();
-  } catch (e) {
-    // Fallback if an index is missing: retry without orderBy
-    print('queryHabitsRecordOnce: falling back without orderBy due to: $e');
-    final fallbackQuery = HabitRecord.collectionForUser(userId)
         .where('isActive', isEqualTo: true);
-    final result = await fallbackQuery.get();
-    return result.docs.map((doc) => HabitRecord.fromSnapshot(doc)).toList();
+    final result = await query.get();
+    final habits =
+        result.docs.map((doc) => HabitRecord.fromSnapshot(doc)).toList();
+
+    // Sort in memory instead of in query
+    habits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
+    return habits;
+  } catch (e) {
+    print('Error querying habits: $e');
+    return []; // Return empty list on error
   }
 }
 
@@ -281,22 +282,19 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
   required String userId,
 }) async {
   try {
-    final query = CategoryRecord.collectionForUser(userId)
-        .where('isActive', isEqualTo: true)
-        .where('categoryType', isEqualTo: 'habit');
+    // Use simple query and filter in memory to avoid Firestore composite index requirements
+    final allCategories = await queryCategoriesRecordOnce(userId: userId);
 
-    final result = await query.get();
-    final categories =
-        result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+    // Filter in memory (no Firestore index needed)
+    final habitCategories =
+        allCategories.where((c) => c.categoryType == 'habit').toList();
 
-    // Sort in memory instead of in query
-    categories.sort((a, b) => a.name.compareTo(b.name));
-    return categories;
+    // Sort in memory
+    habitCategories.sort((a, b) => a.name.compareTo(b.name));
+    return habitCategories;
   } catch (e) {
     print('Error querying habit categories: $e');
-    // Fallback: get all categories and filter in memory
-    final allCategories = await queryCategoriesRecordOnce(userId: userId);
-    return allCategories.where((c) => c.categoryType == 'habit').toList();
+    return []; // Return empty list on error
   }
 }
 
@@ -305,22 +303,19 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
   required String userId,
 }) async {
   try {
-    final query = CategoryRecord.collectionForUser(userId)
-        .where('isActive', isEqualTo: true)
-        .where('categoryType', isEqualTo: 'task');
+    // Use simple query and filter in memory to avoid Firestore composite index requirements
+    final allCategories = await queryCategoriesRecordOnce(userId: userId);
 
-    final result = await query.get();
-    final categories =
-        result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+    // Filter in memory (no Firestore index needed)
+    final taskCategories =
+        allCategories.where((c) => c.categoryType == 'task').toList();
 
-    // Sort in memory instead of in query
-    categories.sort((a, b) => a.name.compareTo(b.name));
-    return categories;
+    // Sort in memory
+    taskCategories.sort((a, b) => a.name.compareTo(b.name));
+    return taskCategories;
   } catch (e) {
     print('Error querying task categories: $e');
-    // Fallback: get all categories and filter in memory
-    final allCategories = await queryCategoriesRecordOnce(userId: userId);
-    return allCategories.where((c) => c.categoryType == 'task').toList();
+    return []; // Return empty list on error
   }
 }
 
@@ -329,18 +324,19 @@ Future<List<TaskRecord>> queryTasksRecordOnce({
   required String userId,
 }) async {
   try {
-    final query = TaskRecord.collectionForUser(userId)
-        .where('isActive', isEqualTo: true)
-        .orderBy('createdTime', descending: true);
-    final result = await query.get();
-    return result.docs.map((doc) => TaskRecord.fromSnapshot(doc)).toList();
-  } catch (e) {
-    // Fallback if an index is missing: retry without orderBy
-    print('queryTasksRecordOnce: falling back without orderBy due to: $e');
-    final fallbackQuery =
+    // Use simple query without orderBy to avoid Firestore composite index requirements
+    final query =
         TaskRecord.collectionForUser(userId).where('isActive', isEqualTo: true);
-    final result = await fallbackQuery.get();
-    return result.docs.map((doc) => TaskRecord.fromSnapshot(doc)).toList();
+    final result = await query.get();
+    final tasks =
+        result.docs.map((doc) => TaskRecord.fromSnapshot(doc)).toList();
+
+    // Sort in memory instead of in query
+    tasks.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
+    return tasks;
+  } catch (e) {
+    print('Error querying tasks: $e');
+    return []; // Return empty list on error
   }
 }
 
