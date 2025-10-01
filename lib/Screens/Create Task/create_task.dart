@@ -63,8 +63,8 @@ class _CreateTaskState extends State<CreateTask> {
       target: _selectedTrackingType == 'quantitative'
           ? _targetNumber
           : _selectedTrackingType == 'time'
-          ? _targetDuration.inMinutes
-          : null,
+              ? _targetDuration.inMinutes
+              : null,
       dueDate: _dueDate,
       lastUpdated: DateTime.now(),
     );
@@ -114,8 +114,8 @@ class _CreateTaskState extends State<CreateTask> {
                 Text(
                   'Edit Task',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
+                        fontWeight: FontWeight.bold,
+                      ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -125,13 +125,15 @@ class _CreateTaskState extends State<CreateTask> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                 ),
                 const SizedBox(height: 12),
                 // Category
                 DropdownButtonFormField<String>(
-                  value: widget.categories.any((c) => c.reference.id == _selectedCategoryId)
+                  value: widget.categories
+                          .any((c) => c.reference.id == _selectedCategoryId)
                       ? _selectedCategoryId
                       : null,
                   decoration: InputDecoration(
@@ -139,10 +141,12 @@ class _CreateTaskState extends State<CreateTask> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   ),
                   items: widget.categories
-                      .map((c) => DropdownMenuItem(value: c.reference.id, child: Text(c.name)))
+                      .map((c) => DropdownMenuItem(
+                          value: c.reference.id, child: Text(c.name)))
                       .toList(),
                   onChanged: (v) => setState(() => _selectedCategoryId = v),
                 ),
@@ -155,7 +159,8 @@ class _CreateTaskState extends State<CreateTask> {
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(8),
                     ),
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    contentPadding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   ),
                   items: const [
                     DropdownMenuItem(value: 'binary', child: Text('To-do')),
@@ -173,9 +178,11 @@ class _CreateTaskState extends State<CreateTask> {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                     ),
-                    controller: TextEditingController(text: _targetNumber.toString()),
+                    controller:
+                        TextEditingController(text: _targetNumber.toString()),
                     onChanged: (v) => _targetNumber = int.tryParse(v) ?? 1,
                   ),
                   const SizedBox(height: 8),
@@ -185,7 +192,8 @@ class _CreateTaskState extends State<CreateTask> {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
-                      contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                      contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 8),
                     ),
                     controller: TextEditingController(text: _unit),
                     onChanged: (v) => _unit = v,
@@ -203,14 +211,16 @@ class _CreateTaskState extends State<CreateTask> {
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
                           ),
-                          controller:
-                          TextEditingController(text: _targetDuration.inHours.toString()),
+                          controller: TextEditingController(
+                              text: _targetDuration.inHours.toString()),
                           onChanged: (v) {
                             final h = int.tryParse(v) ?? 1;
-                            setState(() => _targetDuration =
-                                Duration(hours: h, minutes: _targetDuration.inMinutes % 60));
+                            setState(() => _targetDuration = Duration(
+                                hours: h,
+                                minutes: _targetDuration.inMinutes % 60));
                           },
                         ),
                       ),
@@ -223,13 +233,16 @@ class _CreateTaskState extends State<CreateTask> {
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
-                            contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            contentPadding: const EdgeInsets.symmetric(
+                                horizontal: 12, vertical: 8),
                           ),
-                          controller: TextEditingController(text: (_targetDuration.inMinutes % 60).toString()),
+                          controller: TextEditingController(
+                              text:
+                                  (_targetDuration.inMinutes % 60).toString()),
                           onChanged: (v) {
                             final m = int.tryParse(v) ?? 0;
-                            setState(() => _targetDuration =
-                                Duration(hours: _targetDuration.inHours, minutes: m));
+                            setState(() => _targetDuration = Duration(
+                                hours: _targetDuration.inHours, minutes: m));
                           },
                         ),
                       ),
@@ -246,7 +259,9 @@ class _CreateTaskState extends State<CreateTask> {
                     ),
                     Row(
                       children: [
-                        IconButton(icon: const Icon(Icons.calendar_today), onPressed: _pickDueDate),
+                        IconButton(
+                            icon: const Icon(Icons.calendar_today),
+                            onPressed: _pickDueDate),
                         Transform.scale(
                           scale: 0.7, // make the switch smaller
                           child: Switch(
@@ -266,7 +281,9 @@ class _CreateTaskState extends State<CreateTask> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Cancel')),
+                    TextButton(
+                        onPressed: () => Navigator.pop(context, false),
+                        child: const Text('Cancel')),
                     const SizedBox(width: 8),
                     ElevatedButton(onPressed: _save, child: const Text('Save')),
                   ],

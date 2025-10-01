@@ -19,12 +19,12 @@ class _SplashState extends State<Splash> {
   @override
   void initState() {
     super.initState();
-    sharedPref.read(SharedPreference.name.sUserDetails).then((value1){
-      if(mounted){
-        if(value1!=""){
-          users =  LoginResponse.fromJson(value1);
+    sharedPref.read(SharedPreference.name.sUserDetails).then((value1) {
+      if (mounted) {
+        if (value1 != "") {
+          users = LoginResponse.fromJson(value1);
           startTime();
-        }else{
+        } else {
           Navigator.pushReplacementNamed(context, login);
         }
       }
@@ -37,12 +37,12 @@ class _SplashState extends State<Splash> {
   }
 
   Future<void> navigationPage() async {
-    sharedPref.read(SharedPreference.name.sUserDetails).then((value1){
-      if(mounted){
-        if(value1!=""){
-          users =  LoginResponse.fromJson(value1);
+    sharedPref.read(SharedPreference.name.sUserDetails).then((value1) {
+      if (mounted) {
+        if (value1 != "") {
+          users = LoginResponse.fromJson(value1);
           Navigator.pushReplacementNamed(context, home);
-        }else{
+        } else {
           Navigator.pushReplacementNamed(context, login);
         }
       }
@@ -55,7 +55,7 @@ class _SplashState extends State<Splash> {
       width: double.infinity,
       height: double.infinity,
       decoration: const BoxDecoration(
-       color: Colors.white,
+        color: Colors.white,
       ),
       alignment: Alignment.center,
       child: Column(

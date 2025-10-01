@@ -99,6 +99,14 @@ class TaskInstanceRecord extends FirestoreRecord {
   String get templateUnit => _templateUnit ?? '';
   bool hasTemplateUnit() => _templateUnit != null;
 
+  String? _templateDescription;
+  String get templateDescription => _templateDescription ?? '';
+  bool hasTemplateDescription() => _templateDescription != null;
+
+  bool? _templateShowInFloatingTimer;
+  bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
+  bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -120,6 +128,9 @@ class TaskInstanceRecord extends FirestoreRecord {
     _templateTrackingType = snapshotData['templateTrackingType'] as String?;
     _templateTarget = snapshotData['templateTarget'];
     _templateUnit = snapshotData['templateUnit'] as String?;
+    _templateDescription = snapshotData['templateDescription'] as String?;
+    _templateShowInFloatingTimer =
+        snapshotData['templateShowInFloatingTimer'] as bool?;
   }
 
   static CollectionReference get collection =>
@@ -140,14 +151,14 @@ class TaskInstanceRecord extends FirestoreRecord {
   static TaskInstanceRecord fromSnapshot(DocumentSnapshot snapshot) =>
       TaskInstanceRecord._(
         snapshot.reference,
-        snapshot.data() as Map<String, dynamic>,
+        mapFromFirestore(snapshot.data() as Map<String, dynamic>),
       );
 
   static TaskInstanceRecord getDocumentFromData(
     Map<String, dynamic> data,
     DocumentReference reference,
   ) =>
-      TaskInstanceRecord._(reference, data);
+      TaskInstanceRecord._(reference, mapFromFirestore(data));
 
   @override
   String toString() =>
@@ -183,6 +194,8 @@ Map<String, dynamic> createTaskInstanceRecordData({
   String? templateTrackingType,
   dynamic templateTarget,
   String? templateUnit,
+  String? templateDescription,
+  bool? templateShowInFloatingTimer,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -206,6 +219,8 @@ Map<String, dynamic> createTaskInstanceRecordData({
       'templateTrackingType': templateTrackingType,
       'templateTarget': templateTarget,
       'templateUnit': templateUnit,
+      'templateDescription': templateDescription,
+      'templateShowInFloatingTimer': templateShowInFloatingTimer,
     }.withoutNulls,
   );
 
@@ -240,7 +255,9 @@ class TaskInstanceRecordDocumentEquality
         e1?.templatePriority == e2?.templatePriority &&
         e1?.templateTrackingType == e2?.templateTrackingType &&
         e1?.templateTarget == e2?.templateTarget &&
-        e1?.templateUnit == e2?.templateUnit;
+        e1?.templateUnit == e2?.templateUnit &&
+        e1?.templateDescription == e2?.templateDescription &&
+        e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer;
   }
 
   @override
@@ -265,5 +282,7 @@ class TaskInstanceRecordDocumentEquality
         e?.templateTrackingType,
         e?.templateTarget,
         e?.templateUnit,
+        e?.templateDescription,
+        e?.templateShowInFloatingTimer,
       ]);
 }

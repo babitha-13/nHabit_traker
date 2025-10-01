@@ -33,20 +33,24 @@ class TaskInstanceService {
 
     try {
       final query = TaskInstanceRecord.collectionForUser(uid)
-          .where('isActive', isEqualTo: true)
-          .where('status', isEqualTo: 'pending')
-          .where('dueDate', isLessThanOrEqualTo: today);
+          .where('status', isEqualTo: 'pending');
 
       final result = await query.get();
+
       final instances = result.docs
           .map((doc) => TaskInstanceRecord.fromSnapshot(doc))
+          .where((instance) => instance.isActive) // Filter isActive in Dart
           .toList();
 
-      // Sort by priority (high to low) then by due date (oldest first)
+      // Sort by priority (high to low) then by due date (oldest first, nulls last)
       instances.sort((a, b) {
         final priorityCompare =
             b.templatePriority.compareTo(a.templatePriority);
         if (priorityCompare != 0) return priorityCompare;
+
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
         return a.dueDate!.compareTo(b.dueDate!);
       });
 
@@ -60,7 +64,7 @@ class TaskInstanceService {
   /// Create a new task instance from a template
   static Future<DocumentReference> createTaskInstance({
     required String templateId,
-    required DateTime dueDate,
+    DateTime? dueDate,
     required TaskRecord template,
     String? userId,
   }) async {
@@ -81,6 +85,8 @@ class TaskInstanceService {
       templateTrackingType: template.trackingType,
       templateTarget: template.target,
       templateUnit: template.unit,
+      templateDescription: template.description,
+      templateShowInFloatingTimer: template.showInFloatingTimer,
     );
 
     return await TaskInstanceRecord.collectionForUser(uid).add(instanceData);
@@ -126,8 +132,8 @@ class TaskInstanceService {
       if (templateDoc.exists) {
         final template = TaskRecord.fromSnapshot(templateDoc);
 
-        // Generate next instance if task is recurring
-        if (template.isRecurring) {
+        // Generate next instance if task is recurring and still active
+        if (template.isRecurring && template.isActive) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
             schedule: template.schedule,
@@ -141,6 +147,17 @@ class TaskInstanceService {
               dueDate: nextDueDate,
               template: template,
               userId: uid,
+            );
+            // Also update the template with the next due date
+            await _updateTemplateDueDate(
+              templateRef: templateRef,
+              dueDate: nextDueDate,
+            );
+          } else {
+            // No more occurrences, clear dueDate on template
+            await _updateTemplateDueDate(
+              templateRef: templateRef,
+              dueDate: null,
             );
           }
         }
@@ -202,6 +219,17 @@ class TaskInstanceService {
               dueDate: nextDueDate,
               template: template,
               userId: uid,
+            );
+            // Also update the template with the next due date
+            await _updateTemplateDueDate(
+              templateRef: templateRef,
+              dueDate: nextDueDate,
+            );
+          } else {
+            // No more occurrences, clear dueDate on template
+            await _updateTemplateDueDate(
+              templateRef: templateRef,
+              dueDate: null,
             );
           }
         }
@@ -471,25 +499,27 @@ class TaskInstanceService {
     String? userId,
   }) async {
     if (!template.isRecurring) {
-      // For one-time tasks, create a single instance with the due date
-      if (template.dueDate != null) {
-        await createTaskInstance(
-          templateId: templateId,
-          dueDate: template.dueDate!,
-          template: template,
-          userId: userId,
-        );
-      }
+      // For one-time tasks, create a single instance, preserving the null due date if not set.
+      await createTaskInstance(
+        templateId: templateId,
+        dueDate: template.dueDate,
+        template: template,
+        userId: userId,
+      );
       return;
     }
 
-    // For recurring tasks, create the first instance
-    final firstDueDate = startDate ?? _todayStart;
+    final firstDueDate = template.dueDate ?? startDate ?? _todayStart;
     await createTaskInstance(
       templateId: templateId,
       dueDate: firstDueDate,
       template: template,
       userId: userId,
+    );
+
+    await _updateTemplateDueDate(
+      templateRef: template.reference,
+      dueDate: firstDueDate,
     );
   }
 
@@ -512,8 +542,21 @@ class TaskInstanceService {
 
   // ==================== TEMPLATE SYNC METHODS ====================
 
-  /// Update template's nextDueDate to keep it in sync with instances
-  static Future<void> _syncTemplateNextDueDate({
+  /// Update template's dueDate to keep it in sync with instances
+  static Future<void> _updateTemplateDueDate({
+    required DocumentReference templateRef,
+    required DateTime? dueDate,
+  }) async {
+    try {
+      await templateRef.update({'dueDate': dueDate});
+    } catch (e) {
+      print('Error updating template dueDate: $e');
+      // Decide if we should re-throw or handle silently
+    }
+  }
+
+  /// When a template is updated (e.g., schedule change), regenerate instances
+  static Future<void> syncInstancesOnTemplateUpdate({
     required String templateId,
     required String templateType, // 'task' or 'habit'
     required DateTime? nextDueDate,

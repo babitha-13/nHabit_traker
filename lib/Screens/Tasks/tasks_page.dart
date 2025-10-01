@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
@@ -25,9 +24,8 @@ class TasksPage extends StatefulWidget {
 class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<TaskRecord> _tasks = [];
-  List<CategoryRecord> _categories = [];
   List<TaskInstanceRecord> _todaysTaskInstances = [];
+  List<CategoryRecord> _categories = [];
   final Map<String, bool> _categoryExpanded = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
@@ -80,13 +78,6 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     }
     _activeTimers.clear();
     _liveAccumulatedTime.clear();
-
-    // Start timers for active tasks
-    for (final task in _tasks) {
-      if (task.isTimerActive && task.timerStartTime != null) {
-        _startLiveTimer(task.reference.id, false);
-      }
-    }
 
     // Start timers for active task instances
     for (final instance in _todaysTaskInstances) {
@@ -230,15 +221,15 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final tasks = await queryTasksRecordOnce(userId: userId);
-        final todaysInstances = await queryTodaysTaskInstances(userId: userId);
+        final todaysInstances =
+            await TaskInstanceService.getTodaysTaskInstances(userId: userId);
 
         setState(() {
-          // Filter tasks by current category
-          _tasks = tasks
-              .where((task) => task.categoryId == _currentCategoryId)
+          // Filter instances by current category
+          _todaysTaskInstances = todaysInstances
+              .where((instance) =>
+                  instance.templateCategoryId == _currentCategoryId)
               .toList();
-          _todaysTaskInstances = todaysInstances;
         });
 
         // Initialize live timers for active timers
@@ -264,21 +255,21 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     return grouped;
   }
 
-  bool _isTaskCompleted(TaskRecord task) {
-    if (!task.isActive) return false;
-    switch (task.trackingType) {
+  bool _isTaskCompleted(TaskInstanceRecord instance) {
+    if (!instance.isActive) return false;
+    switch (instance.templateTrackingType) {
       case 'binary':
-        return task.status == 'complete';
+        return instance.status == 'completed';
       case 'quantitative':
-        final currentValue = task.currentValue ?? 0;
-        final target = task.target ?? 0;
+        final currentValue = instance.currentValue ?? 0;
+        final target = instance.templateTarget ?? 0;
         return target > 0 && currentValue >= target;
       case 'time':
-        final currentMinutes = (task.accumulatedTime) ~/ 60000;
-        final targetMinutes = task.target ?? 0;
+        final currentMinutes = (instance.accumulatedTime) ~/ 60000;
+        final targetMinutes = instance.templateTarget ?? 0;
         return targetMinutes > 0 && currentMinutes >= targetMinutes;
       default:
-        return task.status == 'complete';
+        return instance.status == 'completed';
     }
   }
 
@@ -758,7 +749,7 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final instance = instances[index];
-                return _buildTaskInstanceCard(instance);
+                return _buildTaskInstanceCard(instance); // Use the new function
               },
               childCount: instances.length,
             ),
@@ -944,7 +935,7 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
 
       if (visibleTasks.isEmpty) continue;
 
-      _applySortToTasks(visibleTasks);
+      _applySortToInstances(visibleTasks);
 
       // Section header
       slivers.add(
@@ -993,8 +984,8 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
         SliverList(
           delegate: SliverChildBuilderDelegate(
             (context, index) {
-              final task = visibleTasks[index];
-              return _buildTaskCard(task, _getCategoryColor(task.categoryName));
+              final instance = visibleTasks[index];
+              return _buildTaskInstanceCard(instance);
             },
             childCount: visibleTasks.length,
           ),
@@ -1013,13 +1004,13 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     );
   }
 
-  Map<String, List<TaskRecord>> get _bucketedTasks {
-    final buckets = <String, List<TaskRecord>>{
-      'Overdue': <TaskRecord>[],
-      'Today': <TaskRecord>[],
-      'Tomorrow': <TaskRecord>[],
-      'This Week': <TaskRecord>[],
-      'Later': <TaskRecord>[],
+  Map<String, List<TaskInstanceRecord>> get _bucketedTasks {
+    final buckets = <String, List<TaskInstanceRecord>>{
+      'Overdue': <TaskInstanceRecord>[],
+      'Today': <TaskInstanceRecord>[],
+      'Tomorrow': <TaskInstanceRecord>[],
+      'This Week': <TaskInstanceRecord>[],
+      'Later': <TaskInstanceRecord>[],
     };
 
     final now = DateTime.now();
@@ -1027,40 +1018,41 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     final tomorrow = today.add(const Duration(days: 1));
     final endOfWeek = today.add(Duration(days: 7 - today.weekday));
 
-    for (final task in _tasks) {
-      if (!task.isActive) continue;
+    for (final instance in _todaysTaskInstances) {
+      if (!instance.isActive) continue;
 
-      final due = task.dueDate;
+      final due = instance.dueDate;
       if (due == null) {
-        buckets['Later']!.add(task);
+        buckets['Later']!.add(instance);
         continue;
       }
 
       final dueDate = DateTime(due.year, due.month, due.day);
 
       if (dueDate.isBefore(today)) {
-        buckets['Overdue']!.add(task);
+        buckets['Overdue']!.add(instance);
       } else if (dueDate.isAtSameMomentAs(today)) {
-        buckets['Today']!.add(task);
+        buckets['Today']!.add(instance);
       } else if (dueDate.isAtSameMomentAs(tomorrow)) {
-        buckets['Tomorrow']!.add(task);
+        buckets['Tomorrow']!.add(instance);
       } else if (!dueDate.isAfter(endOfWeek)) {
-        buckets['This Week']!.add(task);
+        buckets['This Week']!.add(instance);
       } else {
-        buckets['Later']!.add(task);
+        buckets['Later']!.add(instance);
       }
     }
 
     return buckets;
   }
 
-  void _applySortToTasks(List<TaskRecord> tasks) {
+  void _applySortToInstances(List<TaskInstanceRecord> instances) {
     switch (_sortMode) {
       case 'priority':
-        tasks.sort((a, b) => b.priority.compareTo(a.priority));
+        instances
+            .sort((a, b) => b.templatePriority.compareTo(a.templatePriority));
         break;
       case 'dueDate':
-        tasks.sort((a, b) {
+        instances.sort((a, b) {
           if (a.dueDate == null && b.dueDate == null) return 0;
           if (a.dueDate == null) return 1;
           if (b.dueDate == null) return -1;
@@ -1069,11 +1061,9 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
         break;
       case 'default':
       default:
-        tasks.sort((a, b) {
-          final ao = a.hasManualOrder() ? a.manualOrder : 0;
-          final bo = b.hasManualOrder() ? b.manualOrder : 0;
-          return ao.compareTo(bo);
-        });
+        // Default sort for instances can be by priority or due date
+        instances
+            .sort((a, b) => b.templatePriority.compareTo(a.templatePriority));
         break;
     }
   }
@@ -1209,212 +1199,103 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
   Widget _buildTaskInstanceCard(TaskInstanceRecord instance) {
     final isCompleted = instance.status == 'completed';
     final categoryColor = _getCategoryColor(instance.templateCategoryName);
+    final color = Color(int.parse(categoryColor.replaceFirst('#', '0xFF')));
+
+    final trackingType = instance.templateTrackingType;
+    final target = instance.templateTarget;
+    final unit = instance.templateUnit;
+    final currentValue = instance.currentValue ?? 0;
+    final accumulatedTime = instance.accumulatedTime;
+    final showTimer = instance.templateShowInFloatingTimer;
+
+    Widget trackingWidget;
+    switch (trackingType) {
+      case 'quantitative':
+        trackingWidget = Text('$currentValue / $target $unit');
+        break;
+      case 'time':
+        final duration = Duration(milliseconds: accumulatedTime);
+        final minutes = duration.inMinutes;
+        final seconds = (duration.inSeconds % 60).toString().padLeft(2, '0');
+        trackingWidget = Text('$minutes:$seconds / $target min');
+        break;
+      default:
+        trackingWidget = Container();
+    }
 
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
       decoration: BoxDecoration(
-          gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-          border: Border(
-            left: BorderSide(
-                color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                width: 1),
-            right: BorderSide(
-                color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                width: 1),
-            top: BorderSide.none,
-          )),
-      padding: const EdgeInsets.fromLTRB(6, 2, 6, 6),
-      child: Container(
-        margin: const EdgeInsets.symmetric(vertical: 2),
-        padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-        decoration: BoxDecoration(
-          gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: FlutterFlowTheme.of(context).surfaceBorderColor,
-            width: 0.5,
-          ),
+        gradient: FlutterFlowTheme.of(context).neumorphicGradient,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).surfaceBorderColor,
+          width: 1,
         ),
-        child: Column(
-          children: [
-            IntrinsicHeight(
-              child: Row(
+        boxShadow: FlutterFlowTheme.of(context).neumorphicShadowsRaised,
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 6,
+            height: 80, // Adjust height to match your card's height
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: const BorderRadius.only(
+                topLeft: Radius.circular(16),
+                bottomLeft: Radius.circular(16),
+              ),
+            ),
+          ),
+          Expanded(
+            child: ListTile(
+              leading: Checkbox(
+                value: isCompleted,
+                onChanged: (bool? value) => _toggleInstanceCompletion(instance),
+                activeColor: color,
+              ),
+              title: Text(
+                instance.templateName,
+                style: TextStyle(
+                  decoration: isCompleted
+                      ? TextDecoration.lineThrough
+                      : TextDecoration.none,
+                ),
+              ),
+              subtitle: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Container(
-                    width: 3,
-                    decoration: BoxDecoration(
-                      color: Color(
-                          int.parse(categoryColor.replaceFirst('#', '0xFF'))),
-                      borderRadius: BorderRadius.circular(2),
+                  if (instance.templateDescription.isNotEmpty)
+                    Text(instance.templateDescription),
+                  if (trackingType != 'binary')
+                    Padding(
+                      padding: const EdgeInsets.only(top: 4.0),
+                      child: trackingWidget,
                     ),
-                  ),
-                  const SizedBox(width: 5),
-                  SizedBox(
-                    width: 36,
-                    child:
-                        Center(child: _buildTaskInstanceLeftControls(instance)),
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            instance.templateName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: FlutterFlowTheme.of(context)
-                                .bodyMedium
-                                .override(
-                                  fontFamily: 'Readex Pro',
-                                  fontWeight: FontWeight.w600,
-                                  decoration: isCompleted
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
-                                  color: isCompleted
-                                      ? FlutterFlowTheme.of(context)
-                                          .secondaryText
-                                      : FlutterFlowTheme.of(context)
-                                          .primaryText,
-                                ),
-                          ),
-                        ),
-                        if (instance.templateTrackingType != 'binary') ...[
-                          const SizedBox(width: 5),
-                          Align(
-                            alignment: Alignment.center,
-                            child: Container(
-                              constraints: const BoxConstraints(maxWidth: 160),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: FlutterFlowTheme.of(context)
-                                    .secondaryBackground,
-                                border: Border.all(
-                                  color: FlutterFlowTheme.of(context).alternate,
-                                  width: 1,
-                                ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                _getInstanceProgressDisplayText(instance),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: FlutterFlowTheme.of(context)
-                                    .bodySmall
-                                    .override(
-                                      fontFamily: 'Readex Pro',
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      lineHeight: 1.05,
-                                    ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ],
+                ],
+              ),
+              trailing: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (showTimer)
+                    IconButton(
+                      icon: Icon(
+                        instance.isTimerActive
+                            ? Icons.pause_circle_filled
+                            : Icons.play_circle_fill,
+                        color: color,
+                      ),
+                      onPressed: () {
+                        // Add timer toggle logic here if needed
+                      },
                     ),
-                  ),
-                  Row(
-                    children: [
-                      const SizedBox(width: 5),
-                      _buildTaskInstancePriorityStars(instance),
-                      const SizedBox(width: 5),
-                      GestureDetector(
-                        onTap: () => _snoozeTaskInstance(instance),
-                        child: const Icon(Icons.snooze, size: 20),
-                      ),
-                      const SizedBox(width: 5),
-                      PopupMenuButton<String>(
-                        icon: Icon(Icons.more_vert, size: 20),
-                        onSelected: (value) =>
-                            _handleTaskInstanceMenuAction(value, instance),
-                        itemBuilder: (context) => [
-                          const PopupMenuItem<String>(
-                            value: 'edit',
-                            child: Row(
-                              children: [
-                                Icon(Icons.edit, size: 16),
-                                SizedBox(width: 8),
-                                Text('Edit'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem<String>(
-                            value: 'duplicate',
-                            child: Row(
-                              children: [
-                                Icon(Icons.copy, size: 16),
-                                SizedBox(width: 8),
-                                Text('Duplicate'),
-                              ],
-                            ),
-                          ),
-                          const PopupMenuItem<String>(
-                            value: 'delete',
-                            child: Row(
-                              children: [
-                                Icon(Icons.delete, size: 16, color: Colors.red),
-                                SizedBox(width: 8),
-                                Text('Delete',
-                                    style: TextStyle(color: Colors.red)),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                    ],
-                  ),
+                  if (instance.dueDate != null)
+                    Text(_formatDate(instance.dueDate)),
                 ],
               ),
             ),
-            if (instance.templateTrackingType != 'binary') ...[
-              const SizedBox(height: 3),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 11),
-                child: Container(
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(
-                      color: Color(
-                          int.parse(categoryColor.replaceFirst('#', '0xFF'))),
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                  child: Stack(
-                    children: [
-                      // Background track (always full width) - white fill
-                      Container(
-                        width: double.infinity,
-                        height: 3,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      // Progress fill
-                      FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor:
-                            _getInstanceProgress(instance).clamp(0.0, 1.0),
-                        child: Container(
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: Color(int.parse(
-                                categoryColor.replaceFirst('#', '0xFF'))),
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ],
-          ],
-        ),
+          ),
+        ],
       ),
     );
   }
@@ -1544,9 +1425,18 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
 
   Future<void> _toggleInstanceCompletion(TaskInstanceRecord instance) async {
     try {
-      final newStatus =
-          instance.status == 'completed' ? 'pending' : 'completed';
-      await instance.reference.update({'status': newStatus});
+      if (instance.status == 'completed') {
+        // Potentially add logic to "un-complete" a task if needed.
+        // For now, we focus on the completion logic.
+        // This might involve reverting status and deleting the next instance.
+        // Let's keep it simple and just re-toggle for now.
+        await instance.reference.update({'status': 'pending'});
+      } else {
+        await TaskInstanceService.completeTaskInstance(
+          instanceId: instance.reference.id,
+          // finalValue, finalAccumulatedTime, notes can be added later
+        );
+      }
       _loadTasksForCurrentCategory(); // Refresh the list
     } catch (e) {
       if (mounted) {
@@ -1951,7 +1841,8 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     );
   }
 
-  Widget _buildTaskCard(TaskRecord task, String categoryColor) {
+  // OLD: Replaced with _buildTaskInstanceCard
+  /*Widget _buildTaskCard(TaskRecord task, String categoryColor) {
     final isCompleted = _isTaskCompleted(task);
 
     return Container(
@@ -2159,9 +2050,69 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
         ),
       ),
     );
+  }*/
+
+  Color _getTaskPriorityColor(int priority) {
+    switch (priority) {
+      case 1:
+        return Colors.green;
+      case 2:
+        return Colors.orange;
+      case 3:
+        return Colors.red;
+      default:
+        return Colors.grey;
+    }
   }
 
-  Widget _buildTaskLeftControls(TaskRecord task) {
+  String _formatDuration(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes % 60;
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    } else {
+      return '${minutes}m';
+    }
+  }
+
+  Future<void> _resetInstanceTimer(TaskInstanceRecord instance) async {
+    try {
+      final instanceId = instance.reference.id;
+
+      // Stop live timer
+      _stopLiveTimer(instanceId);
+
+      // Stop timer if it's running and reset accumulated time
+      await TaskInstanceService.updateInstanceProgress(
+        instanceId: instanceId,
+        instanceType: 'task',
+        isTimerActive: false,
+        timerStartTime: null,
+        accumulatedTime: 0,
+        currentValue: 0,
+      );
+
+      _loadTasksForCurrentCategory(); // Refresh the list
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${instance.templateName} timer reset'),
+            backgroundColor: Colors.blue,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error resetting timer: $e')),
+        );
+      }
+    }
+  }
+
+  // OLD: Replaced with instance-based version
+  /*Widget _buildTaskLeftControls(TaskRecord task) {
     final isCompleted = _isTaskCompleted(task);
 
     switch (task.trackingType) {
@@ -2497,42 +2448,6 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
     }
   }
 
-  Future<void> _resetInstanceTimer(TaskInstanceRecord instance) async {
-    try {
-      final instanceId = instance.reference.id;
-
-      // Stop live timer
-      _stopLiveTimer(instanceId);
-
-      // Stop timer if it's running and reset accumulated time
-      await TaskInstanceService.updateInstanceProgress(
-        instanceId: instanceId,
-        instanceType: 'task',
-        isTimerActive: false,
-        timerStartTime: null,
-        accumulatedTime: 0,
-        currentValue: 0,
-      );
-
-      _loadTasksForCurrentCategory(); // Refresh the list
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${instance.templateName} timer reset'),
-            backgroundColor: Colors.blue,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error resetting timer: $e')),
-        );
-      }
-    }
-  }
-
   Future<void> _updateTaskPriority(TaskRecord task, int newPriority) async {
     try {
       await task.reference.update({'priority': newPriority});
@@ -2707,135 +2622,48 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
         );
       }
     }
-  }
+  }*/
 
-  void _handleTaskMenuAction(String action, TaskRecord task) {
+  void _handleTaskMenuAction(String action, TaskInstanceRecord instance) {
     switch (action) {
       case 'edit':
-        _editTask(task);
+        _editTask(instance);
         break;
       case 'duplicate':
-        _duplicateTask(task);
+        // _duplicateTask(instance); // Needs implementation for instances
         break;
       case 'delete':
-        _deleteTask(task);
+        // _deleteTask(instance); // Needs implementation for instances
         break;
     }
   }
 
-  void _editTask(TaskRecord task) {
-    // Navigate to edit task page
-    print('Edit task: ${task.name}');
-  }
-
-  Future<void> _duplicateTask(TaskRecord task) async {
-    try {
-      await createTask(
-        title: '${task.name} (Copy)',
-        description: task.description,
-        dueDate: task.dueDate,
-        priority: task.priority,
-        categoryId: task.categoryId,
-        categoryName: task.categoryName,
-        isRecurring: task.isRecurring,
-        schedule: task.schedule,
-        frequency: task.frequency,
-        specificDays: task.specificDays,
-      );
-      await _loadTasksForCurrentCategory();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${task.name} duplicated!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error duplicating task: $e')),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteTask(TaskRecord task) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Task'),
-        content: Text('Are you sure you want to delete "${task.name}"?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.pop(context, true),
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.red),
-            child: const Text('Delete', style: TextStyle(color: Colors.white)),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed == true) {
-      try {
-        await deleteTask(task.reference);
-        await _loadTasksForCurrentCategory();
-
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('${task.name} deleted'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error deleting task: $e')),
-          );
-        }
-      }
-    }
+  void _editTask(TaskInstanceRecord instance) {
+    // Navigate to edit task page, passing the TEMPLATE ID
+    print('Edit task with template ID: ${instance.templateId}');
+    // Example: context.pushNamed('EditTask', queryParams: {'taskId': instance.templateId});
   }
 
   void _onTabChanged(int index) {
-    if (index < _tabNames.length) {
-      final tabName = _tabNames[index];
-      CategoryRecord? category;
-
-      if (tabName == "Inbox") {
-        // Find the inbox category (system category)
-        category = _categories.firstWhere(
+    setState(() {
+      if (index == 0) {
+        // Inbox tab - find the inbox category ID
+        final inboxCategory = _categories.firstWhere(
           (c) => c.name == 'Inbox' && c.isSystemCategory,
           orElse: () => _categories.firstWhere(
             (c) => c.name == 'Inbox',
             orElse: () => _categories.first,
           ),
         );
+        _currentCategoryId = inboxCategory.reference.id;
       } else {
-        // Find user-created category by name
-        category = _categories.firstWhere(
-          (c) => c.name == tabName && !c.isSystemCategory,
-          orElse: () => _categories.firstWhere(
-            (c) => c.name == tabName,
-            orElse: () => _categories.first,
-          ),
-        );
+        // Custom category tab
+        _currentCategoryId = _categories[index - 1].reference.id;
       }
+    });
 
-      setState(() {
-        _currentCategoryId = category?.reference.id;
-      });
-
-      // Load tasks for the new category
-      _loadTasksForCurrentCategory();
-    }
+    // Load tasks for the new category
+    _loadTasksForCurrentCategory();
   }
 
   Future<void> _showAddCategoryDialog(BuildContext context) async {
@@ -2970,5 +2798,10 @@ class _TasksPageState extends State<TasksPage> with TickerProviderStateMixin {
         );
       },
     );
+  }
+
+  String _formatDate(DateTime? date) {
+    if (date == null) return 'No due date';
+    return DateFormat('MMM dd').format(date);
   }
 }
