@@ -74,6 +74,11 @@ class HabitRecord extends FirestoreRecord {
   DateTime? get lastUpdated => _lastUpdated;
   bool hasLastUpdated() => _lastUpdated != null;
 
+  // "userId" field.
+  String? _userId;
+  String get userId => _userId ?? '';
+  bool hasUserId() => _userId != null;
+
   // "unit" field for quantity tracking (e.g., "glasses", "pages").
   String? _unit;
   String get unit => _unit ?? '';
@@ -152,6 +157,7 @@ class HabitRecord extends FirestoreRecord {
     _isActive = snapshotData['isActive'] as bool?;
     _createdTime = snapshotData['createdTime'] as DateTime?;
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
+    _userId = snapshotData['userId'] as String?;
     _unit = snapshotData['unit'] as String?;
     _currentValue = snapshotData['currentValue'];
     _dayEndTime = snapshotData['dayEndTime'] as int?;
@@ -219,6 +225,7 @@ Map<String, dynamic> createHabitRecordData({
   bool? isActive,
   DateTime? createdTime,
   DateTime? lastUpdated,
+  String? userId,
   String? unit,
   dynamic currentValue,
   int? dayEndTime,
@@ -247,6 +254,7 @@ Map<String, dynamic> createHabitRecordData({
       'isActive': isActive,
       'createdTime': createdTime,
       'lastUpdated': lastUpdated,
+      'userId': userId,
       'unit': unit,
       'currentValue': currentValue,
       'dayEndTime': dayEndTime,
@@ -283,6 +291,7 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e1?.isActive == e2?.isActive &&
         e1?.createdTime == e2?.createdTime &&
         e1?.lastUpdated == e2?.lastUpdated &&
+        e1?.userId == e2?.userId &&
         e1?.unit == e2?.unit &&
         e1?.currentValue == e2?.currentValue &&
         e1?.dayEndTime == e2?.dayEndTime &&
@@ -310,7 +319,8 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e?.isActive,
         e?.createdTime,
         e?.lastUpdated,
-        e?.unit,
+    e?.userId,
+    e?.unit,
         e?.currentValue,
         e?.dayEndTime,
         e?.specificDays,

@@ -1,16 +1,16 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
+import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/task_frequency_helper.dart';
+import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart'
     show CompactHabitItem;
 
@@ -26,7 +26,7 @@ class TaskPage extends StatefulWidget {
 
 class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickAddController = TextEditingController();
-  List<TaskRecord> _tasks = [];
+  List<HabitRecord> _tasks = [];
   List<HabitRecord> _habits = [];
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
@@ -41,6 +41,7 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickUnitController = TextEditingController();
   late bool _showCompleted;
   bool quickIsRecurring = false;
+  bool _quickIsRecurring = false;
   String _quickSchedule = 'daily';
   int _quickFrequency = 1;
   List<int> _quickSelectedDays = [];
@@ -84,32 +85,29 @@ class _TaskPageState extends State<TaskPage> {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Stack(
+      children: [
+        RefreshIndicator(
+          onRefresh: _loadData,
+          child: ListView(
+            key: ValueKey('task_list_${_tasks.length}_${_habits.length}'),
             children: [
-              RefreshIndicator(
-                onRefresh: _loadData,
-                child: ListView(
-                  children: [
-                    _buildQuickAdd(),
-                    ..._buildSections(),
-                  ],
-                ),
-              ),
-              FloatingTimer(
-                activeHabits: _activeFloatingHabits,
-                onRefresh: _loadData,
-                onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-              ),
+              _buildQuickAdd(),
+              ..._buildSections(),
             ],
-          );
+          ),
+        ),
+        FloatingTimer(
+          activeHabits: _activeFloatingHabits,
+          onRefresh: _loadData,
+          onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+        ),
+      ],
+    );
   }
 
   List<HabitRecord> get _activeFloatingHabits {
-    // Include both habits and tasks that have floating timer enabled
-    final floatingHabits =
-        _habits.where((h) => h.showInFloatingTimer == true).toList();
-    // TODO: Add tasks to floating timer when FloatingTimer supports TaskRecord
-    // For now, only return habits
-    return floatingHabits;
+    final all = [..._tasks, ..._habits];
+    return all.where((h) => h.showInFloatingTimer == true).toList();
   }
 
   Future<void> _loadData() async {
@@ -120,34 +118,20 @@ class _TaskPageState extends State<TaskPage> {
         setState(() => _isLoading = false);
         return;
       }
-      final allTasks = await queryTasksRecordOnce(userId: uid);
       final allHabits = await queryHabitsRecordOnce(userId: uid);
-      // Ensure inbox category exists
-      await getOrCreateInboxCategory(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
-
-      // Debug prints
-      print('DEBUG: Loaded ${allTasks.length} tasks');
-      print('DEBUG: Loaded ${allHabits.length} habits');
-      print('DEBUG: Loaded ${categories.length} categories');
-      if (allTasks.isNotEmpty) {
-        print(
-            'DEBUG: First task: ${allTasks.first.name}, status: ${allTasks.first.status}, isActive: ${allTasks.first.isActive}');
-      }
-
       setState(() {
-        _tasks = allTasks
-            .where((t) =>
-                widget.categoryId == null || t.categoryId == widget.categoryId)
-            .toList();
-
-        print(
-            'DEBUG: Filtered to ${_tasks.length} tasks for categoryId: ${widget.categoryId}');
-        _habits = allHabits
-            .where((h) =>
-                h.isRecurring &&
+        _tasks = allHabits
+            .where((h) =>h.isRecurring||
+            !h.isRecurring &&
                 (widget.categoryId == null ||
                     h.categoryId == widget.categoryId))
+            .toList();
+        _habits = allHabits
+            .where((h) =>
+        h.isRecurring &&
+            (widget.categoryId == null ||
+                h.categoryId == widget.categoryId))
             .toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -167,308 +151,350 @@ class _TaskPageState extends State<TaskPage> {
 
   Widget _buildQuickAdd() {
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).secondaryBackground,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate,
+          width: 1,
+        ),
+      ),
       child: Column(
         children: [
-          Container(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
-            decoration: BoxDecoration(
-              color: FlutterFlowTheme.of(context).secondaryBackground,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(
-                color: FlutterFlowTheme.of(context).alternate,
-                width: 1,
-              ),
-            ),
-            child: Column(
+          // Main input row
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
+            child: Row(
               children: [
-                Row(
-                  children: [
-                    Expanded(
-                      child: TextField(
-                        controller: _quickAddController,
-                        decoration: const InputDecoration(
-                          hintText: 'Quick add task…',
-                          border: InputBorder.none,
-                        ),
-                        onSubmitted: (_) => _submitQuickAdd(),
-                      ),
+                Expanded(
+                  child: TextField(
+                    controller: _quickAddController,
+                    decoration: const InputDecoration(
+                      hintText: 'Quick add task…',
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.send),
-                      onPressed: _submitQuickAdd,
-                    ),
-                  ],
-                ),
-                // Divider between task input and options
-                Divider(
-                  height: 16,
-                  thickness: 1,
-                  color: FlutterFlowTheme.of(context).alternate,
-                ),
-                // Options section
-                Row(
-                  children: [
-                    const SizedBox.shrink(),
-                    IconTaskTypeDropdown(
-                      selectedValue: _selectedQuickTrackingType ?? 'binary',
-                      onChanged: (value) {
-                        setState(() {
-                          _selectedQuickTrackingType = value;
-                          if (value == 'binary') {
-                            _quickTargetNumber = 1;
-                            _quickTargetDuration = const Duration(hours: 1);
-                            _quickUnit = '';
-                          }
-                        });
-                      },
-                      tooltip: 'Select task type',
-                    ),
-                    const SizedBox(width: 5),
-                    IconButton(
-                      icon: Icon(
-                        _selectedQuickDueDate != null
-                            ? Icons.calendar_today
-                            : Icons.calendar_today_outlined,
-                        color: _selectedQuickDueDate != null
-                            ? FlutterFlowTheme.of(context).primary
-                            : FlutterFlowTheme.of(context).secondaryText,
-                      ),
-                      onPressed: _selectQuickDueDate,
-                      tooltip: 'Set due date',
-                    ),
-                    IconButton(
-                      icon: Icon(
-                        quickIsRecurring ? Icons.repeat : Icons.repeat_outlined,
-                        color: quickIsRecurring
-                            ? FlutterFlowTheme.of(context).primary
-                            : FlutterFlowTheme.of(context).secondaryText,
-                      ),
-                      onPressed: () {
-                        setState(() {
-                          quickIsRecurring = !quickIsRecurring;
-                          if (!quickIsRecurring) {
-                            // Reset recurring options when disabled
-                            _quickSchedule = 'daily';
-                            _quickFrequency = 1;
-                            _quickSelectedDays = [];
-                          }
-                        });
-                      },
-                      tooltip: 'Make recurring',
-                    ),
-                  ],
-                ),
-                if (_selectedQuickTrackingType != null &&
-                    _selectedQuickTrackingType != 'binary') ...[
-                  const SizedBox(height: 10),
-                  Row(
-                    children: [
-                      if (_selectedQuickTrackingType == 'quantitative') ...[
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            initialValue: _quickTargetNumber.toString(),
-                            decoration: const InputDecoration(
-                              labelText: 'Target',
-                              labelStyle: TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w500),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              isDense: false,
-                            ),
-                            style: const TextStyle(fontSize: 11),
-                            keyboardType: TextInputType.number,
-                            onChanged: (value) {
-                              setState(() {
-                                _quickTargetNumber = int.tryParse(value) ?? 1;
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            controller: _quickUnitController,
-                            decoration: const InputDecoration(
-                              labelText: 'Unit',
-                              labelStyle: TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w500),
-                              hintText: 'e.g., pages',
-                              hintStyle: TextStyle(fontSize: 10),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              isDense: false,
-                            ),
-                            style: const TextStyle(fontSize: 11),
-                            onChanged: (value) {
-                              setState(() {
-                                _quickUnit = value;
-                              });
-                            },
-                          ),
-                        ),
-                      ] else if (_selectedQuickTrackingType == 'time') ...[
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            initialValue:
-                                (_quickTargetDuration.inHours).toString(),
-                            decoration: const InputDecoration(
-                              labelText: 'Hours',
-                              labelStyle: TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w500),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              isDense: false,
-                            ),
-                            style: const TextStyle(fontSize: 11),
-                            keyboardType: TextInputType.number,
-                            onChanged: (value) {
-                              final hours = int.tryParse(value) ?? 1;
-                              setState(() {
-                                _quickTargetDuration = Duration(hours: hours);
-                              });
-                            },
-                          ),
-                        ),
-                        const SizedBox(width: 10),
-                        Expanded(
-                          flex: 2,
-                          child: TextFormField(
-                            initialValue: (_quickTargetDuration.inMinutes % 60)
-                                .toString(),
-                            decoration: const InputDecoration(
-                              labelText: 'Minutes',
-                              labelStyle: TextStyle(
-                                  fontSize: 11, fontWeight: FontWeight.w500),
-                              border: OutlineInputBorder(),
-                              contentPadding: EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 4),
-                              isDense: false,
-                            ),
-                            style: const TextStyle(fontSize: 11),
-                            keyboardType: TextInputType.number,
-                            onChanged: (value) {
-                              final minutes = int.tryParse(value) ?? 0;
-                              setState(() {
-                                _quickTargetDuration = Duration(
-                                  hours: _quickTargetDuration.inHours,
-                                  minutes: minutes,
-                                );
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ],
+                    onSubmitted: (_) => _submitQuickAdd(),
                   ),
-                ],
-                // Recurring options section
-                if (quickIsRecurring) ...[
-                  const SizedBox(height: 10),
-                  // Schedule dropdown
-                  Row(
-                    children: [
-                      Expanded(
-                        child: ScheduleDropdown(
-                          selectedSchedule: _quickSchedule,
-                          onChanged: (value) {
-                            setState(() {
-                              _quickSchedule = value ?? 'daily';
-                              // Reset frequency and days when schedule changes
-                              _quickFrequency =
-                                  TaskFrequencyHelper.getDefaultFrequency(
-                                      _quickSchedule);
-                              _quickSelectedDays = [];
-                            });
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  // Frequency input for weekly/monthly
-                  if (TaskFrequencyHelper.shouldShowFrequencyInput(
-                      _quickSchedule)) ...[
-                    const SizedBox(height: 10),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FrequencyInput(
-                            schedule: _quickSchedule,
-                            frequency: _quickFrequency,
-                            onChanged: (value) {
-                              setState(() {
-                                _quickFrequency = value;
-                              });
-                            },
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
-                  // Day selection for weekly
-                  if (TaskFrequencyHelper.shouldShowDaySelection(
-                      _quickSchedule)) ...[
-                    const SizedBox(height: 10),
-                    DaySelectionChips(
-                      selectedDays: _quickSelectedDays,
-                      onChanged: (days) {
-                        setState(() {
-                          _quickSelectedDays = days;
-                        });
-                      },
-                    ),
-                  ],
-                ],
+                ),
+                IconButton(
+                  icon: const Icon(Icons.send),
+                  onPressed: _submitQuickAdd,
+                  padding: const EdgeInsets.all(4),
+                  constraints:
+                  const BoxConstraints(minWidth: 32, minHeight: 32),
+                ),
               ],
             ),
           ),
+          // Always show options
+          ...[
+            Divider(
+              height: 1,
+              thickness: 1,
+              color: FlutterFlowTheme.of(context).alternate,
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              child: Column(
+                children: [
+                  // Compact single row with icons only
+                  Row(
+                    children: [
+                      // Task type dropdown (icon only)
+                      IconTaskTypeDropdown(
+                        selectedValue: _selectedQuickTrackingType ?? 'binary',
+                        onChanged: (value) {
+                          setState(() {
+                            _selectedQuickTrackingType = value;
+                            if (value == 'binary') {
+                              _quickTargetNumber = 1;
+                              _quickTargetDuration = const Duration(hours: 1);
+                              _quickUnitController.clear();
+                            }
+                          });
+                        },
+                        tooltip: 'Select task type',
+                      ),
+                      const SizedBox(width: 4),
+                      // Due date picker (icon only)
+                      IconButton(
+                        icon: Icon(
+                          _selectedQuickDueDate != null
+                              ? Icons.calendar_today
+                              : Icons.calendar_today_outlined,
+                          color: _selectedQuickDueDate != null
+                              ? FlutterFlowTheme.of(context).primary
+                              : FlutterFlowTheme.of(context).secondaryText,
+                        ),
+                        onPressed: _selectQuickDueDate,
+                        tooltip: _selectedQuickDueDate != null
+                            ? 'Due: ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
+                            : 'Set due date',
+                        padding: const EdgeInsets.all(4),
+                        constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                      // Recurring task toggle (icon only)
+                      IconButton(
+                        icon: Icon(
+                          _quickIsRecurring
+                              ? Icons.repeat
+                              : Icons.repeat_outlined,
+                          color: _quickIsRecurring
+                              ? FlutterFlowTheme.of(context).primary
+                              : FlutterFlowTheme.of(context).secondaryText,
+                        ),
+                        onPressed: () {
+                          setState(() {
+                            _quickIsRecurring = !_quickIsRecurring;
+                            if (!_quickIsRecurring) {
+                              // Reset recurring options when disabled
+                              _quickSchedule = 'daily';
+                              _quickFrequency = 1;
+                              _quickSelectedDays = [];
+                            } else {
+                              // Set default frequency when enabling
+                              _quickFrequency =
+                                  TaskFrequencyHelper.getDefaultFrequency(
+                                      _quickSchedule);
+                            }
+                          });
+                        },
+                        tooltip: _quickIsRecurring
+                            ? 'Recurring task'
+                            : 'Make recurring',
+                        padding: const EdgeInsets.all(4),
+                        constraints:
+                        const BoxConstraints(minWidth: 32, minHeight: 32),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  // Target value row (conditional)
+                  if (_selectedQuickTrackingType == 'quantitative') ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Target',
+                                style: FlutterFlowTheme.of(context).bodySmall,
+                              ),
+                              const SizedBox(height: 4),
+                              TextFormField(
+                                initialValue: _quickTargetNumber.toString(),
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                ),
+                                keyboardType: TextInputType.number,
+                                onChanged: (value) {
+                                  _quickTargetNumber = int.tryParse(value) ?? 1;
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Unit',
+                                style: FlutterFlowTheme.of(context).bodySmall,
+                              ),
+                              const SizedBox(height: 4),
+                              TextFormField(
+                                controller: _quickUnitController,
+                                decoration: const InputDecoration(
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(
+                                      horizontal: 12, vertical: 8),
+                                  hintText: 'e.g., pages, reps',
+                                ),
+                                onChanged: (value) {
+                                  // Unit value stored in controller
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  if (_selectedQuickTrackingType == 'time') ...[
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Target Duration',
+                                style: FlutterFlowTheme.of(context).bodySmall,
+                              ),
+                              const SizedBox(height: 4),
+                              Row(
+                                children: [
+                                  Expanded(
+                                    child: TextFormField(
+                                      initialValue: _quickTargetDuration.inHours
+                                          .toString(),
+                                      decoration: const InputDecoration(
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 8),
+                                        labelText: 'Hours',
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      onChanged: (value) {
+                                        final hours = int.tryParse(value) ?? 1;
+                                        _quickTargetDuration = Duration(
+                                          hours: hours,
+                                          minutes:
+                                          _quickTargetDuration.inMinutes %
+                                              60,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                  Expanded(
+                                    child: TextFormField(
+                                      initialValue:
+                                      (_quickTargetDuration.inMinutes % 60)
+                                          .toString(),
+                                      decoration: const InputDecoration(
+                                        border: OutlineInputBorder(),
+                                        contentPadding: EdgeInsets.symmetric(
+                                            horizontal: 12, vertical: 8),
+                                        labelText: 'Minutes',
+                                      ),
+                                      keyboardType: TextInputType.number,
+                                      onChanged: (value) {
+                                        final minutes =
+                                            int.tryParse(value) ?? 0;
+                                        _quickTargetDuration = Duration(
+                                          hours: _quickTargetDuration.inHours,
+                                          minutes: minutes,
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                  // Recurring options (only show when recurring is enabled)
+                  if (_quickIsRecurring) ...[
+                    // Schedule dropdown
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ScheduleDropdown(
+                            selectedSchedule: _quickSchedule,
+                            onChanged: (value) {
+                              setState(() {
+                                _quickSchedule = value ?? 'daily';
+                                // Reset frequency and days when schedule changes
+                                _quickFrequency =
+                                    TaskFrequencyHelper.getDefaultFrequency(
+                                        _quickSchedule);
+                                _quickSelectedDays = [];
+                              });
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                    // Frequency input for weekly/monthly
+                    if (TaskFrequencyHelper.shouldShowFrequencyInput(
+                        _quickSchedule)) ...[
+                      const SizedBox(height: 6),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: FrequencyInput(
+                              schedule: _quickSchedule,
+                              frequency: _quickFrequency,
+                              onChanged: (value) {
+                                setState(() {
+                                  _quickFrequency = value;
+                                });
+                              },
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                    // Day selection for weekly
+                    if (TaskFrequencyHelper.shouldShowDaySelection(
+                        _quickSchedule)) ...[
+                      const SizedBox(height: 6),
+                      DaySelectionChips(
+                        selectedDays: _quickSelectedDays,
+                        onChanged: (days) {
+                          setState(() {
+                            _quickSelectedDays = days;
+                          });
+                        },
+                      ),
+                    ],
+                  ],
+                ],
+              ),
+            ),
+          ],
         ],
       ),
     );
   }
-
-  bool _isTaskCompleted(dynamic task) {
-    if (task is TaskRecord) {
-      return task.status == 'complete' || task.status == 'done';
-    } else if (task is HabitRecord) {
-      if (!task.isActive) return false;
-      switch (task.trackingType) {
-        case 'binary':
-          return task.status == 'complete';
-        case 'quantitative':
-          final currentValue = task.currentValue ?? 0;
-          final target = task.target ?? 0;
-          return target > 0 && currentValue >= target;
-        case 'time':
-          final currentMinutes = (task.accumulatedTime) ~/ 60000;
-          final targetMinutes = task.target ?? 0;
-          return targetMinutes > 0 && currentMinutes >= targetMinutes;
-        default:
-          return task.status == 'complete';
-      }
+  bool _isTaskCompleted(HabitRecord task) {
+    if (!task.isActive) return false;
+    switch (task.trackingType) {
+      case 'binary':
+        return task.status == 'complete';
+      case 'quantitative':
+        final currentValue = task.currentValue ?? 0;
+        final target = task.target ?? 0;
+        return target > 0 && currentValue >= target;
+      case 'time':
+        final currentMinutes = (task.accumulatedTime) ~/ 60000;
+        final targetMinutes = task.target ?? 0;
+        return targetMinutes > 0 && currentMinutes >= targetMinutes;
+      default:
+        return task.status == 'complete';
     }
-    return false;
   }
 
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Today', 'Tomorrow', 'This Week', 'Later'];
+    final order = ['Overdue', 'Task', 'Tomorrow', 'This Week', 'Later'];
     final widgets = <Widget>[];
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
       final visibleItems = items.where((item) {
-        final isCompleted = _isTaskCompleted(item);
-        return _showCompleted || !isCompleted;
+        if (item is HabitRecord) {
+          final isCompleted = _isTaskCompleted(item);
+          return _showCompleted || !isCompleted;
+        }
+        return true;
       }).toList();
       if (visibleItems.isEmpty) continue;
-      _applySort(visibleItems);
+      _applySort(items);
+      // if (items.isEmpty) continue;
       widgets.add(
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
@@ -481,7 +507,7 @@ class _TaskPageState extends State<TaskPage> {
           ),
         ),
       );
-      widgets.addAll(visibleItems.map(_buildItemTile));
+      widgets.addAll(visibleItems.map((item) => _buildItemTile(item)));
       widgets.add(const SizedBox(height: 8));
     }
     if (widgets.isEmpty) {
@@ -545,27 +571,26 @@ class _TaskPageState extends State<TaskPage> {
         priority: 1,
         trackingType: _selectedQuickTrackingType ?? 'binary',
         target: targetValue,
-        schedule: quickIsRecurring ? _quickSchedule : 'daily',
+        schedule: _quickIsRecurring ? _quickSchedule : 'daily',
         unit: _quickUnit,
         showInFloatingTimer: false, // Default to false
         accumulatedTime: 0,
         isActive: true,
         createdTime: DateTime.now(),
         categoryId: categoryId,
-        categoryName:
-            _categories.firstWhere((c) => c.reference.id == categoryId).name,
-        isRecurring: quickIsRecurring,
-        frequency: quickIsRecurring ? _quickFrequency : 1,
-        specificDays: quickIsRecurring && _quickSelectedDays.isNotEmpty
-            ? _quickSelectedDays
-            : null,
+        // 🔧 FIXED: Added safe category name lookup with fallbacks
+        categoryName: _categories.isNotEmpty
+            ? _categories.firstWhere((c) => c.reference.id == categoryId, orElse: () => _categories.first).name
+            : 'Inbox',
+        isRecurring: _quickIsRecurring,
+        frequency: _quickIsRecurring ? _quickFrequency : 1,
+        specificDays: _quickIsRecurring ? _quickSelectedDays : null,
         lastUpdated: DateTime.now(),
       );
       await TaskRecord.collectionForUser(currentUserUid).add(taskData);
+
+      // Clear form fields first
       setState(() {
-        // Note: _tasks is still List<HabitRecord> for now, we'll fix this in step 2
-        // For now, we'll reload data to get the new task
-        _loadData();
         _quickAddController.clear();
         _quickTargetNumber = 1;
         _quickTargetDuration = const Duration(hours: 1);
@@ -576,7 +601,18 @@ class _TaskPageState extends State<TaskPage> {
         _quickSchedule = 'daily';
         _quickFrequency = 1;
         _quickSelectedDays = [];
+        _quickIsRecurring = false;
       });
+
+      // Reload data after setState to avoid nested state updates
+      await _loadData();
+
+      // Show success message
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Task "$title" added successfully')),
+        );
+      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -584,7 +620,6 @@ class _TaskPageState extends State<TaskPage> {
       );
     }
   }
-
   Future<void> _selectQuickDueDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -602,7 +637,7 @@ class _TaskPageState extends State<TaskPage> {
   Map<String, List<dynamic>> get _bucketedItems {
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
-      'Today': [],
+      'Task': [],
       'Tomorrow': [],
       'This Week': [],
       'Later': [],
@@ -611,13 +646,8 @@ class _TaskPageState extends State<TaskPage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     for (final t in _tasks) {
-      print(
-          'DEBUG: Processing task: ${t.name}, isActive: ${t.isActive}, status: ${t.status}');
-      if (!t.isActive) {
-        print('DEBUG: Skipping task ${t.name} - not active');
-        continue;
-      }
-      // Note: Completed task filtering will be handled in _buildSections() to respect the toggle
+      if (!t.isActive || t.status == 'complete') continue;
+      if (!_showCompleted && _isTaskCompleted(t)) continue;
       final due = t.dueDate;
       if (due == null) {
         buckets['Later']!.add(t);
@@ -626,7 +656,7 @@ class _TaskPageState extends State<TaskPage> {
       if (due.isBefore(today)) {
         buckets['Overdue']!.add(t);
       } else if (_isSameDay(due, today)) {
-        buckets['Today']!.add(t);
+        buckets['Task']!.add(t);
       } else if (_isSameDay(due, _tomorrowDate())) {
         buckets['Tomorrow']!.add(t);
       } else if (!due.isAfter(endOfWeek)) {
@@ -638,14 +668,14 @@ class _TaskPageState extends State<TaskPage> {
     for (final h in _habits) {
       if (!h.isActive) continue;
       if (HabitTrackingUtil.shouldTrackToday(h)) {
-        buckets['Today']!.add(h);
+        buckets['Task']!.add(h);
         continue;
       }
       final next = _nextDueDateForHabit(h, today);
       if (next == null) {
         buckets['Later']!.add(h);
       } else if (_isSameDay(next, today)) {
-        buckets['Today']!.add(h);
+        buckets['Task']!.add(h);
       } else if (_isSameDay(next, _tomorrowDate())) {
         buckets['Tomorrow']!.add(h);
       } else if (!next.isAfter(endOfWeek)) {
@@ -658,11 +688,10 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Widget _buildItemTile(dynamic item) {
-    if (item is TaskRecord) {
-      return _buildTaskTile(item);
-    }
     if (item is HabitRecord) {
+      // if (!item.isRecurring) {
       return _buildTaskTile(item);
+      // }
     }
     return const SizedBox.shrink();
   }
@@ -721,210 +750,19 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 
-  Widget _buildTaskTile(dynamic task) {
-    if (task is TaskRecord) {
-      // Convert TaskRecord to HabitRecord-like structure for CompactHabitItem
-      // Since both now have the same fields, we can create a unified display
-      return _buildUnifiedTaskTile(task);
-    } else if (task is HabitRecord) {
-      return CompactHabitItem(
-        showCalendar: true,
-        showTaskEdit: true,
-        key: Key(task.reference.id),
-        habit: task,
-        showCompleted: _showCompleted,
-        categories: _categories,
-        tasks: [], // Empty for now since _tasks is now TaskRecord
-        onRefresh: _loadData,
-        onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-        onHabitDeleted: (deleted) async => _loadData(),
-      );
-    }
-    return const SizedBox.shrink();
-  }
-
-  Widget _buildUnifiedTaskTile(TaskRecord task) {
-    final theme = FlutterFlowTheme.of(context);
-    final isCompleted = _isTaskCompleted(task);
-
-    // Find category color
-    CategoryRecord? category;
-    try {
-      category = _categories.firstWhere(
-        (c) => c.reference.id == task.categoryId,
-      );
-    } catch (e) {
-      category = _categories.isNotEmpty ? _categories.first : null;
-    }
-    final categoryColor = category != null
-        ? Color(int.parse(category.color.replaceFirst('#', '0xFF')))
-        : theme.primary;
-
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-      decoration: BoxDecoration(
-        color: theme.secondaryBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: categoryColor.withOpacity(0.3),
-          width: 1,
-        ),
-      ),
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(12),
-          onTap: () => _editTask(task),
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Row(
-              children: [
-                // Status indicator (similar to habit completion)
-                GestureDetector(
-                  onTap: () => _toggleTaskStatus(task),
-                  child: Container(
-                    width: 24,
-                    height: 24,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: isCompleted ? categoryColor : Colors.transparent,
-                      border: Border.all(
-                        color: categoryColor,
-                        width: 2,
-                      ),
-                    ),
-                    child: isCompleted
-                        ? Icon(
-                            Icons.check,
-                            size: 16,
-                            color: Colors.white,
-                          )
-                        : null,
-                  ),
-                ),
-                const SizedBox(width: 12),
-
-                // Task content
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        task.name,
-                        style: theme.bodyLarge.copyWith(
-                          decoration:
-                              isCompleted ? TextDecoration.lineThrough : null,
-                          color: isCompleted
-                              ? theme.secondaryText
-                              : theme.primaryText,
-                        ),
-                      ),
-                      if (task.dueDate != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          'Due: ${DateFormat('MMM d').format(task.dueDate!)}',
-                          style: theme.bodySmall.copyWith(
-                            color: _isOverdue(task.dueDate!)
-                                ? Colors.red
-                                : theme.secondaryText,
-                          ),
-                        ),
-                      ],
-                      if (category != null) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          category.name,
-                          style: theme.bodySmall.copyWith(
-                            color: categoryColor,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                      // Show tracking type and target info
-                      if (task.trackingType != 'binary') ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          _getTrackingInfo(task),
-                          style: theme.bodySmall.copyWith(
-                            color: theme.secondaryText,
-                          ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-
-                // Priority stars
-                if (task.priority > 0) ...[
-                  const SizedBox(width: 8),
-                  Row(
-                    children: List.generate(
-                      task.priority.clamp(1, 3),
-                      (index) => Icon(
-                        Icons.star,
-                        size: 16,
-                        color: Colors.amber,
-                      ),
-                    ),
-                  ),
-                ],
-              ],
-            ),
-          ),
-        ),
-      ),
+  Widget _buildTaskTile(HabitRecord task) {
+    return CompactHabitItem(
+      showCalendar: true,
+      showTaskEdit: true,
+      key: ValueKey('${task.reference.id}_${task.status}_$_showCompleted'),
+      habit: task,
+      showCompleted: _showCompleted,
+      categories: _categories,
+      tasks: _tasks,
+      onRefresh: _loadData,
+      onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+      onHabitDeleted: (deleted) async => _loadData(),
     );
-  }
-
-  String _getTrackingInfo(TaskRecord task) {
-    switch (task.trackingType) {
-      case 'quantitative':
-        final target = task.target ?? 0;
-        final unit = task.unit.isNotEmpty ? ' ${task.unit}' : '';
-        return 'Target: $target$unit';
-      case 'time':
-        final targetMinutes = task.target ?? 0;
-        final hours = targetMinutes ~/ 60;
-        final minutes = targetMinutes % 60;
-        if (hours > 0) {
-          return 'Target: ${hours}h ${minutes}m';
-        } else {
-          return 'Target: ${minutes}m';
-        }
-      default:
-        return '';
-    }
-  }
-
-  bool _isOverdue(DateTime dueDate) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final due = DateTime(dueDate.year, dueDate.month, dueDate.day);
-    return due.isBefore(today);
-  }
-
-  void _editTask(TaskRecord task) {
-    // TODO: Implement task editing
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Task editing coming soon!')),
-    );
-  }
-
-  void _toggleTaskStatus(TaskRecord task) async {
-    try {
-      final newStatus = task.status == 'complete' ? 'incomplete' : 'complete';
-      await updateTask(
-        taskRef: task.reference,
-        status: newStatus,
-      );
-      _loadData(); // Refresh the list
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error updating task: $e')),
-        );
-      }
-    }
   }
 
   void _updateHabitInLocalState(HabitRecord updatedHabit) {
@@ -934,24 +772,27 @@ class _TaskPageState extends State<TaskPage> {
       if (habitIndex != -1) {
         _habits[habitIndex] = updatedHabit;
       }
-      // For now, just reload data since tasks are now TaskRecord type
-      // TODO: Update this when CompactHabitItem supports TaskRecord
-      _loadDataSilently();
+      final taskIndex =
+      _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      if (taskIndex != -1) {
+        _tasks[taskIndex] = updatedHabit;
+      }
+      if (!_showCompleted && _isTaskCompleted(updatedHabit)) {
+        _tasks.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
+      }
     });
+    _loadDataSilently();
   }
 
   Future<void> _loadDataSilently() async {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
-      final allTasks = await queryTasksRecordOnce(userId: uid);
       final allHabits = await queryHabitsRecordOnce(userId: uid);
-      // Ensure inbox category exists
-      await getOrCreateInboxCategory(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
       if (!mounted) return;
       setState(() {
-        _tasks = allTasks;
+        _tasks = allHabits.where((h) => h.isRecurring||!h.isRecurring).toList();
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -967,3 +808,4 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 }
+

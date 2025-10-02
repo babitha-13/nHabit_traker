@@ -86,7 +86,7 @@ class HabitTrackingUtil {
         // Check if today is in completed dates
         // Note: completedDates tracking moved to separate completion records
         // For now, return false to indicate not completed
-        return false;
+        return habit.status == 'complete' || habit.currentValue == true;
       case 'quantitative':
         final progress = getCurrentProgress(habit);
         final target = getTarget(habit);
@@ -199,11 +199,13 @@ class HabitTrackingUtil {
       // Note: completedDates tracking moved to separate completion records
       // For now, just update the current value
       updates['currentValue'] = true;
+      updates['status'] = 'complete';
     } else {
       // For other types, add to completed dates if target is reached
       final progress = getCurrentProgress(habit);
       final target = getTarget(habit);
       if (progress >= target) {
+        updates['status'] = 'complete';
         // Note: completedDates tracking moved to separate completion records
         // Target reached, mark as completed for today
       }

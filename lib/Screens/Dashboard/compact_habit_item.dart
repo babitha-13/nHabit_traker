@@ -805,6 +805,7 @@ class _CompactHabitItemState extends State<CompactHabitItem>
                             date.month == todayDate.month &&
                             date.day == todayDate.day);
                         await widget.habit.reference.update({
+                          'status': 'incomplete',
                           'completedDates': completedDates,
                           'lastUpdated': DateTime.now(),
                         });

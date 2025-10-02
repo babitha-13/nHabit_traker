@@ -9,6 +9,8 @@ import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
+import 'package:habit_tracker/Screens/Task/task_page.dart';
+import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Tasks/tasks_page.dart';
 import 'package:habit_tracker/Screens/Queue/queue.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
@@ -417,7 +419,7 @@ class _HomeState extends State<Home> {
         }
         if (s == "Tasks") {
           title = s;
-          cWidget = TasksPage(
+          cWidget = TaskTab(
             showCompleted: _showTaskCompleted,
           );
         }
