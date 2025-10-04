@@ -41,7 +41,6 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickUnitController = TextEditingController();
   late bool _showCompleted;
   bool quickIsRecurring = false;
-  bool _quickIsRecurring = false;
   String _quickSchedule = 'daily';
   int _quickFrequency = 1;
   List<int> _quickSelectedDays = [];
@@ -89,7 +88,6 @@ class _TaskPageState extends State<TaskPage> {
         RefreshIndicator(
           onRefresh: _loadData,
           child: ListView(
-            key: ValueKey('task_list_${_tasks.length}_${_habits.length}'),
             children: [
               _buildQuickAdd(),
               ..._buildSections(),
@@ -121,9 +119,10 @@ class _TaskPageState extends State<TaskPage> {
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
       setState(() {
+        _categories = categories;
+
         _tasks = allHabits
-            .where((h) =>h.isRecurring||
-            !h.isRecurring &&
+            .where((h) =>
                 (widget.categoryId == null ||
                     h.categoryId == widget.categoryId))
             .toList();
@@ -133,7 +132,6 @@ class _TaskPageState extends State<TaskPage> {
             (widget.categoryId == null ||
                 h.categoryId == widget.categoryId))
             .toList();
-        _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
           _selectedQuickCategoryId = categories.first.reference.id;
         }
@@ -238,17 +236,17 @@ class _TaskPageState extends State<TaskPage> {
                       // Recurring task toggle (icon only)
                       IconButton(
                         icon: Icon(
-                          _quickIsRecurring
+                          quickIsRecurring
                               ? Icons.repeat
                               : Icons.repeat_outlined,
-                          color: _quickIsRecurring
+                          color: quickIsRecurring
                               ? FlutterFlowTheme.of(context).primary
                               : FlutterFlowTheme.of(context).secondaryText,
                         ),
                         onPressed: () {
                           setState(() {
-                            _quickIsRecurring = !_quickIsRecurring;
-                            if (!_quickIsRecurring) {
+                            quickIsRecurring = !quickIsRecurring;
+                            if (!quickIsRecurring) {
                               // Reset recurring options when disabled
                               _quickSchedule = 'daily';
                               _quickFrequency = 1;
@@ -261,7 +259,7 @@ class _TaskPageState extends State<TaskPage> {
                             }
                           });
                         },
-                        tooltip: _quickIsRecurring
+                        tooltip: quickIsRecurring
                             ? 'Recurring task'
                             : 'Make recurring',
                         padding: const EdgeInsets.all(4),
@@ -397,7 +395,7 @@ class _TaskPageState extends State<TaskPage> {
                     const SizedBox(height: 8),
                   ],
                   // Recurring options (only show when recurring is enabled)
-                  if (_quickIsRecurring) ...[
+                  if (quickIsRecurring) ...[
                     // Schedule dropdown
                     Row(
                       children: [
@@ -460,6 +458,7 @@ class _TaskPageState extends State<TaskPage> {
       ),
     );
   }
+
   bool _isTaskCompleted(HabitRecord task) {
     if (!task.isActive) return false;
     switch (task.trackingType) {
@@ -494,7 +493,6 @@ class _TaskPageState extends State<TaskPage> {
       }).toList();
       if (visibleItems.isEmpty) continue;
       _applySort(items);
-      // if (items.isEmpty) continue;
       widgets.add(
         Padding(
           padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
@@ -507,7 +505,7 @@ class _TaskPageState extends State<TaskPage> {
           ),
         ),
       );
-      widgets.addAll(visibleItems.map((item) => _buildItemTile(item)));
+      widgets.addAll(items.map(_buildItemTile));
       widgets.add(const SizedBox(height: 8));
     }
     if (widgets.isEmpty) {
@@ -562,57 +560,40 @@ class _TaskPageState extends State<TaskPage> {
         default:
           targetValue = true;
       }
-
-      final taskData = createTaskRecordData(
-        title: title,
-        description: '',
-        status: 'incomplete',
-        dueDate: _selectedQuickDueDate,
-        priority: 1,
-        trackingType: _selectedQuickTrackingType ?? 'binary',
+      final taskData = createHabitRecordData(
+        showInFloatingTimer: true,
+        name: title,
+        categoryId: categoryId,
+        categoryName: _categories
+            .firstWhere((c) => c.reference.id == categoryId)
+            .name,
+        trackingType: _selectedQuickTrackingType!,
         target: targetValue,
-        schedule: _quickIsRecurring ? _quickSchedule : 'daily',
-        unit: _quickUnit,
-        showInFloatingTimer: false, // Default to false
-        accumulatedTime: 0,
+        status: 'incomplete',
+        isRecurring: quickIsRecurring,
         isActive: true,
         createdTime: DateTime.now(),
-        categoryId: categoryId,
-        // 🔧 FIXED: Added safe category name lookup with fallbacks
-        categoryName: _categories.isNotEmpty
-            ? _categories.firstWhere((c) => c.reference.id == categoryId, orElse: () => _categories.first).name
-            : 'Inbox',
-        isRecurring: _quickIsRecurring,
-        frequency: _quickIsRecurring ? _quickFrequency : 1,
-        specificDays: _quickIsRecurring ? _quickSelectedDays : null,
         lastUpdated: DateTime.now(),
+        userId: currentUserUid,
+        dueDate: _selectedQuickDueDate,
+        priority: 1,
+        unit: _quickUnit,
+        schedule: quickIsRecurring ? _quickSchedule : 'daily',
+        frequency: quickIsRecurring ? _quickFrequency : 1,
+        specificDays: quickIsRecurring ? _quickSelectedDays : null,
       );
-      await TaskRecord.collectionForUser(currentUserUid).add(taskData);
-
-      // Clear form fields first
+      final docRef =
+      await HabitRecord.collectionForUser(currentUserUid).add(taskData);
+      final newTask = HabitRecord.getDocumentFromData(taskData, docRef);
       setState(() {
+        _tasks.add(newTask);
         _quickAddController.clear();
         _quickTargetNumber = 1;
         _quickTargetDuration = const Duration(hours: 1);
         _quickUnit = '';
         _quickUnitController.clear();
         _selectedQuickDueDate = null;
-        quickIsRecurring = false;
-        _quickSchedule = 'daily';
-        _quickFrequency = 1;
-        _quickSelectedDays = [];
-        _quickIsRecurring = false;
       });
-
-      // Reload data after setState to avoid nested state updates
-      await _loadData();
-
-      // Show success message
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Task "$title" added successfully')),
-        );
-      }
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -620,6 +601,7 @@ class _TaskPageState extends State<TaskPage> {
       );
     }
   }
+
   Future<void> _selectQuickDueDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -642,48 +624,53 @@ class _TaskPageState extends State<TaskPage> {
       'This Week': [],
       'Later': [],
     };
+
     final today = _todayDate();
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
-    for (final t in _tasks) {
-      if (!t.isActive || t.status == 'complete') continue;
-      if (!_showCompleted && _isTaskCompleted(t)) continue;
-      final due = t.dueDate;
-      if (due == null) {
-        buckets['Later']!.add(t);
-        continue;
-      }
-      if (due.isBefore(today)) {
-        buckets['Overdue']!.add(t);
-      } else if (_isSameDay(due, today)) {
-        buckets['Task']!.add(t);
-      } else if (_isSameDay(due, _tomorrowDate())) {
-        buckets['Tomorrow']!.add(t);
-      } else if (!due.isAfter(endOfWeek)) {
-        buckets['This Week']!.add(t);
-      } else {
-        buckets['Later']!.add(t);
-      }
-    }
-    for (final h in _habits) {
-      if (!h.isActive) continue;
-      if (HabitTrackingUtil.shouldTrackToday(h)) {
-        buckets['Task']!.add(h);
-        continue;
-      }
-      final next = _nextDueDateForHabit(h, today);
-      if (next == null) {
+
+    // Helper to decide which bucket to add a habit/task to
+    void addToBucket(HabitRecord h, DateTime? dueDate) {
+      if (!_showCompleted && _isTaskCompleted(h)) return;
+
+      if (dueDate == null) {
         buckets['Later']!.add(h);
-      } else if (_isSameDay(next, today)) {
+        return;
+      }
+
+      if (dueDate.isBefore(today)) {
+        buckets['Overdue']!.add(h);
+      } else if (_isSameDay(dueDate, today)) {
         buckets['Task']!.add(h);
-      } else if (_isSameDay(next, _tomorrowDate())) {
+      } else if (_isSameDay(dueDate, _tomorrowDate())) {
         buckets['Tomorrow']!.add(h);
-      } else if (!next.isAfter(endOfWeek)) {
+      } else if (!dueDate.isAfter(endOfWeek)) {
         buckets['This Week']!.add(h);
       } else {
         buckets['Later']!.add(h);
       }
     }
+
+    // Add non-recurring tasks filtered by category
+    for (final t in _tasks) {
+      if (!t.isActive) continue;
+      if (widget.categoryId != null && t.categoryId != widget.categoryId) continue;
+      addToBucket(t, t.dueDate);
+    }
+
+    // Add recurring habits filtered by category
+    for (final h in _habits) {
+      if (!h.isActive) continue;
+      if (widget.categoryId != null && h.categoryId != widget.categoryId) continue;
+
+      if (HabitTrackingUtil.shouldTrackToday(h)) {
+        addToBucket(h, today);
+      } else {
+        final next = _nextDueDateForHabit(h, today);
+        addToBucket(h, next);
+      }
+    }
+
     return buckets;
   }
 
@@ -754,7 +741,7 @@ class _TaskPageState extends State<TaskPage> {
     return CompactHabitItem(
       showCalendar: true,
       showTaskEdit: true,
-      key: ValueKey('${task.reference.id}_${task.status}_$_showCompleted'),
+      key: Key(task.reference.id),
       habit: task,
       showCompleted: _showCompleted,
       categories: _categories,
@@ -767,8 +754,8 @@ class _TaskPageState extends State<TaskPage> {
 
   void _updateHabitInLocalState(HabitRecord updatedHabit) {
     setState(() {
-      final habitIndex = _habits
-          .indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      final habitIndex =
+      _habits.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updatedHabit;
       }
@@ -779,10 +766,12 @@ class _TaskPageState extends State<TaskPage> {
       }
       if (!_showCompleted && _isTaskCompleted(updatedHabit)) {
         _tasks.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
+        _habits.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
       }
+      _loadDataSilently();
     });
-    _loadDataSilently();
   }
+
 
   Future<void> _loadDataSilently() async {
     try {
@@ -808,4 +797,3 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 }
-

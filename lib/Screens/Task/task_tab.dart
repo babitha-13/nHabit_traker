@@ -3,7 +3,6 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
@@ -31,37 +30,27 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   Future<void> _loadCategories() async {
     final fetched = await queryTaskCategoriesOnce(userId: currentUserUid);
-
-    // Ensure default task category exists
-    try {
-      fetched.firstWhere((c) => c.name.toLowerCase() == 'inbox');
-    } catch (e) {
-      // Default category doesn't exist, create it
+    final inboxExists = fetched.any((c) => c.name.toLowerCase() == 'inbox');
+    if (!inboxExists) {
       await createCategory(
         name: 'Inbox',
         description: 'Inbox task category',
         weight: 1.0,
         categoryType: 'task',
       );
-      // Reload categories after creating default
-      final updatedFetched =
-      await queryTaskCategoriesOnce(userId: currentUserUid);
-      setState(() {
-        _categories = updatedFetched;
-        _tabNames = ["Inbox", ..._categories.map((c) => c.name)];
-        _tabController.dispose();
-        _tabController = TabController(length: _tabNames.length, vsync: this);
-      });
-      return;
     }
 
+    final updatedFetched = await queryTaskCategoriesOnce(userId: currentUserUid);
+    final otherCategories = updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
+
     setState(() {
-      _categories = fetched;
-      _tabNames = ["Default", ..._categories.map((c) => c.name)];
+      _categories = updatedFetched;
+      _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
       _tabController.dispose();
       _tabController = TabController(length: _tabNames.length, vsync: this);
     });
   }
+
 
   @override
   void dispose() {
@@ -107,25 +96,22 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                 : TabBarView(
               controller: _tabController,
               children: _tabNames.map((name) {
-                final category = _categories.isEmpty
-                    ? null
-                    : (name.toLowerCase() == "inbox"
-                    ? _categories.firstWhere(
-                      (c) => c.name.toLowerCase() == 'inbox',
-                  orElse: () => _categories.first,
-                )
-                    : _categories.firstWhere(
+                if (name.toLowerCase() == "inbox") {
+                  final inboxCategory = _categories.firstWhere(
+                        (c) => c.name.toLowerCase() == 'inbox',
+                  );
+                  return TaskPage(categoryId: inboxCategory.reference.id, showCompleted: _showCompleted);
+                }
+                final category = _categories.firstWhere(
                       (c) => c.name == name,
-                  orElse: () => _categories.first,
-                ));
-
+                );
                 if (category == null) {
                   return const Center(child: Text("No category found"));
                 }
-
-                return TaskPage(categoryId: category.reference.id, showCompleted: _showCompleted,);
+                return TaskPage(categoryId: category.reference.id, showCompleted: _showCompleted);
               }).toList(),
-            ),
+            )
+
           )
         ],
       ),
@@ -134,7 +120,6 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   Future<void> _showAddCategoryDialog(BuildContext context) async {
     final TextEditingController tabController = TextEditingController();
-    String? errorText;
     await showDialog(
       context: context,
       builder: (context) {
@@ -229,4 +214,3 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     );
   }
 }
-
