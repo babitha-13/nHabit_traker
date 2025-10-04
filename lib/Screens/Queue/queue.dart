@@ -113,21 +113,14 @@ class _QueuePageState extends State<QueuePage> {
     setState(() {
       _isLoading = true;
     });
-
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        // Get instances from both collections
         final taskInstances = await queryTodaysTaskInstances(userId: userId);
         final habitInstances = await queryTodaysHabitInstances(userId: userId);
-
-        // Convert to unified ActionItem model
         final items = <ActionItem>[];
         items.addAll(taskInstances.map((t) => ActionItem.fromTaskInstance(t)));
-        items
-            .addAll(habitInstances.map((h) => ActionItem.fromHabitInstance(h)));
-
-        // Sort by priority (high to low) then by due date (oldest first)
+        items.addAll(habitInstances.map((h) => ActionItem.fromHabitInstance(h)));
         items.sort((a, b) {
           final priorityCompare = b.priority.compareTo(a.priority);
           if (priorityCompare != 0) return priorityCompare;
