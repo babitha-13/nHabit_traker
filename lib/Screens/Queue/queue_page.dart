@@ -5,12 +5,10 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
-import 'package:habit_tracker/Helper/utils/neumorphic_container.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/date_filter_dropdown.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart';
 import 'dart:async';
@@ -38,11 +36,7 @@ class _QueuePageState extends State<QueuePage> {
   bool _tasksExpanded = true;
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
-  double _netImpactScore = 0;
-  double _dailyCompletionPercent = 0;
-  int _completedHabits = 0;
-  int _totalHabits = 0;
-  int _thriveScore = 0;
+  DateFilterType _selectedDateFilter = DateFilterType.today;
 
   @override
   void initState() {
@@ -53,8 +47,6 @@ class _QueuePageState extends State<QueuePage> {
       if (param is bool && mounted) {
         setState(() {
           _showCompleted = param;
-          print("zxvv");
-          print(_showCompleted);
         });
       }
     });
@@ -100,34 +92,24 @@ class _QueuePageState extends State<QueuePage> {
         final categories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
-        final today = DateTime.now();
-        final todayDate = DateTime(today.year, today.month, today.day);
         final allCategories = [...categories, ...taskCategories];
         setState(() {
           _habits = habits;
           _categories = allCategories;
           _tasks = habits.where((h) {
-            // if (h.isRecurring) return false;
-            if (h.dueDate == null) return false;
-            final due =
-                DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
-            if (due != todayDate) return false;
             final isTaskCategory = taskCategoryNames.contains(h.categoryName) ||
                 h.categoryName.toLowerCase() == 'tasks' ||
                 h.categoryName.toLowerCase() == 'task';
             if (!isTaskCategory) return false;
             if (_isTaskCompleted(h) && !_showCompleted) return false;
-            return true;
+            return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
           }).toList();
           _recomputeTasksTodayOrder();
-          _calculateScores();
           _isLoading = false;
         });
         if (_tasks.isNotEmpty) {
-          print('Task tracking types:');
           for (final task in _tasks) {
-            print(
-                '  - ${task.name}: ${task.trackingType}, target: ${task.target}');
+            print('  - ${task.name}: ${task.trackingType}, target: ${task.target}');
           }
         }
       } else {
@@ -136,7 +118,6 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     } catch (e) {
-      print('Error loading habits: $e');
       setState(() {
         _isLoading = false;
       });
@@ -170,204 +151,24 @@ class _QueuePageState extends State<QueuePage> {
     _tasksTodayOrder = open;
   }
 
-  void _calculateScores() {
-    final actualHabits = _habits.where((h) => h.isRecurring).toList();
-    _totalHabits = actualHabits.length;
-    _completedHabits = 0;
-    _netImpactScore = 0;
-
-    for (final habit in actualHabits) {
-      final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
-
-      if (isCompleted) {
-        _completedHabits++;
-        final impactPoints = _getImpactPoints(habit.priority.toString());
-        _netImpactScore += impactPoints;
-      }
-    }
-
-    _dailyCompletionPercent =
-        _totalHabits > 0 ? (_completedHabits / _totalHabits) * 100 : 0;
-    _thriveScore = 1247;
-  }
-
-  double _getImpactPoints(String impactLevel) {
-    switch (impactLevel) {
-      case 'Low':
-        return 1.0;
-      case 'Medium':
-        return 2.0;
-      case 'High':
-        return 3.0;
-      case 'Very High':
-        return 5.0;
-      default:
-        return 2.0;
-    }
-  }
-
-  Widget _buildScoreBar() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: FlutterFlowTheme.of(context).secondaryBackground,
-        border: Border(
-          bottom: BorderSide(
-            color: FlutterFlowTheme.of(context).alternate,
-            width: 1,
-          ),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              DateFormat('EEEE, MMMM d, y').format(DateTime.now()),
-              style: FlutterFlowTheme.of(context).titleMedium.override(
-                    fontFamily: 'Readex Pro',
-                    fontWeight: FontWeight.w600,
-                    fontSize: 16,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                Expanded(
-                  child: NeumorphicContainer(
-                    padding: const EdgeInsets.all(12),
-                    radius: 12,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Net Impact',
-                          style:
-                              FlutterFlowTheme.of(context).bodySmall.override(
-                                    fontFamily: 'Readex Pro',
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _netImpactScore >= 0
-                              ? '+${_netImpactScore.toStringAsFixed(1)}'
-                              : _netImpactScore.toStringAsFixed(1),
-                          style:
-                              FlutterFlowTheme.of(context).titleMedium.override(
-                                    fontFamily: 'Readex Pro',
-                                    color: _netImpactScore >= 0
-                                        ? Colors.green
-                                        : Colors.red,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: NeumorphicContainer(
-                    padding: const EdgeInsets.all(12),
-                    radius: 12,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Completion',
-                          style:
-                              FlutterFlowTheme.of(context).bodySmall.override(
-                                    fontFamily: 'Readex Pro',
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '${_dailyCompletionPercent.toStringAsFixed(0)}%',
-                          style:
-                              FlutterFlowTheme.of(context).titleMedium.override(
-                                    fontFamily: 'Readex Pro',
-                                    color: FlutterFlowTheme.of(context).primary,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          '$_completedHabits/$_totalHabits',
-                          style: FlutterFlowTheme.of(context)
-                              .bodySmall
-                              .override(
-                                fontFamily: 'Readex Pro',
-                                fontSize: 10,
-                                color:
-                                    FlutterFlowTheme.of(context).secondaryText,
-                              ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: NeumorphicContainer(
-                    padding: const EdgeInsets.all(12),
-                    radius: 12,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Thrive',
-                          style:
-                              FlutterFlowTheme.of(context).bodySmall.override(
-                                    fontFamily: 'Readex Pro',
-                                    fontSize: 12,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          _thriveScore.toString(),
-                          style:
-                              FlutterFlowTheme.of(context).titleMedium.override(
-                                    fontFamily: 'Readex Pro',
-                                    color: FlutterFlowTheme.of(context).primary,
-                                    fontSize: 18,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
   Map<String, List<HabitRecord>> get _groupedHabits {
     final grouped = <String, List<HabitRecord>>{};
 
     for (final habit in _habits) {
       if (!habit.isRecurring) continue;
 
-      if (!_shouldShowInTodayMain(habit)) continue;
+      if (!_shouldShowInDateFilter(habit)) continue;
 
-      final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
+      final isCompleted = _isHabitCompletedForFilter(habit);
       if (!_showCompleted && isCompleted) continue;
 
       final categoryName =
-          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
+
+    // Remove categories with no habits
+    grouped.removeWhere((key, value) => value.isEmpty);
 
     return grouped;
   }
@@ -392,6 +193,12 @@ class _QueuePageState extends State<QueuePage> {
 
   Map<String, List<HabitRecord>> get _groupedWeeklyGoals {
     final grouped = <String, List<HabitRecord>>{};
+
+    // Only show weekly goals for week filter
+    if (_selectedDateFilter != DateFilterType.week) {
+      return grouped;
+    }
+
     for (final habit in _habits) {
       if (!habit.isRecurring) continue;
 
@@ -400,15 +207,21 @@ class _QueuePageState extends State<QueuePage> {
       if (_remainingCompletionsThisWeek(habit) <= 0) continue;
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      // Note: skippedDates tracking moved to separate records
-      if (false) {
+      if (habit.skippedDates.any((d) =>
+      d.year == today.year &&
+          d.month == today.month &&
+          d.day == today.day)) {
         continue;
       }
 
       final categoryName =
-          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
+
+    // Remove categories with no habits
+    grouped.removeWhere((key, value) => value.isEmpty);
+
     return grouped;
   }
 
@@ -421,8 +234,7 @@ class _QueuePageState extends State<QueuePage> {
     final today = DateTime(now.year, now.month, now.day);
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
     final weekEnd = weekStart.add(const Duration(days: 6));
-    // Note: completedDates tracking moved to separate completion records
-    return <DateTime>[].where((date) {
+    return habit.completedDates.where((date) {
       final d = DateTime(date.year, date.month, date.day);
       return !d.isBefore(weekStart) && !d.isAfter(weekEnd);
     }).length;
@@ -435,15 +247,15 @@ class _QueuePageState extends State<QueuePage> {
 
   int _remainingCompletionsThisWeek(HabitRecord habit) {
     final done = _completedCountThisWeek(habit);
-    final remaining = habit.frequency - done;
+    final remaining = habit.weeklyTarget - done;
     return remaining > 0 ? remaining : 0;
   }
 
   bool _shouldShowInTodayMain(HabitRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    // Note: skippedDates tracking moved to separate records
-    if (false) {
+    if (habit.skippedDates.any((d) =>
+    d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
     if (habit.hasSnoozedUntil()) {
@@ -469,6 +281,106 @@ class _QueuePageState extends State<QueuePage> {
     return false;
   }
 
+  bool _shouldShowInDateFilter(HabitRecord habit) {
+    switch (_selectedDateFilter) {
+      case DateFilterType.today:
+        return _shouldShowInTodayMain(habit);
+      case DateFilterType.tomorrow:
+        return _shouldShowInTomorrowMain(habit);
+      case DateFilterType.week:
+        return _shouldShowInThisWeekMain(habit);
+      case DateFilterType.later:
+        return _shouldShowInLaterMain(habit);
+    }
+  }
+
+  bool _shouldShowInTomorrowMain(HabitRecord habit) {
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+
+    if (habit.skippedDates.any((d) =>
+    d.year == tomorrow.year && d.month == tomorrow.month && d.day == tomorrow.day)) {
+      return false;
+    }
+    if (habit.hasSnoozedUntil()) {
+      final until = habit.snoozedUntil!;
+      final untilDate = DateTime(until.year, until.month, until.day);
+      if (!tomorrow.isAfter(untilDate)) {
+        return false;
+      }
+    }
+
+    if (habit.schedule == 'daily') return true;
+
+    if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
+      return habit.specificDays.contains(tomorrow.weekday);
+    }
+
+    if (_isFlexibleWeekly(habit)) {
+      final remaining = _remainingCompletionsThisWeek(habit);
+      if (remaining <= 0) return false;
+      return remaining > 0; // Show if there are remaining completions this week
+    }
+    return false;
+  }
+
+  bool _shouldShowInThisWeekMain(HabitRecord habit) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+
+    // Check if habit should be shown on any day this week
+    for (int i = 0; i < 7; i++) {
+      final checkDate = startOfWeek.add(Duration(days: i));
+      if (habit.skippedDates.any((d) =>
+      d.year == checkDate.year && d.month == checkDate.month && d.day == checkDate.day)) {
+        continue;
+      }
+      if (habit.hasSnoozedUntil()) {
+        final until = habit.snoozedUntil!;
+        final untilDate = DateTime(until.year, until.month, until.day);
+        if (!checkDate.isAfter(untilDate)) {
+          continue;
+        }
+      }
+
+      if (habit.schedule == 'daily') return true;
+
+      if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
+        if (habit.specificDays.contains(checkDate.weekday)) return true;
+      }
+
+      if (_isFlexibleWeekly(habit)) {
+        final remaining = _remainingCompletionsThisWeek(habit);
+        if (remaining > 0) return true;
+      }
+    }
+    return false;
+  }
+
+  bool _shouldShowInLaterMain(HabitRecord habit) {
+    // For "Later" filter, show habits that are not due today, tomorrow, or this week
+    return !_shouldShowInTodayMain(habit) &&
+        !_shouldShowInTomorrowMain(habit) &&
+        !_shouldShowInThisWeekMain(habit);
+  }
+
+  bool _isHabitCompletedForFilter(HabitRecord habit) {
+    switch (_selectedDateFilter) {
+      case DateFilterType.today:
+        return HabitTrackingUtil.isCompletedToday(habit);
+      case DateFilterType.tomorrow:
+      // For tomorrow, check if habit would be completed tomorrow
+      // This is a simplified check - in a real app you might want more sophisticated logic
+        return false; // Assume not completed for future dates
+      case DateFilterType.week:
+        return HabitTrackingUtil.isCompletedToday(habit); // Simplified
+      case DateFilterType.later:
+        return false; // Assume not completed for later dates
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -477,17 +389,116 @@ class _QueuePageState extends State<QueuePage> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
-                  children: [
-                    _buildScoreBar(),
-                    Expanded(
-                      child: _buildDailyView(),
-                    ),
-                  ],
-                ),
+            children: [
+              _buildHeader(),
+              Expanded(
+                child: _buildDailyView(),
+              ),
+            ],
+          ),
           FloatingTimer(
             activeHabits: _activeFloatingHabits,
             onRefresh: _loadHabits,
             onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildHeader() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).secondaryBackground,
+        border: Border(
+          bottom: BorderSide(
+            color: FlutterFlowTheme.of(context).alternate,
+            width: 1,
+          ),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Expanded(
+                  child: DateFilterDropdown(
+                    selectedFilter: _selectedDateFilter,
+                    onChanged: (filter) {
+                      setState(() {
+                        _selectedDateFilter = filter;
+                      });
+                      _loadHabits();
+                    },
+                    showSortIcon: true,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Your action queue for focused execution',
+              style: FlutterFlowTheme.of(context).bodyMedium.override(
+                fontFamily: 'Readex Pro',
+                color: FlutterFlowTheme.of(context).secondaryText,
+              ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                _buildStatChip('Today', 0, Colors.orange),
+                const SizedBox(width: 8),
+                _buildStatChip('Tomorrow', 0, Colors.blue),
+                const SizedBox(width: 8),
+                _buildStatChip(
+                    'This Week', 0, Colors.green),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildStatChip(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: color.withOpacity(0.3)),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: color,
+            ),
+          ),
+          const SizedBox(width: 4),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
+            decoration: BoxDecoration(
+              color: color,
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Text(
+              '$count',
+              style: const TextStyle(
+                fontSize: 10,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
+            ),
           ),
         ],
       ),
@@ -556,9 +567,9 @@ class _QueuePageState extends State<QueuePage> {
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
                 bottomLeft:
-                    _tasksExpanded ? Radius.zero : const Radius.circular(16),
+                _tasksExpanded ? Radius.zero : const Radius.circular(16),
                 bottomRight:
-                    _tasksExpanded ? Radius.zero : const Radius.circular(16),
+                _tasksExpanded ? Radius.zero : const Radius.circular(16),
               ),
               boxShadow: _tasksExpanded
                   ? []
@@ -573,9 +584,9 @@ class _QueuePageState extends State<QueuePage> {
                     Text(
                       'Tasks',
                       style: FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontFamily: 'Readex Pro',
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(width: 5),
                     Container(
@@ -625,9 +636,7 @@ class _QueuePageState extends State<QueuePage> {
                 child: CompactHabitItem(
                   tasks: _tasks,
                   showTaskEdit: true,
-                  categories: _categories
-                      .where((c) => c.categoryType == 'task')
-                      .toList(),
+                  categories: _categories.where((c) => c.categoryType == 'task').toList(),
                   showCompleted: _showCompleted,
                   key: Key(task.reference.id),
                   habit: task,
@@ -638,9 +647,9 @@ class _QueuePageState extends State<QueuePage> {
                   onHabitDeleted: (deleted) {
                     setState(() {
                       _tasks.removeWhere(
-                          (t) => t.reference.id == deleted.reference.id);
+                              (t) => t.reference.id == deleted.reference.id);
                       _tasksTodayOrder.removeWhere(
-                          (t) => t.reference.id == deleted.reference.id);
+                              (t) => t.reference.id == deleted.reference.id);
                     });
                   },
                 ),
@@ -685,6 +694,12 @@ class _QueuePageState extends State<QueuePage> {
     }
     for (final categoryName in _groupedHabits.keys) {
       final habits = _groupedHabits[categoryName]!;
+
+      // Skip categories with empty names
+      if (categoryName.isEmpty || categoryName.trim().isEmpty) {
+        continue;
+      }
+
       CategoryRecord? category;
       try {
         category = _categories.firstWhere((c) => c.name == categoryName);
@@ -732,11 +747,11 @@ class _QueuePageState extends State<QueuePage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
-                      category.name,
+                      category.name.isNotEmpty ? category.name : 'Uncategorized',
                       style: FlutterFlowTheme.of(context).titleMedium.override(
-                            fontFamily: 'Readex Pro',
-                            fontWeight: FontWeight.w600,
-                          ),
+                        fontFamily: 'Readex Pro',
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
                     const SizedBox(width: 8),
                     Container(
@@ -835,13 +850,13 @@ class _QueuePageState extends State<QueuePage> {
                   onRefresh: _loadHabits,
                   onHabitUpdated: (updated) {
                     final habitIndex = _habits.indexWhere(
-                        (h) => h.reference.id == updated.reference.id);
+                            (h) => h.reference.id == updated.reference.id);
                     if (habitIndex != -1) {
                       _habits[habitIndex] = updated;
                     }
 
                     final taskIndex = _tasks.indexWhere(
-                        (t) => t.reference.id == updated.reference.id);
+                            (t) => t.reference.id == updated.reference.id);
                     if (taskIndex != -1) {
                       _tasks[taskIndex] = updated;
                     } else if (updated.trackingType == 'time' &&
@@ -852,7 +867,7 @@ class _QueuePageState extends State<QueuePage> {
                     } else {
                       setState(() {
                         _tasks.removeWhere(
-                            (t) => t.reference.id == updated.reference.id);
+                                (t) => t.reference.id == updated.reference.id);
                       });
                     }
                   },
@@ -950,9 +965,9 @@ class _QueuePageState extends State<QueuePage> {
                   Text(
                     'Weekly goals',
                     style: FlutterFlowTheme.of(context).titleMedium.override(
-                          fontFamily: 'Readex Pro',
-                          fontWeight: FontWeight.w600,
-                        ),
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(width: 8),
                   Container(
@@ -974,7 +989,7 @@ class _QueuePageState extends State<QueuePage> {
                   _weeklyGoalsExpanded ? Icons.expand_less : Icons.expand_more,
                 ),
                 onPressed: () => setState(
-                    () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
+                        () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
               ),
             ],
           ),
@@ -1002,17 +1017,19 @@ class _QueuePageState extends State<QueuePage> {
               boxShadow: FlutterFlowTheme.of(context).neumorphicShadowsRaised,
             ),
             child: Column(
-              children: weeklyGoals.entries.map((entry) {
+              children: weeklyGoals.entries.where((entry) =>
+              entry.key.isNotEmpty && entry.key.trim().isNotEmpty
+              ).map((entry) {
                 final categoryName = entry.key;
                 final habits = entry.value;
                 return Container(
                   margin:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   decoration: BoxDecoration(
                     gradient:
-                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+                    FlutterFlowTheme.of(context).neumorphicGradientSubtle,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                         color: FlutterFlowTheme.of(context).surfaceBorderColor,
@@ -1025,13 +1042,13 @@ class _QueuePageState extends State<QueuePage> {
                         children: [
                           Expanded(
                             child: Text(
-                              categoryName,
+                              categoryName.isNotEmpty ? categoryName : 'Uncategorized',
                               style: FlutterFlowTheme.of(context)
                                   .bodyLarge
                                   .override(
-                                    fontFamily: 'Readex Pro',
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                              ),
                             ),
                           ),
                         ],
@@ -1071,9 +1088,9 @@ class _QueuePageState extends State<QueuePage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: FlutterFlowTheme.of(context).bodyMedium.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.w600,
-                ),
+              fontFamily: 'Readex Pro',
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         Container(
@@ -1086,10 +1103,10 @@ class _QueuePageState extends State<QueuePage> {
           child: Text(
             statusLabel,
             style: FlutterFlowTheme.of(context).bodySmall.override(
-                  fontFamily: 'Readex Pro',
-                  color: statusColor,
-                  fontWeight: FontWeight.w600,
-                ),
+              fontFamily: 'Readex Pro',
+              color: statusColor,
+              fontWeight: FontWeight.w600,
+            ),
           ),
         ),
         const SizedBox(width: 8),
@@ -1099,10 +1116,9 @@ class _QueuePageState extends State<QueuePage> {
           onPressed: () async {
             final now = DateTime.now();
             final today = DateTime(now.year, now.month, now.day);
-            // Note: skippedDates tracking moved to separate records
-            final skipped = <DateTime>[];
+            final skipped = List<DateTime>.from(habit.skippedDates);
             skipped.removeWhere((d) =>
-                d.year == today.year &&
+            d.year == today.year &&
                 d.month == today.month &&
                 d.day == today.day);
             await habit.reference.update(
@@ -1123,7 +1139,7 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   Widget _buildCategoryWeightStars(CategoryRecord category) {
-    final current = (category.weight ?? 1.0).round().clamp(1, 3);
+    final current = category.weight.round().clamp(1, 3);
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
@@ -1133,16 +1149,13 @@ class _QueuePageState extends State<QueuePage> {
           onTap: () async {
             try {
               final next = current % 3 + 1;
-
-              // Update local state immediately for instant UI feedback
               setState(() {
-                // Find and update the category in the local list
                 final categoryIndex = _categories
                     .indexWhere((c) => c.reference.id == category.reference.id);
                 if (categoryIndex != -1) {
                   final updatedCategoryData = createCategoryRecordData(
                     weight: next.toDouble(),
-                    categoryType: 'habit', // Today page is for habits
+                    categoryType: 'habit',
                   );
                   final updatedCategory = CategoryRecord.getDocumentFromData(
                     {
@@ -1154,21 +1167,18 @@ class _QueuePageState extends State<QueuePage> {
                   _categories[categoryIndex] = updatedCategory;
                 }
               });
-
-              // Update backend in the background
               await updateCategory(
                 categoryId: category.reference.id,
                 weight: next.toDouble(),
               );
             } catch (e) {
-              // If backend update fails, revert the local change
               setState(() {
                 final categoryIndex = _categories
                     .indexWhere((c) => c.reference.id == category.reference.id);
                 if (categoryIndex != -1) {
                   final revertedCategoryData = createCategoryRecordData(
                     weight: current.toDouble(),
-                    categoryType: 'habit', // Today page is for habits
+                    categoryType: 'habit',
                   );
                   final revertedCategory = CategoryRecord.getDocumentFromData(
                     {
@@ -1208,11 +1218,10 @@ class _QueuePageState extends State<QueuePage> {
       } else if (task.categoryName.isNotEmpty) {
         final taskName = task.categoryName.trim().toLowerCase();
         matchedCategory = _categories.firstWhere(
-          (c) => c.name.trim().toLowerCase() == taskName,
+              (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
     } catch (_) {}
-
     if (matchedCategory != null && matchedCategory.color.isNotEmpty) {
       return matchedCategory.color;
     }
@@ -1225,8 +1234,8 @@ class _QueuePageState extends State<QueuePage> {
 
   CategoryRecord _getTasksCategory() {
     try {
-      return _categories.firstWhere(
-          (c) => c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
+      return _categories.firstWhere((c) =>
+      c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
     } catch (e) {
       try {
         return _categories.firstWhere((c) => c.categoryType == 'task');
@@ -1252,12 +1261,12 @@ class _QueuePageState extends State<QueuePage> {
   void _updateHabitInLocalState(HabitRecord updated) {
     setState(() {
       final habitIndex =
-          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
       final taskIndex =
-          _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
+      _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
         if (_isTaskCompleted(updated)) {
@@ -1273,8 +1282,7 @@ class _QueuePageState extends State<QueuePage> {
         _tasks.add(updated);
       } else {
         _tasks.removeWhere((t) => t.reference.id == updated.reference.id);
-        _tasksTodayOrder
-            .removeWhere((t) => t.reference.id == updated.reference.id);
+        _tasksTodayOrder.removeWhere((t) => t.reference.id == updated.reference.id);
       }
       _recomputeTasksTodayOrder();
       _removeEmptyCategories();
@@ -1284,16 +1292,25 @@ class _QueuePageState extends State<QueuePage> {
 
   void _removeEmptyCategories() {
     final categoriesWithTasks = <String>{};
+
+    // Add categories that have tasks
     for (final task in _tasks) {
       if (!task.isRecurring && task.categoryName.isNotEmpty) {
         categoriesWithTasks.add(task.categoryName);
       }
     }
+
+    // Add categories that have habits (only if they should show in current filter)
     for (final habit in _habits) {
       if (habit.isRecurring && habit.categoryName.isNotEmpty) {
-        categoriesWithTasks.add(habit.categoryName);
+        // Only add if habit should be shown in current date filter
+        if (_shouldShowInDateFilter(habit)) {
+          categoriesWithTasks.add(habit.categoryName);
+        }
       }
     }
+
+    // Remove categories that have no tasks or habits
     _categories.removeWhere((category) {
       return !categoriesWithTasks.contains(category.name);
     });
@@ -1334,13 +1351,11 @@ class _QueuePageState extends State<QueuePage> {
             onPressed: () async {
               Navigator.of(context).pop();
               try {
-                await deleteCategory(category.reference.id,
-                    userId: currentUserUid);
+                await deleteCategory(category.uid, userId: currentUserUid);
                 setState(() {
                   _categories.removeWhere(
-                      (c) => c.reference.id == category.reference.id);
+                          (c) => c.reference.id == category.reference.id);
                 });
-
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -1351,7 +1366,6 @@ class _QueuePageState extends State<QueuePage> {
                   );
                 }
               } catch (e) {
-                print('Error deleting category: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -1375,15 +1389,15 @@ class _QueuePageState extends State<QueuePage> {
 
   void _updateTaskInLocalState(HabitRecord task, String? newStatus,
       [dynamic newCurrentValue,
-      bool? newIsTimerActive,
-      int? newAccumulatedTime,
-      DateTime? newTimerStartTime]) {
+        bool? newIsTimerActive,
+        int? newAccumulatedTime,
+        DateTime? newTimerStartTime]) {
     setState(() {
       final idx = _tasks.indexWhere((t) => t.reference.id == task.reference.id);
       if (idx != -1) {
         final updatedData = {
           ..._tasks[idx].snapshotData,
-          if (newStatus != null) 'status': newStatus,
+          if (newStatus != null) 'taskStatus': newStatus,
           if (newCurrentValue != null) 'currentValue': newCurrentValue,
           if (newIsTimerActive != null) 'isTimerActive': newIsTimerActive,
           if (newAccumulatedTime != null) 'accumulatedTime': newAccumulatedTime,
@@ -1418,24 +1432,18 @@ class _QueuePageState extends State<QueuePage> {
       final categories = await queryCategoriesRecordOnce(userId: uid);
       final taskCategories = await queryTaskCategoriesOnce(userId: uid);
       final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
-      final today = DateTime.now();
-      final todayDate = DateTime(today.year, today.month, today.day);
       if (!mounted) return;
       setState(() {
         _tasks = allHabits.where((h) {
-          // if (h.isRecurring) return false;
-          if (h.dueDate == null) return false;
-          final due =
-              DateTime(h.dueDate!.year, h.dueDate!.month, h.dueDate!.day);
-          return due == todayDate &&
-              (taskCategoryNames.contains(h.categoryName) ||
-                  h.categoryName.toLowerCase() == 'tasks' ||
-                  h.categoryName.toLowerCase() == 'task');
+          final isTaskCategory = taskCategoryNames.contains(h.categoryName) ||
+              h.categoryName.toLowerCase() == 'tasks' ||
+              h.categoryName.toLowerCase() == 'task';
+          if (!isTaskCategory) return false;
+          return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
         }).toList();
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
         _recomputeTasksTodayOrder();
-        _calculateScores();
       });
     } catch (e) {
       if (mounted) {

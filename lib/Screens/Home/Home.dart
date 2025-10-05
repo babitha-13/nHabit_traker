@@ -9,12 +9,11 @@ import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
-import 'package:habit_tracker/Screens/Task/task_page.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
-import 'package:habit_tracker/Screens/Tasks/tasks_page.dart';
-import 'package:habit_tracker/Screens/Queue/queue.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/main.dart';
+
+import '../Queue/queue_page.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});

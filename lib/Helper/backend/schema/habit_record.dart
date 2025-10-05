@@ -29,6 +29,11 @@ class HabitRecord extends FirestoreRecord {
   String get categoryName => _categoryName ?? '';
   bool hasCategoryName() => _categoryName != null;
 
+  // "impactLevel" field.
+  String? _impactLevel;
+  String get impactLevel => _impactLevel ?? 'Medium';
+  bool hasImpactLevel() => _impactLevel != null;
+
   // "priority" field (1-3 priority level).
   int? _priority;
   int get priority => _priority ?? 1;
@@ -144,10 +149,28 @@ class HabitRecord extends FirestoreRecord {
   String get status => _status ?? 'incomplete';
   bool hasStatus() => _status != null;
 
+  // "skippedDates" field for tracking explicit skips (snoozed days)
+  List<DateTime>? _skippedDates;
+  List<DateTime> get skippedDates => _skippedDates ?? [];
+  bool hasSkippedDates() => _skippedDates != null;
+
+  // "completedDates" field for tracking completion history.
+  List<DateTime>? _completedDates;
+  List<DateTime> get completedDates => _completedDates ?? [];
+  bool hasCompletedDates() => _completedDates != null;
+
+  // "weeklyTarget" field.
+  int? _weeklyTarget;
+  int get weeklyTarget => _weeklyTarget ?? 1;
+  bool hasWeeklyTarget() => _weeklyTarget != null;
+
   void _initializeFields() {
     _name = snapshotData['name'] as String?;
     _categoryId = snapshotData['categoryId'] as String?;
     _categoryName = snapshotData['categoryName'] as String?;
+    _impactLevel = snapshotData['impactLevel'] as String?;
+    _completedDates = (snapshotData['completedDates'] as List?)?.cast<DateTime>();
+    _weeklyTarget = snapshotData['weeklyTarget'] as int?;
     _priority = snapshotData['priority'] as int?;
     _trackingType = snapshotData['trackingType'] as String?;
     _target = snapshotData['target'];
@@ -171,6 +194,8 @@ class HabitRecord extends FirestoreRecord {
     _isRecurring = snapshotData['isRecurring'] as bool?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
     _status = snapshotData['status'] as String?;
+    _skippedDates = (snapshotData['skippedDates'] as List?)?.cast<DateTime>();
+
   }
 
   static CollectionReference get collection =>
@@ -216,6 +241,10 @@ Map<String, dynamic> createHabitRecordData({
   String? name,
   String? categoryId,
   String? categoryName,
+  String? impactLevel,
+  List<DateTime>? completedDates,
+  int? weeklyTarget,
+  List<DateTime>? skippedDates,
   int? priority,
   String? trackingType,
   dynamic target,
@@ -245,6 +274,10 @@ Map<String, dynamic> createHabitRecordData({
       'name': name,
       'categoryId': categoryId,
       'categoryName': categoryName,
+      'impactLevel': impactLevel,
+      'completedDates': completedDates,
+      'weeklyTarget': weeklyTarget,
+      'skippedDates': skippedDates,
       'priority': priority,
       'trackingType': trackingType,
       'target': target,
@@ -282,6 +315,7 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
     return e1?.name == e2?.name &&
         e1?.categoryId == e2?.categoryId &&
         e1?.categoryName == e2?.categoryName &&
+        e1?.impactLevel == e2?.impactLevel &&
         e1?.priority == e2?.priority &&
         e1?.trackingType == e2?.trackingType &&
         e1?.target == e2?.target &&
@@ -296,6 +330,8 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e1?.currentValue == e2?.currentValue &&
         e1?.dayEndTime == e2?.dayEndTime &&
         listEquals(e1?.specificDays, e2?.specificDays) &&
+        listEquals(e1?.completedDates, e2?.completedDates) &&
+        e1?.weeklyTarget == e2?.weeklyTarget &&
         e1?.isTimerActive == e2?.isTimerActive &&
         e1?.timerStartTime == e2?.timerStartTime &&
         e1?.accumulatedTime == e2?.accumulatedTime &&
@@ -310,8 +346,10 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e?.name,
         e?.categoryId,
         e?.categoryName,
+        e?.impactLevel,
         e?.priority,
-        e?.trackingType,
+    e?.completedDates,
+    e?.trackingType,
         e?.target,
         e?.schedule,
         e?.frequency,
@@ -321,7 +359,8 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e?.lastUpdated,
     e?.userId,
     e?.unit,
-        e?.currentValue,
+    e?.weeklyTarget,
+    e?.currentValue,
         e?.dayEndTime,
         e?.specificDays,
         e?.isTimerActive,
