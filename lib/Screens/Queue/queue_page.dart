@@ -10,7 +10,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/date_filter_dropdown.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart';
+import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -50,7 +50,7 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     });
-    NotificationCenter.addObserver(this, 'loadToday', (param) {
+    NotificationCenter.addObserver(this, 'loadHabits', (param) {
       if (mounted) {
         setState(() {
           _loadHabits();
@@ -166,8 +166,6 @@ class _QueuePageState extends State<QueuePage> {
       habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
-
-    // Remove categories with no habits
     grouped.removeWhere((key, value) => value.isEmpty);
 
     return grouped;
@@ -193,8 +191,6 @@ class _QueuePageState extends State<QueuePage> {
 
   Map<String, List<HabitRecord>> get _groupedWeeklyGoals {
     final grouped = <String, List<HabitRecord>>{};
-
-    // Only show weekly goals for week filter
     if (_selectedDateFilter != DateFilterType.week) {
       return grouped;
     }
@@ -218,8 +214,6 @@ class _QueuePageState extends State<QueuePage> {
       habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
-
-    // Remove categories with no habits
     grouped.removeWhere((key, value) => value.isEmpty);
 
     return grouped;
@@ -319,7 +313,7 @@ class _QueuePageState extends State<QueuePage> {
     if (_isFlexibleWeekly(habit)) {
       final remaining = _remainingCompletionsThisWeek(habit);
       if (remaining <= 0) return false;
-      return remaining > 0; // Show if there are remaining completions this week
+      return remaining > 0;
     }
     return false;
   }
@@ -328,9 +322,6 @@ class _QueuePageState extends State<QueuePage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 6));
-
-    // Check if habit should be shown on any day this week
     for (int i = 0; i < 7; i++) {
       final checkDate = startOfWeek.add(Duration(days: i));
       if (habit.skippedDates.any((d) =>
@@ -360,7 +351,6 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   bool _shouldShowInLaterMain(HabitRecord habit) {
-    // For "Later" filter, show habits that are not due today, tomorrow, or this week
     return !_shouldShowInTodayMain(habit) &&
         !_shouldShowInTomorrowMain(habit) &&
         !_shouldShowInThisWeekMain(habit);
@@ -371,13 +361,11 @@ class _QueuePageState extends State<QueuePage> {
       case DateFilterType.today:
         return HabitTrackingUtil.isCompletedToday(habit);
       case DateFilterType.tomorrow:
-      // For tomorrow, check if habit would be completed tomorrow
-      // This is a simplified check - in a real app you might want more sophisticated logic
-        return false; // Assume not completed for future dates
+        return false;
       case DateFilterType.week:
-        return HabitTrackingUtil.isCompletedToday(habit); // Simplified
+        return HabitTrackingUtil.isCompletedToday(habit);
       case DateFilterType.later:
-        return false; // Assume not completed for later dates
+        return false;
     }
   }
 
@@ -633,7 +621,7 @@ class _QueuePageState extends State<QueuePage> {
               return ReorderableDelayedDragStartListener(
                 key: ValueKey('task_${task.reference.id}'),
                 index: index,
-                child: CompactHabitItem(
+                child: ItemComponent(
                   tasks: _tasks,
                   showTaskEdit: true,
                   categories: _categories.where((c) => c.categoryType == 'task').toList(),
@@ -694,8 +682,6 @@ class _QueuePageState extends State<QueuePage> {
     }
     for (final categoryName in _groupedHabits.keys) {
       final habits = _groupedHabits[categoryName]!;
-
-      // Skip categories with empty names
       if (categoryName.isEmpty || categoryName.trim().isEmpty) {
         continue;
       }
@@ -842,7 +828,7 @@ class _QueuePageState extends State<QueuePage> {
               return ReorderableDelayedDragStartListener(
                 key: ValueKey('habit_${habit.reference.id}'),
                 index: index,
-                child: CompactHabitItem(
+                child: ItemComponent(
                   showCompleted: _showCompleted,
                   key: Key(habit.reference.id),
                   habit: habit,
@@ -1292,25 +1278,18 @@ class _QueuePageState extends State<QueuePage> {
 
   void _removeEmptyCategories() {
     final categoriesWithTasks = <String>{};
-
-    // Add categories that have tasks
     for (final task in _tasks) {
       if (!task.isRecurring && task.categoryName.isNotEmpty) {
         categoriesWithTasks.add(task.categoryName);
       }
     }
-
-    // Add categories that have habits (only if they should show in current filter)
     for (final habit in _habits) {
       if (habit.isRecurring && habit.categoryName.isNotEmpty) {
-        // Only add if habit should be shown in current date filter
         if (_shouldShowInDateFilter(habit)) {
           categoriesWithTasks.add(habit.categoryName);
         }
       }
     }
-
-    // Remove categories that have no tasks or habits
     _categories.removeWhere((category) {
       return !categoriesWithTasks.contains(category.name);
     });

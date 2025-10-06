@@ -10,7 +10,7 @@ import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Screens/Create%20Task/create_task.dart';
 import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
 
-class CompactHabitItem extends StatefulWidget {
+class ItemComponent extends StatefulWidget {
   final HabitRecord habit;
   final Future<void> Function()? onRefresh;
   final void Function(HabitRecord updatedHabit)? onHabitUpdated;
@@ -22,7 +22,7 @@ class CompactHabitItem extends StatefulWidget {
   final List<CategoryRecord>? categories;
   final List<HabitRecord>? tasks;
 
-  const CompactHabitItem(
+  const ItemComponent(
       {Key? key,
       required this.habit,
       this.onRefresh,
@@ -37,10 +37,10 @@ class CompactHabitItem extends StatefulWidget {
       : super(key: key);
 
   @override
-  State<CompactHabitItem> createState() => _CompactHabitItemState();
+  State<ItemComponent> createState() => _ItemComponentState();
 }
 
-class _CompactHabitItemState extends State<CompactHabitItem>
+class _ItemComponentState extends State<ItemComponent>
     with TickerProviderStateMixin {
   bool _isUpdating = false;
   Timer? _timer;
@@ -56,7 +56,7 @@ class _CompactHabitItemState extends State<CompactHabitItem>
   }
 
   @override
-  void didUpdateWidget(covariant CompactHabitItem oldWidget) {
+  void didUpdateWidget(covariant ItemComponent oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.habit.trackingType == 'quantitative' &&
         _quantProgressOverride != null) {

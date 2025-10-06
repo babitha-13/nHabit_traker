@@ -11,8 +11,8 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/task_frequency_helper.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
-import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart'
-    show CompactHabitItem;
+import 'package:habit_tracker/Helper/utils/item_component.dart'
+    show ItemComponent;
 
 class TaskPage extends StatefulWidget {
   final String? categoryId;
@@ -159,7 +159,6 @@ class _TaskPageState extends State<TaskPage> {
       ),
       child: Column(
         children: [
-          // Main input row
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
             child: Row(
@@ -185,7 +184,6 @@ class _TaskPageState extends State<TaskPage> {
               ],
             ),
           ),
-          // Always show options
           ...[
             Divider(
               height: 1,
@@ -196,10 +194,8 @@ class _TaskPageState extends State<TaskPage> {
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: Column(
                 children: [
-                  // Compact single row with icons only
                   Row(
                     children: [
-                      // Task type dropdown (icon only)
                       IconTaskTypeDropdown(
                         selectedValue: _selectedQuickTrackingType ?? 'binary',
                         onChanged: (value) {
@@ -215,7 +211,6 @@ class _TaskPageState extends State<TaskPage> {
                         tooltip: 'Select task type',
                       ),
                       const SizedBox(width: 4),
-                      // Due date picker (icon only)
                       IconButton(
                         icon: Icon(
                           _selectedQuickDueDate != null
@@ -233,7 +228,6 @@ class _TaskPageState extends State<TaskPage> {
                         constraints:
                         const BoxConstraints(minWidth: 32, minHeight: 32),
                       ),
-                      // Recurring task toggle (icon only)
                       IconButton(
                         icon: Icon(
                           quickIsRecurring
@@ -247,12 +241,10 @@ class _TaskPageState extends State<TaskPage> {
                           setState(() {
                             quickIsRecurring = !quickIsRecurring;
                             if (!quickIsRecurring) {
-                              // Reset recurring options when disabled
                               _quickSchedule = 'daily';
                               _quickFrequency = 1;
                               _quickSelectedDays = [];
                             } else {
-                              // Set default frequency when enabling
                               _quickFrequency =
                                   TaskFrequencyHelper.getDefaultFrequency(
                                       _quickSchedule);
@@ -269,7 +261,6 @@ class _TaskPageState extends State<TaskPage> {
                     ],
                   ),
                   const SizedBox(height: 8),
-                  // Target value row (conditional)
                   if (_selectedQuickTrackingType == 'quantitative') ...[
                     Row(
                       children: [
@@ -316,7 +307,6 @@ class _TaskPageState extends State<TaskPage> {
                                   hintText: 'e.g., pages, reps',
                                 ),
                                 onChanged: (value) {
-                                  // Unit value stored in controller
                                 },
                               ),
                             ],
@@ -394,9 +384,7 @@ class _TaskPageState extends State<TaskPage> {
                     ),
                     const SizedBox(height: 8),
                   ],
-                  // Recurring options (only show when recurring is enabled)
                   if (quickIsRecurring) ...[
-                    // Schedule dropdown
                     Row(
                       children: [
                         Expanded(
@@ -405,7 +393,6 @@ class _TaskPageState extends State<TaskPage> {
                             onChanged: (value) {
                               setState(() {
                                 _quickSchedule = value ?? 'daily';
-                                // Reset frequency and days when schedule changes
                                 _quickFrequency =
                                     TaskFrequencyHelper.getDefaultFrequency(
                                         _quickSchedule);
@@ -416,7 +403,6 @@ class _TaskPageState extends State<TaskPage> {
                         ),
                       ],
                     ),
-                    // Frequency input for weekly/monthly
                     if (TaskFrequencyHelper.shouldShowFrequencyInput(
                         _quickSchedule)) ...[
                       const SizedBox(height: 6),
@@ -436,7 +422,6 @@ class _TaskPageState extends State<TaskPage> {
                         ],
                       ),
                     ],
-                    // Day selection for weekly
                     if (TaskFrequencyHelper.shouldShowDaySelection(
                         _quickSchedule)) ...[
                       const SizedBox(height: 6),
@@ -629,7 +614,6 @@ class _TaskPageState extends State<TaskPage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-    // Helper to decide which bucket to add a habit/task to
     void addToBucket(HabitRecord h, DateTime? dueDate) {
       if (!_showCompleted && _isTaskCompleted(h)) return;
 
@@ -651,14 +635,11 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
 
-    // Add non-recurring tasks filtered by category
     for (final t in _tasks) {
       if (!t.isActive) continue;
       if (widget.categoryId != null && t.categoryId != widget.categoryId) continue;
       addToBucket(t, t.dueDate);
     }
-
-    // Add recurring habits filtered by category
     for (final h in _habits) {
       if (!h.isActive) continue;
       if (widget.categoryId != null && h.categoryId != widget.categoryId) continue;
@@ -676,9 +657,7 @@ class _TaskPageState extends State<TaskPage> {
 
   Widget _buildItemTile(dynamic item) {
     if (item is HabitRecord) {
-      // if (!item.isRecurring) {
       return _buildTaskTile(item);
-      // }
     }
     return const SizedBox.shrink();
   }
@@ -701,7 +680,7 @@ class _TaskPageState extends State<TaskPage> {
       final xt = x is TaskRecord;
       final yt = y is TaskRecord;
       if (xt && yt) return cmpTask(x, y);
-      if (xt && !yt) return -1; // tasks first in importance mode
+      if (xt && !yt) return -1;
       if (!xt && yt) return 1;
       return 0;
     });
@@ -738,7 +717,7 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Widget _buildTaskTile(HabitRecord task) {
-    return CompactHabitItem(
+    return ItemComponent(
       showCalendar: true,
       showTaskEdit: true,
       key: Key(task.reference.id),

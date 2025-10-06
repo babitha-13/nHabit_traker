@@ -9,7 +9,7 @@ import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Screens/Dashboard/compact_habit_item.dart';
+import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 
 class HabitsPage extends StatefulWidget {
@@ -168,7 +168,6 @@ class _HabitsPageState extends State<HabitsPage> {
             ElevatedButton(
               onPressed: () {
                 _shouldReloadOnReturn = true;
-                // Navigate to create habit page
               },
               child: const Text('Add Habit'),
             ),
@@ -226,7 +225,7 @@ class _HabitsPageState extends State<HabitsPage> {
               return ReorderableDelayedDragStartListener(
                 key: ValueKey('habit_${habit.reference.id}'),
                 index: index,
-                child: CompactHabitItem(
+                child: ItemComponent(
                   showCompleted: _showCompleted,
                   key: Key(habit.reference.id),
                   habit: habit,
@@ -450,7 +449,7 @@ class _HabitsPageState extends State<HabitsPage> {
         _habits[habitIndex] = updated;
       }
     });
-    _loadHabits(); // Reload to get fresh instance data
+    _loadHabits();
   }
 
   void _handleCategoryMenuAction(String action, CategoryRecord category) {

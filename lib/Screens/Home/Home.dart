@@ -12,7 +12,6 @@ import 'package:habit_tracker/Screens/Sequence/sequence.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/main.dart';
-
 import '../Queue/queue_page.dart';
 
 class Home extends StatefulWidget {
@@ -146,8 +145,6 @@ class _HomeState extends State<Home> {
                 child: PopupMenuButton<String>(
                   icon: const Icon(Icons.sort, color: Colors.white),
                   onSelected: (value) {
-                    // Sort mode functionality would be implemented here
-                    print('Sort mode selected: $value');
                   },
                   itemBuilder: (context) => const [
                     PopupMenuItem(
@@ -279,11 +276,10 @@ class _HomeState extends State<Home> {
                 Container(color: Colors.white, child: cWidget),
                 Visibility(
                   visible: title != "Tasks" &&
-                      title != "Habits" &&
                       title != "Manage Categories",
                   child: Positioned(
                     right: 16,
-                    bottom: 24, // closer to bottom nav
+                    bottom: 24,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -297,7 +293,7 @@ class _HomeState extends State<Home> {
                               ),
                             ).then((value) {
                               if (value) {
-                                NotificationCenter.post("loadToday", "");
+                                NotificationCenter.post("loadHabits", "");
                               }
                             });
                           },
