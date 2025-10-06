@@ -351,6 +351,20 @@ class _QueuePageState extends State<QueuePage> {
     return buckets;
   }
 
+  String _getSubtitle(HabitRecord item, String bucketKey) {
+    if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
+      return item.categoryName;
+    }
+
+    final dueDate = item.dueDate;
+    if (dueDate != null) {
+      final formattedDate = DateFormat.MMMd().format(dueDate);
+      return '$formattedDate • ${item.categoryName}';
+    }
+
+    return item.categoryName;
+  }
+
   DateTime _todayDate() {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
@@ -617,6 +631,7 @@ class _QueuePageState extends State<QueuePage> {
                 );
                 final isHabit = category.categoryType == 'habit';
                 return ItemComponent(
+                  subtitle: _getSubtitle(item, key),
                   key: Key(item.reference.id),
                   habit: item,
                   showCompleted: _showCompleted,

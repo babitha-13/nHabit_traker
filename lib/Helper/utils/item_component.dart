@@ -23,6 +23,7 @@ class ItemComponent extends StatefulWidget {
   final List<HabitRecord>? tasks;
   final bool isHabit;
   final bool showTypeIcon;
+  final String? subtitle;
 
   const ItemComponent(
       {Key? key,
@@ -37,7 +38,8 @@ class ItemComponent extends StatefulWidget {
       this.tasks,
       this.showTaskEdit = false,
       this.isHabit = false,
-      this.showTypeIcon = true})
+      this.showTypeIcon = true,
+      this.subtitle})
       : super(key: key);
 
   @override
@@ -254,22 +256,47 @@ class _ItemComponentState extends State<ItemComponent>
                         ),
                       if (widget.showTypeIcon) const SizedBox(width: 8),
                       Expanded(
-                        child: Text(
-                          widget.habit.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: FlutterFlowTheme.of(context)
-                              .bodyMedium
-                              .override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                                decoration: _isCompleted
-                                    ? TextDecoration.lineThrough
-                                    : TextDecoration.none,
-                                color: _isCompleted
-                                    ? FlutterFlowTheme.of(context).secondaryText
-                                    : FlutterFlowTheme.of(context).primaryText,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              widget.habit.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: FlutterFlowTheme.of(context)
+                                  .bodyMedium
+                                  .override(
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                    decoration: _isCompleted
+                                        ? TextDecoration.lineThrough
+                                        : TextDecoration.none,
+                                    color: _isCompleted
+                                        ? FlutterFlowTheme.of(context)
+                                            .secondaryText
+                                        : FlutterFlowTheme.of(context)
+                                            .primaryText,
+                                  ),
+                            ),
+                            if (widget.subtitle != null &&
+                                widget.subtitle!.isNotEmpty) ...[
+                              const SizedBox(height: 2),
+                              Text(
+                                widget.subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: FlutterFlowTheme.of(context)
+                                    .bodySmall
+                                    .override(
+                                      fontFamily: 'Readex Pro',
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                      fontSize: 12,
+                                    ),
                               ),
+                            ]
+                          ],
                         ),
                       ),
                       if (widget.habit.trackingType != 'binary') ...[

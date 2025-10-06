@@ -11,6 +11,7 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
+import 'package:intl/intl.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
@@ -70,6 +71,27 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     } else {
       _didInitialDependencies = true;
+    }
+  }
+
+  String _getDueDateSubtitle(HabitRecord habit) {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+
+    if (habit.dueDate == null) {
+      return 'No due date';
+    }
+
+    final dueDate =
+        DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
+
+    if (dueDate.isAtSameMomentAs(today)) {
+      return 'Today';
+    } else if (dueDate.isAtSameMomentAs(tomorrow)) {
+      return 'Tomorrow';
+    } else {
+      return DateFormat.yMMMd().format(habit.dueDate!);
     }
   }
 
@@ -226,6 +248,7 @@ class _HabitsPageState extends State<HabitsPage> {
                 key: ValueKey('habit_${habit.reference.id}'),
                 index: index,
                 child: ItemComponent(
+                  subtitle: _getDueDateSubtitle(habit),
                   showCompleted: _showCompleted,
                   key: Key(habit.reference.id),
                   habit: habit,

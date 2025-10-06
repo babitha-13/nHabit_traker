@@ -13,6 +13,7 @@ import 'package:habit_tracker/Helper/utils/task_frequency_helper.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart'
     show ItemComponent;
+import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
   final String? categoryId;
@@ -463,7 +464,14 @@ class _TaskPageState extends State<TaskPage> {
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Today', 'Tomorrow', 'This Week', 'Later'];
+    final order = [
+      'Overdue',
+      'Today',
+      'Tomorrow',
+      'This Week',
+      'Later',
+      'No due date'
+    ];
     final widgets = <Widget>[];
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
@@ -488,7 +496,9 @@ class _TaskPageState extends State<TaskPage> {
           ),
         ),
       );
-      widgets.addAll(items.map(_buildItemTile));
+      for (final item in items) {
+        widgets.add(_buildItemTile(item, key));
+      }
       widgets.add(const SizedBox(height: 8));
     }
     if (widgets.isEmpty) {
@@ -503,6 +513,23 @@ class _TaskPageState extends State<TaskPage> {
       ));
     }
     return widgets;
+  }
+
+  String _getSubtitle(HabitRecord task, String bucketKey) {
+    if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
+      return task.categoryName;
+    }
+
+    final dueDate = task.dueDate;
+    if (dueDate != null) {
+      final formattedDate = DateFormat.MMMd().format(dueDate);
+      if (task.categoryName.isNotEmpty) {
+        return '$formattedDate • ${task.categoryName}';
+      }
+      return formattedDate;
+    }
+
+    return task.categoryName;
   }
 
   Future<void> _submitQuickAdd() async {
@@ -605,6 +632,7 @@ class _TaskPageState extends State<TaskPage> {
       'Tomorrow': [],
       'This Week': [],
       'Later': [],
+      'No due date': [],
     };
 
     final today = _todayDate();
@@ -615,7 +643,7 @@ class _TaskPageState extends State<TaskPage> {
       if (!_showCompleted && _isTaskCompleted(h)) return;
 
       if (dueDate == null) {
-        buckets['Later']!.add(h);
+        buckets['No due date']!.add(h);
         return;
       }
 
@@ -654,9 +682,9 @@ class _TaskPageState extends State<TaskPage> {
     return buckets;
   }
 
-  Widget _buildItemTile(dynamic item) {
+  Widget _buildItemTile(dynamic item, String bucketKey) {
     if (item is HabitRecord) {
-      return _buildTaskTile(item);
+      return _buildTaskTile(item, bucketKey);
     }
     return const SizedBox.shrink();
   }
@@ -715,8 +743,9 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 
-  Widget _buildTaskTile(HabitRecord task) {
+  Widget _buildTaskTile(HabitRecord task, String bucketKey) {
     return ItemComponent(
+      subtitle: _getSubtitle(task, bucketKey),
       showCalendar: true,
       showTaskEdit: true,
       key: Key(task.reference.id),

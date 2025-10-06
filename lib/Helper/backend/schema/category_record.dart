@@ -60,8 +60,17 @@ class CategoryRecord extends FirestoreRecord {
 
   // "categoryType" field.
   String? _categoryType;
-  String get categoryType =>
-      _categoryType ?? 'habit'; // Default to habit for backwards compatibility
+  String get categoryType {
+    if (_categoryType != null && _categoryType!.isNotEmpty) {
+      return _categoryType!;
+    }
+    if (name == 'Inbox') {
+      return 'task';
+    }
+    // Default to habit for backwards compatibility for other categories
+    return 'habit';
+  }
+
   bool hasCategoryType() => _categoryType != null;
 
   // "isSystemCategory" field.
