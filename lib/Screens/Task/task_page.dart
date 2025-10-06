@@ -45,6 +45,14 @@ class _TaskPageState extends State<TaskPage> {
   String _quickSchedule = 'daily';
   int _quickFrequency = 1;
   List<int> _quickSelectedDays = [];
+  final Map<String, bool> _sectionExpanded = {
+    'Overdue': true,
+    'Today': true,
+    'Tomorrow': true,
+    'This Week': true,
+    'Later': true,
+    'No due date': true,
+  };
 
   @override
   void initState() {
@@ -88,9 +96,9 @@ class _TaskPageState extends State<TaskPage> {
             children: [
               RefreshIndicator(
                 onRefresh: _loadData,
-                child: ListView(
-                  children: [
-                    _buildQuickAdd(),
+                child: CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(child: _buildQuickAdd()),
                     ..._buildSections(),
                   ],
                 ),
@@ -483,36 +491,94 @@ class _TaskPageState extends State<TaskPage> {
         return true;
       }).toList();
       if (visibleItems.isEmpty) continue;
-      _applySort(items);
+
+      _applySort(visibleItems);
+      final isExpanded = _sectionExpanded[key] ?? true;
+
       widgets.add(
-        Padding(
-          padding: const EdgeInsets.fromLTRB(8, 8, 8, 4),
-          child: Text(
-            key,
-            style: theme.titleMedium.override(
-              fontFamily: 'Readex Pro',
-              fontWeight: FontWeight.w600,
-            ),
-          ),
+        SliverToBoxAdapter(
+          child: _buildSectionHeader(key, visibleItems.length, isExpanded),
         ),
       );
-      for (final item in items) {
-        widgets.add(_buildItemTile(item, key));
+
+      if (isExpanded) {
+        widgets.add(
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final item = visibleItems[index];
+                return _buildItemTile(item, key);
+              },
+              childCount: visibleItems.length,
+            ),
+          ),
+        );
+        widgets.add(
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 8),
+          ),
+        );
       }
-      widgets.add(const SizedBox(height: 8));
     }
     if (widgets.isEmpty) {
-      widgets.add(Padding(
-        padding: const EdgeInsets.only(top: 80),
-        child: Center(
-          child: Text(
-            'No tasks yet',
-            style: theme.bodyLarge,
+      widgets.add(SliverFillRemaining(
+        child: Padding(
+          padding: const EdgeInsets.only(top: 80),
+          child: Center(
+            child: Text(
+              'No tasks yet',
+              style: theme.bodyLarge,
+            ),
           ),
         ),
       ));
     }
     return widgets;
+  }
+
+  Widget _buildSectionHeader(String title, int count, bool isExpanded) {
+    final theme = FlutterFlowTheme.of(context);
+    return Container(
+      margin: EdgeInsets.fromLTRB(16, 8, 16, isExpanded ? 0 : 6),
+      padding: EdgeInsets.fromLTRB(12, 8, 12, isExpanded ? 2 : 6),
+      decoration: BoxDecoration(
+        gradient: theme.neumorphicGradient,
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+        borderRadius: BorderRadius.only(
+          topLeft: const Radius.circular(16),
+          topRight: const Radius.circular(16),
+          bottomLeft: isExpanded ? Radius.zero : const Radius.circular(16),
+          bottomRight: isExpanded ? Radius.zero : const Radius.circular(16),
+        ),
+        boxShadow: isExpanded ? [] : theme.neumorphicShadowsRaised,
+      ),
+      child: InkWell(
+        onTap: () {
+          setState(() {
+            _sectionExpanded[title] = !isExpanded;
+          });
+        },
+        child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          children: [
+            Text(
+              '$title ($count)',
+              style: theme.titleMedium.override(
+                fontFamily: 'Readex Pro',
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            Icon(
+              isExpanded ? Icons.expand_less : Icons.expand_more,
+              size: 28,
+            ),
+          ],
+        ),
+      ),
+    );
   }
 
   String _getSubtitle(HabitRecord task, String bucketKey) {
