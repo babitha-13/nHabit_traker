@@ -144,8 +144,7 @@ class _HomeState extends State<Home> {
                 visible: title == "Tasks",
                 child: PopupMenuButton<String>(
                   icon: const Icon(Icons.sort, color: Colors.white),
-                  onSelected: (value) {
-                  },
+                  onSelected: (value) {},
                   itemBuilder: (context) => const [
                     PopupMenuItem(
                       value: 'default',
@@ -275,8 +274,7 @@ class _HomeState extends State<Home> {
               children: [
                 Container(color: Colors.white, child: cWidget),
                 Visibility(
-                  visible: title != "Tasks" &&
-                      title != "Manage Categories",
+                  visible: title != "Tasks" && title != "Manage Categories",
                   child: Positioned(
                     right: 16,
                     bottom: 24,
@@ -360,7 +358,7 @@ class _HomeState extends State<Home> {
                   label: 'Queue',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.repeat),
+                  icon: Icon(Icons.flag),
                   label: 'Habits',
                 ),
                 BottomNavigationBarItem(

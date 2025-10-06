@@ -159,7 +159,7 @@ class _TaskPageState extends State<TaskPage> {
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(12, 12, 8, 8),
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
             child: Row(
               children: [
                 Expanded(
@@ -168,6 +168,7 @@ class _TaskPageState extends State<TaskPage> {
                     decoration: const InputDecoration(
                       hintText: 'Quick add task…',
                       border: InputBorder.none,
+                      isDense: true,
                       contentPadding: EdgeInsets.zero,
                     ),
                     onSubmitted: (_) => _submitQuickAdd(),
@@ -190,7 +191,7 @@ class _TaskPageState extends State<TaskPage> {
               color: FlutterFlowTheme.of(context).alternate,
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
               child: Column(
                 children: [
                   Row(
@@ -259,7 +260,6 @@ class _TaskPageState extends State<TaskPage> {
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
                   if (_selectedQuickTrackingType == 'quantitative') ...[
                     Row(
                       children: [
@@ -727,6 +727,7 @@ class _TaskPageState extends State<TaskPage> {
       onRefresh: _loadData,
       onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
       onHabitDeleted: (deleted) async => _loadData(),
+      showTypeIcon: false,
     );
   }
 

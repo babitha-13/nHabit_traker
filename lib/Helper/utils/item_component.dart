@@ -21,6 +21,8 @@ class ItemComponent extends StatefulWidget {
   final bool showTaskEdit;
   final List<CategoryRecord>? categories;
   final List<HabitRecord>? tasks;
+  final bool isHabit;
+  final bool showTypeIcon;
 
   const ItemComponent(
       {Key? key,
@@ -33,7 +35,9 @@ class ItemComponent extends StatefulWidget {
       this.showCalendar = false,
       this.categories,
       this.tasks,
-      this.showTaskEdit = false})
+      this.showTaskEdit = false,
+      this.isHabit = false,
+      this.showTypeIcon = true})
       : super(key: key);
 
   @override
@@ -242,6 +246,13 @@ class _ItemComponentState extends State<ItemComponent>
                 Expanded(
                   child: Row(
                     children: [
+                      if (widget.showTypeIcon)
+                        Icon(
+                          widget.isHabit ? Icons.flag : Icons.assignment,
+                          size: 16,
+                          color: FlutterFlowTheme.of(context).secondaryText,
+                        ),
+                      if (widget.showTypeIcon) const SizedBox(width: 8),
                       Expanded(
                         child: Text(
                           widget.habit.name,

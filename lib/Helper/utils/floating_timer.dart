@@ -62,7 +62,10 @@ class _FloatingTimerState extends State<FloatingTimer> {
       final target = HabitTrackingUtil.getTargetDuration(habit);
       final tracked = HabitTrackingUtil.getTrackedTime(habit);
       final notCompleted = target == Duration.zero || tracked < target;
-      return habit.isTimerActive && isVisible && notCompleted && !_hiddenAfterStop.contains(habit.reference.id);
+      return habit.isTimerActive &&
+          isVisible &&
+          notCompleted &&
+          !_hiddenAfterStop.contains(habit.reference.id);
     }).toList();
   }
 
@@ -75,11 +78,13 @@ class _FloatingTimerState extends State<FloatingTimer> {
         'showInFloatingTimer': true,
       });
       final updatedHabit = HabitRecord.getDocumentFromData(
-        {...habit.snapshotData,
+        {
+          ...habit.snapshotData,
           'accumulatedTime': 0,
           'timerStartTime': null,
           'isTimerActive': false,
-          'showInFloatingTimer': true},
+          'showInFloatingTimer': true
+        },
         habit.reference,
       );
       widget.onHabitUpdated?.call(updatedHabit);
@@ -214,7 +219,8 @@ class _FloatingTimerState extends State<FloatingTimer> {
                               if (context.mounted) {
                                 ScaffoldMessenger.of(context).showSnackBar(
                                   SnackBar(
-                                      content: Text('Error controlling timer: $e')),
+                                      content:
+                                          Text('Error controlling timer: $e')),
                                 );
                               }
                             }
@@ -259,15 +265,16 @@ class _FloatingTimerState extends State<FloatingTimer> {
                                 if (context.mounted) {
                                   ScaffoldMessenger.of(context).showSnackBar(
                                     SnackBar(
-                                        content:
-                                            Text('Error force stopping timer: $e')),
+                                        content: Text(
+                                            'Error force stopping timer: $e')),
                                   );
                                 }
                               }
                             }
                           },
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: FlutterFlowTheme.of(context).primary,
+                            backgroundColor:
+                                FlutterFlowTheme.of(context).primary,
                             foregroundColor: Colors.white,
                             padding: const EdgeInsets.symmetric(vertical: 8),
                             shape: RoundedRectangleBorder(
@@ -293,7 +300,8 @@ class _FloatingTimerState extends State<FloatingTimer> {
                               borderRadius: BorderRadius.circular(6),
                             ),
                           ),
-                          child: const Text('Reset', style: TextStyle(fontSize: 12)),
+                          child: const Text('Reset',
+                              style: TextStyle(fontSize: 12)),
                         ),
                       ),
                     ],

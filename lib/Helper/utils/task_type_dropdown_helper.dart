@@ -80,16 +80,9 @@ class IconTaskTypeDropdown extends StatelessWidget {
     final theme = FlutterFlowTheme.of(context);
     final selectedInfo = TaskTypeDropdownHelper.getTaskTypeInfo(selectedValue);
 
-    return Container(
-      width: 48,
-      height: 48,
-      decoration: BoxDecoration(
-        border: Border.all(
-          color: theme.alternate,
-          width: 1,
-        ),
-        borderRadius: BorderRadius.circular(4),
-      ),
+    return SizedBox(
+      width: 40,
+      height: 40,
       child: PopupMenuButton<String>(
         tooltip: tooltip ?? 'Select task type',
         icon: Icon(

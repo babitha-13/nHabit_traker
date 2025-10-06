@@ -29,11 +29,12 @@ class _QueuePageState extends State<QueuePage> {
   List<CategoryRecord> _categories = [];
   List<HabitRecord> _tasks = [];
   List<HabitRecord> _tasksTodayOrder = [];
-  final Map<String, bool> _categoryExpanded = {};
+  final Map<String, bool> _timeSectionExpanded = {
+    'Overdue': true,
+    'Today': true
+  };
   bool _isLoading = true;
   bool _didInitialDependencies = false;
-  bool _weeklyGoalsExpanded = false;
-  bool _tasksExpanded = true;
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
   DateFilterType _selectedDateFilter = DateFilterType.today;
@@ -104,12 +105,12 @@ class _QueuePageState extends State<QueuePage> {
             if (_isTaskCompleted(h) && !_showCompleted) return false;
             return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
           }).toList();
-          _recomputeTasksTodayOrder();
           _isLoading = false;
         });
         if (_tasks.isNotEmpty) {
           for (final task in _tasks) {
-            print('  - ${task.name}: ${task.trackingType}, target: ${task.target}');
+            print(
+                '  - ${task.name}: ${task.trackingType}, target: ${task.target}');
           }
         }
       } else {
@@ -122,53 +123,6 @@ class _QueuePageState extends State<QueuePage> {
         _isLoading = false;
       });
     }
-  }
-
-  void _recomputeTasksTodayOrder() {
-    final open = _tasks.where((t) {
-      if (!t.isActive) return false;
-      switch (t.trackingType) {
-        case 'binary':
-          return t.status != 'complete';
-        case 'quantitative':
-          final currentValue = t.currentValue ?? 0;
-          final target = t.target ?? 0;
-          return currentValue < target;
-        case 'time':
-          final currentMinutes = (t.accumulatedTime) ~/ 60000;
-          final targetMinutes = t.target ?? 0;
-          return currentMinutes < targetMinutes;
-        default:
-          return t.status != 'complete';
-      }
-    }).toList();
-
-    open.sort((a, b) {
-      final ao = a.hasManualOrder() ? a.manualOrder : 1000000 + open.indexOf(a);
-      final bo = b.hasManualOrder() ? b.manualOrder : 1000000 + open.indexOf(b);
-      return ao.compareTo(bo);
-    });
-    _tasksTodayOrder = open;
-  }
-
-  Map<String, List<HabitRecord>> get _groupedHabits {
-    final grouped = <String, List<HabitRecord>>{};
-
-    for (final habit in _habits) {
-      if (!habit.isRecurring) continue;
-
-      if (!_shouldShowInDateFilter(habit)) continue;
-
-      final isCompleted = _isHabitCompletedForFilter(habit);
-      if (!_showCompleted && isCompleted) continue;
-
-      final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
-      (grouped[categoryName] ??= []).add(habit);
-    }
-    grouped.removeWhere((key, value) => value.isEmpty);
-
-    return grouped;
   }
 
   bool _isTaskCompleted(HabitRecord task) {
@@ -187,36 +141,6 @@ class _QueuePageState extends State<QueuePage> {
       default:
         return task.status == 'complete';
     }
-  }
-
-  Map<String, List<HabitRecord>> get _groupedWeeklyGoals {
-    final grouped = <String, List<HabitRecord>>{};
-    if (_selectedDateFilter != DateFilterType.week) {
-      return grouped;
-    }
-
-    for (final habit in _habits) {
-      if (!habit.isRecurring) continue;
-
-      if (!_isFlexibleWeekly(habit)) continue;
-      if (_shouldShowInTodayMain(habit)) continue;
-      if (_remainingCompletionsThisWeek(habit) <= 0) continue;
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      if (habit.skippedDates.any((d) =>
-      d.year == today.year &&
-          d.month == today.month &&
-          d.day == today.day)) {
-        continue;
-      }
-
-      final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
-      (grouped[categoryName] ??= []).add(habit);
-    }
-    grouped.removeWhere((key, value) => value.isEmpty);
-
-    return grouped;
   }
 
   bool _isFlexibleWeekly(HabitRecord habit) {
@@ -249,7 +173,7 @@ class _QueuePageState extends State<QueuePage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (habit.skippedDates.any((d) =>
-    d.year == today.year && d.month == today.month && d.day == today.day)) {
+        d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
     if (habit.hasSnoozedUntil()) {
@@ -293,7 +217,9 @@ class _QueuePageState extends State<QueuePage> {
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
 
     if (habit.skippedDates.any((d) =>
-    d.year == tomorrow.year && d.month == tomorrow.month && d.day == tomorrow.day)) {
+        d.year == tomorrow.year &&
+        d.month == tomorrow.month &&
+        d.day == tomorrow.day)) {
       return false;
     }
     if (habit.hasSnoozedUntil()) {
@@ -325,7 +251,9 @@ class _QueuePageState extends State<QueuePage> {
     for (int i = 0; i < 7; i++) {
       final checkDate = startOfWeek.add(Duration(days: i));
       if (habit.skippedDates.any((d) =>
-      d.year == checkDate.year && d.month == checkDate.month && d.day == checkDate.day)) {
+          d.year == checkDate.year &&
+          d.month == checkDate.month &&
+          d.day == checkDate.day)) {
         continue;
       }
       if (habit.hasSnoozedUntil()) {
@@ -369,6 +297,90 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
+  Map<String, List<HabitRecord>> get _bucketedItems {
+    final Map<String, List<HabitRecord>> buckets = {
+      'Overdue': [],
+      'Today': [],
+      'Tomorrow': [],
+      'This Week': [],
+      'Later': [],
+    };
+
+    final today = _todayDate();
+    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
+
+    void addToBucket(HabitRecord h, DateTime? dueDate) {
+      if (!_showCompleted && _isTaskCompleted(h)) return;
+
+      if (dueDate == null) {
+        buckets['Later']!.add(h);
+        return;
+      }
+
+      final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+      if (dateOnly.isBefore(today)) {
+        buckets['Overdue']!.add(h);
+      } else if (_isSameDay(dateOnly, today)) {
+        buckets['Today']!.add(h);
+      } else if (_isSameDay(dateOnly, _tomorrowDate())) {
+        buckets['Tomorrow']!.add(h);
+      } else if (!dateOnly.isAfter(endOfWeek)) {
+        buckets['This Week']!.add(h);
+      } else {
+        buckets['Later']!.add(h);
+      }
+    }
+
+    for (final item in _habits) {
+      if (!item.isActive) continue;
+
+      if (item.isRecurring) {
+        if (_shouldShowInDateFilter(item)) {
+          addToBucket(item, today);
+        } else {
+          final next = _nextDueDateForHabit(item, today);
+          addToBucket(item, next);
+        }
+      } else {
+        addToBucket(item, item.dueDate);
+      }
+    }
+
+    return buckets;
+  }
+
+  DateTime _todayDate() {
+    final now = DateTime.now();
+    return DateTime(now.year, now.month, now.day);
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
+
+  DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
+
+  DateTime? _nextDueDateForHabit(HabitRecord h, DateTime today) {
+    switch (h.schedule) {
+      case 'daily':
+        return today.add(const Duration(days: 1));
+      case 'weekly':
+        if (h.specificDays.isNotEmpty) {
+          for (int i = 1; i <= 7; i++) {
+            final candidate = today.add(Duration(days: i));
+            if (h.specificDays.contains(candidate.weekday)) return candidate;
+          }
+          return today.add(const Duration(days: 7));
+        }
+        return today.add(const Duration(days: 1));
+      case 'monthly':
+        return today.add(const Duration(days: 3));
+      default:
+        return today.add(const Duration(days: 1));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -377,13 +389,12 @@ class _QueuePageState extends State<QueuePage> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
-            children: [
-              _buildHeader(),
-              Expanded(
-                child: _buildDailyView(),
-              ),
-            ],
-          ),
+                  children: [
+                    Expanded(
+                      child: _buildDailyView(),
+                    ),
+                  ],
+                ),
           FloatingTimer(
             activeHabits: _activeFloatingHabits,
             onRefresh: _loadHabits,
@@ -432,9 +443,9 @@ class _QueuePageState extends State<QueuePage> {
             Text(
               'Your action queue for focused execution',
               style: FlutterFlowTheme.of(context).bodyMedium.override(
-                fontFamily: 'Readex Pro',
-                color: FlutterFlowTheme.of(context).secondaryText,
-              ),
+                    fontFamily: 'Readex Pro',
+                    color: FlutterFlowTheme.of(context).secondaryText,
+                  ),
             ),
             const SizedBox(height: 12),
             Row(
@@ -443,8 +454,7 @@ class _QueuePageState extends State<QueuePage> {
                 const SizedBox(width: 8),
                 _buildStatChip('Tomorrow', 0, Colors.blue),
                 const SizedBox(width: 8),
-                _buildStatChip(
-                    'This Week', 0, Colors.green),
+                _buildStatChip('This Week', 0, Colors.green),
               ],
             ),
           ],
@@ -496,16 +506,20 @@ class _QueuePageState extends State<QueuePage> {
   List<HabitRecord> get _activeFloatingHabits {
     final all = [
       ..._tasksTodayOrder,
-      ..._groupedHabits.values.expand((list) => list)
+      ..._bucketedItems.values.expand((list) => list)
     ];
     return all.where((h) => h.showInFloatingTimer == true).toList();
   }
 
   Widget _buildDailyView() {
-    final weeklyGoals = _groupedWeeklyGoals;
-    if (_groupedHabits.isEmpty &&
-        weeklyGoals.isEmpty &&
-        _tasksTodayOrder.isEmpty) {
+    final buckets = _bucketedItems;
+    final order = ['Overdue', 'Today', 'Tomorrow', 'This Week', 'Later'];
+    final theme = FlutterFlowTheme.of(context);
+
+    final visibleSections =
+        order.where((key) => buckets[key]!.isNotEmpty).toList();
+
+    if (visibleSections.isEmpty) {
       return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -517,20 +531,9 @@ class _QueuePageState extends State<QueuePage> {
             ),
             const SizedBox(height: 16),
             Text(
-              'No habits or tasks found',
+              'No items in the queue for the selected filter',
               style: FlutterFlowTheme.of(context).titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Create your first habit or task to get started!',
-              style: FlutterFlowTheme.of(context).bodyMedium,
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                _shouldReloadOnReturn = true;
-              },
-              child: const Text('Add Habit'),
+              textAlign: TextAlign.center,
             ),
           ],
         ),
@@ -539,182 +542,19 @@ class _QueuePageState extends State<QueuePage> {
 
     final slivers = <Widget>[];
 
-    if (_tasksTodayOrder.isNotEmpty) {
-      slivers.add(
-        SliverToBoxAdapter(
-          child: Container(
-            margin: EdgeInsets.fromLTRB(16, 8, 16, _tasksExpanded ? 0 : 6),
-            padding: EdgeInsets.fromLTRB(12, 8, 12, _tasksExpanded ? 2 : 6),
-            decoration: BoxDecoration(
-              gradient: FlutterFlowTheme.of(context).neumorphicGradient,
-              border: Border.all(
-                color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                width: 1,
-              ),
-              borderRadius: BorderRadius.only(
-                topLeft: const Radius.circular(16),
-                topRight: const Radius.circular(16),
-                bottomLeft:
-                _tasksExpanded ? Radius.zero : const Radius.circular(16),
-                bottomRight:
-                _tasksExpanded ? Radius.zero : const Radius.circular(16),
-              ),
-              boxShadow: _tasksExpanded
-                  ? []
-                  : FlutterFlowTheme.of(context).neumorphicShadowsRaised,
-            ),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Tasks',
-                      style: FlutterFlowTheme.of(context).titleMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: FlutterFlowTheme.of(context).primary,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ),
-                Row(
-                  children: [
-                    const SizedBox(width: 5),
-                    _buildCategoryWeightStars(_getTasksCategory()),
-                    const SizedBox(width: 5),
-                    GestureDetector(
-                      onTap: () {
-                        if (mounted) {
-                          setState(() {
-                            _tasksExpanded = !_tasksExpanded;
-                          });
-                        }
-                      },
-                      child: Icon(
-                        size: 28,
-                        _tasksExpanded ? Icons.expand_less : Icons.expand_more,
-                      ),
-                    )
-                  ],
-                )
-              ],
-            ),
-          ),
-        ),
-      );
-      if (_tasksExpanded) {
-        slivers.add(
-          SliverReorderableList(
-            itemCount: _tasksTodayOrder.length,
-            itemBuilder: (context, index) {
-              final task = _tasksTodayOrder[index];
-              return ReorderableDelayedDragStartListener(
-                key: ValueKey('task_${task.reference.id}'),
-                index: index,
-                child: ItemComponent(
-                  tasks: _tasks,
-                  showTaskEdit: true,
-                  categories: _categories.where((c) => c.categoryType == 'task').toList(),
-                  showCompleted: _showCompleted,
-                  key: Key(task.reference.id),
-                  habit: task,
-                  categoryColorHex: _getTaskCategoryColor(task),
-                  onRefresh: _loadHabits,
-                  onHabitUpdated: (updated) =>
-                      _updateTaskInLocalState(updated, null),
-                  onHabitDeleted: (deleted) {
-                    setState(() {
-                      _tasks.removeWhere(
-                              (t) => t.reference.id == deleted.reference.id);
-                      _tasksTodayOrder.removeWhere(
-                              (t) => t.reference.id == deleted.reference.id);
-                    });
-                  },
-                ),
-              );
-            },
-            proxyDecorator: (child, index, animation) {
-              final size = MediaQuery.of(context).size;
-              return AnimatedBuilder(
-                animation: animation,
-                builder: (context, _) {
-                  return Material(
-                    elevation: 6,
-                    color: Colors.transparent,
-                    child: SizedBox(
-                      width: size.width,
-                      child: IntrinsicHeight(child: child),
-                    ),
-                  );
-                },
-              );
-            },
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > _tasksTodayOrder.length) {
-                newIndex = _tasksTodayOrder.length;
-              }
-              if (newIndex > oldIndex) newIndex -= 1;
-              setState(() {
-                final item = _tasksTodayOrder.removeAt(oldIndex);
-                _tasksTodayOrder.insert(newIndex, item);
-              });
-              for (int i = 0; i < _tasksTodayOrder.length; i++) {
-                final t = _tasksTodayOrder[i];
-                try {
-                  await updateHabit(habitRef: t.reference, manualOrder: i);
-                } catch (_) {}
-              }
-            },
-          ),
-        );
-      }
-      slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 10)));
-    }
-    for (final categoryName in _groupedHabits.keys) {
-      final habits = _groupedHabits[categoryName]!;
-      if (categoryName.isEmpty || categoryName.trim().isEmpty) {
-        continue;
-      }
+    for (final key in visibleSections) {
+      final items = buckets[key]!;
+      final expanded = _timeSectionExpanded[key] ?? false;
 
-      CategoryRecord? category;
-      try {
-        category = _categories.firstWhere((c) => c.name == categoryName);
-      } catch (e) {
-        final categoryData = createCategoryRecordData(
-          name: categoryName,
-          color: '#2196F3',
-          userId: currentUserUid,
-          isActive: true,
-          weight: 1.0,
-          createdTime: DateTime.now(),
-          lastUpdated: DateTime.now(),
-          categoryType: 'habit',
-        );
-        category = CategoryRecord.getDocumentFromData(
-          categoryData,
-          FirebaseFirestore.instance.collection('categories').doc(),
-        );
-      }
-      final expanded = _categoryExpanded[categoryName] ?? true;
       slivers.add(
         SliverToBoxAdapter(
           child: Container(
             margin: EdgeInsets.fromLTRB(16, 8, 16, expanded ? 0 : 6),
             padding: EdgeInsets.fromLTRB(12, 8, 12, expanded ? 2 : 6),
             decoration: BoxDecoration(
-              gradient: FlutterFlowTheme.of(context).neumorphicGradient,
+              gradient: theme.neumorphicGradient,
               border: Border.all(
-                color: FlutterFlowTheme.of(context).surfaceBorderColor,
+                color: theme.surfaceBorderColor,
                 width: 1,
               ),
               borderRadius: BorderRadius.only(
@@ -723,186 +563,76 @@ class _QueuePageState extends State<QueuePage> {
                 bottomLeft: expanded ? Radius.zero : const Radius.circular(16),
                 bottomRight: expanded ? Radius.zero : const Radius.circular(16),
               ),
-              boxShadow: expanded
-                  ? []
-                  : FlutterFlowTheme.of(context).neumorphicShadowsRaised,
+              boxShadow: expanded ? [] : theme.neumorphicShadowsRaised,
             ),
             child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      category.name.isNotEmpty ? category.name : 'Uncategorized',
-                      style: FlutterFlowTheme.of(context).titleMedium.override(
-                        fontFamily: 'Readex Pro',
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Container(
-                      width: 14,
-                      height: 14,
-                      decoration: BoxDecoration(
-                        color: Color(int.parse(
-                            category.color.replaceFirst('#', '0xFF'))),
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                  ],
-                ),
-                const Spacer(),
-                _buildCategoryWeightStars(category),
-                SizedBox(
-                  height: 20,
-                  width: 20,
-                  child: PopupMenuButton<String>(
-                    padding: EdgeInsets.zero,
-                    menuPadding: EdgeInsets.zero,
-                    tooltip: 'Category options',
-                    icon: Icon(
-                      Icons.more_vert,
-                      size: 20,
-                      color: FlutterFlowTheme.of(context).secondaryText,
-                    ),
-                    onSelected: (value) => category != null
-                        ? _handleCategoryMenuAction(value, category)
-                        : null,
-                    itemBuilder: (context) => [
-                      const PopupMenuItem<String>(
-                        value: 'edit',
-                        child: Row(
-                          children: [
-                            Icon(Icons.edit, size: 16),
-                            SizedBox(width: 5),
-                            Text('Edit category'),
-                          ],
-                        ),
-                      ),
-                      const PopupMenuItem<String>(
-                        value: 'delete',
-                        child: Row(
-                          children: [
-                            Icon(Icons.delete, size: 16, color: Colors.red),
-                            SizedBox(width: 5),
-                            Text('Delete category',
-                                style: TextStyle(color: Colors.red)),
-                          ],
-                        ),
-                      ),
-                    ],
+                Text(
+                  '$key (${items.length})',
+                  style: theme.titleMedium.override(
+                    fontFamily: 'Readex Pro',
+                    fontWeight: FontWeight.w600,
                   ),
                 ),
                 GestureDetector(
                   onTap: () {
                     if (mounted) {
                       setState(() {
-                        _categoryExpanded[categoryName] = !expanded;
+                        _timeSectionExpanded[key] = !expanded;
                       });
                     }
                   },
                   child: Icon(
-                    expanded ? Icons.expand_less : Icons.expand_more,
                     size: 28,
+                    expanded ? Icons.expand_less : Icons.expand_more,
                   ),
-                ),
+                )
               ],
             ),
           ),
         ),
       );
+
       if (expanded) {
-        final sortedHabits = List<HabitRecord>.from(habits);
-        sortedHabits.sort((a, b) {
-          final ao = a.hasManualOrder() ? a.manualOrder : habits.indexOf(a);
-          final bo = b.hasManualOrder() ? b.manualOrder : habits.indexOf(b);
-          return ao.compareTo(bo);
-        });
-
         slivers.add(
-          SliverReorderableList(
-            itemCount: sortedHabits.length,
-            itemBuilder: (context, index) {
-              final habit = sortedHabits[index];
-              final isLast = index == sortedHabits.length - 1;
-              return ReorderableDelayedDragStartListener(
-                key: ValueKey('habit_${habit.reference.id}'),
-                index: index,
-                child: ItemComponent(
-                  showCompleted: _showCompleted,
-                  key: Key(habit.reference.id),
-                  habit: habit,
-                  categoryColorHex: category!.color,
-                  onRefresh: _loadHabits,
-                  onHabitUpdated: (updated) {
-                    final habitIndex = _habits.indexWhere(
-                            (h) => h.reference.id == updated.reference.id);
-                    if (habitIndex != -1) {
-                      _habits[habitIndex] = updated;
-                    }
-
-                    final taskIndex = _tasks.indexWhere(
-                            (t) => t.reference.id == updated.reference.id);
-                    if (taskIndex != -1) {
-                      _tasks[taskIndex] = updated;
-                    } else if (updated.trackingType == 'time' &&
-                        updated.isTimerActive) {
-                      setState(() {
-                        _tasks.add(updated);
-                      });
-                    } else {
-                      setState(() {
-                        _tasks.removeWhere(
-                                (t) => t.reference.id == updated.reference.id);
-                      });
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final item = items[index];
+                final category = _categories.firstWhere(
+                  (c) => c.name == item.categoryName,
+                  orElse: () {
+                    try {
+                      return _categories
+                          .firstWhere((c) => c.categoryType == 'task');
+                    } catch (e) {
+                      return CategoryRecord.getDocumentFromData(
+                          {},
+                          FirebaseFirestore.instance
+                              .collection('categories')
+                              .doc());
                     }
                   },
+                );
+                final isHabit = category.categoryType == 'habit';
+                return ItemComponent(
+                  key: Key(item.reference.id),
+                  habit: item,
+                  showCompleted: _showCompleted,
+                  categoryColorHex: _getTaskCategoryColor(item),
+                  onRefresh: _loadHabits,
+                  onHabitUpdated: (updated) =>
+                      _updateHabitInLocalState(updated),
                   onHabitDeleted: (deleted) async => _loadHabits(),
-                ),
-              );
-            },
-            proxyDecorator: (child, index, animation) {
-              final size = MediaQuery.of(context).size;
-              return AnimatedBuilder(
-                animation: animation,
-                builder: (context, _) {
-                  return Material(
-                    elevation: 6,
-                    color: Colors.transparent,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: size.width,
-                        maxHeight: 140,
-                      ),
-                      child: child,
-                    ),
-                  );
-                },
-              );
-            },
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > sortedHabits.length) {
-                newIndex = sortedHabits.length;
-              }
-              if (newIndex > oldIndex) newIndex -= 1;
-              final item = sortedHabits.removeAt(oldIndex);
-              sortedHabits.insert(newIndex, item);
-              for (int i = 0; i < sortedHabits.length; i++) {
-                final h = sortedHabits[i];
-                try {
-                  await updateHabit(habitRef: h.reference, manualOrder: i);
-                } catch (_) {}
-              }
-              await _loadHabits();
-            },
+                  isHabit: isHabit,
+                );
+              },
+              childCount: items.length,
+            ),
           ),
         );
       }
-    }
-    if (weeklyGoals.isNotEmpty) {
-      slivers.add(const SliverToBoxAdapter(child: SizedBox(height: 10)));
-      slivers.add(
-          SliverToBoxAdapter(child: _buildWeeklyGoalsSection(weeklyGoals)));
     }
 
     return CustomScrollView(
@@ -921,8 +651,10 @@ class _QueuePageState extends State<QueuePage> {
     return Column(
       children: [
         Container(
-          margin: EdgeInsets.fromLTRB(16, 8, 16, _weeklyGoalsExpanded ? 0 : 6),
-          padding: EdgeInsets.fromLTRB(12, 8, 12, _weeklyGoalsExpanded ? 2 : 6),
+          margin: EdgeInsets.fromLTRB(
+              16, 8, 16, _timeSectionExpanded['Weekly goals']! ? 0 : 6),
+          padding: EdgeInsets.fromLTRB(
+              12, 8, 12, _timeSectionExpanded['Weekly goals']! ? 2 : 6),
           decoration: BoxDecoration(
             gradient: FlutterFlowTheme.of(context).neumorphicGradient,
             border: Border.all(
@@ -932,14 +664,14 @@ class _QueuePageState extends State<QueuePage> {
             borderRadius: BorderRadius.only(
               topLeft: const Radius.circular(16),
               topRight: const Radius.circular(16),
-              bottomLeft: _weeklyGoalsExpanded
+              bottomLeft: _timeSectionExpanded['Weekly goals']!
                   ? Radius.zero
                   : const Radius.circular(16),
-              bottomRight: _weeklyGoalsExpanded
+              bottomRight: _timeSectionExpanded['Weekly goals']!
                   ? Radius.zero
                   : const Radius.circular(16),
             ),
-            boxShadow: _weeklyGoalsExpanded
+            boxShadow: _timeSectionExpanded['Weekly goals']!
                 ? []
                 : FlutterFlowTheme.of(context).neumorphicShadowsRaised,
           ),
@@ -951,9 +683,9 @@ class _QueuePageState extends State<QueuePage> {
                   Text(
                     'Weekly goals',
                     style: FlutterFlowTheme.of(context).titleMedium.override(
-                      fontFamily: 'Readex Pro',
-                      fontWeight: FontWeight.w600,
-                    ),
+                          fontFamily: 'Readex Pro',
+                          fontWeight: FontWeight.w600,
+                        ),
                   ),
                   const SizedBox(width: 8),
                   Container(
@@ -968,19 +700,22 @@ class _QueuePageState extends State<QueuePage> {
               ),
               const Spacer(),
               IconButton(
-                tooltip: _weeklyGoalsExpanded
+                tooltip: _timeSectionExpanded['Weekly goals']!
                     ? 'Hide Weekly goals'
                     : 'Show Weekly goals',
                 icon: Icon(
-                  _weeklyGoalsExpanded ? Icons.expand_less : Icons.expand_more,
+                  _timeSectionExpanded['Weekly goals']!
+                      ? Icons.expand_less
+                      : Icons.expand_more,
                 ),
-                onPressed: () => setState(
-                        () => _weeklyGoalsExpanded = !_weeklyGoalsExpanded),
+                onPressed: () => setState(() =>
+                    _timeSectionExpanded['Weekly goals'] =
+                        !_timeSectionExpanded['Weekly goals']!),
               ),
             ],
           ),
         ),
-        if (_weeklyGoalsExpanded)
+        if (_timeSectionExpanded['Weekly goals']!)
           Container(
             margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
             decoration: BoxDecoration(
@@ -1003,19 +738,20 @@ class _QueuePageState extends State<QueuePage> {
               boxShadow: FlutterFlowTheme.of(context).neumorphicShadowsRaised,
             ),
             child: Column(
-              children: weeklyGoals.entries.where((entry) =>
-              entry.key.isNotEmpty && entry.key.trim().isNotEmpty
-              ).map((entry) {
+              children: weeklyGoals.entries
+                  .where((entry) =>
+                      entry.key.isNotEmpty && entry.key.trim().isNotEmpty)
+                  .map((entry) {
                 final categoryName = entry.key;
                 final habits = entry.value;
                 return Container(
                   margin:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   padding:
-                  const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                   decoration: BoxDecoration(
                     gradient:
-                    FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                         color: FlutterFlowTheme.of(context).surfaceBorderColor,
@@ -1028,13 +764,15 @@ class _QueuePageState extends State<QueuePage> {
                         children: [
                           Expanded(
                             child: Text(
-                              categoryName.isNotEmpty ? categoryName : 'Uncategorized',
+                              categoryName.isNotEmpty
+                                  ? categoryName
+                                  : 'Uncategorized',
                               style: FlutterFlowTheme.of(context)
                                   .bodyLarge
                                   .override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                             ),
                           ),
                         ],
@@ -1074,9 +812,9 @@ class _QueuePageState extends State<QueuePage> {
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: FlutterFlowTheme.of(context).bodyMedium.override(
-              fontFamily: 'Readex Pro',
-              fontWeight: FontWeight.w600,
-            ),
+                  fontFamily: 'Readex Pro',
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         Container(
@@ -1089,10 +827,10 @@ class _QueuePageState extends State<QueuePage> {
           child: Text(
             statusLabel,
             style: FlutterFlowTheme.of(context).bodySmall.override(
-              fontFamily: 'Readex Pro',
-              color: statusColor,
-              fontWeight: FontWeight.w600,
-            ),
+                  fontFamily: 'Readex Pro',
+                  color: statusColor,
+                  fontWeight: FontWeight.w600,
+                ),
           ),
         ),
         const SizedBox(width: 8),
@@ -1104,7 +842,7 @@ class _QueuePageState extends State<QueuePage> {
             final today = DateTime(now.year, now.month, now.day);
             final skipped = List<DateTime>.from(habit.skippedDates);
             skipped.removeWhere((d) =>
-            d.year == today.year &&
+                d.year == today.year &&
                 d.month == today.month &&
                 d.day == today.day);
             await habit.reference.update(
@@ -1204,7 +942,7 @@ class _QueuePageState extends State<QueuePage> {
       } else if (task.categoryName.isNotEmpty) {
         final taskName = task.categoryName.trim().toLowerCase();
         matchedCategory = _categories.firstWhere(
-              (c) => c.name.trim().toLowerCase() == taskName,
+          (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
     } catch (_) {}
@@ -1220,8 +958,8 @@ class _QueuePageState extends State<QueuePage> {
 
   CategoryRecord _getTasksCategory() {
     try {
-      return _categories.firstWhere((c) =>
-      c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
+      return _categories.firstWhere(
+          (c) => c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
     } catch (e) {
       try {
         return _categories.firstWhere((c) => c.categoryType == 'task');
@@ -1247,12 +985,12 @@ class _QueuePageState extends State<QueuePage> {
   void _updateHabitInLocalState(HabitRecord updated) {
     setState(() {
       final habitIndex =
-      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
       final taskIndex =
-      _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
+          _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
         if (_isTaskCompleted(updated)) {
@@ -1268,9 +1006,9 @@ class _QueuePageState extends State<QueuePage> {
         _tasks.add(updated);
       } else {
         _tasks.removeWhere((t) => t.reference.id == updated.reference.id);
-        _tasksTodayOrder.removeWhere((t) => t.reference.id == updated.reference.id);
+        _tasksTodayOrder
+            .removeWhere((t) => t.reference.id == updated.reference.id);
       }
-      _recomputeTasksTodayOrder();
       _removeEmptyCategories();
     });
     _loadDataSilently();
@@ -1333,7 +1071,7 @@ class _QueuePageState extends State<QueuePage> {
                 await deleteCategory(category.uid, userId: currentUserUid);
                 setState(() {
                   _categories.removeWhere(
-                          (c) => c.reference.id == category.reference.id);
+                      (c) => c.reference.id == category.reference.id);
                 });
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
@@ -1368,9 +1106,9 @@ class _QueuePageState extends State<QueuePage> {
 
   void _updateTaskInLocalState(HabitRecord task, String? newStatus,
       [dynamic newCurrentValue,
-        bool? newIsTimerActive,
-        int? newAccumulatedTime,
-        DateTime? newTimerStartTime]) {
+      bool? newIsTimerActive,
+      int? newAccumulatedTime,
+      DateTime? newTimerStartTime]) {
     setState(() {
       final idx = _tasks.indexWhere((t) => t.reference.id == task.reference.id);
       if (idx != -1) {
@@ -1397,7 +1135,6 @@ class _QueuePageState extends State<QueuePage> {
             _tasksTodayOrder.add(updated);
           }
         }
-        _recomputeTasksTodayOrder();
       }
       _loadDataSilently();
     });
@@ -1422,7 +1159,6 @@ class _QueuePageState extends State<QueuePage> {
         }).toList();
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
-        _recomputeTasksTodayOrder();
       });
     } catch (e) {
       if (mounted) {
