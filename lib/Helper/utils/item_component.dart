@@ -207,223 +207,202 @@ class _ItemComponentState extends State<ItemComponent>
     if (_isFullyCompleted && (widget.showCompleted != true)) {
       return const SizedBox.shrink();
     }
-    final double screenWidth = MediaQuery.of(context).size.width;
     return Container(
-      margin: const EdgeInsets.fromLTRB(16, 0, 16, 0),
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
       decoration: BoxDecoration(
-          gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-          border: Border(
-            left: BorderSide(
-                color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                width: 1),
-            right: BorderSide(
-                color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                width: 1),
-            top: BorderSide.none,
-          )),
-      padding: const EdgeInsets.fromLTRB(6, 2, 6, 6),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(maxWidth: screenWidth - 32),
-        child: Container(
-          margin: const EdgeInsets.symmetric(vertical: 2),
-          padding: const EdgeInsets.symmetric(horizontal: 0, vertical: 4),
-          decoration: BoxDecoration(
-            gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(
-              color: FlutterFlowTheme.of(context).surfaceBorderColor,
-              width: 0.5,
-            ),
+        gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+        borderRadius: BorderRadius.circular(12),
+        border: Border(
+          top: BorderSide(
+            color: FlutterFlowTheme.of(context).surfaceBorderColor,
+            width: 0.5,
           ),
-          child: Column(
-            children: [
-              IntrinsicHeight(
-                child: Row(
-                  children: [
-                    Container(
-                      width: 3,
-                      decoration: BoxDecoration(
-                        color: _leftStripeColor,
-                        borderRadius: BorderRadius.circular(2),
+        ),
+      ),
+      child: Column(
+        children: [
+          const SizedBox(height: 6),
+          IntrinsicHeight(
+            child: Row(
+              children: [
+                Container(
+                  width: 3,
+                  decoration: BoxDecoration(
+                    color: _leftStripeColor,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+                const SizedBox(width: 5),
+                SizedBox(
+                  width: 36,
+                  child: Center(child: _buildLeftControlsCompact()),
+                ),
+                const SizedBox(width: 5),
+                Expanded(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          widget.habit.name,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: FlutterFlowTheme.of(context)
+                              .bodyMedium
+                              .override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                                decoration: _isCompleted
+                                    ? TextDecoration.lineThrough
+                                    : TextDecoration.none,
+                                color: _isCompleted
+                                    ? FlutterFlowTheme.of(context).secondaryText
+                                    : FlutterFlowTheme.of(context).primaryText,
+                              ),
+                        ),
                       ),
-                    ),
-                    const SizedBox(width: 5),
-                    SizedBox(
-                      width: 36,
-                      child: Center(child: _buildLeftControlsCompact()),
-                    ),
-                    const SizedBox(width: 5),
-                    Expanded(
-                      child: Row(
-                        children: [
-                          Expanded(
+                      if (widget.habit.trackingType != 'binary') ...[
+                        const SizedBox(width: 5),
+                        Align(
+                          alignment: Alignment.center,
+                          child: Container(
+                            constraints: const BoxConstraints(maxWidth: 160),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 2),
+                            decoration: BoxDecoration(
+                              color: FlutterFlowTheme.of(context)
+                                  .secondaryBackground,
+                              border: Border.all(
+                                color: FlutterFlowTheme.of(context).alternate,
+                                width: 1,
+                              ),
+                              borderRadius: BorderRadius.circular(10),
+                            ),
                             child: Text(
-                              widget.habit.name,
+                              _getProgressDisplayText(),
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: FlutterFlowTheme.of(context)
-                                  .bodyMedium
+                                  .bodySmall
                                   .override(
                                     fontFamily: 'Readex Pro',
+                                    fontSize: 11,
                                     fontWeight: FontWeight.w600,
-                                    decoration: _isCompleted
-                                        ? TextDecoration.lineThrough
-                                        : TextDecoration.none,
-                                    color: _isCompleted
-                                        ? FlutterFlowTheme.of(context)
-                                            .secondaryText
-                                        : FlutterFlowTheme.of(context)
-                                            .primaryText,
+                                    lineHeight: 1.05,
                                   ),
                             ),
-                          ),
-                          if (widget.habit.trackingType != 'binary') ...[
-                            const SizedBox(width: 5),
-                            Align(
-                              alignment: Alignment.center,
-                              child: Container(
-                                constraints:
-                                    const BoxConstraints(maxWidth: 160),
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 2),
-                                decoration: BoxDecoration(
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryBackground,
-                                  border: Border.all(
-                                    color:
-                                        FlutterFlowTheme.of(context).alternate,
-                                    width: 1,
-                                  ),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Text(
-                                  _getProgressDisplayText(),
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.w600,
-                                        lineHeight: 1.05,
-                                      ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                    Row(
-                      children: [
-                        const SizedBox(width: 5),
-                        _buildHabitPriorityStars(),
-                        const SizedBox(width: 5),
-                        Builder(
-                          builder: (btnCtx) => GestureDetector(
-                            onTap: () {
-                              _showSnoozeRescheduleMenu(btnCtx);
-                            },
-                            child: const Icon(Icons.snooze, size: 20),
-                          ),
-                        ),
-                        Visibility(
-                          visible: widget.showCalendar,
-                          child: Row(
-                            children: [
-                              const SizedBox(width: 5),
-                              GestureDetector(
-                                child: const Icon(Icons.calendar_today,
-                                    size: 20, color: Colors.blueGrey),
-                                onTap: () {
-                                  showDatePicker(
-                                    context: context,
-                                    initialDate:
-                                        widget.habit.dueDate ?? DateTime.now(),
-                                    firstDate: DateTime.now()
-                                        .subtract(const Duration(days: 365)),
-                                    lastDate: DateTime.now()
-                                        .add(const Duration(days: 365)),
-                                  ).then((selectedDate) {
-                                    if (selectedDate != null) {
-                                      widget.habit.reference.update({
-                                        'dueDate': DateTime(
-                                          selectedDate.year,
-                                          selectedDate.month,
-                                          selectedDate.day,
-                                        ),
-                                      }).then((_) {
-                                        if (widget.onHabitUpdated != null) {
-                                          widget.onHabitUpdated!(widget.habit);
-                                        }
-                                      });
-                                    }
-                                  });
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                        Builder(
-                          builder: (btnCtx) => GestureDetector(
-                            onTap: () {
-                              _showHabitOverflowMenu(btnCtx);
-                            },
-                            child: const Icon(Icons.more_vert, size: 20),
                           ),
                         ),
                       ],
+                    ],
+                  ),
+                ),
+                Row(
+                  children: [
+                    const SizedBox(width: 5),
+                    _buildHabitPriorityStars(),
+                    const SizedBox(width: 5),
+                    Builder(
+                      builder: (btnCtx) => GestureDetector(
+                        onTap: () {
+                          _showSnoozeRescheduleMenu(btnCtx);
+                        },
+                        child: const Icon(Icons.snooze, size: 20),
+                      ),
+                    ),
+                    Visibility(
+                      visible: widget.showCalendar,
+                      child: Row(
+                        children: [
+                          const SizedBox(width: 5),
+                          GestureDetector(
+                            child: const Icon(Icons.calendar_today,
+                                size: 20, color: Colors.blueGrey),
+                            onTap: () {
+                              showDatePicker(
+                                context: context,
+                                initialDate:
+                                    widget.habit.dueDate ?? DateTime.now(),
+                                firstDate: DateTime.now()
+                                    .subtract(const Duration(days: 365)),
+                                lastDate: DateTime.now()
+                                    .add(const Duration(days: 365)),
+                              ).then((selectedDate) {
+                                if (selectedDate != null) {
+                                  widget.habit.reference.update({
+                                    'dueDate': DateTime(
+                                      selectedDate.year,
+                                      selectedDate.month,
+                                      selectedDate.day,
+                                    ),
+                                  }).then((_) {
+                                    if (widget.onHabitUpdated != null) {
+                                      widget.onHabitUpdated!(widget.habit);
+                                    }
+                                  });
+                                }
+                              });
+                            },
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 5),
+                    Builder(
+                      builder: (btnCtx) => GestureDetector(
+                        onTap: () {
+                          _showHabitOverflowMenu(btnCtx);
+                        },
+                        child: const Icon(Icons.more_vert, size: 20),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+          if (widget.habit.trackingType != 'binary') ...[
+            const SizedBox(height: 3),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 11),
+              child: Container(
+                height: 3,
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  border: Border.all(
+                    color: _leftStripeColor,
+                    width: 1,
+                  ),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+                child: Stack(
+                  children: [
+                    Container(
+                      width: double.infinity,
+                      height: 3,
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                    FractionallySizedBox(
+                      alignment: Alignment.centerLeft,
+                      widthFactor: _progressPercentClamped,
+                      child: Container(
+                        height: 3,
+                        decoration: BoxDecoration(
+                          color: _leftStripeColor,
+                          borderRadius: BorderRadius.circular(2),
+                        ),
+                      ),
                     ),
                   ],
                 ),
               ),
-              if (widget.habit.trackingType != 'binary') ...[
-                const SizedBox(height: 3),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 11),
-                  child: Container(
-                    height: 3,
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(
-                        color: _leftStripeColor,
-                        width: 1,
-                      ),
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                    child: Stack(
-                      children: [
-                        // Background track (always full width) - white fill
-                        Container(
-                          width: double.infinity,
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                        // Progress fill
-                        FractionallySizedBox(
-                          alignment: Alignment.centerLeft,
-                          widthFactor: _progressPercentClamped,
-                          child: Container(
-                            height: 3,
-                            decoration: BoxDecoration(
-                              color: _leftStripeColor,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ],
-            ],
-          ),
-        ),
+            ),
+          ] else
+            const SizedBox(height: 6),
+        ],
       ),
     );
   }
@@ -456,7 +435,7 @@ class _ItemComponentState extends State<ItemComponent>
           },
           child: Icon(
             filled ? Icons.star : Icons.star_border,
-            size: 24,
+            size: 16,
             color: filled
                 ? Colors.amber
                 : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
@@ -739,7 +718,7 @@ class _ItemComponentState extends State<ItemComponent>
         return Color(int.parse(hex.replaceFirst('#', '0xFF')));
       } catch (_) {}
     }
-    return _impactLevelColor;
+    return Colors.black;
   }
 
   DateTime _todayDate() {

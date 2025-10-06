@@ -84,23 +84,23 @@ class _TaskPageState extends State<TaskPage> {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Stack(
-      children: [
-        RefreshIndicator(
-          onRefresh: _loadData,
-          child: ListView(
             children: [
-              _buildQuickAdd(),
-              ..._buildSections(),
+              RefreshIndicator(
+                onRefresh: _loadData,
+                child: ListView(
+                  children: [
+                    _buildQuickAdd(),
+                    ..._buildSections(),
+                  ],
+                ),
+              ),
+              FloatingTimer(
+                activeHabits: _activeFloatingHabits,
+                onRefresh: _loadData,
+                onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+              ),
             ],
-          ),
-        ),
-        FloatingTimer(
-          activeHabits: _activeFloatingHabits,
-          onRefresh: _loadData,
-          onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-        ),
-      ],
-    );
+          );
   }
 
   List<HabitRecord> get _activeFloatingHabits {
@@ -122,15 +122,14 @@ class _TaskPageState extends State<TaskPage> {
         _categories = categories;
 
         _tasks = allHabits
-            .where((h) =>
-                (widget.categoryId == null ||
-                    h.categoryId == widget.categoryId))
+            .where((h) => (widget.categoryId == null ||
+                h.categoryId == widget.categoryId))
             .toList();
         _habits = allHabits
             .where((h) =>
-        h.isRecurring &&
-            (widget.categoryId == null ||
-                h.categoryId == widget.categoryId))
+                h.isRecurring &&
+                (widget.categoryId == null ||
+                    h.categoryId == widget.categoryId))
             .toList();
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
           _selectedQuickCategoryId = categories.first.reference.id;
@@ -179,7 +178,7 @@ class _TaskPageState extends State<TaskPage> {
                   onPressed: _submitQuickAdd,
                   padding: const EdgeInsets.all(4),
                   constraints:
-                  const BoxConstraints(minWidth: 32, minHeight: 32),
+                      const BoxConstraints(minWidth: 32, minHeight: 32),
                 ),
               ],
             ),
@@ -226,7 +225,7 @@ class _TaskPageState extends State<TaskPage> {
                             : 'Set due date',
                         padding: const EdgeInsets.all(4),
                         constraints:
-                        const BoxConstraints(minWidth: 32, minHeight: 32),
+                            const BoxConstraints(minWidth: 32, minHeight: 32),
                       ),
                       IconButton(
                         icon: Icon(
@@ -256,7 +255,7 @@ class _TaskPageState extends State<TaskPage> {
                             : 'Make recurring',
                         padding: const EdgeInsets.all(4),
                         constraints:
-                        const BoxConstraints(minWidth: 32, minHeight: 32),
+                            const BoxConstraints(minWidth: 32, minHeight: 32),
                       ),
                     ],
                   ),
@@ -306,8 +305,7 @@ class _TaskPageState extends State<TaskPage> {
                                       horizontal: 12, vertical: 8),
                                   hintText: 'e.g., pages, reps',
                                 ),
-                                onChanged: (value) {
-                                },
+                                onChanged: (value) {},
                               ),
                             ],
                           ),
@@ -346,8 +344,8 @@ class _TaskPageState extends State<TaskPage> {
                                         _quickTargetDuration = Duration(
                                           hours: hours,
                                           minutes:
-                                          _quickTargetDuration.inMinutes %
-                                              60,
+                                              _quickTargetDuration.inMinutes %
+                                                  60,
                                         );
                                       },
                                     ),
@@ -356,8 +354,8 @@ class _TaskPageState extends State<TaskPage> {
                                   Expanded(
                                     child: TextFormField(
                                       initialValue:
-                                      (_quickTargetDuration.inMinutes % 60)
-                                          .toString(),
+                                          (_quickTargetDuration.inMinutes % 60)
+                                              .toString(),
                                       decoration: const InputDecoration(
                                         border: OutlineInputBorder(),
                                         contentPadding: EdgeInsets.symmetric(
@@ -465,7 +463,7 @@ class _TaskPageState extends State<TaskPage> {
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Task', 'Tomorrow', 'This Week', 'Later'];
+    final order = ['Overdue', 'Today', 'Tomorrow', 'This Week', 'Later'];
     final widgets = <Widget>[];
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
@@ -549,9 +547,8 @@ class _TaskPageState extends State<TaskPage> {
         showInFloatingTimer: true,
         name: title,
         categoryId: categoryId,
-        categoryName: _categories
-            .firstWhere((c) => c.reference.id == categoryId)
-            .name,
+        categoryName:
+            _categories.firstWhere((c) => c.reference.id == categoryId).name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
         status: 'incomplete',
@@ -568,7 +565,7 @@ class _TaskPageState extends State<TaskPage> {
         specificDays: quickIsRecurring ? _quickSelectedDays : null,
       );
       final docRef =
-      await HabitRecord.collectionForUser(currentUserUid).add(taskData);
+          await HabitRecord.collectionForUser(currentUserUid).add(taskData);
       final newTask = HabitRecord.getDocumentFromData(taskData, docRef);
       setState(() {
         _tasks.add(newTask);
@@ -604,7 +601,7 @@ class _TaskPageState extends State<TaskPage> {
   Map<String, List<dynamic>> get _bucketedItems {
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
-      'Task': [],
+      'Today': [],
       'Tomorrow': [],
       'This Week': [],
       'Later': [],
@@ -625,7 +622,7 @@ class _TaskPageState extends State<TaskPage> {
       if (dueDate.isBefore(today)) {
         buckets['Overdue']!.add(h);
       } else if (_isSameDay(dueDate, today)) {
-        buckets['Task']!.add(h);
+        buckets['Today']!.add(h);
       } else if (_isSameDay(dueDate, _tomorrowDate())) {
         buckets['Tomorrow']!.add(h);
       } else if (!dueDate.isAfter(endOfWeek)) {
@@ -637,12 +634,14 @@ class _TaskPageState extends State<TaskPage> {
 
     for (final t in _tasks) {
       if (!t.isActive) continue;
-      if (widget.categoryId != null && t.categoryId != widget.categoryId) continue;
+      if (widget.categoryId != null && t.categoryId != widget.categoryId)
+        continue;
       addToBucket(t, t.dueDate);
     }
     for (final h in _habits) {
       if (!h.isActive) continue;
-      if (widget.categoryId != null && h.categoryId != widget.categoryId) continue;
+      if (widget.categoryId != null && h.categoryId != widget.categoryId)
+        continue;
 
       if (HabitTrackingUtil.shouldTrackToday(h)) {
         addToBucket(h, today);
@@ -733,13 +732,13 @@ class _TaskPageState extends State<TaskPage> {
 
   void _updateHabitInLocalState(HabitRecord updatedHabit) {
     setState(() {
-      final habitIndex =
-      _habits.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      final habitIndex = _habits
+          .indexWhere((h) => h.reference.id == updatedHabit.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updatedHabit;
       }
       final taskIndex =
-      _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+          _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updatedHabit;
       }
@@ -751,7 +750,6 @@ class _TaskPageState extends State<TaskPage> {
     });
   }
 
-
   Future<void> _loadDataSilently() async {
     try {
       final uid = currentUserUid;
@@ -760,7 +758,8 @@ class _TaskPageState extends State<TaskPage> {
       final categories = await queryTaskCategoriesOnce(userId: uid);
       if (!mounted) return;
       setState(() {
-        _tasks = allHabits.where((h) => h.isRecurring||!h.isRecurring).toList();
+        _tasks =
+            allHabits.where((h) => h.isRecurring || !h.isRecurring).toList();
         _habits = allHabits.where((h) => h.isRecurring).toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
