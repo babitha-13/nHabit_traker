@@ -1,14 +1,17 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/timer_service.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Screens/Create%20Task/create_task.dart';
 import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
+import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:intl/intl.dart';
 
 class ItemComponent extends StatefulWidget {
@@ -216,219 +219,263 @@ class _ItemComponentState extends State<ItemComponent>
     if (_isFullyCompleted && (widget.showCompleted != true)) {
       return const SizedBox.shrink();
     }
-    return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-      padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
-      decoration: BoxDecoration(
-        gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-        borderRadius: BorderRadius.circular(12),
-        border: Border(
-          top: BorderSide(
-            color: FlutterFlowTheme.of(context).surfaceBorderColor,
-            width: 0.5,
-          ),
-        ),
-      ),
-      child: Column(
-        children: [
-          const SizedBox(height: 6),
-          IntrinsicHeight(
-            child: Row(
-              children: [
-                Container(
-                  width: 3,
-                  decoration: BoxDecoration(
-                    color: _leftStripeColor,
-                    borderRadius: BorderRadius.circular(2),
+    return Slidable(
+      key: ValueKey(widget.habit.reference.id),
+      endActionPane: ActionPane(
+        motion: const ScrollMotion(),
+        dismissible: DismissiblePane(
+          onDismissed: () {
+            // This is intentionally left empty because we prevent the dismissal.
+          },
+          confirmDismiss: () async {
+            final docRef = await TimerService.startTimer(
+              taskTitle: widget.habit.name,
+              categoryColor: widget.categoryColorHex,
+            );
+            if (docRef != null && mounted) {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => TimerPage(
+                    initialTimerLogRef: docRef,
+                    taskTitle: widget.habit.name,
                   ),
                 ),
-                const SizedBox(width: 5),
-                SizedBox(
-                  width: 36,
-                  child: Center(child: _buildLeftControlsCompact()),
-                ),
-                const SizedBox(width: 5),
-                Expanded(
-                  child: Row(
-                    children: [
-                      Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Visibility(
-                            visible: widget.showTypeIcon,
-                            maintainSize: true,
-                            maintainAnimation: true,
-                            maintainState: true,
-                            child: Icon(
-                              widget.isHabit ? Icons.flag : Icons.assignment,
-                              size: 16,
-                              color: FlutterFlowTheme.of(context).secondaryText,
-                            ),
-                          ),
-                          Visibility(
-                            visible: widget.showRecurringIcon &&
-                                widget.habit.isRecurring,
-                            maintainSize: true,
-                            maintainAnimation: true,
-                            maintainState: true,
-                            child: Icon(
-                              Icons.repeat,
-                              size: 16,
-                              color: FlutterFlowTheme.of(context).secondaryText,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+              );
+            }
+            // Return false to prevent the item from being dismissed
+            return false;
+          },
+        ),
+        children: [
+          SlidableAction(
+            onPressed: (context) {
+              // This is also intentionally left empty as the primary action
+              // is handled by the dismissible pane's confirmation.
+            },
+            backgroundColor: FlutterFlowTheme.of(context).primary,
+            foregroundColor: Colors.white,
+            icon: Icons.timer,
+            label: 'Start Timer',
+          ),
+        ],
+      ),
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+        decoration: BoxDecoration(
+          gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+          borderRadius: BorderRadius.circular(12),
+          border: Border(
+            top: BorderSide(
+              color: FlutterFlowTheme.of(context).surfaceBorderColor,
+              width: 0.5,
+            ),
+          ),
+        ),
+        child: Column(
+          children: [
+            const SizedBox(height: 6),
+            IntrinsicHeight(
+              child: Row(
+                children: [
+                  Container(
+                    width: 3,
+                    decoration: BoxDecoration(
+                      color: _leftStripeColor,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                  const SizedBox(width: 5),
+                  SizedBox(
+                    width: 36,
+                    child: Center(child: _buildLeftControlsCompact()),
+                  ),
+                  const SizedBox(width: 5),
+                  Expanded(
+                    child: Row(
+                      children: [
+                        Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Text(
-                              widget.habit.name,
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: FlutterFlowTheme.of(context)
-                                  .bodyMedium
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    fontWeight: FontWeight.w600,
-                                    decoration: _isCompleted
-                                        ? TextDecoration.lineThrough
-                                        : TextDecoration.none,
-                                    color: _isCompleted
-                                        ? FlutterFlowTheme.of(context)
-                                            .secondaryText
-                                        : FlutterFlowTheme.of(context)
-                                            .primaryText,
-                                  ),
+                            Visibility(
+                              visible: widget.showTypeIcon,
+                              maintainSize: true,
+                              maintainAnimation: true,
+                              maintainState: true,
+                              child: Icon(
+                                widget.isHabit ? Icons.flag : Icons.assignment,
+                                size: 16,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
                             ),
-                            if (widget.subtitle != null &&
-                                widget.subtitle!.isNotEmpty) ...[
-                              const SizedBox(height: 2),
+                            Visibility(
+                              visible: widget.showRecurringIcon &&
+                                  widget.habit.isRecurring,
+                              maintainSize: true,
+                              maintainAnimation: true,
+                              maintainState: true,
+                              child: Icon(
+                                Icons.repeat,
+                                size: 16,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
                               Text(
-                                widget.subtitle!,
+                                widget.habit.name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: FlutterFlowTheme.of(context)
+                                    .bodyMedium
+                                    .override(
+                                      fontFamily: 'Readex Pro',
+                                      fontWeight: FontWeight.w600,
+                                      decoration: _isCompleted
+                                          ? TextDecoration.lineThrough
+                                          : TextDecoration.none,
+                                      color: _isCompleted
+                                          ? FlutterFlowTheme.of(context)
+                                              .secondaryText
+                                          : FlutterFlowTheme.of(context)
+                                              .primaryText,
+                                    ),
+                              ),
+                              if (widget.subtitle != null &&
+                                  widget.subtitle!.isNotEmpty) ...[
+                                const SizedBox(height: 2),
+                                Text(
+                                  widget.subtitle!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
+                                        fontSize: 12,
+                                      ),
+                                ),
+                              ]
+                            ],
+                          ),
+                        ),
+                        if (widget.habit.trackingType != 'binary') ...[
+                          const SizedBox(width: 5),
+                          Align(
+                            alignment: Alignment.center,
+                            child: Container(
+                              constraints: const BoxConstraints(maxWidth: 160),
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: FlutterFlowTheme.of(context)
+                                    .secondaryBackground,
+                                border: Border.all(
+                                  color: FlutterFlowTheme.of(context).alternate,
+                                  width: 1,
+                                ),
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              child: Text(
+                                _getProgressDisplayText(),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: FlutterFlowTheme.of(context)
                                     .bodySmall
                                     .override(
                                       fontFamily: 'Readex Pro',
-                                      color: FlutterFlowTheme.of(context)
-                                          .secondaryText,
-                                      fontSize: 12,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      lineHeight: 1.05,
                                     ),
                               ),
-                            ]
-                          ],
-                        ),
-                      ),
-                      if (widget.habit.trackingType != 'binary') ...[
-                        const SizedBox(width: 5),
-                        Align(
-                          alignment: Alignment.center,
-                          child: Container(
-                            constraints: const BoxConstraints(maxWidth: 160),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 2),
-                            decoration: BoxDecoration(
-                              color: FlutterFlowTheme.of(context)
-                                  .secondaryBackground,
-                              border: Border.all(
-                                color: FlutterFlowTheme.of(context).alternate,
-                                width: 1,
-                              ),
-                              borderRadius: BorderRadius.circular(10),
-                            ),
-                            child: Text(
-                              _getProgressDisplayText(),
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: FlutterFlowTheme.of(context)
-                                  .bodySmall
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.w600,
-                                    lineHeight: 1.05,
-                                  ),
                             ),
                           ),
-                        ),
+                        ],
                       ],
+                    ),
+                  ),
+                  Row(
+                    children: [
+                      const SizedBox(width: 5),
+                      _buildHabitPriorityStars(),
+                      const SizedBox(width: 5),
+                      Builder(
+                        builder: (btnCtx) => GestureDetector(
+                          onTap: () {
+                            _showScheduleMenu(btnCtx);
+                          },
+                          child: const Icon(Icons.calendar_month, size: 20),
+                        ),
+                      ),
+                      const SizedBox(width: 5),
+                      Builder(
+                        builder: (btnCtx) => GestureDetector(
+                          onTap: () {
+                            _showHabitOverflowMenu(btnCtx);
+                          },
+                          child: const Icon(Icons.more_vert, size: 20),
+                        ),
+                      ),
                     ],
                   ),
-                ),
-                Row(
-                  children: [
-                    const SizedBox(width: 5),
-                    _buildHabitPriorityStars(),
-                    const SizedBox(width: 5),
-                    Builder(
-                      builder: (btnCtx) => GestureDetector(
-                        onTap: () {
-                          _showScheduleMenu(btnCtx);
-                        },
-                        child: const Icon(Icons.calendar_month, size: 20),
-                      ),
-                    ),
-                    const SizedBox(width: 5),
-                    Builder(
-                      builder: (btnCtx) => GestureDetector(
-                        onTap: () {
-                          _showHabitOverflowMenu(btnCtx);
-                        },
-                        child: const Icon(Icons.more_vert, size: 20),
-                      ),
-                    ),
-                  ],
-                ),
-              ],
+                ],
+              ),
             ),
-          ),
-          if (widget.habit.trackingType != 'binary') ...[
-            const SizedBox(height: 3),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 11),
-              child: Container(
-                height: 3,
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  border: Border.all(
-                    color: _leftStripeColor,
-                    width: 1,
-                  ),
-                  borderRadius: BorderRadius.circular(2),
-                ),
-                child: Stack(
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      height: 3,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(2),
-                      ),
+            if (widget.habit.trackingType != 'binary') ...[
+              const SizedBox(height: 3),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 11),
+                child: Container(
+                  height: 3,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    border: Border.all(
+                      color: _leftStripeColor,
+                      width: 1,
                     ),
-                    FractionallySizedBox(
-                      alignment: Alignment.centerLeft,
-                      widthFactor: _progressPercentClamped,
-                      child: Container(
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                  child: Stack(
+                    children: [
+                      Container(
+                        width: double.infinity,
                         height: 3,
                         decoration: BoxDecoration(
-                          color: _leftStripeColor,
+                          color: Colors.white,
                           borderRadius: BorderRadius.circular(2),
                         ),
                       ),
-                    ),
-                  ],
+                      FractionallySizedBox(
+                        alignment: Alignment.centerLeft,
+                        widthFactor: _progressPercentClamped,
+                        child: Container(
+                          height: 3,
+                          decoration: BoxDecoration(
+                            color: _leftStripeColor,
+                            borderRadius: BorderRadius.circular(2),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-          ] else
-            const SizedBox(height: 6),
-        ],
+            ] else
+              const SizedBox(height: 6),
+          ],
+        ),
       ),
     );
   }

@@ -11,6 +11,8 @@ import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
+import 'package:habit_tracker/Screens/Timer/timer_page.dart';
+import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 
@@ -236,6 +238,33 @@ class _HomeState extends State<Home> {
                                 onTap: () {
                                   loadPage("Sequences");
                                   Navigator.pop(context);
+                                },
+                              ),
+                              _DrawerItem(
+                                icon: Icons.timer_outlined,
+                                label: 'Timer',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const TimerPage(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _DrawerItem(
+                                icon: Icons.calendar_today,
+                                label: 'Calendar',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const CalendarPage(),
+                                    ),
+                                  );
                                 },
                               ),
                               const Divider(),
