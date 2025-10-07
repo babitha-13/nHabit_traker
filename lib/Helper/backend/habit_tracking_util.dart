@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'schema/habit_record.dart';
 import 'backend.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HabitTrackingUtil {
   /// Check if a habit should be tracked today based on its schedule
@@ -438,6 +439,14 @@ class HabitTrackingUtil {
     // For now, just update the snoozedUntil field
     await habit.reference.update({
       'snoozedUntil': DateTime(today.year, today.month, today.day + 1),
+      'lastUpdated': DateTime.now(),
+    });
+  }
+
+  static Future<void> addSkippedDate(HabitRecord habit, DateTime date) async {
+    final dateOnly = DateTime(date.year, date.month, date.day);
+    await habit.reference.update({
+      'skippedDates': FieldValue.arrayUnion([dateOnly]),
       'lastUpdated': DateTime.now(),
     });
   }

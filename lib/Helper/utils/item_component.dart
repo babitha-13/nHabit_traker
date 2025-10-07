@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Screens/Create%20Task/create_task.dart';
 import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
+import 'package:intl/intl.dart';
 
 class ItemComponent extends StatefulWidget {
   final HabitRecord habit;
@@ -23,6 +24,7 @@ class ItemComponent extends StatefulWidget {
   final List<HabitRecord>? tasks;
   final bool isHabit;
   final bool showTypeIcon;
+  final bool showRecurringIcon;
   final String? subtitle;
 
   const ItemComponent(
@@ -39,6 +41,7 @@ class ItemComponent extends StatefulWidget {
       this.showTaskEdit = false,
       this.isHabit = false,
       this.showTypeIcon = true,
+      this.showRecurringIcon = false,
       this.subtitle})
       : super(key: key);
 
@@ -248,13 +251,35 @@ class _ItemComponentState extends State<ItemComponent>
                 Expanded(
                   child: Row(
                     children: [
-                      if (widget.showTypeIcon)
-                        Icon(
-                          widget.isHabit ? Icons.flag : Icons.assignment,
-                          size: 16,
-                          color: FlutterFlowTheme.of(context).secondaryText,
-                        ),
-                      if (widget.showTypeIcon) const SizedBox(width: 8),
+                      Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Visibility(
+                            visible: widget.showTypeIcon,
+                            maintainSize: true,
+                            maintainAnimation: true,
+                            maintainState: true,
+                            child: Icon(
+                              widget.isHabit ? Icons.flag : Icons.assignment,
+                              size: 16,
+                              color: FlutterFlowTheme.of(context).secondaryText,
+                            ),
+                          ),
+                          Visibility(
+                            visible: widget.showRecurringIcon &&
+                                widget.habit.isRecurring,
+                            maintainSize: true,
+                            maintainAnimation: true,
+                            maintainState: true,
+                            child: Icon(
+                              Icons.repeat,
+                              size: 16,
+                              color: FlutterFlowTheme.of(context).secondaryText,
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(width: 8),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -343,46 +368,9 @@ class _ItemComponentState extends State<ItemComponent>
                     Builder(
                       builder: (btnCtx) => GestureDetector(
                         onTap: () {
-                          _showSnoozeRescheduleMenu(btnCtx);
+                          _showScheduleMenu(btnCtx);
                         },
-                        child: const Icon(Icons.snooze, size: 20),
-                      ),
-                    ),
-                    Visibility(
-                      visible: widget.showCalendar,
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 5),
-                          GestureDetector(
-                            child: const Icon(Icons.calendar_today,
-                                size: 20, color: Colors.blueGrey),
-                            onTap: () {
-                              showDatePicker(
-                                context: context,
-                                initialDate:
-                                    widget.habit.dueDate ?? DateTime.now(),
-                                firstDate: DateTime.now()
-                                    .subtract(const Duration(days: 365)),
-                                lastDate: DateTime.now()
-                                    .add(const Duration(days: 365)),
-                              ).then((selectedDate) {
-                                if (selectedDate != null) {
-                                  widget.habit.reference.update({
-                                    'dueDate': DateTime(
-                                      selectedDate.year,
-                                      selectedDate.month,
-                                      selectedDate.day,
-                                    ),
-                                  }).then((_) {
-                                    if (widget.onHabitUpdated != null) {
-                                      widget.onHabitUpdated!(widget.habit);
-                                    }
-                                  });
-                                }
-                              });
-                            },
-                          ),
-                        ],
+                        child: const Icon(Icons.calendar_month, size: 20),
                       ),
                     ),
                     const SizedBox(width: 5),
@@ -604,12 +592,134 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
-  Future<void> _showSnoozeRescheduleMenu(BuildContext anchorContext) async {
+  Future<void> _updateDueDate(DateTime newDate) async {
+    try {
+      await widget.habit.reference.update({'dueDate': newDate});
+      final updated = await HabitRecord.getDocumentOnce(widget.habit.reference);
+      widget.onHabitUpdated?.call(updated);
+      if (mounted) {
+        final label = DateFormat('EEE, MMM d').format(newDate);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Due date set to $label')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error setting due date: $e')),
+        );
+      }
+    }
+  }
+
+  void _scheduleForToday() {
+    _updateDueDate(_todayDate());
+  }
+
+  void _scheduleForTomorrow() {
+    _updateDueDate(_tomorrowDate());
+  }
+
+  void _pickDueDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: widget.habit.dueDate ?? _tomorrowDate(),
+      firstDate: _todayDate(),
+      lastDate: _todayDate().add(const Duration(days: 365 * 5)),
+    );
+    if (picked != null) {
+      _updateDueDate(picked);
+    }
+  }
+
+  void _skipOccurrence() {
+    HabitTrackingUtil.addSkippedDate(widget.habit, DateTime.now());
+  }
+
+  void _rescheduleOccurrence() {
+    // TODO: Implement rescheduling logic.
+    // This is complex and needs more thought.
+    // For now, let's show a snackbar.
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Rescheduling not implemented yet.')),
+    );
+  }
+
+  void _skipUntil() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _tomorrowDate(),
+      firstDate: _todayDate(),
+      lastDate: _todayDate().add(const Duration(days: 365 * 5)),
+    );
+    if (picked != null) {
+      try {
+        await updateHabit(
+            habitRef: widget.habit.reference, snoozedUntil: picked);
+        final updated =
+            await HabitRecord.getDocumentOnce(widget.habit.reference);
+        widget.onHabitUpdated?.call(updated);
+        if (mounted) {
+          final label = DateFormat('EEE, MMM d').format(picked);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Skipped until $label')),
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error skipping: $e')),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _showScheduleMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
+
+    List<PopupMenuEntry<String>> items;
+    if (widget.habit.isRecurring) {
+      // Recurring Task Menu
+      items = const [
+        PopupMenuItem<String>(
+            value: 'skip_occurrence',
+            height: 32,
+            child:
+                Text('Skip This Occurrence', style: TextStyle(fontSize: 12))),
+        PopupMenuItem<String>(
+            value: 'reschedule_occurrence',
+            height: 32,
+            child: Text('Reschedule This Occurrence',
+                style: TextStyle(fontSize: 12))),
+        PopupMenuItem<String>(
+            value: 'skip_until',
+            height: 32,
+            child: Text('Skip Until...', style: TextStyle(fontSize: 12))),
+      ];
+    } else {
+      // One-Time Task Menu
+      items = const [
+        PopupMenuItem<String>(
+            value: 'schedule_today',
+            height: 32,
+            child: Text('Schedule for Today', style: TextStyle(fontSize: 12))),
+        PopupMenuItem<String>(
+            value: 'schedule_tomorrow',
+            height: 32,
+            child:
+                Text('Schedule for Tomorrow', style: TextStyle(fontSize: 12))),
+        PopupMenuItem<String>(
+            value: 'pick_date',
+            height: 32,
+            child: Text('Pick a Date...', style: TextStyle(fontSize: 12))),
+      ];
+    }
+
     final selected = await showMenu<String>(
       context: anchorContext,
       position: RelativeRect.fromLTRB(
@@ -622,78 +732,31 @@ class _ItemComponentState extends State<ItemComponent>
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
       ),
-      items: const [
-        PopupMenuItem<String>(
-            value: 'snooze_tomorrow',
-            height: 32,
-            child: Text('Snooze to tomorrow', style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'snooze_weekend',
-            height: 32,
-            child: Text('Snooze to weekend', style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'snooze_next_week',
-            height: 32,
-            child: Text('Snooze to next week', style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'pick_date',
-            height: 32,
-            child: Text('Pick a date…', style: TextStyle(fontSize: 12))),
-        PopupMenuDivider(height: 6),
-        PopupMenuItem<String>(
-            value: 'clear_snooze',
-            height: 32,
-            child: Text('Clear snooze', style: TextStyle(fontSize: 12))),
-      ],
+      items: items,
     );
     if (selected == null) return;
-    DateTime? newDate;
-    if (selected == 'snooze_tomorrow') {
-      newDate = _tomorrowDate();
-    } else if (selected == 'snooze_weekend') {
-      newDate = _nextWeekend();
-    } else if (selected == 'snooze_next_week') {
-      newDate = _nextWeekMonday();
-    } else if (selected == 'pick_date') {
-      final picked = await showDatePicker(
-        context: context,
-        initialDate: _tomorrowDate(),
-        firstDate: _todayDate(),
-        lastDate: _todayDate().add(const Duration(days: 365)),
-      );
-      if (picked != null) newDate = picked;
-    } else if (selected == 'clear_snooze') {
-      try {
-        await updateHabit(
-            habitRef: widget.habit.reference, snoozedUntil: DateTime(1970));
-        final updated =
-            await HabitRecord.getDocumentOnce(widget.habit.reference);
-        widget.onHabitUpdated?.call(updated);
-        return;
-      } catch (_) {
-        return;
-      }
-    }
-    if (newDate != null) {
-      try {
-        await updateHabit(
-            habitRef: widget.habit.reference, snoozedUntil: newDate);
-        final updated =
-            await HabitRecord.getDocumentOnce(widget.habit.reference);
-        widget.onHabitUpdated?.call(updated);
-        if (mounted) {
-          final label = DateFormat('EEE, MMM d').format(newDate);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Snoozed to $label')),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error snoozing: $e')),
-          );
-        }
-      }
+
+    switch (selected) {
+      // One-Time
+      case 'schedule_today':
+        _scheduleForToday();
+        break;
+      case 'schedule_tomorrow':
+        _scheduleForTomorrow();
+        break;
+      case 'pick_date':
+        _pickDueDate();
+        break;
+      // Recurring
+      case 'skip_occurrence':
+        _skipOccurrence();
+        break;
+      case 'reschedule_occurrence':
+        _rescheduleOccurrence();
+        break;
+      case 'skip_until':
+        _skipUntil();
+        break;
     }
   }
 

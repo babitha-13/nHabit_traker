@@ -259,6 +259,7 @@ class _HabitsPageState extends State<HabitsPage> {
                   onHabitDeleted: (deleted) async => _loadHabits(),
                   isHabit: true,
                   showTypeIcon: false,
+                  showRecurringIcon: false,
                 ),
               );
             },

@@ -641,6 +641,8 @@ class _QueuePageState extends State<QueuePage> {
                       _updateHabitInLocalState(updated),
                   onHabitDeleted: (deleted) async => _loadHabits(),
                   isHabit: isHabit,
+                  showTypeIcon: true,
+                  showRecurringIcon: true,
                 );
               },
               childCount: items.length,
@@ -1004,29 +1006,13 @@ class _QueuePageState extends State<QueuePage> {
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
+
       final taskIndex =
           _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
-        if (_isTaskCompleted(updated)) {
-          _tasksTodayOrder
-              .removeWhere((t) => t.reference.id == updated.reference.id);
-        } else {
-          if (!_tasksTodayOrder
-              .any((t) => t.reference.id == updated.reference.id)) {
-            _tasksTodayOrder.add(updated);
-          }
-        }
-      } else if (updated.trackingType == 'time' && updated.isTimerActive) {
-        _tasks.add(updated);
-      } else {
-        _tasks.removeWhere((t) => t.reference.id == updated.reference.id);
-        _tasksTodayOrder
-            .removeWhere((t) => t.reference.id == updated.reference.id);
       }
-      _removeEmptyCategories();
     });
-    _loadDataSilently();
   }
 
   void _removeEmptyCategories() {

@@ -823,6 +823,7 @@ class _TaskPageState extends State<TaskPage> {
       onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
       onHabitDeleted: (deleted) async => _loadData(),
       showTypeIcon: false,
+      showRecurringIcon: true,
     );
   }
 

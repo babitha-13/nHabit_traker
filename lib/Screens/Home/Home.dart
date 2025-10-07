@@ -274,7 +274,9 @@ class _HomeState extends State<Home> {
               children: [
                 Container(color: Colors.white, child: cWidget),
                 Visibility(
-                  visible: title != "Tasks" && title != "Manage Categories",
+                  visible: title != "Tasks" &&
+                      title != "Manage Categories" &&
+                      title != "Queue",
                   child: Positioned(
                     right: 16,
                     bottom: 24,
