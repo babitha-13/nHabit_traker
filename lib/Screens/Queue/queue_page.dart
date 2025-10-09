@@ -2,14 +2,12 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/date_filter_dropdown.dart';
-import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
@@ -85,23 +83,24 @@ class _QueuePageState extends State<QueuePage> {
     setState(() {
       _isLoading = true;
     });
-
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final habits = await queryHabitsRecordOnce(userId: userId);
+        final allHabits = await queryHabitsRecordOnce(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
-        final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
         final allCategories = [...categories, ...taskCategories];
+        final categoryTypeMap = <String, String>{};
+        for (final cat in allCategories) {
+          categoryTypeMap[cat.reference.id] = cat.categoryType;
+        }
         setState(() {
-          _habits = habits;
+          _habits = allHabits;
           _categories = allCategories;
-          _tasks = habits.where((h) {
-            final isTaskCategory = taskCategoryNames.contains(h.categoryName) ||
-                h.categoryName.toLowerCase() == 'tasks' ||
-                h.categoryName.toLowerCase() == 'task';
-            if (!isTaskCategory) return false;
+          _tasks = allHabits.where((h) {
+            if (h.categoryId.isEmpty) return false;
+            final categoryType = categoryTypeMap[h.categoryId];
+            if (categoryType != 'task') return false;
             if (_isTaskCompleted(h) && !_showCompleted) return false;
             return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
           }).toList();
@@ -109,8 +108,7 @@ class _QueuePageState extends State<QueuePage> {
         });
         if (_tasks.isNotEmpty) {
           for (final task in _tasks) {
-            print(
-                '  - ${task.name}: ${task.trackingType}, target: ${task.target}');
+            print('  - ${task.name}: ${task.trackingType}, target: ${task.target}');
           }
         }
       } else {
@@ -173,7 +171,7 @@ class _QueuePageState extends State<QueuePage> {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (habit.skippedDates.any((d) =>
-        d.year == today.year && d.month == today.month && d.day == today.day)) {
+    d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
     if (habit.hasSnoozedUntil()) {
@@ -183,13 +181,10 @@ class _QueuePageState extends State<QueuePage> {
         return false;
       }
     }
-
     if (habit.schedule == 'daily') return true;
-
     if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
       return habit.specificDays.contains(now.weekday);
     }
-
     if (_isFlexibleWeekly(habit)) {
       final remaining = _remainingCompletionsThisWeek(habit);
       if (remaining <= 0) return false;
@@ -215,9 +210,8 @@ class _QueuePageState extends State<QueuePage> {
   bool _shouldShowInTomorrowMain(HabitRecord habit) {
     final now = DateTime.now();
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
-
     if (habit.skippedDates.any((d) =>
-        d.year == tomorrow.year &&
+    d.year == tomorrow.year &&
         d.month == tomorrow.month &&
         d.day == tomorrow.day)) {
       return false;
@@ -229,13 +223,10 @@ class _QueuePageState extends State<QueuePage> {
         return false;
       }
     }
-
     if (habit.schedule == 'daily') return true;
-
     if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
       return habit.specificDays.contains(tomorrow.weekday);
     }
-
     if (_isFlexibleWeekly(habit)) {
       final remaining = _remainingCompletionsThisWeek(habit);
       if (remaining <= 0) return false;
@@ -251,7 +242,7 @@ class _QueuePageState extends State<QueuePage> {
     for (int i = 0; i < 7; i++) {
       final checkDate = startOfWeek.add(Duration(days: i));
       if (habit.skippedDates.any((d) =>
-          d.year == checkDate.year &&
+      d.year == checkDate.year &&
           d.month == checkDate.month &&
           d.day == checkDate.day)) {
         continue;
@@ -263,13 +254,10 @@ class _QueuePageState extends State<QueuePage> {
           continue;
         }
       }
-
       if (habit.schedule == 'daily') return true;
-
       if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
         if (habit.specificDays.contains(checkDate.weekday)) return true;
       }
-
       if (_isFlexibleWeekly(habit)) {
         final remaining = _remainingCompletionsThisWeek(habit);
         if (remaining > 0) return true;
@@ -282,19 +270,6 @@ class _QueuePageState extends State<QueuePage> {
     return !_shouldShowInTodayMain(habit) &&
         !_shouldShowInTomorrowMain(habit) &&
         !_shouldShowInThisWeekMain(habit);
-  }
-
-  bool _isHabitCompletedForFilter(HabitRecord habit) {
-    switch (_selectedDateFilter) {
-      case DateFilterType.today:
-        return HabitTrackingUtil.isCompletedToday(habit);
-      case DateFilterType.tomorrow:
-        return false;
-      case DateFilterType.week:
-        return HabitTrackingUtil.isCompletedToday(habit);
-      case DateFilterType.later:
-        return false;
-    }
   }
 
   Map<String, List<HabitRecord>> get _bucketedItems {
@@ -335,8 +310,11 @@ class _QueuePageState extends State<QueuePage> {
 
     for (final item in _habits) {
       if (!item.isActive) continue;
+      final isRecurring = (item.hasIsHabitRecurring() || item.hasIsTaskRecurring())
+          ? (item.isHabitRecurring || item.isTaskRecurring)
+          : item.isRecurring;
 
-      if (item.isRecurring) {
+      if (isRecurring) {
         if (_shouldShowInDateFilter(item)) {
           addToBucket(item, today);
         } else {
@@ -403,114 +381,16 @@ class _QueuePageState extends State<QueuePage> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
-                  children: [
-                    Expanded(
-                      child: _buildDailyView(),
-                    ),
-                  ],
-                ),
+            children: [
+              Expanded(
+                child: _buildDailyView(),
+              ),
+            ],
+          ),
           FloatingTimer(
             activeHabits: _activeFloatingHabits,
             onRefresh: _loadHabits,
             onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeader() {
-    return Container(
-      width: double.infinity,
-      decoration: BoxDecoration(
-        color: FlutterFlowTheme.of(context).secondaryBackground,
-        border: Border(
-          bottom: BorderSide(
-            color: FlutterFlowTheme.of(context).alternate,
-            width: 1,
-          ),
-        ),
-      ),
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Expanded(
-                  child: DateFilterDropdown(
-                    selectedFilter: _selectedDateFilter,
-                    onChanged: (filter) {
-                      setState(() {
-                        _selectedDateFilter = filter;
-                      });
-                      _loadHabits();
-                    },
-                    showSortIcon: true,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'Your action queue for focused execution',
-              style: FlutterFlowTheme.of(context).bodyMedium.override(
-                    fontFamily: 'Readex Pro',
-                    color: FlutterFlowTheme.of(context).secondaryText,
-                  ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: [
-                _buildStatChip('Today', 0, Colors.orange),
-                const SizedBox(width: 8),
-                _buildStatChip('Tomorrow', 0, Colors.blue),
-                const SizedBox(width: 8),
-                _buildStatChip('This Week', 0, Colors.green),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildStatChip(String label, int count, Color color) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: color.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: color.withOpacity(0.3)),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
-              color: color,
-            ),
-          ),
-          const SizedBox(width: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 1),
-            decoration: BoxDecoration(
-              color: color,
-              borderRadius: BorderRadius.circular(8),
-            ),
-            child: Text(
-              '$count',
-              style: const TextStyle(
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-              ),
-            ),
           ),
         ],
       ),
@@ -531,7 +411,7 @@ class _QueuePageState extends State<QueuePage> {
     final theme = FlutterFlowTheme.of(context);
 
     final visibleSections =
-        order.where((key) => buckets[key]!.isNotEmpty).toList();
+    order.where((key) => buckets[key]!.isNotEmpty).toList();
 
     if (visibleSections.isEmpty) {
       return Center(
@@ -612,10 +492,10 @@ class _QueuePageState extends State<QueuePage> {
         slivers.add(
           SliverList(
             delegate: SliverChildBuilderDelegate(
-              (context, index) {
+                  (context, index) {
                 final item = items[index];
                 final category = _categories.firstWhere(
-                  (c) => c.name == item.categoryName,
+                      (c) => c.name == item.categoryName,
                   orElse: () {
                     try {
                       return _categories
@@ -663,293 +543,6 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  Widget _buildWeeklyGoalsSection(Map<String, List<HabitRecord>> weeklyGoals) {
-    if (weeklyGoals.isEmpty) return const SizedBox.shrink();
-    return Column(
-      children: [
-        Container(
-          margin: EdgeInsets.fromLTRB(
-              16, 8, 16, _timeSectionExpanded['Weekly goals']! ? 0 : 6),
-          padding: EdgeInsets.fromLTRB(
-              12, 8, 12, _timeSectionExpanded['Weekly goals']! ? 2 : 6),
-          decoration: BoxDecoration(
-            gradient: FlutterFlowTheme.of(context).neumorphicGradient,
-            border: Border.all(
-              color: FlutterFlowTheme.of(context).surfaceBorderColor,
-              width: 1,
-            ),
-            borderRadius: BorderRadius.only(
-              topLeft: const Radius.circular(16),
-              topRight: const Radius.circular(16),
-              bottomLeft: _timeSectionExpanded['Weekly goals']!
-                  ? Radius.zero
-                  : const Radius.circular(16),
-              bottomRight: _timeSectionExpanded['Weekly goals']!
-                  ? Radius.zero
-                  : const Radius.circular(16),
-            ),
-            boxShadow: _timeSectionExpanded['Weekly goals']!
-                ? []
-                : FlutterFlowTheme.of(context).neumorphicShadowsRaised,
-          ),
-          child: Row(
-            children: [
-              Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Weekly goals',
-                    style: FlutterFlowTheme.of(context).titleMedium.override(
-                          fontFamily: 'Readex Pro',
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    width: 14,
-                    height: 14,
-                    decoration: BoxDecoration(
-                      color: FlutterFlowTheme.of(context).warning,
-                      shape: BoxShape.circle,
-                    ),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              IconButton(
-                tooltip: _timeSectionExpanded['Weekly goals']!
-                    ? 'Hide Weekly goals'
-                    : 'Show Weekly goals',
-                icon: Icon(
-                  _timeSectionExpanded['Weekly goals']!
-                      ? Icons.expand_less
-                      : Icons.expand_more,
-                ),
-                onPressed: () => setState(() =>
-                    _timeSectionExpanded['Weekly goals'] =
-                        !_timeSectionExpanded['Weekly goals']!),
-              ),
-            ],
-          ),
-        ),
-        if (_timeSectionExpanded['Weekly goals']!)
-          Container(
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 6),
-            decoration: BoxDecoration(
-              gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-              border: Border(
-                left: BorderSide(
-                    color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                    width: 1),
-                right: BorderSide(
-                    color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                    width: 1),
-                bottom: BorderSide(
-                    color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                    width: 1),
-              ),
-              borderRadius: const BorderRadius.only(
-                bottomLeft: Radius.circular(16),
-                bottomRight: Radius.circular(16),
-              ),
-              boxShadow: FlutterFlowTheme.of(context).neumorphicShadowsRaised,
-            ),
-            child: Column(
-              children: weeklyGoals.entries
-                  .where((entry) =>
-                      entry.key.isNotEmpty && entry.key.trim().isNotEmpty)
-                  .map((entry) {
-                final categoryName = entry.key;
-                final habits = entry.value;
-                return Container(
-                  margin:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-                  decoration: BoxDecoration(
-                    gradient:
-                        FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: FlutterFlowTheme.of(context).surfaceBorderColor,
-                        width: 0.5),
-                  ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              categoryName.isNotEmpty
-                                  ? categoryName
-                                  : 'Uncategorized',
-                              style: FlutterFlowTheme.of(context)
-                                  .bodyLarge
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      ...habits.map((h) => _buildWeeklyGoalRow(h)),
-                    ],
-                  ),
-                );
-              }).toList(),
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _buildWeeklyGoalRow(HabitRecord habit) {
-    final remaining = _remainingCompletionsThisWeek(habit);
-    final daysLeft = _daysRemainingThisWeekInclusiveToday();
-    final behind = remaining > daysLeft;
-    final mustToday = remaining == daysLeft;
-    String statusLabel = 'On track';
-    Color statusColor = FlutterFlowTheme.of(context).secondaryText;
-    if (behind) {
-      statusLabel = 'Behind';
-      statusColor = FlutterFlowTheme.of(context).error;
-    } else if (mustToday) {
-      statusLabel = 'Priority';
-      statusColor = FlutterFlowTheme.of(context).warning;
-    }
-
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            habit.name,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: FlutterFlowTheme.of(context).bodyMedium.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-          decoration: BoxDecoration(
-            color: statusColor.withOpacity(0.08),
-            border: Border.all(color: statusColor.withOpacity(0.4), width: 1),
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Text(
-            statusLabel,
-            style: FlutterFlowTheme.of(context).bodySmall.override(
-                  fontFamily: 'Readex Pro',
-                  color: statusColor,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ),
-        const SizedBox(width: 8),
-        Text('Left: $remaining', style: FlutterFlowTheme.of(context).bodySmall),
-        const SizedBox(width: 8),
-        TextButton(
-          onPressed: () async {
-            final now = DateTime.now();
-            final today = DateTime(now.year, now.month, now.day);
-            final skipped = List<DateTime>.from(habit.skippedDates);
-            skipped.removeWhere((d) =>
-                d.year == today.year &&
-                d.month == today.month &&
-                d.day == today.day);
-            await habit.reference.update(
-                {'skippedDates': skipped, 'lastUpdated': DateTime.now()});
-            await _loadHabits();
-          },
-          child: const Text('Do today'),
-        ),
-        TextButton(
-          onPressed: () async {
-            await HabitTrackingUtil.skipToday(habit);
-            await _loadHabits();
-          },
-          child: const Text('Snooze'),
-        ),
-      ],
-    );
-  }
-
-  Widget _buildCategoryWeightStars(CategoryRecord category) {
-    final current = category.weight.round().clamp(1, 3);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (i) {
-        final level = i + 1;
-        final filled = current >= level;
-        return GestureDetector(
-          onTap: () async {
-            try {
-              final next = current % 3 + 1;
-              setState(() {
-                final categoryIndex = _categories
-                    .indexWhere((c) => c.reference.id == category.reference.id);
-                if (categoryIndex != -1) {
-                  final updatedCategoryData = createCategoryRecordData(
-                    weight: next.toDouble(),
-                    categoryType: 'habit',
-                  );
-                  final updatedCategory = CategoryRecord.getDocumentFromData(
-                    {
-                      ..._categories[categoryIndex].snapshotData,
-                      ...updatedCategoryData,
-                    },
-                    _categories[categoryIndex].reference,
-                  );
-                  _categories[categoryIndex] = updatedCategory;
-                }
-              });
-              await updateCategory(
-                categoryId: category.reference.id,
-                weight: next.toDouble(),
-              );
-            } catch (e) {
-              setState(() {
-                final categoryIndex = _categories
-                    .indexWhere((c) => c.reference.id == category.reference.id);
-                if (categoryIndex != -1) {
-                  final revertedCategoryData = createCategoryRecordData(
-                    weight: current.toDouble(),
-                    categoryType: 'habit',
-                  );
-                  final revertedCategory = CategoryRecord.getDocumentFromData(
-                    {
-                      ..._categories[categoryIndex].snapshotData,
-                      ...revertedCategoryData,
-                    },
-                    _categories[categoryIndex].reference,
-                  );
-                  _categories[categoryIndex] = revertedCategory;
-                }
-              });
-
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error updating category weight: $e')),
-              );
-            }
-          },
-          child: Icon(
-            filled ? Icons.star : Icons.star_border,
-            size: 24,
-            color: filled
-                ? Colors.amber
-                : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
-          ),
-        );
-      }),
-    );
-  }
-
   String _getTaskCategoryColor(HabitRecord task) {
     CategoryRecord? matchedCategory;
     try {
@@ -959,7 +552,7 @@ class _QueuePageState extends State<QueuePage> {
       } else if (task.categoryName.isNotEmpty) {
         final taskName = task.categoryName.trim().toLowerCase();
         matchedCategory = _categories.firstWhere(
-          (c) => c.name.trim().toLowerCase() == taskName,
+              (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
     } catch (_) {}
@@ -973,171 +566,20 @@ class _QueuePageState extends State<QueuePage> {
     return '#2196F3';
   }
 
-  CategoryRecord _getTasksCategory() {
-    try {
-      return _categories.firstWhere(
-          (c) => c.name.toLowerCase() == 'tasks' && c.categoryType == 'task');
-    } catch (e) {
-      try {
-        return _categories.firstWhere((c) => c.categoryType == 'task');
-      } catch (e2) {
-        final categoryData = createCategoryRecordData(
-          name: 'Tasks',
-          color: '#2196F3',
-          userId: currentUserUid,
-          isActive: true,
-          weight: 1.0,
-          createdTime: DateTime.now(),
-          lastUpdated: DateTime.now(),
-          categoryType: 'task',
-        );
-        return CategoryRecord.getDocumentFromData(
-          categoryData,
-          FirebaseFirestore.instance.collection('categories').doc(),
-        );
-      }
-    }
-  }
 
   void _updateHabitInLocalState(HabitRecord updated) {
     setState(() {
       final habitIndex =
-          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
 
       final taskIndex =
-          _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
+      _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
       }
-    });
-  }
-
-  void _removeEmptyCategories() {
-    final categoriesWithTasks = <String>{};
-    for (final task in _tasks) {
-      if (!task.isRecurring && task.categoryName.isNotEmpty) {
-        categoriesWithTasks.add(task.categoryName);
-      }
-    }
-    for (final habit in _habits) {
-      if (habit.isRecurring && habit.categoryName.isNotEmpty) {
-        if (_shouldShowInDateFilter(habit)) {
-          categoriesWithTasks.add(habit.categoryName);
-        }
-      }
-    }
-    _categories.removeWhere((category) {
-      return !categoriesWithTasks.contains(category.name);
-    });
-  }
-
-  void _handleCategoryMenuAction(String action, CategoryRecord category) {
-    switch (action) {
-      case 'edit':
-        _showEditCategoryDialog(category);
-        break;
-      case 'delete':
-        _showDeleteCategoryConfirmation(category);
-        break;
-    }
-  }
-
-  void _showEditCategoryDialog(CategoryRecord category) {
-    showDialog(
-      context: context,
-      builder: (context) => CreateCategory(category: category),
-    );
-  }
-
-  void _showDeleteCategoryConfirmation(CategoryRecord category) {
-    showDialog(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Category'),
-        content: Text(
-          'Are you sure you want to delete "${category.name}"? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.of(context).pop();
-              try {
-                await deleteCategory(category.uid, userId: currentUserUid);
-                setState(() {
-                  _categories.removeWhere(
-                      (c) => c.reference.id == category.reference.id);
-                });
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(
-                          'Category "${category.name}" deleted successfully!'),
-                      backgroundColor: Colors.green,
-                    ),
-                  );
-                }
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Error deleting category: $e'),
-                      backgroundColor: Colors.red,
-                    ),
-                  );
-                }
-              }
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-  }
-
-  void _updateTaskInLocalState(HabitRecord task, String? newStatus,
-      [dynamic newCurrentValue,
-      bool? newIsTimerActive,
-      int? newAccumulatedTime,
-      DateTime? newTimerStartTime]) {
-    setState(() {
-      final idx = _tasks.indexWhere((t) => t.reference.id == task.reference.id);
-      if (idx != -1) {
-        final updatedData = {
-          ..._tasks[idx].snapshotData,
-          if (newStatus != null) 'taskStatus': newStatus,
-          if (newCurrentValue != null) 'currentValue': newCurrentValue,
-          if (newIsTimerActive != null) 'isTimerActive': newIsTimerActive,
-          if (newAccumulatedTime != null) 'accumulatedTime': newAccumulatedTime,
-          if (newTimerStartTime != null) 'timerStartTime': newTimerStartTime,
-          'lastUpdated': DateTime.now(),
-        };
-        final updated = HabitRecord.getDocumentFromData(
-          updatedData,
-          _tasks[idx].reference,
-        );
-        _tasks[idx] = updated;
-        if (_isTaskCompleted(updated)) {
-          _tasksTodayOrder
-              .removeWhere((t) => t.reference.id == updated.reference.id);
-        } else {
-          if (!_tasksTodayOrder
-              .any((t) => t.reference.id == updated.reference.id)) {
-            _tasksTodayOrder.add(updated);
-          }
-        }
-      }
-      _loadDataSilently();
     });
   }
 
@@ -1147,18 +589,23 @@ class _QueuePageState extends State<QueuePage> {
       if (uid.isEmpty) return;
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryCategoriesRecordOnce(userId: uid);
-      final taskCategories = await queryTaskCategoriesOnce(userId: uid);
-      final taskCategoryNames = taskCategories.map((c) => c.name).toSet();
+      final categoryTypeMap = <String, String>{};
+      for (final cat in categories) {
+        categoryTypeMap[cat.reference.id] = cat.categoryType;
+      }
       if (!mounted) return;
       setState(() {
         _tasks = allHabits.where((h) {
-          final isTaskCategory = taskCategoryNames.contains(h.categoryName) ||
-              h.categoryName.toLowerCase() == 'tasks' ||
-              h.categoryName.toLowerCase() == 'task';
-          if (!isTaskCategory) return false;
+          if (h.categoryId.isEmpty) return false;
+          final categoryType = categoryTypeMap[h.categoryId];
+          if (categoryType != 'task') return false;
           return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
         }).toList();
-        _habits = allHabits.where((h) => h.isRecurring).toList();
+        _habits = allHabits.where((h) {
+          if (h.categoryId.isEmpty) return false;
+          final categoryType = categoryTypeMap[h.categoryId];
+          return categoryType == 'habit';
+        }).toList();
         _categories = categories;
       });
     } catch (e) {
@@ -1169,4 +616,5 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
   }
+
 }

@@ -8,9 +8,9 @@ import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 class HabitRecord extends FirestoreRecord {
   HabitRecord._(
-    super.reference,
-    super.data,
-  ) {
+      super.reference,
+      super.data,
+      ) {
     _initializeFields();
   }
 
@@ -135,9 +135,20 @@ class HabitRecord extends FirestoreRecord {
   bool hasSnoozedUntil() => _snoozedUntil != null;
 
   // "isRecurring" field to distinguish between tasks (false) and habits (true).
+  // DEPRECATED: Use isTaskRecurring or isHabitRecurring instead
   bool? _isRecurring;
   bool get isRecurring => _isRecurring ?? true;
   bool hasIsRecurring() => _isRecurring != null;
+
+  // "isTaskRecurring" field for tasks (true = recurring task, false = one-time task).
+  bool? _isTaskRecurring;
+  bool get isTaskRecurring => _isTaskRecurring ?? false;
+  bool hasIsTaskRecurring() => _isTaskRecurring != null;
+
+  // "isHabitRecurring" field for habits (always true for habits).
+  bool? _isHabitRecurring;
+  bool get isHabitRecurring => _isHabitRecurring ?? false;
+  bool hasIsHabitRecurring() => _isHabitRecurring != null;
 
   // "dueDate" field for one-time tasks.
   DateTime? _dueDate;
@@ -192,6 +203,8 @@ class HabitRecord extends FirestoreRecord {
     _manualOrder = snapshotData['manualOrder'] as int?;
     _snoozedUntil = snapshotData['snoozedUntil'] as DateTime?;
     _isRecurring = snapshotData['isRecurring'] as bool?;
+    _isTaskRecurring = snapshotData['isTaskRecurring'] as bool?;
+    _isHabitRecurring = snapshotData['isHabitRecurring'] as bool?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
     _status = snapshotData['status'] as String?;
     _skippedDates = (snapshotData['skippedDates'] as List?)?.cast<DateTime>();
@@ -214,14 +227,14 @@ class HabitRecord extends FirestoreRecord {
       ref.get().then((s) => HabitRecord.fromSnapshot(s));
 
   static HabitRecord fromSnapshot(DocumentSnapshot snapshot) => HabitRecord._(
-        snapshot.reference,
-        mapFromFirestore(snapshot.data() as Map<String, dynamic>),
-      );
+    snapshot.reference,
+    mapFromFirestore(snapshot.data() as Map<String, dynamic>),
+  );
 
   static HabitRecord getDocumentFromData(
-    Map<String, dynamic> data,
-    DocumentReference reference,
-  ) =>
+      Map<String, dynamic> data,
+      DocumentReference reference,
+      ) =>
       HabitRecord._(reference, mapFromFirestore(data));
 
   @override
@@ -234,7 +247,7 @@ class HabitRecord extends FirestoreRecord {
   @override
   bool operator ==(other) =>
       other is HabitRecord &&
-      reference.path.hashCode == other.reference.path.hashCode;
+          reference.path.hashCode == other.reference.path.hashCode;
 }
 
 Map<String, dynamic> createHabitRecordData({
@@ -266,6 +279,8 @@ Map<String, dynamic> createHabitRecordData({
   int? manualOrder,
   DateTime? snoozedUntil,
   bool? isRecurring,
+  bool? isTaskRecurring,
+  bool? isHabitRecurring,
   DateTime? dueDate,
   String? status,
 }) {
@@ -299,6 +314,8 @@ Map<String, dynamic> createHabitRecordData({
       'manualOrder': manualOrder,
       'snoozedUntil': snoozedUntil,
       'isRecurring': isRecurring,
+      'isTaskRecurring': isTaskRecurring,
+      'isHabitRecurring': isHabitRecurring,
       'dueDate': dueDate,
       'status': status,
     }.withoutNulls,
@@ -337,40 +354,44 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e1?.accumulatedTime == e2?.accumulatedTime &&
         e1?.snoozedUntil == e2?.snoozedUntil &&
         e1?.isRecurring == e2?.isRecurring &&
+        e1?.isTaskRecurring == e2?.isTaskRecurring &&
+        e1?.isHabitRecurring == e2?.isHabitRecurring &&
         e1?.dueDate == e2?.dueDate &&
         e1?.status == e2?.status;
   }
 
   @override
   int hash(HabitRecord? e) => const ListEquality().hash([
-        e?.name,
-        e?.categoryId,
-        e?.categoryName,
-        e?.impactLevel,
-        e?.priority,
+    e?.name,
+    e?.categoryId,
+    e?.categoryName,
+    e?.impactLevel,
+    e?.priority,
     e?.completedDates,
     e?.trackingType,
-        e?.target,
-        e?.schedule,
-        e?.frequency,
-        e?.description,
-        e?.isActive,
-        e?.createdTime,
-        e?.lastUpdated,
+    e?.target,
+    e?.schedule,
+    e?.frequency,
+    e?.description,
+    e?.isActive,
+    e?.createdTime,
+    e?.lastUpdated,
     e?.userId,
     e?.unit,
     e?.weeklyTarget,
     e?.currentValue,
-        e?.dayEndTime,
-        e?.specificDays,
-        e?.isTimerActive,
-        e?.timerStartTime,
-        e?.accumulatedTime,
-        e?.snoozedUntil,
-        e?.isRecurring,
-        e?.dueDate,
-        e?.status,
-      ]);
+    e?.dayEndTime,
+    e?.specificDays,
+    e?.isTimerActive,
+    e?.timerStartTime,
+    e?.accumulatedTime,
+    e?.snoozedUntil,
+    e?.isRecurring,
+    e?.isTaskRecurring,
+    e?.isHabitRecurring,
+    e?.dueDate,
+    e?.status,
+  ]);
 
   @override
   bool isValidKey(Object? o) => o is HabitRecord;

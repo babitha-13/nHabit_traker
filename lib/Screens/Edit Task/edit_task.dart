@@ -26,7 +26,7 @@ class _CreateTaskState extends State<CreateTask> {
   Duration _targetDuration = const Duration(hours: 1);
   String _unit = '';
   DateTime? _dueDate;
-  bool quickIsRecurring = false;
+  bool quickIsTaskRecurring = false;
 
   @override
   void initState() {
@@ -52,7 +52,7 @@ class _CreateTaskState extends State<CreateTask> {
   void _save() async {
     final docRef = widget.task.reference;
     final updateData = createHabitRecordData(
-      isRecurring: quickIsRecurring,
+      isTaskRecurring: quickIsTaskRecurring,
       name: _titleController.text.trim(),
       categoryId: _selectedCategoryId,
       categoryName: widget.categories
@@ -63,8 +63,8 @@ class _CreateTaskState extends State<CreateTask> {
       target: _selectedTrackingType == 'quantitative'
           ? _targetNumber
           : _selectedTrackingType == 'time'
-              ? _targetDuration.inMinutes
-              : null,
+          ? _targetDuration.inMinutes
+          : null,
       dueDate: _dueDate,
       lastUpdated: DateTime.now(),
     );
@@ -114,8 +114,8 @@ class _CreateTaskState extends State<CreateTask> {
                 Text(
                   'Edit Task',
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
                 const SizedBox(height: 16),
                 TextField(
@@ -126,14 +126,13 @@ class _CreateTaskState extends State<CreateTask> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
                 ),
                 const SizedBox(height: 12),
-                // Category
                 DropdownButtonFormField<String>(
                   value: widget.categories
-                          .any((c) => c.reference.id == _selectedCategoryId)
+                      .any((c) => c.reference.id == _selectedCategoryId)
                       ? _selectedCategoryId
                       : null,
                   decoration: InputDecoration(
@@ -142,16 +141,15 @@ class _CreateTaskState extends State<CreateTask> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   ),
                   items: widget.categories
                       .map((c) => DropdownMenuItem(
-                          value: c.reference.id, child: Text(c.name)))
+                      value: c.reference.id, child: Text(c.name)))
                       .toList(),
                   onChanged: (v) => setState(() => _selectedCategoryId = v),
                 ),
                 const SizedBox(height: 12),
-                // Tracking Type
                 DropdownButtonFormField<String>(
                   value: _selectedTrackingType,
                   decoration: InputDecoration(
@@ -160,7 +158,7 @@ class _CreateTaskState extends State<CreateTask> {
                       borderRadius: BorderRadius.circular(8),
                     ),
                     contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   ),
                   items: const [
                     DropdownMenuItem(value: 'binary', child: Text('To-do')),
@@ -182,7 +180,7 @@ class _CreateTaskState extends State<CreateTask> {
                           horizontal: 12, vertical: 8),
                     ),
                     controller:
-                        TextEditingController(text: _targetNumber.toString()),
+                    TextEditingController(text: _targetNumber.toString()),
                     onChanged: (v) => _targetNumber = int.tryParse(v) ?? 1,
                   ),
                   const SizedBox(height: 8),
@@ -238,7 +236,7 @@ class _CreateTaskState extends State<CreateTask> {
                           ),
                           controller: TextEditingController(
                               text:
-                                  (_targetDuration.inMinutes % 60).toString()),
+                              (_targetDuration.inMinutes % 60).toString()),
                           onChanged: (v) {
                             final m = int.tryParse(v) ?? 0;
                             setState(() => _targetDuration = Duration(
@@ -263,12 +261,12 @@ class _CreateTaskState extends State<CreateTask> {
                             icon: const Icon(Icons.calendar_today),
                             onPressed: _pickDueDate),
                         Transform.scale(
-                          scale: 0.7, // make the switch smaller
+                          scale: 0.7,
                           child: Switch(
-                            value: quickIsRecurring,
+                            value: quickIsTaskRecurring,
                             onChanged: (val) {
                               setState(() {
-                                quickIsRecurring = val;
+                                quickIsTaskRecurring = val;
                               });
                             },
                           ),

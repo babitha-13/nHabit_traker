@@ -84,7 +84,7 @@ class _HabitsPageState extends State<HabitsPage> {
     }
 
     final dueDate =
-        DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
+    DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
 
     if (dueDate.isAtSameMomentAs(today)) {
       return 'Today';
@@ -103,11 +103,21 @@ class _HabitsPageState extends State<HabitsPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final habits = await queryHabitsRecordOnce(userId: userId);
+        final allHabits = await queryHabitsRecordOnce(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
+        final allCategories = await queryCategoriesRecordOnce(userId: userId);
+        final categoryTypeMap = <String, String>{};
+        for (final cat in allCategories) {
+          categoryTypeMap[cat.reference.id] = cat.categoryType;
+        }
+        final habitsOnly = allHabits.where((h) {
+          if (h.categoryId.isEmpty) return false;
+          final categoryType = categoryTypeMap[h.categoryId];
+          return categoryType == 'habit';
+        }).toList();
 
         setState(() {
-          _habits = habits;
+          _habits = habitsOnly;
           _categories = categories;
           _isLoading = false;
         });
@@ -126,15 +136,15 @@ class _HabitsPageState extends State<HabitsPage> {
 
   Map<String, List<HabitRecord>> get _groupedHabits {
     final grouped = <String, List<HabitRecord>>{};
-
     for (final habit in _habits) {
-      if (!habit.isRecurring) continue;
-
+      final isHabit = habit.hasIsHabitRecurring()
+          ? habit.isHabitRecurring
+          : habit.isRecurring;
+      if (!isHabit) continue;
       final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
       if (!_showCompleted && isCompleted) continue;
-
       final categoryName =
-          habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
 
@@ -342,9 +352,9 @@ class _HabitsPageState extends State<HabitsPage> {
               Text(
                 category.name,
                 style: FlutterFlowTheme.of(context).titleMedium.override(
-                      fontFamily: 'Readex Pro',
-                      fontWeight: FontWeight.w600,
-                    ),
+                  fontFamily: 'Readex Pro',
+                  fontWeight: FontWeight.w600,
+                ),
               ),
               const SizedBox(width: 8),
               Container(
@@ -470,7 +480,7 @@ class _HabitsPageState extends State<HabitsPage> {
   void _updateHabitInLocalState(HabitRecord updated) {
     setState(() {
       final habitIndex =
-          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }

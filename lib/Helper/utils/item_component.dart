@@ -19,7 +19,7 @@ class ItemComponent extends StatefulWidget {
   final Future<void> Function()? onRefresh;
   final void Function(HabitRecord updatedHabit)? onHabitUpdated;
   final void Function(HabitRecord deletedHabit)? onHabitDeleted;
-  final String? categoryColorHex;
+  final String? categoryColorHex, page;
   final bool? showCompleted;
   final bool showCalendar;
   final bool showTaskEdit;
@@ -32,20 +32,20 @@ class ItemComponent extends StatefulWidget {
 
   const ItemComponent(
       {Key? key,
-      required this.habit,
-      this.onRefresh,
-      this.onHabitUpdated,
-      this.onHabitDeleted,
-      this.categoryColorHex,
-      this.showCompleted,
-      this.showCalendar = false,
-      this.categories,
-      this.tasks,
-      this.showTaskEdit = false,
-      this.isHabit = false,
-      this.showTypeIcon = true,
-      this.showRecurringIcon = false,
-      this.subtitle})
+        required this.habit,
+        this.onRefresh,
+        this.onHabitUpdated,
+        this.onHabitDeleted,
+        this.categoryColorHex,
+        this.showCompleted,
+        this.showCalendar = false,
+        this.categories,
+        this.tasks,
+        this.showTaskEdit = false,
+        this.isHabit = false,
+        this.showTypeIcon = true,
+        this.showRecurringIcon = false,
+        this.subtitle, this.page})
       : super(key: key);
 
   @override
@@ -83,6 +83,13 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _timerStateOverride = null);
       }
     }
+  }
+
+  bool _isRecurringItem() {
+    if (widget.habit.hasIsHabitRecurring() || widget.habit.hasIsTaskRecurring()) {
+      return widget.habit.isHabitRecurring || widget.habit.isTaskRecurring;
+    }
+    return widget.habit.isRecurring;
   }
 
   Future<void> _copyHabit() async {
@@ -135,7 +142,7 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _timerStateOverride = false);
         await HabitTrackingUtil.stopTimer(widget.habit);
         final updated =
-            await HabitRecord.getDocumentOnce(widget.habit.reference);
+        await HabitRecord.getDocumentOnce(widget.habit.reference);
         if (mounted) {
           widget.onHabitUpdated?.call(updated);
         }
@@ -225,7 +232,6 @@ class _ItemComponentState extends State<ItemComponent>
         motion: const ScrollMotion(),
         dismissible: DismissiblePane(
           onDismissed: () {
-            // This is intentionally left empty because we prevent the dismissal.
           },
           confirmDismiss: () async {
             final docRef = await TimerService.startTimer(
@@ -243,15 +249,12 @@ class _ItemComponentState extends State<ItemComponent>
                 ),
               );
             }
-            // Return false to prevent the item from being dismissed
             return false;
           },
         ),
         children: [
           SlidableAction(
             onPressed: (context) {
-              // This is also intentionally left empty as the primary action
-              // is handled by the dismissible pane's confirmation.
             },
             backgroundColor: FlutterFlowTheme.of(context).primary,
             foregroundColor: Colors.white,
@@ -307,12 +310,12 @@ class _ItemComponentState extends State<ItemComponent>
                                 widget.isHabit ? Icons.flag : Icons.assignment,
                                 size: 16,
                                 color:
-                                    FlutterFlowTheme.of(context).secondaryText,
+                                FlutterFlowTheme.of(context).secondaryText,
                               ),
                             ),
                             Visibility(
                               visible: widget.showRecurringIcon &&
-                                  widget.habit.isRecurring,
+                                  _isRecurringItem(),
                               maintainSize: true,
                               maintainAnimation: true,
                               maintainState: true,
@@ -320,7 +323,7 @@ class _ItemComponentState extends State<ItemComponent>
                                 Icons.repeat,
                                 size: 16,
                                 color:
-                                    FlutterFlowTheme.of(context).secondaryText,
+                                FlutterFlowTheme.of(context).secondaryText,
                               ),
                             ),
                           ],
@@ -338,20 +341,20 @@ class _ItemComponentState extends State<ItemComponent>
                                 style: FlutterFlowTheme.of(context)
                                     .bodyMedium
                                     .override(
-                                      fontFamily: 'Readex Pro',
-                                      fontWeight: FontWeight.w600,
-                                      decoration: _isCompleted
-                                          ? TextDecoration.lineThrough
-                                          : TextDecoration.none,
-                                      color: _isCompleted
-                                          ? FlutterFlowTheme.of(context)
-                                              .secondaryText
-                                          : FlutterFlowTheme.of(context)
-                                              .primaryText,
-                                    ),
+                                  fontFamily: 'Readex Pro',
+                                  fontWeight: FontWeight.w600,
+                                  decoration: _isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : TextDecoration.none,
+                                  color: _isCompleted
+                                      ? FlutterFlowTheme.of(context)
+                                      .secondaryText
+                                      : FlutterFlowTheme.of(context)
+                                      .primaryText,
+                                ),
                               ),
                               if (widget.subtitle != null &&
-                                  widget.subtitle!.isNotEmpty) ...[
+                                  widget.subtitle!.isNotEmpty && widget.page != "task") ...[
                                 const SizedBox(height: 2),
                                 Text(
                                   widget.subtitle!,
@@ -360,11 +363,11 @@ class _ItemComponentState extends State<ItemComponent>
                                   style: FlutterFlowTheme.of(context)
                                       .bodySmall
                                       .override(
-                                        fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
-                                        fontSize: 12,
-                                      ),
+                                    fontFamily: 'Readex Pro',
+                                    color: FlutterFlowTheme.of(context)
+                                        .secondaryText,
+                                    fontSize: 12,
+                                  ),
                                 ),
                               ]
                             ],
@@ -394,11 +397,11 @@ class _ItemComponentState extends State<ItemComponent>
                                 style: FlutterFlowTheme.of(context)
                                     .bodySmall
                                     .override(
-                                      fontFamily: 'Readex Pro',
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      lineHeight: 1.05,
-                                    ),
+                                  fontFamily: 'Readex Pro',
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w600,
+                                  lineHeight: 1.05,
+                                ),
                               ),
                             ),
                           ),
@@ -496,7 +499,7 @@ class _ItemComponentState extends State<ItemComponent>
                 priority: next,
               );
               final updated =
-                  await HabitRecord.getDocumentOnce(widget.habit.reference);
+              await HabitRecord.getDocumentOnce(widget.habit.reference);
               widget.onHabitUpdated?.call(updated);
             } catch (e) {
               if (mounted) {
@@ -521,7 +524,7 @@ class _ItemComponentState extends State<ItemComponent>
   Future<void> _showHabitOverflowMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(
@@ -572,7 +575,7 @@ class _ItemComponentState extends State<ItemComponent>
               });
               if (widget.tasks != null) {
                 final index = widget.tasks!.indexWhere(
-                    (t) => t.reference.id == updatedHabit.reference.id);
+                        (t) => t.reference.id == updatedHabit.reference.id);
                 if (index != -1) {
                   widget.tasks![index] = updatedHabit;
                 }
@@ -602,7 +605,7 @@ class _ItemComponentState extends State<ItemComponent>
         builder: (context) => AlertDialog(
           title: const Text('Delete Habit'),
           content:
-              Text('Delete "${widget.habit.name}"? This cannot be undone.'),
+          Text('Delete "${widget.habit.name}"? This cannot be undone.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -684,9 +687,6 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   void _rescheduleOccurrence() {
-    // TODO: Implement rescheduling logic.
-    // This is complex and needs more thought.
-    // For now, let's show a snackbar.
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Rescheduling not implemented yet.')),
     );
@@ -704,7 +704,7 @@ class _ItemComponentState extends State<ItemComponent>
         await updateHabit(
             habitRef: widget.habit.reference, snoozedUntil: picked);
         final updated =
-            await HabitRecord.getDocumentOnce(widget.habit.reference);
+        await HabitRecord.getDocumentOnce(widget.habit.reference);
         widget.onHabitUpdated?.call(updated);
         if (mounted) {
           final label = DateFormat('EEE, MMM d').format(picked);
@@ -725,19 +725,18 @@ class _ItemComponentState extends State<ItemComponent>
   Future<void> _showScheduleMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
 
     List<PopupMenuEntry<String>> items;
-    if (widget.habit.isRecurring) {
-      // Recurring Task Menu
+    if (_isRecurringItem()) {
       items = const [
         PopupMenuItem<String>(
             value: 'skip_occurrence',
             height: 32,
             child:
-                Text('Skip This Occurrence', style: TextStyle(fontSize: 12))),
+            Text('Skip This Occurrence', style: TextStyle(fontSize: 12))),
         PopupMenuItem<String>(
             value: 'reschedule_occurrence',
             height: 32,
@@ -749,7 +748,6 @@ class _ItemComponentState extends State<ItemComponent>
             child: Text('Skip Until...', style: TextStyle(fontSize: 12))),
       ];
     } else {
-      // One-Time Task Menu
       items = const [
         PopupMenuItem<String>(
             value: 'schedule_today',
@@ -759,7 +757,7 @@ class _ItemComponentState extends State<ItemComponent>
             value: 'schedule_tomorrow',
             height: 32,
             child:
-                Text('Schedule for Tomorrow', style: TextStyle(fontSize: 12))),
+            Text('Schedule for Tomorrow', style: TextStyle(fontSize: 12))),
         PopupMenuItem<String>(
             value: 'pick_date',
             height: 32,
@@ -784,7 +782,6 @@ class _ItemComponentState extends State<ItemComponent>
     if (selected == null) return;
 
     switch (selected) {
-      // One-Time
       case 'schedule_today':
         _scheduleForToday();
         break;
@@ -794,7 +791,6 @@ class _ItemComponentState extends State<ItemComponent>
       case 'pick_date':
         _pickDueDate();
         break;
-      // Recurring
       case 'skip_occurrence':
         _skipOccurrence();
         break;
@@ -811,7 +807,7 @@ class _ItemComponentState extends State<ItemComponent>
       BuildContext anchorContext, bool canDecrement) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(
@@ -917,34 +913,33 @@ class _ItemComponentState extends State<ItemComponent>
             onChanged: _isUpdating
                 ? null
                 : (value) async {
-                    setState(() => _isUpdating = true);
-                    try {
-                      if (value == true) {
-                        await HabitTrackingUtil.markCompleted(widget.habit);
-                      } else {
-                        final today = DateTime.now();
-                        final todayDate =
-                            DateTime(today.year, today.month, today.day);
-                        // Note: completedDates tracking moved to separate completion records
-                        final completedDates = <DateTime>[];
-                        completedDates.removeWhere((date) =>
-                            date.year == todayDate.year &&
-                            date.month == todayDate.month &&
-                            date.day == todayDate.day);
-                        await widget.habit.reference.update({
-                          'status': 'incomplete',
-                          'completedDates': completedDates,
-                          'lastUpdated': DateTime.now(),
-                        });
-                      }
-                      final updated = await HabitRecord.getDocumentOnce(
-                          widget.habit.reference);
-                      widget.onHabitUpdated?.call(updated);
-                    } catch (_) {
-                    } finally {
-                      if (mounted) setState(() => _isUpdating = false);
-                    }
-                  },
+              setState(() => _isUpdating = true);
+              try {
+                if (value == true) {
+                  await HabitTrackingUtil.markCompleted(widget.habit);
+                } else {
+                  final today = DateTime.now();
+                  final todayDate =
+                  DateTime(today.year, today.month, today.day);
+                  final completedDates = <DateTime>[];
+                  completedDates.removeWhere((date) =>
+                  date.year == todayDate.year &&
+                      date.month == todayDate.month &&
+                      date.day == todayDate.day);
+                  await widget.habit.reference.update({
+                    'status': 'incomplete',
+                    'completedDates': completedDates,
+                    'lastUpdated': DateTime.now(),
+                  });
+                }
+                final updated = await HabitRecord.getDocumentOnce(
+                    widget.habit.reference);
+                widget.onHabitUpdated?.call(updated);
+              } catch (_) {
+              } finally {
+                if (mounted) setState(() => _isUpdating = false);
+              }
+            },
             activeColor: _impactLevelColor,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
@@ -999,8 +994,7 @@ class _ItemComponentState extends State<ItemComponent>
                 setState(() => _isUpdating = true);
                 try {
                   if (_isTimerActiveLocal) {
-                    // Stop the timer
-                    _timer?.cancel(); // stop local timer
+                    _timer?.cancel();
                     await HabitTrackingUtil.stopTimer(widget.habit);
                     TimerManager().stop(widget.habit);
 
@@ -1009,7 +1003,6 @@ class _ItemComponentState extends State<ItemComponent>
                       showInFloatingTimer: false,
                     ));
                   } else {
-                    // Start the timer
                     final now = DateTime.now();
                     await HabitTrackingUtil.startTimer(widget.habit);
                     TimerManager().start(widget.habit);
@@ -1019,14 +1012,10 @@ class _ItemComponentState extends State<ItemComponent>
                       showInFloatingTimer: true,
                       timerStartTime: now,
                     ));
-
-                    // Start the local timer in this widget
                     _startTimer();
                   }
-
-                  // Update UI with latest habit
                   final updated =
-                      await HabitRecord.getDocumentOnce(widget.habit.reference);
+                  await HabitRecord.getDocumentOnce(widget.habit.reference);
                   widget.onHabitUpdated?.call(updated);
                 } catch (_) {
                   setState(() => _timerStateOverride = null);
@@ -1058,8 +1047,8 @@ class _ItemComponentState extends State<ItemComponent>
       final current = (currentProgress is int)
           ? currentProgress
           : (currentProgress is double)
-              ? currentProgress.round()
-              : int.tryParse(currentProgress.toString()) ?? 0;
+          ? currentProgress.round()
+          : int.tryParse(currentProgress.toString()) ?? 0;
       int newProgress = current + delta;
       if (newProgress < 0) {
         newProgress = 0;

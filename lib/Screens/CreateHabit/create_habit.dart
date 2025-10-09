@@ -112,7 +112,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
     try {
       final userId = currentUserUid;
       final selectedCategory = _categories.firstWhere(
-        (cat) => cat.reference.id == _selectedCategoryId,
+            (cat) => cat.reference.id == _selectedCategoryId,
       );
 
       dynamic targetValue;
@@ -140,7 +140,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
         unit: _unitController.text.trim(),
         dayEndTime: 0,
         specificDays: _selectedDays.isNotEmpty ? _selectedDays : null,
-        isRecurring: true,
+        isHabitRecurring: true,
         isActive: true,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
@@ -228,13 +228,13 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                                 ),
                                 items: _categories
                                     .map((c) => DropdownMenuItem(
-                                        value: c.reference.id,
-                                        child: Text(c.name)))
+                                    value: c.reference.id,
+                                    child: Text(c.name)))
                                     .toList(),
                                 onChanged: (v) =>
                                     setState(() => _selectedCategoryId = v),
                                 validator: (v) =>
-                                    v == null ? 'Select a category' : null,
+                                v == null ? 'Select a category' : null,
                               ),
                             ),
                             const SizedBox(
@@ -296,7 +296,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                         onChanged: (v) =>
                             setState(() => _selectedTrackingType = v),
                         validator: (v) =>
-                            v == null ? 'Select tracking type' : null,
+                        v == null ? 'Select tracking type' : null,
                       ),
                       const SizedBox(height: 24),
                       if (_selectedTrackingType == 'quantitative') ...[
@@ -304,56 +304,56 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                         Row(children: [
                           Expanded(
                               child: TextFormField(
-                            initialValue: _targetNumber.toString(),
-                            decoration: const InputDecoration(
-                                labelText: 'Target *',
-                                border: OutlineInputBorder()),
-                            keyboardType: TextInputType.number,
-                            onChanged: (v) => setState(
-                                () => _targetNumber = int.tryParse(v) ?? 1),
-                          )),
+                                initialValue: _targetNumber.toString(),
+                                decoration: const InputDecoration(
+                                    labelText: 'Target *',
+                                    border: OutlineInputBorder()),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) => setState(
+                                        () => _targetNumber = int.tryParse(v) ?? 1),
+                              )),
                           const SizedBox(width: 12),
                           Expanded(
                               child: TextFormField(
-                            controller: _unitController,
-                            decoration: const InputDecoration(
-                                labelText: 'Unit',
-                                border: OutlineInputBorder()),
-                          )),
+                                controller: _unitController,
+                                decoration: const InputDecoration(
+                                    labelText: 'Unit',
+                                    border: OutlineInputBorder()),
+                              )),
                         ]),
                       ] else if (_selectedTrackingType == 'time') ...[
                         _buildSectionHeader('Target'),
                         Row(children: [
                           Expanded(
                               child: TextFormField(
-                            initialValue: _targetDuration.inHours.toString(),
-                            decoration: const InputDecoration(
-                                labelText: 'Hours *',
-                                border: OutlineInputBorder()),
-                            keyboardType: TextInputType.number,
-                            onChanged: (v) {
-                              final hours = int.tryParse(v) ?? 1;
-                              setState(() => _targetDuration = Duration(
-                                  hours: hours,
-                                  minutes: _targetDuration.inMinutes % 60));
-                            },
-                          )),
+                                initialValue: _targetDuration.inHours.toString(),
+                                decoration: const InputDecoration(
+                                    labelText: 'Hours *',
+                                    border: OutlineInputBorder()),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final hours = int.tryParse(v) ?? 1;
+                                  setState(() => _targetDuration = Duration(
+                                      hours: hours,
+                                      minutes: _targetDuration.inMinutes % 60));
+                                },
+                              )),
                           const SizedBox(width: 12),
                           Expanded(
                               child: TextFormField(
-                            initialValue:
+                                initialValue:
                                 (_targetDuration.inMinutes % 60).toString(),
-                            decoration: const InputDecoration(
-                                labelText: 'Minutes',
-                                border: OutlineInputBorder()),
-                            keyboardType: TextInputType.number,
-                            onChanged: (v) {
-                              final mins = int.tryParse(v) ?? 0;
-                              setState(() => _targetDuration = Duration(
-                                  hours: _targetDuration.inHours,
-                                  minutes: mins));
-                            },
-                          )),
+                                decoration: const InputDecoration(
+                                    labelText: 'Minutes',
+                                    border: OutlineInputBorder()),
+                                keyboardType: TextInputType.number,
+                                onChanged: (v) {
+                                  final mins = int.tryParse(v) ?? 0;
+                                  setState(() => _targetDuration = Duration(
+                                      hours: _targetDuration.inHours,
+                                      minutes: mins));
+                                },
+                              )),
                         ]),
                       ],
                       const SizedBox(height: 24),
@@ -388,7 +388,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                           ),
                           keyboardType: TextInputType.number,
                           onChanged: (v) => setState(
-                              () => _weeklyTarget = int.tryParse(v) ?? 1),
+                                  () => _weeklyTarget = int.tryParse(v) ?? 1),
                         ),
                         const SizedBox(height: 12),
                       ],
@@ -420,7 +420,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           contentPadding:
-                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -457,7 +457,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                     child: _isSaving
                         ? const CircularProgressIndicator(color: Colors.white)
                         : const Text('Create Habit',
-                            style: TextStyle(color: Colors.white)),
+                        style: TextStyle(color: Colors.white)),
                   ),
                 ),
               ),
