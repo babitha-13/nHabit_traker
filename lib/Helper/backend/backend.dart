@@ -52,10 +52,10 @@ Future<List<UsersRecord>> queryUsersRecordOnce({
     );
 
 Future<int> queryCollectionCount(
-  Query collection, {
-  Query Function(Query)? queryBuilder,
-  int limit = -1,
-}) async {
+    Query collection, {
+      Query Function(Query)? queryBuilder,
+      int limit = -1,
+    }) async {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0) {
@@ -72,12 +72,12 @@ Future<int> queryCollectionCount(
 }
 
 Stream<List<T>> queryCollection<T>(
-  Query collection,
-  RecordBuilder<T> recordBuilder, {
-  Query Function(Query)? queryBuilder,
-  int limit = -1,
-  bool singleRecord = false,
-}) {
+    Query collection,
+    RecordBuilder<T> recordBuilder, {
+      Query Function(Query)? queryBuilder,
+      int limit = -1,
+      bool singleRecord = false,
+    }) {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0 || singleRecord) {
@@ -90,20 +90,20 @@ Stream<List<T>> queryCollection<T>(
         (d) => safeGet(
           () => recordBuilder(d),
           (e) => print('Error serializing doc ${d.reference.path}:\n$e'),
-        ),
-      )
+    ),
+  )
       .where((d) => d != null)
       .map((d) => d!)
       .toList());
 }
 
 Future<List<T>> queryCollectionOnce<T>(
-  Query collection,
-  RecordBuilder<T> recordBuilder, {
-  Query Function(Query)? queryBuilder,
-  int limit = -1,
-  bool singleRecord = false,
-}) {
+    Query collection,
+    RecordBuilder<T> recordBuilder, {
+      Query Function(Query)? queryBuilder,
+      int limit = -1,
+      bool singleRecord = false,
+    }) {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0 || singleRecord) {
@@ -115,8 +115,8 @@ Future<List<T>> queryCollectionOnce<T>(
         (d) => safeGet(
           () => recordBuilder(d),
           (e) => print('Error serializing doc ${d.reference.path}:\n$e'),
-        ),
-      )
+    ),
+  )
       .where((d) => d != null)
       .map((d) => d!)
       .toList());
@@ -155,13 +155,13 @@ class FFFirestorePage<T> {
 }
 
 Future<FFFirestorePage<T>> queryCollectionPage<T>(
-  Query collection,
-  RecordBuilder<T> recordBuilder, {
-  Query Function(Query)? queryBuilder,
-  DocumentSnapshot? nextPageMarker,
-  required int pageSize,
-  required bool isStream,
-}) async {
+    Query collection,
+    RecordBuilder<T> recordBuilder, {
+      Query Function(Query)? queryBuilder,
+      DocumentSnapshot? nextPageMarker,
+      required int pageSize,
+      required bool isStream,
+    }) async {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection).limit(pageSize);
   if (nextPageMarker != null) {
@@ -180,8 +180,8 @@ Future<FFFirestorePage<T>> queryCollectionPage<T>(
         (d) => safeGet(
           () => recordBuilder(d),
           (e) => print('Error serializing doc ${d.reference.path}:\n$e'),
-        ),
-      )
+    ),
+  )
       .where((d) => d != null)
       .map((d) => d!)
       .toList();
@@ -218,7 +218,7 @@ Future maybeCreateUser(User user) async {
           FirebaseAuth.instance.currentUser?.email ??
           user.providerData.firstOrNull?.email,
       displayName:
-          user.displayName ?? FirebaseAuth.instance.currentUser?.displayName,
+      user.displayName ?? FirebaseAuth.instance.currentUser?.displayName,
       photoUrl: user.photoURL,
       uid: user.uid,
       phoneNumber: user.phoneNumber,
@@ -257,7 +257,7 @@ Future<List<HabitRecord>> queryHabitsRecordOnce({
         .where('isActive', isEqualTo: true);
     final result = await query.get();
     final habits =
-        result.docs.map((doc) => HabitRecord.fromSnapshot(doc)).toList();
+    result.docs.map((doc) => HabitRecord.fromSnapshot(doc)).toList();
 
     // Sort in memory instead of in query
     habits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
@@ -290,7 +290,7 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
 
     // Filter in memory (no Firestore index needed)
     final habitCategories =
-        allCategories.where((c) => c.categoryType == 'habit').toList();
+    allCategories.where((c) => c.categoryType == 'habit').toList();
 
     // Sort in memory
     habitCategories.sort((a, b) => a.name.compareTo(b.name));
@@ -311,7 +311,7 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
 
     // Filter in memory (no Firestore index needed)
     final taskCategories =
-        allCategories.where((c) => c.categoryType == 'task').toList();
+    allCategories.where((c) => c.categoryType == 'task').toList();
 
     // Sort in memory
     taskCategories.sort((a, b) => a.name.compareTo(b.name));
@@ -329,10 +329,10 @@ Future<List<TaskRecord>> queryTasksRecordOnce({
   try {
     // Use simple query without orderBy to avoid Firestore composite index requirements
     final query =
-        TaskRecord.collectionForUser(userId).where('isActive', isEqualTo: true);
+    TaskRecord.collectionForUser(userId).where('isActive', isEqualTo: true);
     final result = await query.get();
     final tasks =
-        result.docs.map((doc) => TaskRecord.fromSnapshot(doc)).toList();
+    result.docs.map((doc) => TaskRecord.fromSnapshot(doc)).toList();
 
     // Sort in memory instead of in query
     tasks.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
@@ -406,6 +406,7 @@ Future<DocumentReference> createHabit({
     isActive: true,
     createdTime: DateTime.now(),
     lastUpdated: DateTime.now(),
+    categoryType: 'habit',
   );
 
   final habitRef = await HabitRecord.collectionForUser(uid).add(habitData);
@@ -440,7 +441,7 @@ Future<DocumentReference> createCategory({
   final uid = userId ?? currentUser?.uid ?? '';
   final existingCategories = await queryCategoriesRecordOnce(userId: uid);
   final nameExists = existingCategories.any((cat) =>
-      cat.name.toString().trim().toLowerCase() ==
+  cat.name.toString().trim().toLowerCase() ==
       name.toString().trim().toLowerCase());
 
   if (nameExists) {
@@ -480,9 +481,9 @@ Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
 
     // Find inbox category in memory
     final inboxCategory = allCategories.firstWhere(
-      (c) => c.name == 'Inbox' && c.isSystemCategory,
+          (c) => c.name == 'Inbox' && c.isSystemCategory,
       orElse: () => allCategories.firstWhere(
-        (c) => c.name == 'Inbox',
+            (c) => c.name == 'Inbox',
         orElse: () => throw StateError('No inbox found'),
       ),
     );
@@ -525,156 +526,6 @@ Future<List<CategoryRecord>> queryUserCategoriesOnce({
     print('Error querying user categories: $e');
     return []; // Return empty list on error
   }
-}
-
-/// Create a default or new task (defaults to inbox category if none provided)
-Future<DocumentReference> createTask({
-  required String title,
-  String? description,
-  DateTime? dueDate,
-  int priority =
-      1, // Changed from 0 to 1 - all tasks should have at least 1 star
-  String? categoryId,
-  String? categoryName,
-  String? userId,
-  bool isRecurring = false,
-  String schedule = 'daily',
-  int frequency = 1,
-  List<int>? specificDays,
-}) async {
-  final currentUser = FirebaseAuth.instance.currentUser;
-  final uid = userId ?? currentUser?.uid ?? '';
-
-  // Ensure we have a category; if not, fallback to inbox
-  String resolvedCategoryName = categoryName ?? 'Inbox';
-  String resolvedCategoryId = categoryId ?? '';
-
-  if (resolvedCategoryId.isEmpty) {
-    // Get or create the inbox category
-    final inboxCategory = await getOrCreateInboxCategory(userId: uid);
-    resolvedCategoryId = inboxCategory.reference.id;
-    resolvedCategoryName = inboxCategory.name;
-  }
-
-  final taskData = createTaskRecordData(
-    title: title,
-    description: description,
-    status: 'incomplete',
-    dueDate: dueDate,
-    priority: priority,
-    trackingType: 'binary',
-    target: null,
-    schedule: schedule,
-    unit: '',
-    showInFloatingTimer: false,
-    accumulatedTime: 0,
-    isActive: true,
-    createdTime: DateTime.now(),
-    categoryId: resolvedCategoryId,
-    categoryName: resolvedCategoryName,
-    specificDays: specificDays,
-    isTimerActive: false,
-    timerStartTime: null,
-    snoozedUntil: null,
-    isRecurring: isRecurring,
-    frequency: frequency,
-    lastUpdated: DateTime.now(),
-    dayEndTime: 0,
-    currentValue: null,
-  );
-
-  final taskRef = await TaskRecord.collectionForUser(uid).add(taskData);
-
-  // Create initial task instance
-  try {
-    final task = await TaskRecord.getDocumentOnce(taskRef);
-    await TaskInstanceService.initializeTaskInstances(
-      templateId: taskRef.id,
-      template: task,
-      userId: uid,
-    );
-  } catch (e) {
-    print('Error creating initial task instance: $e');
-    // Don't fail the task creation if instance creation fails
-  }
-
-  return taskRef;
-}
-
-/// Create a task with specific tracking type and target
-Future<DocumentReference> createTaskWithTracking({
-  required String title,
-  String? description,
-  DateTime? dueDate,
-  int priority = 1,
-  String? categoryId,
-  String? categoryName,
-  String? userId,
-  String trackingType = 'binary',
-  dynamic target,
-  String unit = '',
-  bool isRecurring = false,
-  String schedule = 'daily',
-  int frequency = 1,
-  List<int>? specificDays,
-}) async {
-  final currentUser = FirebaseAuth.instance.currentUser;
-  final uid = userId ?? currentUser?.uid ?? '';
-
-  // Ensure we have a category; if not, fallback to inbox
-  String resolvedCategoryName = categoryName ?? 'Inbox';
-  String resolvedCategoryId = categoryId ?? '';
-
-  if (resolvedCategoryId.isEmpty) {
-    // Get or create the inbox category
-    final inboxCategory = await getOrCreateInboxCategory(userId: uid);
-    resolvedCategoryId = inboxCategory.reference.id;
-    resolvedCategoryName = inboxCategory.name;
-  }
-
-  final taskData = createTaskRecordData(
-    title: title,
-    description: description,
-    status: 'incomplete',
-    dueDate: dueDate,
-    priority: priority,
-    trackingType: trackingType,
-    target: target,
-    schedule: schedule,
-    unit: unit,
-    showInFloatingTimer: trackingType == 'time',
-    accumulatedTime: 0,
-    isActive: true,
-    createdTime: DateTime.now(),
-    categoryId: resolvedCategoryId,
-    categoryName: resolvedCategoryName,
-    specificDays: specificDays,
-    isTimerActive: false,
-    timerStartTime: null,
-    snoozedUntil: null,
-    isRecurring: isRecurring,
-    frequency: frequency,
-    lastUpdated: DateTime.now(),
-    dayEndTime: 0,
-    currentValue: trackingType == 'binary' ? null : 0,
-  );
-
-  final taskRef = await TaskRecord.collectionForUser(uid).add(taskData);
-
-  // Create initial task instance
-  try {
-    final task = await TaskRecord.getDocumentOnce(taskRef);
-    await TaskInstanceService.initializeTaskInstances(
-      templateId: taskRef.id,
-      template: task,
-      userId: uid,
-    );
-  } catch (e) {
-    print('Error creating initial task instance: $e');
-    // Don't fail the task creation if instance creation fails
-  }
-
-  return taskRef;
 }
 
 /// Update a task
@@ -778,7 +629,7 @@ Future<DocumentReference> createSequence({
   for (final habitId in habitIds) {
     try {
       final habitDoc =
-          await HabitRecord.collectionForUser(uid).doc(habitId).get();
+      await HabitRecord.collectionForUser(uid).doc(habitId).get();
       if (habitDoc.exists) {
         final habitData = habitDoc.data() as Map<String, dynamic>?;
         if (habitData != null) {

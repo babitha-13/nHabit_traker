@@ -90,17 +90,11 @@ class _QueuePageState extends State<QueuePage> {
         final categories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final allCategories = [...categories, ...taskCategories];
-        final categoryTypeMap = <String, String>{};
-        for (final cat in allCategories) {
-          categoryTypeMap[cat.reference.id] = cat.categoryType;
-        }
         setState(() {
           _habits = allHabits;
           _categories = allCategories;
           _tasks = allHabits.where((h) {
-            if (h.categoryId.isEmpty) return false;
-            final categoryType = categoryTypeMap[h.categoryId];
-            if (categoryType != 'task') return false;
+            if (h.categoryType != 'task') return false;
             if (_isTaskCompleted(h) && !_showCompleted) return false;
             return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
           }).toList();
@@ -509,7 +503,7 @@ class _QueuePageState extends State<QueuePage> {
                     }
                   },
                 );
-                final isHabit = category.categoryType == 'habit';
+                final isHabit = item.categoryType == 'habit';
                 return ItemComponent(
                   subtitle: _getSubtitle(item, key),
                   key: Key(item.reference.id),
@@ -589,22 +583,14 @@ class _QueuePageState extends State<QueuePage> {
       if (uid.isEmpty) return;
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryCategoriesRecordOnce(userId: uid);
-      final categoryTypeMap = <String, String>{};
-      for (final cat in categories) {
-        categoryTypeMap[cat.reference.id] = cat.categoryType;
-      }
       if (!mounted) return;
       setState(() {
         _tasks = allHabits.where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          if (categoryType != 'task') return false;
+          if (h.categoryType != 'task') return false;
           return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
         }).toList();
         _habits = allHabits.where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          return categoryType == 'habit';
+          return h.categoryType == 'habit';
         }).toList();
         _categories = categories;
       });

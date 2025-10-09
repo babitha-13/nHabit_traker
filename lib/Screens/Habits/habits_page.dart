@@ -105,15 +105,9 @@ class _HabitsPageState extends State<HabitsPage> {
       if (userId.isNotEmpty) {
         final allHabits = await queryHabitsRecordOnce(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
-        final allCategories = await queryCategoriesRecordOnce(userId: userId);
-        final categoryTypeMap = <String, String>{};
-        for (final cat in allCategories) {
-          categoryTypeMap[cat.reference.id] = cat.categoryType;
-        }
+        // Filter habits based on their own categoryType field
         final habitsOnly = allHabits.where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          return categoryType == 'habit';
+          return h.categoryType == 'habit';
         }).toList();
 
         setState(() {
@@ -137,10 +131,7 @@ class _HabitsPageState extends State<HabitsPage> {
   Map<String, List<HabitRecord>> get _groupedHabits {
     final grouped = <String, List<HabitRecord>>{};
     for (final habit in _habits) {
-      final isHabit = habit.hasIsHabitRecurring()
-          ? habit.isHabitRecurring
-          : habit.isRecurring;
-      if (!isHabit) continue;
+      // No need to check isHabitRecurring since we already filtered by categoryType
       final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
       if (!_showCompleted && isCompleted) continue;
       final categoryName =

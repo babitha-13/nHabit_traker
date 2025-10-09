@@ -135,6 +135,10 @@ class TaskRecord extends FirestoreRecord {
   dynamic get currentValue => _currentValue;
   bool hasCurrentValue() => _currentValue != null;
 
+  String? _categoryType;
+  String get categoryType => _categoryType ?? 'task';
+  bool hasCategoryType() => _categoryType != null;
+
   void _initializeFields() {
     _name = snapshotData['name'] as String?;
     _status = snapshotData['status'] as String?;
@@ -162,6 +166,7 @@ class TaskRecord extends FirestoreRecord {
     _dayEndTime = snapshotData['dayEndTime'] as int?;
     _currentValue = snapshotData['currentValue'];
     _manualOrder = snapshotData['manualOrder'] as int?;
+    _categoryType = snapshotData['categoryType'] as String?;
   }
 
   static CollectionReference get collection =>
@@ -203,65 +208,6 @@ class TaskRecord extends FirestoreRecord {
       reference.path.hashCode == other.reference.path.hashCode;
 }
 
-Map<String, dynamic> createTaskRecordData({
-  String? title,
-  String? description,
-  String? status,
-  DateTime? dueDate,
-  int? priority,
-  String? trackingType,
-  dynamic target,
-  String? schedule,
-  String? unit,
-  bool? showInFloatingTimer,
-  int? accumulatedTime,
-  int? manualOrder,
-  bool? isActive,
-  DateTime? createdTime,
-  DateTime? completedTime,
-  String? categoryId,
-  String? categoryName,
-  List<int>? specificDays,
-  bool? isTimerActive,
-  DateTime? timerStartTime,
-  DateTime? snoozedUntil,
-  bool? isRecurring,
-  int? frequency,
-  DateTime? lastUpdated,
-  int? dayEndTime,
-  dynamic currentValue,
-}) {
-  final firestoreData = mapToFirestore(<String, dynamic>{
-    'name': title,
-    'status': status,
-    'dueDate': dueDate,
-    'priority': priority,
-    'trackingType': trackingType,
-    'target': target,
-    'schedule': schedule,
-    'unit': unit,
-    'showInFloatingTimer': showInFloatingTimer,
-    'accumulatedTime': accumulatedTime,
-    'manualOrder': manualOrder,
-    'isActive': isActive,
-    'createdTime': createdTime,
-    'completedTime': completedTime,
-    'categoryId': categoryId,
-    'categoryName': categoryName,
-    'specificDays': specificDays,
-    'isTimerActive': isTimerActive,
-    'timerStartTime': timerStartTime,
-    'snoozedUntil': snoozedUntil,
-    'isRecurring': isRecurring,
-    'frequency': frequency,
-    'description': description,
-    'lastUpdated': lastUpdated,
-    'dayEndTime': dayEndTime,
-    'currentValue': currentValue,
-  }.withoutNulls);
-
-  return firestoreData;
-}
 
 class TaskRecordDocumentEquality implements Equality<TaskRecord> {
   const TaskRecordDocumentEquality();

@@ -175,6 +175,10 @@ class HabitRecord extends FirestoreRecord {
   int get weeklyTarget => _weeklyTarget ?? 1;
   bool hasWeeklyTarget() => _weeklyTarget != null;
 
+  String? _categoryType;
+  String get categoryType => _categoryType ?? 'habit';
+  bool hasCategoryType() => _categoryType != null;
+
   void _initializeFields() {
     _name = snapshotData['name'] as String?;
     _categoryId = snapshotData['categoryId'] as String?;
@@ -208,6 +212,7 @@ class HabitRecord extends FirestoreRecord {
     _dueDate = snapshotData['dueDate'] as DateTime?;
     _status = snapshotData['status'] as String?;
     _skippedDates = (snapshotData['skippedDates'] as List?)?.cast<DateTime>();
+    _categoryType = snapshotData['categoryType'] as String?;
 
   }
 
@@ -283,6 +288,8 @@ Map<String, dynamic> createHabitRecordData({
   bool? isHabitRecurring,
   DateTime? dueDate,
   String? status,
+  String? categoryType,
+
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -318,6 +325,8 @@ Map<String, dynamic> createHabitRecordData({
       'isHabitRecurring': isHabitRecurring,
       'dueDate': dueDate,
       'status': status,
+      'categoryType': categoryType,
+
     }.withoutNulls,
   );
 
@@ -358,6 +367,7 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e1?.isHabitRecurring == e2?.isHabitRecurring &&
         e1?.dueDate == e2?.dueDate &&
         e1?.status == e2?.status;
+        e1?.categoryType == e2?.categoryType;
   }
 
   @override
@@ -391,6 +401,7 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
     e?.isHabitRecurring,
     e?.dueDate,
     e?.status,
+    e?.categoryType
   ]);
 
   @override

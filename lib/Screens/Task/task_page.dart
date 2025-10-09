@@ -126,26 +126,17 @@ class _TaskPageState extends State<TaskPage> {
       }
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
-      final allCategories = await queryCategoriesRecordOnce(userId: uid);
-      final categoryTypeMap = <String, String>{};
-      for (final cat in allCategories) {
-        categoryTypeMap[cat.reference.id] = cat.categoryType;
-      }
 
       setState(() {
         _categories = categories;
         _tasks = allHabits
             .where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          if (categoryType != 'task') return false;
+          if (h.categoryType != 'task') return false;
           return (widget.categoryId == null || h.categoryId == widget.categoryId);
         }).toList();
         _habits = allHabits
             .where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          if (categoryType != 'habit') return false;
+          if (h.categoryType != 'habit') return false;
           return (widget.categoryId == null || h.categoryId == widget.categoryId);
         }).toList();
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
@@ -659,6 +650,7 @@ class _TaskPageState extends State<TaskPage> {
         schedule: quickIsRecurring ? _quickSchedule : 'daily',
         frequency: quickIsRecurring ? _quickFrequency : 1,
         specificDays: quickIsRecurring ? _quickSelectedDays : null,
+        categoryType: 'task',
       );
       final docRef =
       await HabitRecord.collectionForUser(currentUserUid).add(taskData);
@@ -857,22 +849,13 @@ class _TaskPageState extends State<TaskPage> {
       if (uid.isEmpty) return;
       final allHabits = await queryHabitsRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
-      final allCategories = await queryCategoriesRecordOnce(userId: uid);
-      final categoryTypeMap = <String, String>{};
-      for (final cat in allCategories) {
-        categoryTypeMap[cat.reference.id] = cat.categoryType;
-      }
       if (!mounted) return;
       setState(() {
         _tasks = allHabits.where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          return categoryType == 'task';
+          return h.categoryType == 'task';
         }).toList();
         _habits = allHabits.where((h) {
-          if (h.categoryId.isEmpty) return false;
-          final categoryType = categoryTypeMap[h.categoryId];
-          return categoryType == 'habit';
+          return h.categoryType == 'habit';
         }).toList();
         _categories = categories;
         if (_selectedQuickCategoryId == null && categories.isNotEmpty) {

@@ -144,6 +144,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
         isActive: true,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
+        categoryType: 'habit',
       );
       if (widget.habitToEdit != null) {
         await widget.habitToEdit!.reference.update(recordData);

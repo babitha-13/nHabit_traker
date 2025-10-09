@@ -67,6 +67,7 @@ class _CreateTaskState extends State<CreateTask> {
           : null,
       dueDate: _dueDate,
       lastUpdated: DateTime.now(),
+      categoryType: 'task',
     );
     try {
       await docRef.update(updateData);
