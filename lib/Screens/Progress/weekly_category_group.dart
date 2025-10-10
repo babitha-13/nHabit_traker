@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/neumorphic_container.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Progress/weekly_habit_item.dart';
 
 class WeeklyCategoryGroup extends StatefulWidget {
   final CategoryRecord category;
-  final List<HabitRecord> habits;
+  final List<ActivityRecord> habits;
   final Future<void> Function() onRefresh;
 
   const WeeklyCategoryGroup({

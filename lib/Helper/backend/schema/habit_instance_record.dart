@@ -162,7 +162,7 @@ class HabitInstanceRecord extends FirestoreRecord {
       reference.path.hashCode == other.reference.path.hashCode;
 }
 
-Map<String, dynamic> createHabitInstanceRecordData({
+Map<String, dynamic> createActivityInstanceRecordData({
   String? templateId,
   DateTime? dueDate,
   String? status,

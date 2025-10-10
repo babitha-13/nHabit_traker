@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 /// Finalizes habit data for the current user
 /// This function can be used to clean up old habit records,
 /// update completion status, or perform other maintenance tasks
-Future<void> finalizeHabitData(String userId) async {
+Future<void> finalizeActivityData(String userId) async {
   try {
     // Get current date
     final now = DateTime.now();
@@ -14,7 +14,7 @@ Future<void> finalizeHabitData(String userId) async {
     final habitRecords = await FirebaseFirestore.instance
         .collection('users')
         .doc(userId)
-        .collection('habits')
+        .collection('activities')
         .where('isActive', isEqualTo: true)
         .get();
 

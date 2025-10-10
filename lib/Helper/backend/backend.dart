@@ -3,9 +3,8 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/category_color_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
@@ -52,10 +51,10 @@ Future<List<UsersRecord>> queryUsersRecordOnce({
     );
 
 Future<int> queryCollectionCount(
-    Query collection, {
-      Query Function(Query)? queryBuilder,
-      int limit = -1,
-    }) async {
+  Query collection, {
+  Query Function(Query)? queryBuilder,
+  int limit = -1,
+}) async {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0) {
@@ -72,12 +71,12 @@ Future<int> queryCollectionCount(
 }
 
 Stream<List<T>> queryCollection<T>(
-    Query collection,
-    RecordBuilder<T> recordBuilder, {
-      Query Function(Query)? queryBuilder,
-      int limit = -1,
-      bool singleRecord = false,
-    }) {
+  Query collection,
+  RecordBuilder<T> recordBuilder, {
+  Query Function(Query)? queryBuilder,
+  int limit = -1,
+  bool singleRecord = false,
+}) {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0 || singleRecord) {
@@ -90,20 +89,20 @@ Stream<List<T>> queryCollection<T>(
         (d) => safeGet(
           () => recordBuilder(d),
           (e) => print('Error serializing doc ${d.reference.path}:\n$e'),
-    ),
-  )
+        ),
+      )
       .where((d) => d != null)
       .map((d) => d!)
       .toList());
 }
 
 Future<List<T>> queryCollectionOnce<T>(
-    Query collection,
-    RecordBuilder<T> recordBuilder, {
-      Query Function(Query)? queryBuilder,
-      int limit = -1,
-      bool singleRecord = false,
-    }) {
+  Query collection,
+  RecordBuilder<T> recordBuilder, {
+  Query Function(Query)? queryBuilder,
+  int limit = -1,
+  bool singleRecord = false,
+}) {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0 || singleRecord) {
@@ -115,8 +114,8 @@ Future<List<T>> queryCollectionOnce<T>(
         (d) => safeGet(
           () => recordBuilder(d),
           (e) => print('Error serializing doc ${d.reference.path}:\n$e'),
-    ),
-  )
+        ),
+      )
       .where((d) => d != null)
       .map((d) => d!)
       .toList());
@@ -155,13 +154,13 @@ class FFFirestorePage<T> {
 }
 
 Future<FFFirestorePage<T>> queryCollectionPage<T>(
-    Query collection,
-    RecordBuilder<T> recordBuilder, {
-      Query Function(Query)? queryBuilder,
-      DocumentSnapshot? nextPageMarker,
-      required int pageSize,
-      required bool isStream,
-    }) async {
+  Query collection,
+  RecordBuilder<T> recordBuilder, {
+  Query Function(Query)? queryBuilder,
+  DocumentSnapshot? nextPageMarker,
+  required int pageSize,
+  required bool isStream,
+}) async {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection).limit(pageSize);
   if (nextPageMarker != null) {
@@ -180,8 +179,8 @@ Future<FFFirestorePage<T>> queryCollectionPage<T>(
         (d) => safeGet(
           () => recordBuilder(d),
           (e) => print('Error serializing doc ${d.reference.path}:\n$e'),
-    ),
-  )
+        ),
+      )
       .where((d) => d != null)
       .map((d) => d!)
       .toList();
@@ -218,7 +217,7 @@ Future maybeCreateUser(User user) async {
           FirebaseAuth.instance.currentUser?.email ??
           user.providerData.firstOrNull?.email,
       displayName:
-      user.displayName ?? FirebaseAuth.instance.currentUser?.displayName,
+          user.displayName ?? FirebaseAuth.instance.currentUser?.displayName,
       photoUrl: user.photoURL,
       uid: user.uid,
       phoneNumber: user.phoneNumber,
@@ -247,21 +246,52 @@ Future updateUserDocument({String? email}) async {
       .update(createUsersRecordData(email: email));
 }
 
+/// Helper function to check if a habit is active based on date boundaries
+bool isHabitActiveByDate(ActivityRecord habit, DateTime currentDate) {
+  // Check if habit has started (startDate <= currentDate)
+  // Compare only the date part, not the time
+  if (habit.startDate != null) {
+    final habitStartDate = DateTime(
+        habit.startDate!.year, habit.startDate!.month, habit.startDate!.day);
+    if (habitStartDate.isAfter(currentDate)) {
+      return false; // Habit hasn't started yet
+    }
+  }
+
+  // Check if habit has ended (endDate < currentDate)
+  // Compare only the date part, not the time
+  if (habit.endDate != null) {
+    final habitEndDate =
+        DateTime(habit.endDate!.year, habit.endDate!.month, habit.endDate!.day);
+    if (habitEndDate.isBefore(currentDate)) {
+      return false; // Habit has ended
+    }
+  }
+
+  return true; // Habit is active within date range
+}
+
 /// Query to get habits for a specific user
-Future<List<HabitRecord>> queryHabitsRecordOnce({
+Future<List<ActivityRecord>> queryActivitiesRecordOnce({
   required String userId,
 }) async {
   try {
     // Use simple query without orderBy to avoid Firestore composite index requirements
-    final query = HabitRecord.collectionForUser(userId)
+    final query = ActivityRecord.collectionForUser(userId)
         .where('isActive', isEqualTo: true);
     final result = await query.get();
     final habits =
-    result.docs.map((doc) => HabitRecord.fromSnapshot(doc)).toList();
+        result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
+
+    // Filter habits based on date boundaries
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final activeHabits =
+        habits.where((habit) => isHabitActiveByDate(habit, today)).toList();
 
     // Sort in memory instead of in query
-    habits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
-    return habits;
+    activeHabits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
+    return activeHabits;
   } catch (e) {
     print('Error querying habits: $e');
     return []; // Return empty list on error
@@ -290,7 +320,7 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
 
     // Filter in memory (no Firestore index needed)
     final habitCategories =
-    allCategories.where((c) => c.categoryType == 'habit').toList();
+        allCategories.where((c) => c.categoryType == 'habit').toList();
 
     // Sort in memory
     habitCategories.sort((a, b) => a.name.compareTo(b.name));
@@ -311,34 +341,13 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
 
     // Filter in memory (no Firestore index needed)
     final taskCategories =
-    allCategories.where((c) => c.categoryType == 'task').toList();
+        allCategories.where((c) => c.categoryType == 'task').toList();
 
     // Sort in memory
     taskCategories.sort((a, b) => a.name.compareTo(b.name));
     return taskCategories;
   } catch (e) {
     print('Error querying task categories: $e');
-    return []; // Return empty list on error
-  }
-}
-
-/// Query to get tasks for a specific user (LEGACY - use queryTodaysTaskInstances for active tasks)
-Future<List<TaskRecord>> queryTasksRecordOnce({
-  required String userId,
-}) async {
-  try {
-    // Use simple query without orderBy to avoid Firestore composite index requirements
-    final query =
-    TaskRecord.collectionForUser(userId).where('isActive', isEqualTo: true);
-    final result = await query.get();
-    final tasks =
-    result.docs.map((doc) => TaskRecord.fromSnapshot(doc)).toList();
-
-    // Sort in memory instead of in query
-    tasks.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
-    return tasks;
-  } catch (e) {
-    print('Error querying tasks: $e');
     return []; // Return empty list on error
   }
 }
@@ -382,38 +391,60 @@ Future<List<SequenceRecord>> querySequenceRecordOnce({
 }
 
 /// Create a new habit
-Future<DocumentReference> createHabit({
+Future<DocumentReference> createActivity({
   required String name,
   required String categoryName,
   required String trackingType,
   dynamic target,
-  required String schedule,
+  String? schedule,
   int frequency = 1,
   String? description,
   String? userId,
+  required String categoryType, // 'habit' or 'task'
+
+  // Task-specific parameters
+  DateTime? dueDate,
+  bool isRecurring = false,
+  String? unit,
+  int priority = 1,
+  List<int>? specificDays,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
 
-  final habitData = createHabitRecordData(
+  final effectiveIsRecurring = categoryType == 'habit' ? true : isRecurring;
+
+  final habitData = createActivityRecordData(
     name: name,
     categoryName: categoryName,
     trackingType: trackingType,
     target: target,
-    schedule: schedule,
-    frequency: frequency,
+    schedule: effectiveIsRecurring ? schedule : null,
+    frequency: effectiveIsRecurring ? frequency : null,
     description: description,
     isActive: true,
     createdTime: DateTime.now(),
     lastUpdated: DateTime.now(),
-    categoryType: 'habit',
+    categoryType: categoryType,
+
+    // Task-specific fields
+    dueDate: dueDate,
+    isRecurring: effectiveIsRecurring,
+    unit: unit,
+    priority: priority,
+    specificDays: specificDays,
+
+    // Date range fields - default startDate to today, endDate to 2099 for perpetual habits
+    startDate: DateTime.now(),
+    endDate:
+        DateTime(2099, 12, 31), // Default to far future for perpetual habits
   );
 
-  final habitRef = await HabitRecord.collectionForUser(uid).add(habitData);
+  final habitRef = await ActivityRecord.collectionForUser(uid).add(habitData);
 
   // Create initial habit instance
   try {
-    final habit = await HabitRecord.getDocumentOnce(habitRef);
+    final habit = await ActivityRecord.getDocumentOnce(habitRef);
     await TaskInstanceService.initializeHabitInstances(
       templateId: habitRef.id,
       template: habit,
@@ -441,7 +472,7 @@ Future<DocumentReference> createCategory({
   final uid = userId ?? currentUser?.uid ?? '';
   final existingCategories = await queryCategoriesRecordOnce(userId: uid);
   final nameExists = existingCategories.any((cat) =>
-  cat.name.toString().trim().toLowerCase() ==
+      cat.name.toString().trim().toLowerCase() ==
       name.toString().trim().toLowerCase());
 
   if (nameExists) {
@@ -481,9 +512,9 @@ Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
 
     // Find inbox category in memory
     final inboxCategory = allCategories.firstWhere(
-          (c) => c.name == 'Inbox' && c.isSystemCategory,
+      (c) => c.name == 'Inbox' && c.isSystemCategory,
       orElse: () => allCategories.firstWhere(
-            (c) => c.name == 'Inbox',
+        (c) => c.name == 'Inbox',
         orElse: () => throw StateError('No inbox found'),
       ),
     );
@@ -629,7 +660,7 @@ Future<DocumentReference> createSequence({
   for (final habitId in habitIds) {
     try {
       final habitDoc =
-      await HabitRecord.collectionForUser(uid).doc(habitId).get();
+          await ActivityRecord.collectionForUser(uid).doc(habitId).get();
       if (habitDoc.exists) {
         final habitData = habitDoc.data() as Map<String, dynamic>?;
         if (habitData != null) {
@@ -871,67 +902,4 @@ Future<void> updateInstanceProgress({
     timerStartTime: timerStartTime,
     userId: userId,
   );
-}
-
-// ==================== MIGRATION FUNCTIONS ====================
-
-/// Migrate existing tasks and habits to the new instance system
-/// This should be called once to convert existing data
-Future<Map<String, int>> migrateToInstanceSystem({String? userId}) async {
-  final currentUser = FirebaseAuth.instance.currentUser;
-  final uid = userId ?? currentUser?.uid ?? '';
-  if (uid.isEmpty) return {'tasks': 0, 'habits': 0, 'errors': 0};
-
-  int tasksMigrated = 0;
-  int habitsMigrated = 0;
-  int errors = 0;
-
-  try {
-    // Migrate existing tasks
-    final tasks = await queryTasksRecordOnce(userId: uid);
-    for (final task in tasks) {
-      try {
-        await TaskInstanceService.initializeTaskInstances(
-          templateId: task.reference.id,
-          template: task,
-          userId: uid,
-        );
-        tasksMigrated++;
-      } catch (e) {
-        print('Error migrating task ${task.name}: $e');
-        errors++;
-      }
-    }
-
-    // Migrate existing habits
-    final habits = await queryHabitsRecordOnce(userId: uid);
-    for (final habit in habits) {
-      try {
-        await TaskInstanceService.initializeHabitInstances(
-          templateId: habit.reference.id,
-          template: habit,
-          userId: uid,
-        );
-        habitsMigrated++;
-      } catch (e) {
-        print('Error migrating habit ${habit.name}: $e');
-        errors++;
-      }
-    }
-
-    print(
-        'Migration completed: $tasksMigrated tasks, $habitsMigrated habits, $errors errors');
-    return {
-      'tasks': tasksMigrated,
-      'habits': habitsMigrated,
-      'errors': errors,
-    };
-  } catch (e) {
-    print('Error during migration: $e');
-    return {
-      'tasks': tasksMigrated,
-      'habits': habitsMigrated,
-      'errors': errors + 1
-    };
-  }
 }

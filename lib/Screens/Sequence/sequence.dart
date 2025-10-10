@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -16,7 +16,7 @@ class _SequencesState extends State<Sequences> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
 
   List<SequenceRecord> _sequences = [];
-  List<HabitRecord> _habits = [];
+  List<ActivityRecord> _habits = [];
   bool _isLoading = true;
 
   @override
@@ -34,7 +34,7 @@ class _SequencesState extends State<Sequences> {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final sequences = await querySequenceRecordOnce(userId: userId);
-        final habits = await queryHabitsRecordOnce(userId: userId);
+        final habits = await queryActivitiesRecordOnce(userId: userId);
 
         setState(() {
           _sequences = sequences;

@@ -6,11 +6,11 @@ import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
-class HabitRecord extends FirestoreRecord {
-  HabitRecord._(
-      super.reference,
-      super.data,
-      ) {
+class ActivityRecord extends FirestoreRecord {
+  ActivityRecord._(
+    super.reference,
+    super.data,
+  ) {
     _initializeFields();
   }
 
@@ -51,12 +51,12 @@ class HabitRecord extends FirestoreRecord {
 
   // "schedule" field.
   String? _schedule;
-  String get schedule => _schedule ?? 'daily';
+  String get schedule => _schedule ?? '';
   bool hasSchedule() => _schedule != null;
 
   // "frequency" field.
   int? _frequency;
-  int get frequency => _frequency ?? 1;
+  int? get frequency => _frequency;
   bool hasFrequency() => _frequency != null;
 
   // "description" field.
@@ -101,8 +101,29 @@ class HabitRecord extends FirestoreRecord {
 
   // "specificDays" field for weekly scheduling (list of day indices: 1=Monday, 7=Sunday).
   List<int>? _specificDays;
-  List<int> get specificDays => _specificDays ?? [];
+  List<int> get specificDays => _specificDays ?? const [];
   bool hasSpecificDays() => _specificDays != null;
+
+  // New frequency fields
+  String? _frequencyType;
+  String get frequencyType => _frequencyType ?? '';
+  bool hasFrequencyType() => _frequencyType != null;
+
+  int? _everyXValue;
+  int get everyXValue => _everyXValue ?? 1;
+  bool hasEveryXValue() => _everyXValue != null;
+
+  String? _everyXPeriodType;
+  String get everyXPeriodType => _everyXPeriodType ?? '';
+  bool hasEveryXPeriodType() => _everyXPeriodType != null;
+
+  int? _timesPerPeriod;
+  int get timesPerPeriod => _timesPerPeriod ?? 1;
+  bool hasTimesPerPeriod() => _timesPerPeriod != null;
+
+  String? _periodType;
+  String get periodType => _periodType ?? '';
+  bool hasPeriodType() => _periodType != null;
 
   // "isTimerActive" field for duration tracking.
   bool? _isTimerActive;
@@ -134,21 +155,10 @@ class HabitRecord extends FirestoreRecord {
   DateTime? get snoozedUntil => _snoozedUntil;
   bool hasSnoozedUntil() => _snoozedUntil != null;
 
-  // "isRecurring" field to distinguish between tasks (false) and habits (true).
-  // DEPRECATED: Use isTaskRecurring or isHabitRecurring instead
+  // "isRecurring" field: true for habits and recurring tasks, false for one-time tasks.
   bool? _isRecurring;
   bool get isRecurring => _isRecurring ?? true;
   bool hasIsRecurring() => _isRecurring != null;
-
-  // "isTaskRecurring" field for tasks (true = recurring task, false = one-time task).
-  bool? _isTaskRecurring;
-  bool get isTaskRecurring => _isTaskRecurring ?? false;
-  bool hasIsTaskRecurring() => _isTaskRecurring != null;
-
-  // "isHabitRecurring" field for habits (always true for habits).
-  bool? _isHabitRecurring;
-  bool get isHabitRecurring => _isHabitRecurring ?? false;
-  bool hasIsHabitRecurring() => _isHabitRecurring != null;
 
   // "dueDate" field for one-time tasks.
   DateTime? _dueDate;
@@ -159,6 +169,16 @@ class HabitRecord extends FirestoreRecord {
   String? _status;
   String get status => _status ?? 'incomplete';
   bool hasStatus() => _status != null;
+
+  // "startDate" field for habit start date.
+  DateTime? _startDate;
+  DateTime? get startDate => _startDate;
+  bool hasStartDate() => _startDate != null;
+
+  // "endDate" field for habit end date (null means perpetual).
+  DateTime? _endDate;
+  DateTime? get endDate => _endDate;
+  bool hasEndDate() => _endDate != null;
 
   // "skippedDates" field for tracking explicit skips (snoozed days)
   List<DateTime>? _skippedDates;
@@ -184,7 +204,8 @@ class HabitRecord extends FirestoreRecord {
     _categoryId = snapshotData['categoryId'] as String?;
     _categoryName = snapshotData['categoryName'] as String?;
     _impactLevel = snapshotData['impactLevel'] as String?;
-    _completedDates = (snapshotData['completedDates'] as List?)?.cast<DateTime>();
+    _completedDates =
+        (snapshotData['completedDates'] as List?)?.cast<DateTime>();
     _weeklyTarget = snapshotData['weeklyTarget'] as int?;
     _priority = snapshotData['priority'] as int?;
     _trackingType = snapshotData['trackingType'] as String?;
@@ -207,58 +228,73 @@ class HabitRecord extends FirestoreRecord {
     _manualOrder = snapshotData['manualOrder'] as int?;
     _snoozedUntil = snapshotData['snoozedUntil'] as DateTime?;
     _isRecurring = snapshotData['isRecurring'] as bool?;
-    _isTaskRecurring = snapshotData['isTaskRecurring'] as bool?;
-    _isHabitRecurring = snapshotData['isHabitRecurring'] as bool?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
     _status = snapshotData['status'] as String?;
+    _startDate = snapshotData['startDate'] as DateTime?;
+    _endDate = snapshotData['endDate'] as DateTime?;
     _skippedDates = (snapshotData['skippedDates'] as List?)?.cast<DateTime>();
     _categoryType = snapshotData['categoryType'] as String?;
-
+    _frequencyType = snapshotData['frequencyType'] as String?;
+    _everyXValue = snapshotData['everyXValue'] as int?;
+    _everyXPeriodType = snapshotData['everyXPeriodType'] as String?;
+    _timesPerPeriod = snapshotData['timesPerPeriod'] as int?;
+    _periodType = snapshotData['periodType'] as String?;
   }
 
   static CollectionReference get collection =>
-      FirebaseFirestore.instance.collection('habits');
+      FirebaseFirestore.instance.collection('activities');
 
   static CollectionReference collectionForUser(String userId) =>
       FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
-          .collection('habits');
+          .collection('activities');
 
-  static Stream<HabitRecord> getDocument(DocumentReference ref) =>
-      ref.snapshots().map((s) => HabitRecord.fromSnapshot(s));
+  static Stream<ActivityRecord> getDocument(DocumentReference ref) =>
+      ref.snapshots().map((s) => ActivityRecord.fromSnapshot(s));
 
-  static Future<HabitRecord> getDocumentOnce(DocumentReference ref) =>
-      ref.get().then((s) => HabitRecord.fromSnapshot(s));
+  static Future<ActivityRecord> getDocumentOnce(DocumentReference ref) =>
+      ref.get().then((s) => ActivityRecord.fromSnapshot(s));
 
-  static HabitRecord fromSnapshot(DocumentSnapshot snapshot) => HabitRecord._(
-    snapshot.reference,
-    mapFromFirestore(snapshot.data() as Map<String, dynamic>),
-  );
+  static ActivityRecord fromSnapshot(DocumentSnapshot snapshot) {
+    final snapshotData = snapshot.data() as Map<String, dynamic>;
+    try {
+      return ActivityRecord._(
+        snapshot.reference,
+        mapFromFirestore(snapshotData),
+      );
+    } catch (e) {
+      print('ERROR parsing ActivityRecord: ${snapshot.id}');
+      print('Data: $snapshotData');
+      print('Error: $e');
+      rethrow;
+    }
+  }
 
-  static HabitRecord getDocumentFromData(
-      Map<String, dynamic> data,
-      DocumentReference reference,
-      ) =>
-      HabitRecord._(reference, mapFromFirestore(data));
+  static ActivityRecord getDocumentFromData(
+    Map<String, dynamic> data,
+    DocumentReference reference,
+  ) =>
+      ActivityRecord._(reference, mapFromFirestore(data));
 
   @override
   String toString() =>
-      'HabitRecord(reference: ${reference.path}, data: $snapshotData)';
+      'ActivityRecord(reference: ${reference.path}, data: $snapshotData)';
 
   @override
   int get hashCode => reference.path.hashCode;
 
   @override
   bool operator ==(other) =>
-      other is HabitRecord &&
-          reference.path.hashCode == other.reference.path.hashCode;
+      other is ActivityRecord &&
+      reference.path.hashCode == other.reference.path.hashCode;
 }
 
-Map<String, dynamic> createHabitRecordData({
+Map<String, dynamic> createActivityRecordData({
   String? name,
   String? categoryId,
   String? categoryName,
+  String? categoryType,
   String? impactLevel,
   List<DateTime>? completedDates,
   int? weeklyTarget,
@@ -284,18 +320,22 @@ Map<String, dynamic> createHabitRecordData({
   int? manualOrder,
   DateTime? snoozedUntil,
   bool? isRecurring,
-  bool? isTaskRecurring,
-  bool? isHabitRecurring,
   DateTime? dueDate,
   String? status,
-  String? categoryType,
-
+  DateTime? startDate,
+  DateTime? endDate,
+  String? frequencyType,
+  int? everyXValue,
+  String? everyXPeriodType,
+  int? timesPerPeriod,
+  String? periodType,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
       'name': name,
       'categoryId': categoryId,
       'categoryName': categoryName,
+      'categoryType': categoryType,
       'impactLevel': impactLevel,
       'completedDates': completedDates,
       'weeklyTarget': weeklyTarget,
@@ -321,23 +361,26 @@ Map<String, dynamic> createHabitRecordData({
       'manualOrder': manualOrder,
       'snoozedUntil': snoozedUntil,
       'isRecurring': isRecurring,
-      'isTaskRecurring': isTaskRecurring,
-      'isHabitRecurring': isHabitRecurring,
       'dueDate': dueDate,
       'status': status,
-      'categoryType': categoryType,
-
+      'startDate': startDate,
+      'endDate': endDate,
+      'frequencyType': frequencyType,
+      'everyXValue': everyXValue,
+      'everyXPeriodType': everyXPeriodType,
+      'timesPerPeriod': timesPerPeriod,
+      'periodType': periodType,
     }.withoutNulls,
   );
 
   return firestoreData;
 }
 
-class HabitRecordDocumentEquality implements Equality<HabitRecord> {
-  const HabitRecordDocumentEquality();
+class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
+  const ActivityRecordDocumentEquality();
 
   @override
-  bool equals(HabitRecord? e1, HabitRecord? e2) {
+  bool equals(ActivityRecord? e1, ActivityRecord? e2) {
     return e1?.name == e2?.name &&
         e1?.categoryId == e2?.categoryId &&
         e1?.categoryName == e2?.categoryName &&
@@ -363,47 +406,57 @@ class HabitRecordDocumentEquality implements Equality<HabitRecord> {
         e1?.accumulatedTime == e2?.accumulatedTime &&
         e1?.snoozedUntil == e2?.snoozedUntil &&
         e1?.isRecurring == e2?.isRecurring &&
-        e1?.isTaskRecurring == e2?.isTaskRecurring &&
-        e1?.isHabitRecurring == e2?.isHabitRecurring &&
         e1?.dueDate == e2?.dueDate &&
-        e1?.status == e2?.status;
-        e1?.categoryType == e2?.categoryType;
+        e1?.status == e2?.status &&
+        e1?.startDate == e2?.startDate &&
+        e1?.endDate == e2?.endDate &&
+        e1?.categoryType == e2?.categoryType &&
+        e1?.frequencyType == e2?.frequencyType &&
+        e1?.everyXValue == e2?.everyXValue &&
+        e1?.everyXPeriodType == e2?.everyXPeriodType &&
+        e1?.timesPerPeriod == e2?.timesPerPeriod &&
+        e1?.periodType == e2?.periodType;
   }
 
   @override
-  int hash(HabitRecord? e) => const ListEquality().hash([
-    e?.name,
-    e?.categoryId,
-    e?.categoryName,
-    e?.impactLevel,
-    e?.priority,
-    e?.completedDates,
-    e?.trackingType,
-    e?.target,
-    e?.schedule,
-    e?.frequency,
-    e?.description,
-    e?.isActive,
-    e?.createdTime,
-    e?.lastUpdated,
-    e?.userId,
-    e?.unit,
-    e?.weeklyTarget,
-    e?.currentValue,
-    e?.dayEndTime,
-    e?.specificDays,
-    e?.isTimerActive,
-    e?.timerStartTime,
-    e?.accumulatedTime,
-    e?.snoozedUntil,
-    e?.isRecurring,
-    e?.isTaskRecurring,
-    e?.isHabitRecurring,
-    e?.dueDate,
-    e?.status,
-    e?.categoryType
-  ]);
+  int hash(ActivityRecord? e) => const ListEquality().hash([
+        e?.name,
+        e?.categoryId,
+        e?.categoryName,
+        e?.impactLevel,
+        e?.priority,
+        e?.completedDates,
+        e?.trackingType,
+        e?.target,
+        e?.schedule,
+        e?.frequency,
+        e?.description,
+        e?.isActive,
+        e?.createdTime,
+        e?.lastUpdated,
+        e?.userId,
+        e?.unit,
+        e?.weeklyTarget,
+        e?.currentValue,
+        e?.dayEndTime,
+        e?.specificDays,
+        e?.isTimerActive,
+        e?.timerStartTime,
+        e?.accumulatedTime,
+        e?.snoozedUntil,
+        e?.isRecurring,
+        e?.dueDate,
+        e?.status,
+        e?.startDate,
+        e?.endDate,
+        e?.categoryType,
+        e?.frequencyType,
+        e?.everyXValue,
+        e?.everyXPeriodType,
+        e?.timesPerPeriod,
+        e?.periodType
+      ]);
 
   @override
-  bool isValidKey(Object? o) => o is HabitRecord;
+  bool isValidKey(Object? o) => o is ActivityRecord;
 }

@@ -5,7 +5,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
+import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
@@ -318,7 +318,8 @@ class _HomeState extends State<Home> {
                             Navigator.push(
                               context,
                               MaterialPageRoute(
-                                builder: (context) => const CreateHabitPage(),
+                                builder: (context) =>
+                                    const createActivityPage(),
                               ),
                             ).then((value) {
                               if (value) {

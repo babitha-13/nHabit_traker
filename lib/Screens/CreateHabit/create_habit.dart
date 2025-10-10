@@ -2,20 +2,22 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 
-class CreateHabitPage extends StatefulWidget {
-  final HabitRecord? habitToEdit;
+class createActivityPage extends StatefulWidget {
+  final ActivityRecord? habitToEdit;
 
-  const CreateHabitPage({super.key, this.habitToEdit});
+  const createActivityPage({super.key, this.habitToEdit});
 
   @override
-  State<CreateHabitPage> createState() => _CreateHabitPageState();
+  State<createActivityPage> createState() => _createActivityPageState();
 }
 
-class _CreateHabitPageState extends State<CreateHabitPage> {
+class _createActivityPageState extends State<createActivityPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _unitController = TextEditingController();
@@ -28,8 +30,12 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
   int weight = 1;
   int _targetNumber = 1;
   Duration _targetDuration = const Duration(hours: 1);
-  int _weeklyTarget = 1;
-  List<int> _selectedDays = [];
+  late FrequencyConfig _frequencyConfig;
+
+  // Date range fields
+  DateTime _startDate = DateTime.now();
+  DateTime? _endDate; // null means perpetual (will be set to 2099 in backend)
+
   static const List<String> _weekDays = [
     'Monday',
     'Tuesday',
@@ -44,23 +50,82 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
   void initState() {
     super.initState();
     _loadCategories();
+
+    _frequencyConfig = FrequencyConfig(type: FrequencyType.everyXPeriod);
+
     if (widget.habitToEdit != null) {
       final habit = widget.habitToEdit!;
       _nameController.text = habit.name;
       _unitController.text = habit.unit ?? '';
       _selectedCategoryId = habit.categoryId;
       _selectedTrackingType = habit.trackingType;
-      _selectedSchedule = habit.schedule;
+      _selectedSchedule = habit.schedule ?? 'daily';
       weight = habit.priority;
-      _weeklyTarget = habit.frequency ?? 1;
       if (habit.trackingType == 'quantitative') {
         _targetNumber = habit.target ?? 1;
       } else if (habit.trackingType == 'time') {
         final minutes = habit.target ?? 60;
         _targetDuration = Duration(minutes: minutes);
       }
-      _selectedDays = habit.specificDays ?? [];
+
+      // Load date fields if editing existing habit
+      _startDate = habit.startDate ?? DateTime.now();
+      _endDate = habit.endDate;
+      // If endDate is 2099 or later, treat as perpetual (set to null)
+      if (_endDate != null && _endDate!.year >= 2099) {
+        _endDate = null;
+      }
+
+      // Convert legacy schedule to FrequencyConfig
+      _frequencyConfig =
+          _convertLegacyScheduleToFrequencyConfig(habit, _startDate, _endDate);
     }
+  }
+
+  FrequencyConfig _convertLegacyScheduleToFrequencyConfig(
+      ActivityRecord habit, DateTime startDate, DateTime? endDate) {
+    FrequencyType type;
+    int timesPerPeriod = 1;
+    PeriodType periodType = PeriodType.weeks;
+    int everyXValue = 1;
+    PeriodType everyXPeriodType = PeriodType.days;
+    List<int> selectedDays = [];
+
+    switch (habit.schedule) {
+      case 'daily':
+        type = FrequencyType.everyXPeriod;
+        everyXValue = habit.frequency ?? 1;
+        everyXPeriodType = PeriodType.days;
+        break;
+      case 'weekly':
+        if (habit.specificDays != null && habit.specificDays!.isNotEmpty) {
+          type = FrequencyType.specificDays;
+          selectedDays = habit.specificDays!;
+        } else {
+          type = FrequencyType.timesPerPeriod;
+          timesPerPeriod = habit.frequency ?? 1;
+          periodType = PeriodType.weeks;
+        }
+        break;
+      case 'monthly':
+        type = FrequencyType.timesPerPeriod;
+        timesPerPeriod = habit.frequency ?? 1;
+        periodType = PeriodType.months;
+        break;
+      default:
+        type = FrequencyType.everyXPeriod;
+    }
+
+    return FrequencyConfig(
+      type: type,
+      timesPerPeriod: timesPerPeriod,
+      periodType: periodType,
+      everyXValue: everyXValue,
+      everyXPeriodType: everyXPeriodType,
+      selectedDays: selectedDays,
+      startDate: startDate,
+      endDate: endDate,
+    );
   }
 
   @override
@@ -99,8 +164,13 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
       return false;
     if (_selectedTrackingType == 'time' && _targetDuration.inMinutes <= 0)
       return false;
-    if (_selectedSchedule == 'weekly' && _weeklyTarget <= 0) return false;
-    if (_selectedSchedule == 'monthly' && _weeklyTarget <= 0) return false;
+
+    // Date validation
+    if (_frequencyConfig.endDate != null &&
+        _frequencyConfig.endDate!.isBefore(_frequencyConfig.startDate)) {
+      return false;
+    }
+
     return true;
   }
 
@@ -112,13 +182,13 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
     try {
       final userId = currentUserUid;
       final selectedCategory = _categories.firstWhere(
-            (cat) => cat.reference.id == _selectedCategoryId,
+        (cat) => cat.reference.id == _selectedCategoryId,
       );
 
       dynamic targetValue;
       switch (_selectedTrackingType) {
         case 'binary':
-          targetValue = true;
+          targetValue = null;
           break;
         case 'quantitative':
           targetValue = _targetNumber;
@@ -128,24 +198,80 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
           break;
       }
 
-      final recordData = createHabitRecordData(
+      // Convert frequency config to schedule and frequency fields
+      String? schedule;
+      int? frequency;
+      List<int>? specificDays;
+
+      switch (_frequencyConfig.type) {
+        case FrequencyType.specificDays:
+          schedule = 'weekly';
+          frequency = _frequencyConfig.selectedDays.length;
+          specificDays = _frequencyConfig.selectedDays;
+          break;
+        case FrequencyType.timesPerPeriod:
+          schedule = _frequencyConfig.periodType == PeriodType.weeks
+              ? 'weekly'
+              : _frequencyConfig.periodType == PeriodType.months
+                  ? 'monthly'
+                  : 'yearly';
+          frequency = _frequencyConfig.timesPerPeriod;
+          break;
+        case FrequencyType.everyXPeriod:
+          schedule = _frequencyConfig.everyXPeriodType == PeriodType.days
+              ? 'daily'
+              : _frequencyConfig.everyXPeriodType == PeriodType.weeks
+                  ? 'weekly'
+                  : 'monthly';
+          frequency = _frequencyConfig.everyXValue;
+          break;
+        default:
+          schedule = 'daily';
+          frequency = 1;
+      }
+
+      final recordData = createActivityRecordData(
         priority: weight,
         name: _nameController.text.trim(),
         categoryId: selectedCategory.reference.id,
         categoryName: selectedCategory.name,
         trackingType: _selectedTrackingType,
         target: targetValue,
-        schedule: _selectedSchedule,
-        frequency: _weeklyTarget,
+        schedule: null, // Deprecated
+        frequency: null, // Deprecated
         unit: _unitController.text.trim(),
         dayEndTime: 0,
-        specificDays: _selectedDays.isNotEmpty ? _selectedDays : null,
-        isHabitRecurring: true,
+        specificDays: _frequencyConfig.type == FrequencyType.specificDays
+            ? _frequencyConfig.selectedDays
+            : null,
+        isRecurring: true,
         isActive: true,
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
         categoryType: 'habit',
+        startDate: _frequencyConfig.startDate,
+        endDate: _frequencyConfig.endDate,
+
+        // New frequency fields - only store relevant fields based on frequency type
+        frequencyType: _frequencyConfig.type.toString().split('.').last,
+        // Only store everyX fields if frequency type is everyXPeriod
+        everyXValue: _frequencyConfig.type == FrequencyType.everyXPeriod
+            ? _frequencyConfig.everyXValue
+            : null,
+        everyXPeriodType: _frequencyConfig.type == FrequencyType.everyXPeriod
+            ? _frequencyConfig.everyXPeriodType.toString().split('.').last
+            : null,
+        // Only store timesPerPeriod fields if frequency type is timesPerPeriod
+        timesPerPeriod: _frequencyConfig.type == FrequencyType.timesPerPeriod
+            ? _frequencyConfig.timesPerPeriod
+            : null,
+        periodType: _frequencyConfig.type == FrequencyType.timesPerPeriod
+            ? _frequencyConfig.periodType.toString().split('.').last
+            : null,
       );
+
+      print('DEBUG: Saving ActivityRecord data: $recordData');
+
       if (widget.habitToEdit != null) {
         await widget.habitToEdit!.reference.update(recordData);
         if (mounted) {
@@ -155,7 +281,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
           Navigator.pop(context, true);
         }
       } else {
-        await HabitRecord.collectionForUser(userId).add(recordData);
+        await ActivityRecord.collectionForUser(userId).add(recordData);
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('New Habit Created successfully!')),
@@ -186,9 +312,9 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
             Navigator.pop(context, false);
           },
         ),
-        title: const Text(
-          'Create Habit',
-          style: TextStyle(color: Colors.white),
+        title: Text(
+          widget.habitToEdit != null ? 'Edit Habit' : 'Create Habit',
+          style: const TextStyle(color: Colors.white),
         ),
       ),
       body: SafeArea(
@@ -229,13 +355,13 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                                 ),
                                 items: _categories
                                     .map((c) => DropdownMenuItem(
-                                    value: c.reference.id,
-                                    child: Text(c.name)))
+                                        value: c.reference.id,
+                                        child: Text(c.name)))
                                     .toList(),
                                 onChanged: (v) =>
                                     setState(() => _selectedCategoryId = v),
                                 validator: (v) =>
-                                v == null ? 'Select a category' : null,
+                                    v == null ? 'Select a category' : null,
                               ),
                             ),
                             const SizedBox(
@@ -297,7 +423,7 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                         onChanged: (v) =>
                             setState(() => _selectedTrackingType = v),
                         validator: (v) =>
-                        v == null ? 'Select tracking type' : null,
+                            v == null ? 'Select tracking type' : null,
                       ),
                       const SizedBox(height: 24),
                       if (_selectedTrackingType == 'quantitative') ...[
@@ -305,123 +431,76 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                         Row(children: [
                           Expanded(
                               child: TextFormField(
-                                initialValue: _targetNumber.toString(),
-                                decoration: const InputDecoration(
-                                    labelText: 'Target *',
-                                    border: OutlineInputBorder()),
-                                keyboardType: TextInputType.number,
-                                onChanged: (v) => setState(
-                                        () => _targetNumber = int.tryParse(v) ?? 1),
-                              )),
+                            initialValue: _targetNumber.toString(),
+                            decoration: const InputDecoration(
+                                labelText: 'Target *',
+                                border: OutlineInputBorder()),
+                            keyboardType: TextInputType.number,
+                            onChanged: (v) => setState(
+                                () => _targetNumber = int.tryParse(v) ?? 1),
+                          )),
                           const SizedBox(width: 12),
                           Expanded(
                               child: TextFormField(
-                                controller: _unitController,
-                                decoration: const InputDecoration(
-                                    labelText: 'Unit',
-                                    border: OutlineInputBorder()),
-                              )),
+                            controller: _unitController,
+                            decoration: const InputDecoration(
+                                labelText: 'Unit',
+                                border: OutlineInputBorder()),
+                          )),
                         ]),
                       ] else if (_selectedTrackingType == 'time') ...[
                         _buildSectionHeader('Target'),
                         Row(children: [
                           Expanded(
                               child: TextFormField(
-                                initialValue: _targetDuration.inHours.toString(),
-                                decoration: const InputDecoration(
-                                    labelText: 'Hours *',
-                                    border: OutlineInputBorder()),
-                                keyboardType: TextInputType.number,
-                                onChanged: (v) {
-                                  final hours = int.tryParse(v) ?? 1;
-                                  setState(() => _targetDuration = Duration(
-                                      hours: hours,
-                                      minutes: _targetDuration.inMinutes % 60));
-                                },
-                              )),
+                            initialValue: _targetDuration.inHours.toString(),
+                            decoration: const InputDecoration(
+                                labelText: 'Hours *',
+                                border: OutlineInputBorder()),
+                            keyboardType: TextInputType.number,
+                            onChanged: (v) {
+                              final hours = int.tryParse(v) ?? 1;
+                              setState(() => _targetDuration = Duration(
+                                  hours: hours,
+                                  minutes: _targetDuration.inMinutes % 60));
+                            },
+                          )),
                           const SizedBox(width: 12),
                           Expanded(
                               child: TextFormField(
-                                initialValue:
+                            initialValue:
                                 (_targetDuration.inMinutes % 60).toString(),
-                                decoration: const InputDecoration(
-                                    labelText: 'Minutes',
-                                    border: OutlineInputBorder()),
-                                keyboardType: TextInputType.number,
-                                onChanged: (v) {
-                                  final mins = int.tryParse(v) ?? 0;
-                                  setState(() => _targetDuration = Duration(
-                                      hours: _targetDuration.inHours,
-                                      minutes: mins));
-                                },
-                              )),
+                            decoration: const InputDecoration(
+                                labelText: 'Minutes',
+                                border: OutlineInputBorder()),
+                            keyboardType: TextInputType.number,
+                            onChanged: (v) {
+                              final mins = int.tryParse(v) ?? 0;
+                              setState(() => _targetDuration = Duration(
+                                  hours: _targetDuration.inHours,
+                                  minutes: mins));
+                            },
+                          )),
                         ]),
                       ],
                       const SizedBox(height: 24),
                       _buildSectionHeader('Schedule'),
-                      DropdownButtonFormField<String>(
-                        value: _selectedSchedule,
-                        decoration: const InputDecoration(
-                          labelText: 'Frequency *',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'daily', child: Text('Daily')),
-                          DropdownMenuItem(
-                              value: 'weekly', child: Text('Weekly')),
-                          DropdownMenuItem(
-                              value: 'monthly', child: Text('Monthly')),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _selectedSchedule = v ?? 'daily'),
+                      FrequencyConfigWidget(
+                        initialConfig: _frequencyConfig,
+                        onChanged: (newConfig) {
+                          setState(() {
+                            _frequencyConfig = newConfig;
+                          });
+                        },
                       ),
-                      const SizedBox(height: 12),
-                      if (_selectedSchedule == 'weekly' ||
-                          _selectedSchedule == 'monthly') ...[
-                        TextFormField(
-                          initialValue: _weeklyTarget.toString(),
-                          decoration: InputDecoration(
-                            labelText: _selectedSchedule == 'weekly'
-                                ? 'Times per week *'
-                                : 'Times per month *',
-                            border: const OutlineInputBorder(),
-                          ),
-                          keyboardType: TextInputType.number,
-                          onChanged: (v) => setState(
-                                  () => _weeklyTarget = int.tryParse(v) ?? 1),
-                        ),
-                        const SizedBox(height: 12),
-                      ],
-                      if (_selectedSchedule == 'weekly') ...[
-                        const Text('Days of week:',
-                            style: TextStyle(fontSize: 12)),
-                        Wrap(
-                          spacing: 8,
-                          children: List.generate(7, (i) {
-                            final isSelected = _selectedDays.contains(i + 1);
-                            return FilterChip(
-                              label: Text(_weekDays[i].substring(0, 3)),
-                              selected: isSelected,
-                              onSelected: (s) => setState(() {
-                                if (s) {
-                                  _selectedDays.add(i + 1);
-                                } else {
-                                  _selectedDays.remove(i + 1);
-                                }
-                              }),
-                            );
-                          }),
-                        ),
-                      ],
-                      const SizedBox(height: 12),
+                      const SizedBox(height: 24),
                       _buildSectionHeader('Weight'),
                       const SizedBox(height: 8),
                       InputDecorator(
                         decoration: const InputDecoration(
                           border: OutlineInputBorder(),
                           contentPadding:
-                          EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                         ),
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
@@ -457,8 +536,11 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
                     ),
                     child: _isSaving
                         ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text('Create Habit',
-                        style: TextStyle(color: Colors.white)),
+                        : Text(
+                            widget.habitToEdit != null
+                                ? 'Save Habit'
+                                : 'Create Habit',
+                            style: const TextStyle(color: Colors.white)),
                   ),
                 ),
               ),
@@ -474,5 +556,9 @@ class _CreateHabitPageState extends State<CreateHabitPage> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(title, style: FlutterFlowTheme.of(context).titleMedium),
     );
+  }
+
+  String _formatDate(DateTime date) {
+    return '${date.day}/${date.month}/${date.year}';
   }
 }

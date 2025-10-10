@@ -1,13 +1,13 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
 class FloatingTimer extends StatefulWidget {
-  final List<HabitRecord> activeHabits;
+  final List<ActivityRecord> activeHabits;
   final Future<void> Function()? onRefresh;
-  final void Function(HabitRecord updatedHabit)? onHabitUpdated;
+  final void Function(ActivityRecord updatedHabit)? onHabitUpdated;
 
   const FloatingTimer({
     Key? key,
@@ -55,7 +55,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
     });
   }
 
-  List<HabitRecord> get _activeTimers {
+  List<ActivityRecord> get _activeTimers {
     return widget.activeHabits.where((habit) {
       if (habit.trackingType != 'time') return false;
       final isVisible = habit.showInFloatingTimer ?? true;
@@ -69,7 +69,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
     }).toList();
   }
 
-  Future<void> _resetTimer(HabitRecord habit) async {
+  Future<void> _resetTimer(ActivityRecord habit) async {
     try {
       await habit.reference.update({
         'accumulatedTime': 0,
@@ -77,7 +77,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
         'isTimerActive': false,
         'showInFloatingTimer': true,
       });
-      final updatedHabit = HabitRecord.getDocumentFromData(
+      final updatedHabit = ActivityRecord.getDocumentFromData(
         {
           ...habit.snapshotData,
           'accumulatedTime': 0,
@@ -113,7 +113,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
     );
   }
 
-  Widget _buildTimerCard(HabitRecord habit) {
+  Widget _buildTimerCard(ActivityRecord habit) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -178,12 +178,13 @@ class _FloatingTimerState extends State<FloatingTimer> {
                                 // Currently active - stop the timer (pause)
 
                                 // Update local state immediately for instant UI feedback
-                                final updatedHabitData = createHabitRecordData(
+                                final updatedHabitData =
+                                    createActivityRecordData(
                                   isTimerActive: false,
                                   showInFloatingTimer: true,
                                 );
                                 final updatedHabit =
-                                    HabitRecord.getDocumentFromData(
+                                    ActivityRecord.getDocumentFromData(
                                   {
                                     ...habit.snapshotData,
                                     ...updatedHabitData,
@@ -197,13 +198,14 @@ class _FloatingTimerState extends State<FloatingTimer> {
                                 // Not active - start/resume the timer
 
                                 // Update local state immediately for instant UI feedback
-                                final updatedHabitData = createHabitRecordData(
+                                final updatedHabitData =
+                                    createActivityRecordData(
                                   isTimerActive: true,
                                   showInFloatingTimer: true,
                                   timerStartTime: DateTime.now(),
                                 );
                                 final updatedHabit =
-                                    HabitRecord.getDocumentFromData(
+                                    ActivityRecord.getDocumentFromData(
                                   {
                                     ...habit.snapshotData,
                                     ...updatedHabitData,

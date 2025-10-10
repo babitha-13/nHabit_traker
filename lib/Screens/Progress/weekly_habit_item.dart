@@ -2,15 +2,15 @@ import 'package:flutter/material.dart';
 // import 'package:go_router/go_router.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/neumorphic_container.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
+import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 
 class WeeklyHabitItem extends StatefulWidget {
-  final HabitRecord habit;
+  final ActivityRecord habit;
   final Future<void> Function() onRefresh;
-  final void Function(HabitRecord deletedHabit)? onHabitDeleted;
+  final void Function(ActivityRecord deletedHabit)? onHabitDeleted;
   final String? categoryColorHex;
 
   const WeeklyHabitItem({
@@ -87,14 +87,14 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
             : baseTarget * widget.habit.specificDays.length.toDouble();
       } else {
         weeklyTarget = trackingType == 'binary'
-            ? widget.habit.frequency.toDouble()
-            : baseTarget * widget.habit.frequency.toDouble();
+            ? (widget.habit.frequency ?? 1).toDouble()
+            : baseTarget * (widget.habit.frequency ?? 1).toDouble();
       }
     } else {
       // Monthly habits: approximate to weekly
       weeklyTarget = trackingType == 'binary'
-          ? (widget.habit.frequency * 7 / 30)
-          : (baseTarget * widget.habit.frequency * 7 / 30);
+          ? ((widget.habit.frequency ?? 1) * 7 / 30)
+          : (baseTarget * (widget.habit.frequency ?? 1) * 7 / 30);
     }
 
     // Calculate weekly progress
@@ -192,7 +192,8 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
           Navigator.push(
             context,
             MaterialPageRoute(
-              builder: (context) => CreateHabitPage(habitToEdit: widget.habit),
+              builder: (context) =>
+                  createActivityPage(habitToEdit: widget.habit),
             ),
           );
         } else if (selected == 'copy') {
@@ -377,7 +378,7 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
 
   Future<void> _copyHabitWeekly() async {
     try {
-      await createHabit(
+      await createActivity(
         name: widget.habit.name,
         categoryName: widget.habit.categoryName.isNotEmpty
             ? widget.habit.categoryName
@@ -385,10 +386,11 @@ class _WeeklyHabitItemState extends State<WeeklyHabitItem>
         trackingType: widget.habit.trackingType,
         target: widget.habit.target,
         schedule: widget.habit.schedule,
-        frequency: widget.habit.frequency,
+        frequency: widget.habit.frequency ?? 1,
         description: widget.habit.description.isNotEmpty
             ? widget.habit.description
             : null,
+        categoryType: widget.habit.categoryType,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -56,12 +56,12 @@ class TaskFrequencyHelper {
   }
 
   /// Check if frequency input should be shown
-  static bool shouldShowFrequencyInput(String schedule) {
+  static bool shouldShowFrequencyInput(String? schedule) {
     return schedule == 'weekly' || schedule == 'monthly';
   }
 
   /// Check if day selection should be shown
-  static bool shouldShowDaySelection(String schedule) {
+  static bool shouldShowDaySelection(String? schedule) {
     return schedule == 'weekly';
   }
 
@@ -143,7 +143,7 @@ class TaskFrequencyHelper {
 
 /// Custom dropdown widget for schedule selection
 class ScheduleDropdown extends StatelessWidget {
-  final String selectedSchedule;
+  final String? selectedSchedule;
   final ValueChanged<String?> onChanged;
   final String? tooltip;
 
@@ -253,7 +253,7 @@ class DaySelectionChips extends StatelessWidget {
 
 /// Custom widget for frequency input
 class FrequencyInput extends StatelessWidget {
-  final String schedule;
+  final String? schedule;
   final int frequency;
   final ValueChanged<int> onChanged;
 
@@ -269,7 +269,9 @@ class FrequencyInput extends StatelessWidget {
     return TextFormField(
       initialValue: frequency.toString(),
       decoration: InputDecoration(
-        labelText: TaskFrequencyHelper.getFrequencyLabel(schedule),
+        labelText: schedule != null
+            ? TaskFrequencyHelper.getFrequencyLabel(schedule!)
+            : 'Frequency',
         labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
         border: const OutlineInputBorder(),
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -279,7 +281,8 @@ class FrequencyInput extends StatelessWidget {
       keyboardType: TextInputType.number,
       onChanged: (value) {
         final newFrequency = int.tryParse(value) ?? 1;
-        if (TaskFrequencyHelper.isValidFrequency(schedule, newFrequency)) {
+        if (schedule != null &&
+            TaskFrequencyHelper.isValidFrequency(schedule!, newFrequency)) {
           onChanged(newFrequency);
         }
       },

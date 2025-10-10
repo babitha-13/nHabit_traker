@@ -4,27 +4,28 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/timer_service.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-import 'package:habit_tracker/Screens/Create%20Task/create_task.dart';
-import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
+import 'package:habit_tracker/Screens/Edit%20Task/edit_task.dart';
+import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:intl/intl.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 
 class ItemComponent extends StatefulWidget {
-  final HabitRecord habit;
+  final ActivityRecord habit;
   final Future<void> Function()? onRefresh;
-  final void Function(HabitRecord updatedHabit)? onHabitUpdated;
-  final void Function(HabitRecord deletedHabit)? onHabitDeleted;
+  final void Function(ActivityRecord updatedHabit)? onHabitUpdated;
+  final void Function(ActivityRecord deletedHabit)? onHabitDeleted;
   final String? categoryColorHex, page;
   final bool? showCompleted;
   final bool showCalendar;
   final bool showTaskEdit;
   final List<CategoryRecord>? categories;
-  final List<HabitRecord>? tasks;
+  final List<ActivityRecord>? tasks;
   final bool isHabit;
   final bool showTypeIcon;
   final bool showRecurringIcon;
@@ -32,20 +33,21 @@ class ItemComponent extends StatefulWidget {
 
   const ItemComponent(
       {Key? key,
-        required this.habit,
-        this.onRefresh,
-        this.onHabitUpdated,
-        this.onHabitDeleted,
-        this.categoryColorHex,
-        this.showCompleted,
-        this.showCalendar = false,
-        this.categories,
-        this.tasks,
-        this.showTaskEdit = false,
-        this.isHabit = false,
-        this.showTypeIcon = true,
-        this.showRecurringIcon = false,
-        this.subtitle, this.page})
+      required this.habit,
+      this.onRefresh,
+      this.onHabitUpdated,
+      this.onHabitDeleted,
+      this.categoryColorHex,
+      this.showCompleted,
+      this.showCalendar = false,
+      this.categories,
+      this.tasks,
+      this.showTaskEdit = false,
+      this.isHabit = false,
+      this.showTypeIcon = true,
+      this.showRecurringIcon = false,
+      this.subtitle,
+      this.page})
       : super(key: key);
 
   @override
@@ -86,15 +88,12 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool _isRecurringItem() {
-    if (widget.habit.hasIsHabitRecurring() || widget.habit.hasIsTaskRecurring()) {
-      return widget.habit.isHabitRecurring || widget.habit.isTaskRecurring;
-    }
     return widget.habit.isRecurring;
   }
 
   Future<void> _copyHabit() async {
     try {
-      await createHabit(
+      await createActivity(
         name: widget.habit.name,
         categoryName: widget.habit.categoryName.isNotEmpty
             ? widget.habit.categoryName
@@ -102,10 +101,11 @@ class _ItemComponentState extends State<ItemComponent>
         trackingType: widget.habit.trackingType,
         target: widget.habit.target,
         schedule: widget.habit.schedule,
-        frequency: widget.habit.frequency,
+        frequency: widget.habit.frequency ?? 1,
         description: widget.habit.description.isNotEmpty
             ? widget.habit.description
             : null,
+        categoryType: widget.habit.categoryType,
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -142,7 +142,7 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _timerStateOverride = false);
         await HabitTrackingUtil.stopTimer(widget.habit);
         final updated =
-        await HabitRecord.getDocumentOnce(widget.habit.reference);
+            await ActivityRecord.getDocumentOnce(widget.habit.reference);
         if (mounted) {
           widget.onHabitUpdated?.call(updated);
         }
@@ -231,8 +231,7 @@ class _ItemComponentState extends State<ItemComponent>
       endActionPane: ActionPane(
         motion: const ScrollMotion(),
         dismissible: DismissiblePane(
-          onDismissed: () {
-          },
+          onDismissed: () {},
           confirmDismiss: () async {
             final docRef = await TimerService.startTimer(
               taskTitle: widget.habit.name,
@@ -254,8 +253,7 @@ class _ItemComponentState extends State<ItemComponent>
         ),
         children: [
           SlidableAction(
-            onPressed: (context) {
-            },
+            onPressed: (context) {},
             backgroundColor: FlutterFlowTheme.of(context).primary,
             foregroundColor: Colors.white,
             icon: Icons.timer,
@@ -310,7 +308,7 @@ class _ItemComponentState extends State<ItemComponent>
                                 widget.isHabit ? Icons.flag : Icons.assignment,
                                 size: 16,
                                 color:
-                                FlutterFlowTheme.of(context).secondaryText,
+                                    FlutterFlowTheme.of(context).secondaryText,
                               ),
                             ),
                             Visibility(
@@ -323,7 +321,7 @@ class _ItemComponentState extends State<ItemComponent>
                                 Icons.repeat,
                                 size: 16,
                                 color:
-                                FlutterFlowTheme.of(context).secondaryText,
+                                    FlutterFlowTheme.of(context).secondaryText,
                               ),
                             ),
                           ],
@@ -341,20 +339,21 @@ class _ItemComponentState extends State<ItemComponent>
                                 style: FlutterFlowTheme.of(context)
                                     .bodyMedium
                                     .override(
-                                  fontFamily: 'Readex Pro',
-                                  fontWeight: FontWeight.w600,
-                                  decoration: _isCompleted
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
-                                  color: _isCompleted
-                                      ? FlutterFlowTheme.of(context)
-                                      .secondaryText
-                                      : FlutterFlowTheme.of(context)
-                                      .primaryText,
-                                ),
+                                      fontFamily: 'Readex Pro',
+                                      fontWeight: FontWeight.w600,
+                                      decoration: _isCompleted
+                                          ? TextDecoration.lineThrough
+                                          : TextDecoration.none,
+                                      color: _isCompleted
+                                          ? FlutterFlowTheme.of(context)
+                                              .secondaryText
+                                          : FlutterFlowTheme.of(context)
+                                              .primaryText,
+                                    ),
                               ),
                               if (widget.subtitle != null &&
-                                  widget.subtitle!.isNotEmpty && widget.page != "task") ...[
+                                  widget.subtitle!.isNotEmpty &&
+                                  widget.page != "task") ...[
                                 const SizedBox(height: 2),
                                 Text(
                                   widget.subtitle!,
@@ -363,11 +362,11 @@ class _ItemComponentState extends State<ItemComponent>
                                   style: FlutterFlowTheme.of(context)
                                       .bodySmall
                                       .override(
-                                    fontFamily: 'Readex Pro',
-                                    color: FlutterFlowTheme.of(context)
-                                        .secondaryText,
-                                    fontSize: 12,
-                                  ),
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
+                                        fontSize: 12,
+                                      ),
                                 ),
                               ]
                             ],
@@ -397,11 +396,11 @@ class _ItemComponentState extends State<ItemComponent>
                                 style: FlutterFlowTheme.of(context)
                                     .bodySmall
                                     .override(
-                                  fontFamily: 'Readex Pro',
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
-                                  lineHeight: 1.05,
-                                ),
+                                      fontFamily: 'Readex Pro',
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                      lineHeight: 1.05,
+                                    ),
                               ),
                             ),
                           ),
@@ -499,7 +498,7 @@ class _ItemComponentState extends State<ItemComponent>
                 priority: next,
               );
               final updated =
-              await HabitRecord.getDocumentOnce(widget.habit.reference);
+                  await ActivityRecord.getDocumentOnce(widget.habit.reference);
               widget.onHabitUpdated?.call(updated);
             } catch (e) {
               if (mounted) {
@@ -524,7 +523,7 @@ class _ItemComponentState extends State<ItemComponent>
   Future<void> _showHabitOverflowMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(
@@ -560,22 +559,15 @@ class _ItemComponentState extends State<ItemComponent>
       if (widget.showTaskEdit) {
         showDialog(
           context: context,
-          builder: (_) => CreateTask(
+          builder: (_) => EditTask(
             task: widget.habit,
             categories: widget.categories ?? [],
             onSave: (updatedHabit) async {
-              await updatedHabit.reference.update({
-                'name': updatedHabit.name,
-                'categoryId': updatedHabit.categoryId,
-                'categoryName': updatedHabit.categoryName,
-                'trackingType': updatedHabit.trackingType,
-                'target': updatedHabit.target,
-                'unit': updatedHabit.unit,
-                'dueDate': updatedHabit.dueDate,
-              });
+              // The database was already updated by the EditTask dialog
+              // Just update the local state
               if (widget.tasks != null) {
                 final index = widget.tasks!.indexWhere(
-                        (t) => t.reference.id == updatedHabit.reference.id);
+                    (t) => t.reference.id == updatedHabit.reference.id);
                 if (index != -1) {
                   widget.tasks![index] = updatedHabit;
                 }
@@ -587,15 +579,26 @@ class _ItemComponentState extends State<ItemComponent>
             if (widget.onHabitUpdated != null) {
               widget.onHabitUpdated!(widget.habit);
             }
+            // Also trigger a refresh to reload the habits page
+            if (widget.onRefresh != null) {
+              widget.onRefresh!();
+            }
           }
         });
       } else {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => CreateHabitPage(habitToEdit: widget.habit),
+            builder: (context) => createActivityPage(habitToEdit: widget.habit),
           ),
-        );
+        ).then((value) {
+          if (value == true) {
+            // Trigger a refresh to reload the habits page
+            if (widget.onRefresh != null) {
+              widget.onRefresh!();
+            }
+          }
+        });
       }
     } else if (selected == 'copy') {
       await _copyHabit();
@@ -605,7 +608,7 @@ class _ItemComponentState extends State<ItemComponent>
         builder: (context) => AlertDialog(
           title: const Text('Delete Habit'),
           content:
-          Text('Delete "${widget.habit.name}"? This cannot be undone.'),
+              Text('Delete "${widget.habit.name}"? This cannot be undone.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -645,7 +648,8 @@ class _ItemComponentState extends State<ItemComponent>
   Future<void> _updateDueDate(DateTime newDate) async {
     try {
       await widget.habit.reference.update({'dueDate': newDate});
-      final updated = await HabitRecord.getDocumentOnce(widget.habit.reference);
+      final updated =
+          await ActivityRecord.getDocumentOnce(widget.habit.reference);
       widget.onHabitUpdated?.call(updated);
       if (mounted) {
         final label = DateFormat('EEE, MMM d').format(newDate);
@@ -704,7 +708,7 @@ class _ItemComponentState extends State<ItemComponent>
         await updateHabit(
             habitRef: widget.habit.reference, snoozedUntil: picked);
         final updated =
-        await HabitRecord.getDocumentOnce(widget.habit.reference);
+            await ActivityRecord.getDocumentOnce(widget.habit.reference);
         widget.onHabitUpdated?.call(updated);
         if (mounted) {
           final label = DateFormat('EEE, MMM d').format(picked);
@@ -725,7 +729,7 @@ class _ItemComponentState extends State<ItemComponent>
   Future<void> _showScheduleMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
 
@@ -736,7 +740,7 @@ class _ItemComponentState extends State<ItemComponent>
             value: 'skip_occurrence',
             height: 32,
             child:
-            Text('Skip This Occurrence', style: TextStyle(fontSize: 12))),
+                Text('Skip This Occurrence', style: TextStyle(fontSize: 12))),
         PopupMenuItem<String>(
             value: 'reschedule_occurrence',
             height: 32,
@@ -757,7 +761,7 @@ class _ItemComponentState extends State<ItemComponent>
             value: 'schedule_tomorrow',
             height: 32,
             child:
-            Text('Schedule for Tomorrow', style: TextStyle(fontSize: 12))),
+                Text('Schedule for Tomorrow', style: TextStyle(fontSize: 12))),
         PopupMenuItem<String>(
             value: 'pick_date',
             height: 32,
@@ -807,7 +811,7 @@ class _ItemComponentState extends State<ItemComponent>
       BuildContext anchorContext, bool canDecrement) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(
@@ -913,33 +917,33 @@ class _ItemComponentState extends State<ItemComponent>
             onChanged: _isUpdating
                 ? null
                 : (value) async {
-              setState(() => _isUpdating = true);
-              try {
-                if (value == true) {
-                  await HabitTrackingUtil.markCompleted(widget.habit);
-                } else {
-                  final today = DateTime.now();
-                  final todayDate =
-                  DateTime(today.year, today.month, today.day);
-                  final completedDates = <DateTime>[];
-                  completedDates.removeWhere((date) =>
-                  date.year == todayDate.year &&
-                      date.month == todayDate.month &&
-                      date.day == todayDate.day);
-                  await widget.habit.reference.update({
-                    'status': 'incomplete',
-                    'completedDates': completedDates,
-                    'lastUpdated': DateTime.now(),
-                  });
-                }
-                final updated = await HabitRecord.getDocumentOnce(
-                    widget.habit.reference);
-                widget.onHabitUpdated?.call(updated);
-              } catch (_) {
-              } finally {
-                if (mounted) setState(() => _isUpdating = false);
-              }
-            },
+                    setState(() => _isUpdating = true);
+                    try {
+                      if (value == true) {
+                        await HabitTrackingUtil.markCompleted(widget.habit);
+                      } else {
+                        final today = DateTime.now();
+                        final todayDate =
+                            DateTime(today.year, today.month, today.day);
+                        final completedDates = <DateTime>[];
+                        completedDates.removeWhere((date) =>
+                            date.year == todayDate.year &&
+                            date.month == todayDate.month &&
+                            date.day == todayDate.day);
+                        await widget.habit.reference.update({
+                          'status': 'incomplete',
+                          'completedDates': completedDates,
+                          'lastUpdated': DateTime.now(),
+                        });
+                      }
+                      final updated = await ActivityRecord.getDocumentOnce(
+                          widget.habit.reference);
+                      widget.onHabitUpdated?.call(updated);
+                    } catch (_) {
+                    } finally {
+                      if (mounted) setState(() => _isUpdating = false);
+                    }
+                  },
             activeColor: _impactLevelColor,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
           ),
@@ -998,7 +1002,8 @@ class _ItemComponentState extends State<ItemComponent>
                     await HabitTrackingUtil.stopTimer(widget.habit);
                     TimerManager().stop(widget.habit);
 
-                    await widget.habit.reference.update(createHabitRecordData(
+                    await widget.habit.reference
+                        .update(createActivityRecordData(
                       isTimerActive: false,
                       showInFloatingTimer: false,
                     ));
@@ -1007,15 +1012,16 @@ class _ItemComponentState extends State<ItemComponent>
                     await HabitTrackingUtil.startTimer(widget.habit);
                     TimerManager().start(widget.habit);
 
-                    await widget.habit.reference.update(createHabitRecordData(
+                    await widget.habit.reference
+                        .update(createActivityRecordData(
                       isTimerActive: true,
                       showInFloatingTimer: true,
                       timerStartTime: now,
                     ));
                     _startTimer();
                   }
-                  final updated =
-                  await HabitRecord.getDocumentOnce(widget.habit.reference);
+                  final updated = await ActivityRecord.getDocumentOnce(
+                      widget.habit.reference);
                   widget.onHabitUpdated?.call(updated);
                 } catch (_) {
                   setState(() => _timerStateOverride = null);
@@ -1047,8 +1053,8 @@ class _ItemComponentState extends State<ItemComponent>
       final current = (currentProgress is int)
           ? currentProgress
           : (currentProgress is double)
-          ? currentProgress.round()
-          : int.tryParse(currentProgress.toString()) ?? 0;
+              ? currentProgress.round()
+              : int.tryParse(currentProgress.toString()) ?? 0;
       int newProgress = current + delta;
       if (newProgress < 0) {
         newProgress = 0;
@@ -1056,7 +1062,8 @@ class _ItemComponentState extends State<ItemComponent>
       _quantProgressOverride = newProgress;
       if (mounted) setState(() {});
       await HabitTrackingUtil.updateProgress(widget.habit, newProgress);
-      final updated = await HabitRecord.getDocumentOnce(widget.habit.reference);
+      final updated =
+          await ActivityRecord.getDocumentOnce(widget.habit.reference);
       widget.onHabitUpdated?.call(updated);
     } catch (e) {
       print('Error updating progress: $e');

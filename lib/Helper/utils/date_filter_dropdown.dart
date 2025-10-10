@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 
 enum DateFilterType {
   today,
@@ -81,12 +81,13 @@ class DateFilterDropdown extends StatelessWidget {
     final theme = FlutterFlowTheme.of(context);
     final RenderBox button = context.findRenderObject() as RenderBox;
     final RenderBox overlay =
-    Overlay.of(context).context.findRenderObject() as RenderBox;
+        Overlay.of(context).context.findRenderObject() as RenderBox;
 
     final RelativeRect position = RelativeRect.fromRect(
       Rect.fromPoints(
         button.localToGlobal(Offset.zero, ancestor: overlay),
-        button.localToGlobal(button.size.bottomRight(Offset.zero), ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero),
+            ancestor: overlay),
       ),
       Offset.zero & overlay.size,
     );
@@ -101,8 +102,10 @@ class DateFilterDropdown extends StatelessWidget {
       elevation: 8,
       items: [
         _buildMenuItem(DateFilterType.today, 'Today', Icons.today, theme),
-        _buildMenuItem(DateFilterType.tomorrow, 'Tomorrow', Icons.schedule, theme),
-        _buildMenuItem(DateFilterType.week, 'This Week', Icons.date_range, theme),
+        _buildMenuItem(
+            DateFilterType.tomorrow, 'Tomorrow', Icons.schedule, theme),
+        _buildMenuItem(
+            DateFilterType.week, 'This Week', Icons.date_range, theme),
         _buildMenuItem(DateFilterType.later, 'Later', Icons.schedule, theme),
       ],
     ).then((value) {
@@ -110,8 +113,8 @@ class DateFilterDropdown extends StatelessWidget {
     });
   }
 
-  PopupMenuItem<DateFilterType> _buildMenuItem(
-      DateFilterType value, String label, IconData icon, FlutterFlowTheme theme) {
+  PopupMenuItem<DateFilterType> _buildMenuItem(DateFilterType value,
+      String label, IconData icon, FlutterFlowTheme theme) {
     return PopupMenuItem<DateFilterType>(
       value: value,
       child: Row(
@@ -143,7 +146,7 @@ class DateFilterDropdown extends StatelessWidget {
 // Helper class for filtering logic
 class DateFilterHelper {
   static bool isItemInFilter(dynamic item, DateFilterType filterType) {
-    if (item is! HabitRecord) return false;
+    if (item is! ActivityRecord) return false;
 
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -160,31 +163,37 @@ class DateFilterHelper {
     }
   }
 
-  static bool _isItemForToday(HabitRecord item, DateTime today) {
+  static bool _isItemForToday(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return false;
-    final dueDate = DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
+    final dueDate =
+        DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
     return dueDate == today;
   }
 
-  static bool _isItemForTomorrow(HabitRecord item, DateTime today) {
+  static bool _isItemForTomorrow(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return false;
-    final dueDate = DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
+    final dueDate =
+        DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
     final tomorrow = today.add(const Duration(days: 1));
     return dueDate == tomorrow;
   }
 
-  static bool _isItemForThisWeek(HabitRecord item, DateTime today) {
+  static bool _isItemForThisWeek(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return false;
-    final dueDate = DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
+    final dueDate =
+        DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     return !dueDate.isBefore(startOfWeek) && !dueDate.isAfter(endOfWeek);
   }
 
-  static bool _isItemForLater(HabitRecord item, DateTime today) {
+  static bool _isItemForLater(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return true; // No due date means later
-    final dueDate = DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
-    final endOfWeek = today.subtract(Duration(days: today.weekday - 1)).add(const Duration(days: 6));
+    final dueDate =
+        DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
+    final endOfWeek = today
+        .subtract(Duration(days: today.weekday - 1))
+        .add(const Duration(days: 6));
     return dueDate.isAfter(endOfWeek);
   }
 }

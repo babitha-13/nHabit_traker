@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Progress/weekly_category_group.dart';
@@ -18,7 +18,7 @@ class ProgressPage extends StatefulWidget {
 class _ProgressPageState extends State<ProgressPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<HabitRecord> _habits = [];
+  List<ActivityRecord> _habits = [];
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _didInitialDependencies = false;
@@ -83,7 +83,7 @@ class _ProgressPageState extends State<ProgressPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final habits = await queryHabitsRecordOnce(userId: userId);
+        final habits = await queryActivitiesRecordOnce(userId: userId);
         final categories = await queryCategoriesRecordOnce(userId: userId);
 
         setState(() {
@@ -176,8 +176,8 @@ class _ProgressPageState extends State<ProgressPage> {
           );
   }
 
-  Map<String, List<HabitRecord>> get _groupedHabitsWeekly {
-    final grouped = <String, List<HabitRecord>>{};
+  Map<String, List<ActivityRecord>> get _groupedHabitsWeekly {
+    final grouped = <String, List<ActivityRecord>>{};
 
     for (final habit in _habits) {
       final categoryName =

@@ -1,9 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:habit_tracker/Helper/backend/schema/task_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -65,7 +65,7 @@ class TaskInstanceService {
   static Future<DocumentReference> createTaskInstance({
     required String templateId,
     DateTime? dueDate,
-    required TaskRecord template,
+    required ActivityRecord template,
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
@@ -126,17 +126,19 @@ class TaskInstanceService {
 
       // Get the template to check if it's recurring
       final templateRef =
-          TaskRecord.collectionForUser(uid).doc(instance.templateId);
+          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
 
       if (templateDoc.exists) {
-        final template = TaskRecord.fromSnapshot(templateDoc);
+        final template = ActivityRecord.fromSnapshot(templateDoc);
 
         // Generate next instance if task is recurring and still active
-        if (template.isRecurring && template.isActive) {
+        if (template.isRecurring &&
+            template.isActive &&
+            template.schedule != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule,
+            schedule: template.schedule!,
             frequency: template.frequency,
             specificDays: template.specificDays,
           );
@@ -198,17 +200,17 @@ class TaskInstanceService {
 
       // Get the template to check if it's recurring
       final templateRef =
-          TaskRecord.collectionForUser(uid).doc(instance.templateId);
+          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
 
       if (templateDoc.exists) {
-        final template = TaskRecord.fromSnapshot(templateDoc);
+        final template = ActivityRecord.fromSnapshot(templateDoc);
 
         // Generate next instance if task is recurring
-        if (template.isRecurring) {
+        if (template.isRecurring && template.schedule != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule,
+            schedule: template.schedule!,
             frequency: template.frequency,
             specificDays: template.specificDays,
           );
@@ -260,15 +262,42 @@ class TaskInstanceService {
           .map((doc) => HabitInstanceRecord.fromSnapshot(doc))
           .toList();
 
+      // Filter instances based on template date boundaries
+      final activeInstances = <HabitInstanceRecord>[];
+
+      for (final instance in instances) {
+        try {
+          // Get the template to check date boundaries
+          final templateRef =
+              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+          final templateDoc = await templateRef.get();
+
+          if (!templateDoc.exists) {
+            continue; // Skip if template doesn't exist
+          }
+
+          final template = ActivityRecord.fromSnapshot(templateDoc);
+
+          // Check if habit is active based on date boundaries
+          if (isHabitActiveByDate(template, today)) {
+            activeInstances.add(instance);
+          }
+        } catch (e) {
+          print(
+              'Error checking template date boundaries for instance ${instance.reference.id}: $e');
+          // Continue with other instances even if one fails
+        }
+      }
+
       // Sort by priority (high to low) then by due date (oldest first)
-      instances.sort((a, b) {
+      activeInstances.sort((a, b) {
         final priorityCompare =
             b.templatePriority.compareTo(a.templatePriority);
         if (priorityCompare != 0) return priorityCompare;
         return a.dueDate!.compareTo(b.dueDate!);
       });
 
-      return instances;
+      return activeInstances;
     } catch (e) {
       print('Error getting today\'s habit instances: $e');
       return [];
@@ -276,15 +305,15 @@ class TaskInstanceService {
   }
 
   /// Create a new habit instance from a template
-  static Future<DocumentReference> createHabitInstance({
+  static Future<DocumentReference> createActivityInstance({
     required String templateId,
     required DateTime dueDate,
-    required HabitRecord template,
+    required ActivityRecord template,
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
 
-    final instanceData = createHabitInstanceRecordData(
+    final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: dueDate,
       status: 'pending',
@@ -338,26 +367,28 @@ class TaskInstanceService {
 
       // Get the template to generate next instance (habits are always recurring)
       final templateRef =
-          HabitRecord.collectionForUser(uid).doc(instance.templateId);
+          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
 
       if (templateDoc.exists) {
-        final template = HabitRecord.fromSnapshot(templateDoc);
+        final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        final nextDueDate = _calculateNextDueDate(
-          currentDueDate: instance.dueDate!,
-          schedule: template.schedule,
-          frequency: template.frequency,
-          specificDays: template.specificDays,
-        );
-
-        if (nextDueDate != null) {
-          await createHabitInstance(
-            templateId: instance.templateId,
-            dueDate: nextDueDate,
-            template: template,
-            userId: uid,
+        if (template.schedule != null) {
+          final nextDueDate = _calculateNextDueDate(
+            currentDueDate: instance.dueDate!,
+            schedule: template.schedule!,
+            frequency: template.frequency,
+            specificDays: template.specificDays,
           );
+
+          if (nextDueDate != null) {
+            await createActivityInstance(
+              templateId: instance.templateId,
+              dueDate: nextDueDate,
+              template: template,
+              userId: uid,
+            );
+          }
         }
       }
     } catch (e) {
@@ -396,26 +427,28 @@ class TaskInstanceService {
 
       // Get the template to generate next instance (habits are always recurring)
       final templateRef =
-          HabitRecord.collectionForUser(uid).doc(instance.templateId);
+          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
 
       if (templateDoc.exists) {
-        final template = HabitRecord.fromSnapshot(templateDoc);
+        final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        final nextDueDate = _calculateNextDueDate(
-          currentDueDate: instance.dueDate!,
-          schedule: template.schedule,
-          frequency: template.frequency,
-          specificDays: template.specificDays,
-        );
-
-        if (nextDueDate != null) {
-          await createHabitInstance(
-            templateId: instance.templateId,
-            dueDate: nextDueDate,
-            template: template,
-            userId: uid,
+        if (template.schedule != null) {
+          final nextDueDate = _calculateNextDueDate(
+            currentDueDate: instance.dueDate!,
+            schedule: template.schedule!,
+            frequency: template.frequency,
+            specificDays: template.specificDays,
           );
+
+          if (nextDueDate != null) {
+            await createActivityInstance(
+              templateId: instance.templateId,
+              dueDate: nextDueDate,
+              template: template,
+              userId: uid,
+            );
+          }
         }
       }
     } catch (e) {
@@ -431,12 +464,14 @@ class TaskInstanceService {
   static DateTime? _calculateNextDueDate({
     required DateTime currentDueDate,
     required String schedule,
-    required int frequency,
+    required int? frequency,
     List<int>? specificDays,
   }) {
+    // Use default frequency of 1 if null
+    final effectiveFrequency = frequency ?? 1;
     switch (schedule.toLowerCase()) {
       case 'daily':
-        return currentDueDate.add(Duration(days: frequency));
+        return currentDueDate.add(Duration(days: effectiveFrequency));
 
       case 'weekly':
         if (specificDays != null && specificDays.isNotEmpty) {
@@ -444,19 +479,20 @@ class TaskInstanceService {
           return _getNextWeeklyOccurrence(currentDueDate, specificDays);
         } else {
           // Default weekly (every 7 * frequency days)
-          return currentDueDate.add(Duration(days: 7 * frequency));
+          return currentDueDate.add(Duration(days: 7 * effectiveFrequency));
         }
 
       case 'monthly':
         // Add months, handling edge cases like Jan 31 -> Feb 28
         final nextMonth = DateTime(
           currentDueDate.year,
-          currentDueDate.month + frequency,
+          currentDueDate.month + effectiveFrequency,
           currentDueDate.day,
         );
 
         // Handle cases where the day doesn't exist in the target month
-        if (nextMonth.month != (currentDueDate.month + frequency) % 12) {
+        if (nextMonth.month !=
+            (currentDueDate.month + effectiveFrequency) % 12) {
           // Day doesn't exist in target month, use last day of month
           return DateTime(nextMonth.year, nextMonth.month, 0);
         }
@@ -494,7 +530,7 @@ class TaskInstanceService {
   /// Generate initial instances for a new recurring task
   static Future<void> initializeTaskInstances({
     required String templateId,
-    required TaskRecord template,
+    required ActivityRecord template,
     DateTime? startDate,
     String? userId,
   }) async {
@@ -526,13 +562,13 @@ class TaskInstanceService {
   /// Generate initial instances for a new habit
   static Future<void> initializeHabitInstances({
     required String templateId,
-    required HabitRecord template,
+    required ActivityRecord template,
     DateTime? startDate,
     String? userId,
   }) async {
     // Habits are always recurring, create the first instance
     final firstDueDate = startDate ?? _todayStart;
-    await createHabitInstance(
+    await createActivityInstance(
       templateId: templateId,
       dueDate: firstDueDate,
       template: template,
@@ -566,12 +602,12 @@ class TaskInstanceService {
 
     try {
       if (templateType == 'task') {
-        await TaskRecord.collectionForUser(uid).doc(templateId).update({
+        await ActivityRecord.collectionForUser(uid).doc(templateId).update({
           'nextDueDate': nextDueDate,
           'lastUpdated': DateTime.now(),
         });
       } else {
-        await HabitRecord.collectionForUser(uid).doc(templateId).update({
+        await ActivityRecord.collectionForUser(uid).doc(templateId).update({
           'nextDueDate': nextDueDate,
           'lastUpdated': DateTime.now(),
         });

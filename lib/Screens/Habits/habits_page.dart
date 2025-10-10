@@ -4,7 +4,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
@@ -12,6 +12,8 @@ import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:provider/provider.dart';
+import 'package:collection/collection.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
@@ -24,7 +26,7 @@ class HabitsPage extends StatefulWidget {
 class _HabitsPageState extends State<HabitsPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<HabitRecord> _habits = [];
+  List<ActivityRecord> _habits = [];
   List<CategoryRecord> _categories = [];
   final Map<String, bool> _categoryExpanded = {};
   bool _isLoading = true;
@@ -74,7 +76,7 @@ class _HabitsPageState extends State<HabitsPage> {
     }
   }
 
-  String _getDueDateSubtitle(HabitRecord habit) {
+  String _getDueDateSubtitle(ActivityRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final tomorrow = today.add(const Duration(days: 1));
@@ -84,7 +86,7 @@ class _HabitsPageState extends State<HabitsPage> {
     }
 
     final dueDate =
-    DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
+        DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
 
     if (dueDate.isAtSameMomentAs(today)) {
       return 'Today';
@@ -103,7 +105,7 @@ class _HabitsPageState extends State<HabitsPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final allHabits = await queryHabitsRecordOnce(userId: userId);
+        final allHabits = await queryActivitiesRecordOnce(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
         // Filter habits based on their own categoryType field
         final habitsOnly = allHabits.where((h) {
@@ -128,17 +130,17 @@ class _HabitsPageState extends State<HabitsPage> {
     }
   }
 
-  Map<String, List<HabitRecord>> get _groupedHabits {
-    final grouped = <String, List<HabitRecord>>{};
+  Map<String, List<ActivityRecord>> get _groupedHabits {
+    final grouped = <String, List<ActivityRecord>>{};
     for (final habit in _habits) {
-      // No need to check isHabitRecurring since we already filtered by categoryType
       final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
       if (!_showCompleted && isCompleted) continue;
-      final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
+      final categoryName = _categories
+              .firstWhereOrNull((c) => c.reference.id == habit.categoryId)
+              ?.name ??
+          'Uncategorized';
       (grouped[categoryName] ??= []).add(habit);
     }
-
     return grouped;
   }
 
@@ -160,7 +162,7 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  List<HabitRecord> get _activeFloatingHabits {
+  List<ActivityRecord> get _activeFloatingHabits {
     return _habits.where((h) => h.showInFloatingTimer == true).toList();
   }
 
@@ -233,7 +235,7 @@ class _HabitsPageState extends State<HabitsPage> {
       );
 
       if (expanded) {
-        final sortedHabits = List<HabitRecord>.from(habits);
+        final sortedHabits = List<ActivityRecord>.from(habits);
         sortedHabits.sort((a, b) {
           final ao = a.hasManualOrder() ? a.manualOrder : habits.indexOf(a);
           final bo = b.hasManualOrder() ? b.manualOrder : habits.indexOf(b);
@@ -343,9 +345,9 @@ class _HabitsPageState extends State<HabitsPage> {
               Text(
                 category.name,
                 style: FlutterFlowTheme.of(context).titleMedium.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.w600,
-                ),
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
               const SizedBox(width: 8),
               Container(
@@ -468,10 +470,10 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  void _updateHabitInLocalState(HabitRecord updated) {
+  void _updateHabitInLocalState(ActivityRecord updated) {
     setState(() {
       final habitIndex =
-      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }

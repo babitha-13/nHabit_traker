@@ -1,17 +1,70 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'schema/habit_record.dart';
+import 'schema/activity_record.dart';
 import 'backend.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 class HabitTrackingUtil {
   /// Check if a habit should be tracked today based on its schedule
-  static bool shouldTrackToday(HabitRecord habit) {
+  static bool shouldTrackToday(ActivityRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
 
-    // Respect explicit skips
-    // Note: skippedDates tracking moved to separate records
+    // Date range check
+    final startDate = habit.startDate;
+    if (startDate != null) {
+      final startDateOnly =
+          DateTime(startDate.year, startDate.month, startDate.day);
+      if (today.isBefore(startDateOnly)) {
+        return false;
+      }
+    }
 
+    final endDate = habit.endDate;
+    if (endDate != null) {
+      final endDateOnly = DateTime(endDate.year, endDate.month, endDate.day);
+      if (today.isAfter(endDateOnly)) {
+        return false;
+      }
+    }
+
+    // New frequency logic
+    if (habit.hasFrequencyType()) {
+      switch (habit.frequencyType) {
+        case 'everyXPeriod':
+          final period = habit.everyXPeriodType;
+          final value = habit.everyXValue;
+          if (startDate == null) return true; // No start date, always track
+          final daysSinceStart = today.difference(startDate).inDays;
+          if (daysSinceStart < 0) return false;
+
+          if (period == 'days') {
+            if (value <= 0)
+              return false; // Add this check to prevent division by zero
+            return daysSinceStart % value == 0;
+          } else if (period == 'weeks') {
+            final weeksSinceStart = (daysSinceStart / 7).floor();
+            if (value <= 0) return false; // Add this check here too
+            return weeksSinceStart % value == 0 &&
+                today.weekday == startDate.weekday;
+          } else if (period == 'months') {
+            final years = today.year - startDate.year;
+            final months = today.month - startDate.month;
+            final totalMonths = years * 12 + months;
+            if (value <= 0) return false; // And here
+            return totalMonths % value == 0 && today.day == startDate.day;
+          }
+          break;
+        case 'timesPerPeriod':
+          // This requires checking completion records, which is a larger change.
+          // For now, we will assume it should be tracked if the period matches.
+          // TODO: Implement completion record check for timesPerPeriod.
+          return true;
+        case 'specificDays':
+          return habit.specificDays.contains(today.weekday);
+      }
+    }
+
+    // Fallback to old logic for legacy data
     switch (habit.schedule) {
       case 'daily':
         return true;
@@ -30,7 +83,7 @@ class HabitTrackingUtil {
                     .isAfter(weekStart.subtract(const Duration(days: 1))) &&
                 completionDate.isBefore(weekEnd.add(const Duration(days: 1)));
           }).length;
-          return completedThisWeek < habit.frequency;
+          return completedThisWeek < (habit.frequency ?? 1);
         }
       case 'monthly':
         // Check if we haven't completed enough times this month
@@ -46,14 +99,14 @@ class HabitTrackingUtil {
         }).length;
 
         return completedThisMonth <
-            habit.frequency; // reuse as count for month for now
+            (habit.frequency ?? 1); // reuse as count for month for now
       default:
         return true;
     }
   }
 
   /// Check if progress should be reset based on day end time
-  static bool shouldResetProgress(HabitRecord habit) {
+  static bool shouldResetProgress(ActivityRecord habit) {
     // For now, disable automatic progress reset to fix the constant reset issue
     // Progress should only be reset when explicitly starting a new day
     // TODO: Implement proper day boundary logic based on lastUpdated field
@@ -61,7 +114,7 @@ class HabitTrackingUtil {
   }
 
   /// Get the current day's progress for a habit
-  static dynamic getCurrentProgress(HabitRecord habit) {
+  static dynamic getCurrentProgress(ActivityRecord habit) {
     if (shouldResetProgress(habit)) {
       final defaultProgress = _getDefaultProgress(habit.trackingType);
       return defaultProgress;
@@ -73,15 +126,12 @@ class HabitTrackingUtil {
   }
 
   /// Get the target value for a habit
-  static dynamic getTarget(HabitRecord habit) {
+  static dynamic getTarget(ActivityRecord habit) {
     return habit.target;
   }
 
   /// Check if a habit is completed for today
-  static bool isCompletedToday(HabitRecord habit) {
-    final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
-
+  static bool isCompletedToday(ActivityRecord habit) {
     switch (habit.trackingType) {
       case 'binary':
         // Check if today is in completed dates
@@ -102,7 +152,7 @@ class HabitTrackingUtil {
   }
 
   /// Get progress percentage for UI display
-  static double getProgressPercentage(HabitRecord habit) {
+  static double getProgressPercentage(ActivityRecord habit) {
     final target = getTarget(habit);
     if (target == null || target == 0) return 0.0;
 
@@ -129,7 +179,7 @@ class HabitTrackingUtil {
   }
 
   /// Get display text for progress
-  static String getProgressText(HabitRecord habit) {
+  static String getProgressText(ActivityRecord habit) {
     final progress = getCurrentProgress(habit);
     final target = getTarget(habit);
 
@@ -148,7 +198,7 @@ class HabitTrackingUtil {
   }
 
   /// Get display text for target
-  static String getTargetText(HabitRecord habit) {
+  static String getTargetText(ActivityRecord habit) {
     final target = getTarget(habit);
 
     switch (habit.trackingType) {
@@ -165,7 +215,7 @@ class HabitTrackingUtil {
 
   /// Update habit progress
   static Future<void> updateProgress(
-    HabitRecord habit,
+    ActivityRecord habit,
     dynamic newProgress,
   ) async {
     try {
@@ -186,9 +236,8 @@ class HabitTrackingUtil {
   }
 
   /// Mark habit as completed for today
-  static Future<void> markCompleted(HabitRecord habit) async {
+  static Future<void> markCompleted(ActivityRecord habit) async {
     final today = DateTime.now();
-    final todayDate = DateTime(today.year, today.month, today.day);
 
     final updates = <String, dynamic>{
       'lastCompletedDate': today,
@@ -216,7 +265,7 @@ class HabitTrackingUtil {
   }
 
   /// Start timer for duration tracking
-  static Future<void> startTimer(HabitRecord habit) async {
+  static Future<void> startTimer(ActivityRecord habit) async {
     try {
       print('Starting timer for habit: ${habit.name}');
 
@@ -236,7 +285,7 @@ class HabitTrackingUtil {
   }
 
   /// Pause timer for duration tracking
-  static Future<void> pauseTimer(HabitRecord habit) async {
+  static Future<void> pauseTimer(ActivityRecord habit) async {
     try {
       print(
           'Pausing timer for habit: ${habit.name}, isActive: ${habit.isTimerActive}');
@@ -290,7 +339,7 @@ class HabitTrackingUtil {
   }
 
   /// Stop timer for duration tracking (same as pause but more explicit)
-  static Future<void> stopTimer(HabitRecord habit) async {
+  static Future<void> stopTimer(ActivityRecord habit) async {
     try {
       print('Stopping timer for habit: ${habit.name}');
       await pauseTimer(habit);
@@ -307,7 +356,7 @@ class HabitTrackingUtil {
   }
 
   /// Force stop timer (for stuck timers)
-  static Future<void> forceStopTimer(HabitRecord habit) async {
+  static Future<void> forceStopTimer(ActivityRecord habit) async {
     try {
       print('Force stopping timer for habit: ${habit.name}');
 
@@ -327,7 +376,7 @@ class HabitTrackingUtil {
   }
 
   /// Get current timer display text with seconds
-  static String getTimerDisplayTextWithSeconds(HabitRecord habit) {
+  static String getTimerDisplayTextWithSeconds(ActivityRecord habit) {
     if (!habit.isTimerActive || habit.timerStartTime == null) {
       return _formatDuration(habit.accumulatedTime);
     }
@@ -379,7 +428,7 @@ class HabitTrackingUtil {
   }
 
   /// Get timer display text (legacy method for compatibility)
-  static String getTimerDisplayText(HabitRecord habit) {
+  static String getTimerDisplayText(ActivityRecord habit) {
     return getTimerDisplayTextWithSeconds(habit);
   }
 
@@ -389,7 +438,7 @@ class HabitTrackingUtil {
   }
 
   /// Get current timer display text without seconds
-  static String getTimerDisplayTextNoSeconds(HabitRecord habit) {
+  static String getTimerDisplayTextNoSeconds(ActivityRecord habit) {
     if (!habit.isTimerActive || habit.timerStartTime == null) {
       final totalMinutes = habit.accumulatedTime ~/ 60000;
       return '${totalMinutes}min';
@@ -418,7 +467,7 @@ class HabitTrackingUtil {
   }
 
   /// Reset daily progress
-  static Future<void> resetDailyProgress(HabitRecord habit) async {
+  static Future<void> resetDailyProgress(ActivityRecord habit) async {
     final updates = <String, dynamic>{
       'currentValue': _getDefaultProgress(habit.trackingType),
       'accumulatedTime': 0,
@@ -432,7 +481,7 @@ class HabitTrackingUtil {
   }
 
   /// Mark habit as skipped for today (used by Snooze/Skip)
-  static Future<void> skipToday(HabitRecord habit) async {
+  static Future<void> skipToday(ActivityRecord habit) async {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     // Note: skippedDates tracking moved to separate records
@@ -443,7 +492,8 @@ class HabitTrackingUtil {
     });
   }
 
-  static Future<void> addSkippedDate(HabitRecord habit, DateTime date) async {
+  static Future<void> addSkippedDate(
+      ActivityRecord habit, DateTime date) async {
     final dateOnly = DateTime(date.year, date.month, date.day);
     await habit.reference.update({
       'skippedDates': FieldValue.arrayUnion([dateOnly]),
@@ -451,17 +501,17 @@ class HabitTrackingUtil {
     });
   }
 
-  static Duration getTrackedTime(HabitRecord habit) {
+  static Duration getTrackedTime(ActivityRecord habit) {
     return Duration(milliseconds: habit.accumulatedTime);
   }
 
-  static Duration getTargetDuration(HabitRecord habit) {
+  static Duration getTargetDuration(ActivityRecord habit) {
     final targetMinutes = habit.target ?? 0;
     return Duration(minutes: targetMinutes);
   }
 
   /// Auto-stop timer if target duration is reached
-  static Future<void> checkAndHandleCompletion(HabitRecord habit) async {
+  static Future<void> checkAndHandleCompletion(ActivityRecord habit) async {
     if (habit.trackingType != 'time') return;
 
     final targetMinutes = habit.target ?? 0;
@@ -490,7 +540,7 @@ class HabitTrackingUtil {
     }
   }
 
-  static bool getIsTimerActive(HabitRecord habit) {
+  static bool getIsTimerActive(ActivityRecord habit) {
     return habit.isTimerActive;
   }
 }

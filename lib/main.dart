@@ -51,7 +51,7 @@ class _MyAppState extends State<MyApp> {
     userStream = habitTrackerFirebaseUserStream();
     userStream.listen((user) {
       if (user.uid != null && user.uid!.isNotEmpty) {
-        finalizeHabitData(user.uid!);
+        finalizeActivityData(user.uid!);
         // Migration removed - all leaks plugged at source
         // Categories now always created with proper categoryType
       }

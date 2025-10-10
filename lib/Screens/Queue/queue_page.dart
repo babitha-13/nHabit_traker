@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
@@ -23,10 +23,10 @@ class QueuePage extends StatefulWidget {
 class _QueuePageState extends State<QueuePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<HabitRecord> _habits = [];
+  List<ActivityRecord> _habits = [];
   List<CategoryRecord> _categories = [];
-  List<HabitRecord> _tasks = [];
-  List<HabitRecord> _tasksTodayOrder = [];
+  List<ActivityRecord> _tasks = [];
+  List<ActivityRecord> _tasksTodayOrder = [];
   final Map<String, bool> _timeSectionExpanded = {
     'Overdue': true,
     'Today': true
@@ -86,7 +86,7 @@ class _QueuePageState extends State<QueuePage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final allHabits = await queryHabitsRecordOnce(userId: userId);
+        final allHabits = await queryActivitiesRecordOnce(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final allCategories = [...categories, ...taskCategories];
@@ -102,7 +102,8 @@ class _QueuePageState extends State<QueuePage> {
         });
         if (_tasks.isNotEmpty) {
           for (final task in _tasks) {
-            print('  - ${task.name}: ${task.trackingType}, target: ${task.target}');
+            print(
+                '  - ${task.name}: ${task.trackingType}, target: ${task.target}');
           }
         }
       } else {
@@ -117,7 +118,7 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  bool _isTaskCompleted(HabitRecord task) {
+  bool _isTaskCompleted(ActivityRecord task) {
     if (!task.isActive) return false;
     switch (task.trackingType) {
       case 'binary':
@@ -135,11 +136,11 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  bool _isFlexibleWeekly(HabitRecord habit) {
+  bool _isFlexibleWeekly(ActivityRecord habit) {
     return habit.schedule == 'weekly' && habit.specificDays.isEmpty;
   }
 
-  int _completedCountThisWeek(HabitRecord habit) {
+  int _completedCountThisWeek(ActivityRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final weekStart = today.subtract(Duration(days: today.weekday - 1));
@@ -155,17 +156,17 @@ class _QueuePageState extends State<QueuePage> {
     return DateTime.sunday - now.weekday + 1;
   }
 
-  int _remainingCompletionsThisWeek(HabitRecord habit) {
+  int _remainingCompletionsThisWeek(ActivityRecord habit) {
     final done = _completedCountThisWeek(habit);
     final remaining = habit.weeklyTarget - done;
     return remaining > 0 ? remaining : 0;
   }
 
-  bool _shouldShowInTodayMain(HabitRecord habit) {
+  bool _shouldShowInTodayMain(ActivityRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     if (habit.skippedDates.any((d) =>
-    d.year == today.year && d.month == today.month && d.day == today.day)) {
+        d.year == today.year && d.month == today.month && d.day == today.day)) {
       return false;
     }
     if (habit.hasSnoozedUntil()) {
@@ -188,7 +189,7 @@ class _QueuePageState extends State<QueuePage> {
     return false;
   }
 
-  bool _shouldShowInDateFilter(HabitRecord habit) {
+  bool _shouldShowInDateFilter(ActivityRecord habit) {
     switch (_selectedDateFilter) {
       case DateFilterType.today:
         return _shouldShowInTodayMain(habit);
@@ -201,11 +202,11 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  bool _shouldShowInTomorrowMain(HabitRecord habit) {
+  bool _shouldShowInTomorrowMain(ActivityRecord habit) {
     final now = DateTime.now();
     final tomorrow = DateTime(now.year, now.month, now.day + 1);
     if (habit.skippedDates.any((d) =>
-    d.year == tomorrow.year &&
+        d.year == tomorrow.year &&
         d.month == tomorrow.month &&
         d.day == tomorrow.day)) {
       return false;
@@ -229,14 +230,14 @@ class _QueuePageState extends State<QueuePage> {
     return false;
   }
 
-  bool _shouldShowInThisWeekMain(HabitRecord habit) {
+  bool _shouldShowInThisWeekMain(ActivityRecord habit) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     for (int i = 0; i < 7; i++) {
       final checkDate = startOfWeek.add(Duration(days: i));
       if (habit.skippedDates.any((d) =>
-      d.year == checkDate.year &&
+          d.year == checkDate.year &&
           d.month == checkDate.month &&
           d.day == checkDate.day)) {
         continue;
@@ -260,14 +261,14 @@ class _QueuePageState extends State<QueuePage> {
     return false;
   }
 
-  bool _shouldShowInLaterMain(HabitRecord habit) {
+  bool _shouldShowInLaterMain(ActivityRecord habit) {
     return !_shouldShowInTodayMain(habit) &&
         !_shouldShowInTomorrowMain(habit) &&
         !_shouldShowInThisWeekMain(habit);
   }
 
-  Map<String, List<HabitRecord>> get _bucketedItems {
-    final Map<String, List<HabitRecord>> buckets = {
+  Map<String, List<ActivityRecord>> get _bucketedItems {
+    final Map<String, List<ActivityRecord>> buckets = {
       'Overdue': [],
       'Today': [],
       'Tomorrow': [],
@@ -279,7 +280,7 @@ class _QueuePageState extends State<QueuePage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-    void addToBucket(HabitRecord h, DateTime? dueDate) {
+    void addToBucket(ActivityRecord h, DateTime? dueDate) {
       if (!_showCompleted && _isTaskCompleted(h)) return;
 
       if (dueDate == null) {
@@ -304,9 +305,7 @@ class _QueuePageState extends State<QueuePage> {
 
     for (final item in _habits) {
       if (!item.isActive) continue;
-      final isRecurring = (item.hasIsHabitRecurring() || item.hasIsTaskRecurring())
-          ? (item.isHabitRecurring || item.isTaskRecurring)
-          : item.isRecurring;
+      final isRecurring = _isRecurringItem(item);
 
       if (isRecurring) {
         if (_shouldShowInDateFilter(item)) {
@@ -323,7 +322,7 @@ class _QueuePageState extends State<QueuePage> {
     return buckets;
   }
 
-  String _getSubtitle(HabitRecord item, String bucketKey) {
+  String _getSubtitle(ActivityRecord item, String bucketKey) {
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
       return item.categoryName;
     }
@@ -347,7 +346,7 @@ class _QueuePageState extends State<QueuePage> {
 
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
 
-  DateTime? _nextDueDateForHabit(HabitRecord h, DateTime today) {
+  DateTime? _nextDueDateForHabit(ActivityRecord h, DateTime today) {
     switch (h.schedule) {
       case 'daily':
         return today.add(const Duration(days: 1));
@@ -367,6 +366,11 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
+  // Helper method to determine if an item is recurring
+  bool _isRecurringItem(ActivityRecord item) {
+    return item.isRecurring;
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
@@ -375,12 +379,12 @@ class _QueuePageState extends State<QueuePage> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : Column(
-            children: [
-              Expanded(
-                child: _buildDailyView(),
-              ),
-            ],
-          ),
+                  children: [
+                    Expanded(
+                      child: _buildDailyView(),
+                    ),
+                  ],
+                ),
           FloatingTimer(
             activeHabits: _activeFloatingHabits,
             onRefresh: _loadHabits,
@@ -391,7 +395,7 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  List<HabitRecord> get _activeFloatingHabits {
+  List<ActivityRecord> get _activeFloatingHabits {
     final all = [
       ..._tasksTodayOrder,
       ..._bucketedItems.values.expand((list) => list)
@@ -405,7 +409,7 @@ class _QueuePageState extends State<QueuePage> {
     final theme = FlutterFlowTheme.of(context);
 
     final visibleSections =
-    order.where((key) => buckets[key]!.isNotEmpty).toList();
+        order.where((key) => buckets[key]!.isNotEmpty).toList();
 
     if (visibleSections.isEmpty) {
       return Center(
@@ -486,10 +490,10 @@ class _QueuePageState extends State<QueuePage> {
         slivers.add(
           SliverList(
             delegate: SliverChildBuilderDelegate(
-                  (context, index) {
+              (context, index) {
                 final item = items[index];
                 final category = _categories.firstWhere(
-                      (c) => c.name == item.categoryName,
+                  (c) => c.name == item.categoryName,
                   orElse: () {
                     try {
                       return _categories
@@ -537,7 +541,7 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  String _getTaskCategoryColor(HabitRecord task) {
+  String _getTaskCategoryColor(ActivityRecord task) {
     CategoryRecord? matchedCategory;
     try {
       if (task.categoryId.isNotEmpty) {
@@ -546,7 +550,7 @@ class _QueuePageState extends State<QueuePage> {
       } else if (task.categoryName.isNotEmpty) {
         final taskName = task.categoryName.trim().toLowerCase();
         matchedCategory = _categories.firstWhere(
-              (c) => c.name.trim().toLowerCase() == taskName,
+          (c) => c.name.trim().toLowerCase() == taskName,
         );
       }
     } catch (_) {}
@@ -560,17 +564,16 @@ class _QueuePageState extends State<QueuePage> {
     return '#2196F3';
   }
 
-
-  void _updateHabitInLocalState(HabitRecord updated) {
+  void _updateHabitInLocalState(ActivityRecord updated) {
     setState(() {
       final habitIndex =
-      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
+          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
       if (habitIndex != -1) {
         _habits[habitIndex] = updated;
       }
 
       final taskIndex =
-      _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
+          _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
       if (taskIndex != -1) {
         _tasks[taskIndex] = updated;
       }
@@ -581,7 +584,7 @@ class _QueuePageState extends State<QueuePage> {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
-      final allHabits = await queryHabitsRecordOnce(userId: uid);
+      final allHabits = await queryActivitiesRecordOnce(userId: uid);
       final categories = await queryCategoriesRecordOnce(userId: uid);
       if (!mounted) return;
       setState(() {
@@ -602,5 +605,4 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
   }
-
 }

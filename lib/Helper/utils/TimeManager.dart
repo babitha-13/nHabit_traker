@@ -1,24 +1,23 @@
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 
 class TimerManager {
   static final TimerManager _instance = TimerManager._internal();
   factory TimerManager() => _instance;
   TimerManager._internal();
 
-  final Map<String, HabitRecord> _activeTimers = {};
+  final Map<String, ActivityRecord> _activeTimers = {};
   final Set<String> _hiddenTimers = {};
 
-  List<HabitRecord> get activeTimers =>
-      _activeTimers.values
-          .where((h) => !_hiddenTimers.contains(h.reference.id))
-          .toList();
+  List<ActivityRecord> get activeTimers => _activeTimers.values
+      .where((h) => !_hiddenTimers.contains(h.reference.id))
+      .toList();
 
-  void start(HabitRecord habit) {
+  void start(ActivityRecord habit) {
     _activeTimers[habit.reference.id] = habit;
     _hiddenTimers.remove(habit.reference.id);
   }
 
-  void stop(HabitRecord habit) {
+  void stop(ActivityRecord habit) {
     _activeTimers.remove(habit.reference.id);
     _hiddenTimers.add(habit.reference.id);
   }
