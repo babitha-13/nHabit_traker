@@ -29,7 +29,6 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-    final today = _todayStart;
 
     try {
       final query = TaskInstanceRecord.collectionForUser(uid)
@@ -135,10 +134,11 @@ class TaskInstanceService {
         // Generate next instance if task is recurring and still active
         if (template.isRecurring &&
             template.isActive &&
-            template.schedule != null) {
+            template.schedule != null &&
+            instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule!,
+            schedule: template.schedule,
             frequency: template.frequency,
             specificDays: template.specificDays,
           );
@@ -207,10 +207,12 @@ class TaskInstanceService {
         final template = ActivityRecord.fromSnapshot(templateDoc);
 
         // Generate next instance if task is recurring
-        if (template.isRecurring && template.schedule != null) {
+        if (template.isRecurring &&
+            template.schedule != null &&
+            instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule!,
+            schedule: template.schedule,
             frequency: template.frequency,
             specificDays: template.specificDays,
           );
@@ -373,10 +375,10 @@ class TaskInstanceService {
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        if (template.schedule != null) {
+        if (template.schedule != null && instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule!,
+            schedule: template.schedule,
             frequency: template.frequency,
             specificDays: template.specificDays,
           );
@@ -433,10 +435,10 @@ class TaskInstanceService {
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        if (template.schedule != null) {
+        if (template.schedule != null && instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule!,
+            schedule: template.schedule,
             frequency: template.frequency,
             specificDays: template.specificDays,
           );

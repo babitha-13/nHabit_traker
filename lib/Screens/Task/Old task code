@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
-import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
-  final String? categoryName;
+  final String? categoryId;
   final bool showCompleted;
 
-  const TaskPage({super.key, this.categoryName, required this.showCompleted});
+  const TaskPage({super.key, this.categoryId, required this.showCompleted});
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -25,11 +25,8 @@ class TaskPage extends StatefulWidget {
 
 class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickAddController = TextEditingController();
-  final TextEditingController _quickTargetNumberController =
-      TextEditingController();
-  final TextEditingController _quickHoursController = TextEditingController();
-  final TextEditingController _quickMinutesController = TextEditingController();
-  List<ActivityInstanceRecord> _taskInstances = [];
+  List<ActivityRecord> _tasks = [];
+  List<ActivityRecord> _habits = [];
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _didInitialDependencies = false;
@@ -39,6 +36,7 @@ class _TaskPageState extends State<TaskPage> {
   DateTime? _selectedQuickDueDate;
   int _quickTargetNumber = 1;
   Duration _quickTargetDuration = const Duration(hours: 1);
+  String _quickUnit = '';
   final TextEditingController _quickUnitController = TextEditingController();
   late bool _showCompleted;
   bool quickIsRecurring = false;
@@ -56,10 +54,6 @@ class _TaskPageState extends State<TaskPage> {
   void initState() {
     super.initState();
     _showCompleted = widget.showCompleted;
-    _quickTargetNumberController.text = _quickTargetNumber.toString();
-    _quickHoursController.text = _quickTargetDuration.inHours.toString();
-    _quickMinutesController.text =
-        (_quickTargetDuration.inMinutes % 60).toString();
     _loadData();
     NotificationCenter.addObserver(this, 'showTaskCompleted', (param) {
       if (param is bool && mounted) {
@@ -74,10 +68,6 @@ class _TaskPageState extends State<TaskPage> {
   void dispose() {
     NotificationCenter.removeObserver(this);
     _quickAddController.dispose();
-    _quickTargetNumberController.dispose();
-    _quickHoursController.dispose();
-    _quickMinutesController.dispose();
-    _quickUnitController.dispose();
     super.dispose();
   }
 
@@ -110,22 +100,18 @@ class _TaskPageState extends State<TaskPage> {
                 ),
               ),
               FloatingTimer(
-                activeInstances: _activeFloatingInstances,
+                activeHabits: _activeFloatingHabits,
                 onRefresh: _loadData,
-                onInstanceUpdated: _updateInstanceInLocalState,
+                onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
               ),
             ],
           );
     return returnedWidget;
   }
 
-  List<ActivityInstanceRecord> get _activeFloatingInstances {
-    return _taskInstances.where((inst) {
-      return inst.templateShowInFloatingTimer == true &&
-          inst.templateTrackingType == 'time' &&
-          inst.isTimerActive &&
-          inst.status != 'completed';
-    }).toList();
+  List<ActivityRecord> get _activeFloatingHabits {
+    final all = [..._tasks, ..._habits];
+    return all.where((h) => h.showInFloatingTimer == true).toList();
   }
 
   Future<void> _loadData() async {
@@ -136,54 +122,26 @@ class _TaskPageState extends State<TaskPage> {
         setState(() => _isLoading = false);
         return;
       }
-      final instances = await queryTodaysTaskInstances(userId: uid);
+      final allHabits = await queryActivitiesRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
 
-      // DEBUG: Print instance details
-      print('TaskPage: Received ${instances.length} instances');
-      for (final inst in instances) {
-        print('  Instance: ${inst.templateName}');
-        print('    - ID: ${inst.reference.id}');
-        print('    - Category ID: ${inst.templateCategoryId}');
-        print('    - Category Name: ${inst.templateCategoryName}');
-        print('    - Category Type: ${inst.templateCategoryType}');
-        print('    - Due Date: ${inst.dueDate}');
-        print('    - Status: ${inst.status}');
-        print('    - isActive: ${inst.isActive}');
-      }
-      print('TaskPage: This page categoryName filter: ${widget.categoryName}');
-      print('TaskPage: Available categories:');
-      for (final cat in categories) {
-        print('  - ${cat.name} (${cat.reference.id})');
-      }
-
-      if (mounted) {
-        setState(() {
-          _categories = categories;
-          _taskInstances = instances.where((inst) {
-            final matches = (widget.categoryName == null ||
-                inst.templateCategoryName == widget.categoryName);
-            print(
-                'Instance ${inst.templateName} matches filter: $matches (categoryName: ${inst.templateCategoryName} vs ${widget.categoryName})');
-            return matches;
-          }).toList();
-
-          print(
-              'TaskPage: After filtering: ${_taskInstances.length} instances');
-
-          if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
-            // Set the quick-add category to the current tab's category
-            final currentCategory = categories.firstWhere(
-              (c) => c.name == widget.categoryName,
-              orElse: () => categories.first,
-            );
-            _selectedQuickCategoryId = currentCategory.reference.id;
-            print(
-                'TaskPage: Set quick-add category to: ${currentCategory.name} (${currentCategory.reference.id})');
-          }
-          _isLoading = false;
-        });
-      }
+      setState(() {
+        _categories = categories;
+        _tasks = allHabits.where((h) {
+          if (h.categoryType != 'task') return false;
+          return (widget.categoryId == null ||
+              h.categoryId == widget.categoryId);
+        }).toList();
+        _habits = allHabits.where((h) {
+          if (h.categoryType != 'habit') return false;
+          return (widget.categoryId == null ||
+              h.categoryId == widget.categoryId);
+        }).toList();
+        if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
+          _selectedQuickCategoryId = categories.first.reference.id;
+        }
+        _isLoading = false;
+      });
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -212,7 +170,6 @@ class _TaskPageState extends State<TaskPage> {
               children: [
                 Expanded(
                   child: TextField(
-                    key: ValueKey(_quickAddController.hashCode),
                     controller: _quickAddController,
                     decoration: const InputDecoration(
                       hintText: 'Quick add task…',
@@ -438,7 +395,7 @@ class _TaskPageState extends State<TaskPage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: TextFormField(
-                              controller: _quickTargetNumberController,
+                              initialValue: _quickTargetNumber.toString(),
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(6),
@@ -531,7 +488,8 @@ class _TaskPageState extends State<TaskPage> {
                           const SizedBox(width: 8),
                           Expanded(
                             child: TextFormField(
-                              controller: _quickHoursController,
+                              initialValue:
+                                  _quickTargetDuration.inHours.toString(),
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(6),
@@ -566,7 +524,9 @@ class _TaskPageState extends State<TaskPage> {
                           const SizedBox(width: 4),
                           Expanded(
                             child: TextFormField(
-                              controller: _quickMinutesController,
+                              initialValue:
+                                  (_quickTargetDuration.inMinutes % 60)
+                                      .toString(),
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
                                   borderRadius: BorderRadius.circular(6),
@@ -613,8 +573,22 @@ class _TaskPageState extends State<TaskPage> {
     return quickAddWidget;
   }
 
-  bool _isTaskCompleted(ActivityInstanceRecord instance) {
-    return instance.status == 'completed';
+  bool _isTaskCompleted(ActivityRecord task) {
+    if (!task.isActive) return false;
+    switch (task.trackingType) {
+      case 'binary':
+        return task.status == 'complete';
+      case 'quantitative':
+        final currentValue = task.currentValue ?? 0;
+        final target = task.target ?? 0;
+        return target > 0 && currentValue >= target;
+      case 'time':
+        final currentMinutes = (task.accumulatedTime) ~/ 60000;
+        final targetMinutes = task.target ?? 0;
+        return targetMinutes > 0 && currentMinutes >= targetMinutes;
+      default:
+        return task.status == 'complete';
+    }
   }
 
   String _getQuickFrequencyDescription() {
@@ -686,8 +660,9 @@ class _TaskPageState extends State<TaskPage> {
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
       final visibleItems = items.where((item) {
-        if (item is ActivityInstanceRecord) {
-          return _showCompleted || !_isTaskCompleted(item);
+        if (item is ActivityRecord) {
+          final isCompleted = _isTaskCompleted(item);
+          return _showCompleted || !isCompleted;
         }
         return true;
       }).toList();
@@ -779,21 +754,19 @@ class _TaskPageState extends State<TaskPage> {
     );
   }
 
-  String _getSubtitle(ActivityInstanceRecord instance, String bucketKey) {
-    // For Today and Tomorrow, dates are obvious, so don't show anything
+  String _getSubtitle(ActivityRecord task, String bucketKey) {
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
-      return '';
+      return task.categoryName;
     }
-
-    // For Overdue, This Week, and Later, show only the date (no category since we're in a category tab)
-    final dueDate = instance.dueDate;
+    final dueDate = task.dueDate;
     if (dueDate != null) {
       final formattedDate = DateFormat.MMMd().format(dueDate);
+      if (task.categoryName.isNotEmpty) {
+        return '$formattedDate • ${task.categoryName}';
+      }
       return formattedDate;
     }
-
-    // Fallback to empty string if no due date
-    return '';
+    return task.categoryName;
   }
 
   Future<void> _submitQuickAdd() async {
@@ -806,11 +779,11 @@ class _TaskPageState extends State<TaskPage> {
       return;
     }
 
-    final categoryId = _selectedQuickCategoryId;
+    final categoryId = widget.categoryId;
     if (categoryId == null) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a category')),
+        const SnackBar(content: Text('Category not found for this tab')),
       );
       return;
     }
@@ -822,6 +795,7 @@ class _TaskPageState extends State<TaskPage> {
       return;
     }
 
+    print('--- task_page.dart: Starting _submitQuickAdd...');
     try {
       dynamic targetValue;
       switch (_selectedQuickTrackingType) {
@@ -837,26 +811,85 @@ class _TaskPageState extends State<TaskPage> {
         default:
           targetValue = null;
       }
+      print(
+          '--- task_page.dart: Target value determined: $targetValue for type $_selectedQuickTrackingType');
 
-      final docRef = await createActivity(
+      // Convert frequency config to schedule and frequency fields
+      if (quickIsRecurring && _quickFrequencyConfig != null) {
+        print(
+            '--- task_page.dart: Handling recurring task with config: $_quickFrequencyConfig');
+        // The following fields are deprecated but we keep the logic here
+        // in case we need to roll back to a previous data model.
+        // String? schedule;
+        // int? frequency;
+        // List<int>? specificDays;
+        //
+        // switch (_quickFrequencyConfig!.type) {
+        //   case FrequencyType.daily:
+        //     schedule = 'daily';
+        //     frequency = 1;
+        //     break;
+        //   case FrequencyType.specificDays:
+        //     schedule = 'weekly';
+        //     frequency = _quickFrequencyConfig!.selectedDays.length;
+        //     specificDays = _quickFrequencyConfig!.selectedDays;
+        //     break;
+        //   case FrequencyType.timesPerPeriod:
+        //     schedule = _quickFrequencyConfig!.periodType == PeriodType.weeks
+        //         ? 'weekly'
+        //         : _quickFrequencyConfig!.periodType == PeriodType.months
+        //             ? 'monthly'
+        //             : 'yearly';
+        //     frequency = _quickFrequencyConfig!.timesPerPeriod;
+        //     break;
+        //   case FrequencyType.everyXPeriod:
+        //     schedule =
+        //         _quickFrequencyConfig!.everyXPeriodType == PeriodType.days
+        //             ? 'daily'
+        //             : _quickFrequencyConfig!.everyXPeriodType ==
+        //                     PeriodType.weeks
+        //                 ? 'weekly'
+        //                 : 'monthly';
+        //     frequency = _quickFrequencyConfig!.everyXValue;
+        //     break;
+        // }
+      }
+
+      print('--- task_page.dart: Preparing to create ActivityRecord data...');
+      final taskData = createActivityRecordData(
+        showInFloatingTimer: true,
         name: title,
+        categoryId: categoryId,
         categoryName:
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
+        status: 'incomplete',
         isRecurring: quickIsRecurring,
+        isActive: true,
+        createdTime: DateTime.now(),
+        lastUpdated: DateTime.now(),
         userId: currentUserUid,
         dueDate: _selectedQuickDueDate,
         priority: 1,
-        unit: _quickUnitController.text,
+        unit: _quickUnit,
+        schedule: null, // Deprecated
+        frequency: null, // Deprecated
         specificDays: _quickFrequencyConfig != null &&
                 _quickFrequencyConfig!.type == FrequencyType.specificDays
             ? _quickFrequencyConfig!.selectedDays
             : null,
         categoryType: 'task',
+        startDate: quickIsRecurring
+            ? _quickFrequencyConfig!.startDate
+            : DateTime.now(),
+        endDate: quickIsRecurring ? _quickFrequencyConfig!.endDate : null,
+
+        // New frequency fields - only store relevant fields based on frequency type
         frequencyType: quickIsRecurring
             ? _quickFrequencyConfig!.type.toString().split('.').last
             : null,
+        // Only store everyX fields if frequency type is everyXPeriod
         everyXValue: quickIsRecurring &&
                 _quickFrequencyConfig!.type == FrequencyType.everyXPeriod
             ? _quickFrequencyConfig!.everyXValue
@@ -865,6 +898,7 @@ class _TaskPageState extends State<TaskPage> {
                 _quickFrequencyConfig!.type == FrequencyType.everyXPeriod
             ? _quickFrequencyConfig!.everyXPeriodType.toString().split('.').last
             : null,
+        // Only store timesPerPeriod fields if frequency type is timesPerPeriod
         timesPerPeriod: quickIsRecurring &&
                 _quickFrequencyConfig!.type == FrequencyType.timesPerPeriod
             ? _quickFrequencyConfig!.timesPerPeriod
@@ -873,56 +907,39 @@ class _TaskPageState extends State<TaskPage> {
                 _quickFrequencyConfig!.type == FrequencyType.timesPerPeriod
             ? _quickFrequencyConfig!.periodType.toString().split('.').last
             : null,
-        startDate: quickIsRecurring ? _quickFrequencyConfig!.startDate : null,
-        endDate: quickIsRecurring ? _quickFrequencyConfig!.endDate : null,
       );
+      print('--- task_page.dart: ActivityRecord data created: $taskData');
 
-      // Reset the form immediately after creating the task
-      _resetQuickAdd();
+      final docRef =
+          await ActivityRecord.collectionForUser(currentUserUid).add(taskData);
+      print(
+          '--- task_page.dart: ActivityRecord added to Firestore with ID: ${docRef.id}');
 
-      // We created a template, now find the first instance created for it.
-      try {
-        final instances = await ActivityInstanceService.getInstancesForTemplate(
-            templateId: docRef.id);
-        if (instances.isNotEmpty) {
-          final newInstance = instances.first;
-          setState(() {
-            _taskInstances.add(newInstance);
-          });
-        } else {
-          // If no instances found, try a silent refresh without loading indicator
-          _loadDataSilently();
-        }
-      } catch (e) {
-        print('Error getting instances for template, doing silent refresh: $e');
-        // Even if there's an error getting instances, do a silent refresh
-        _loadDataSilently();
-      }
+      final newTask = ActivityRecord.getDocumentFromData(taskData, docRef);
+      print('--- task_page.dart: New task object created: ${newTask.name}');
+
+      setState(() {
+        print(
+            '--- task_page.dart: setState called to add new task and clear inputs.');
+        _tasks.add(newTask);
+        _quickAddController.clear();
+        _selectedQuickTrackingType = 'binary'; // Reset to default task type
+        _quickTargetNumber = 1;
+        _quickTargetDuration = const Duration(hours: 1);
+        _quickUnit = '';
+        _quickUnitController.clear();
+        _selectedQuickDueDate = null;
+        _quickFrequencyConfig = null;
+        quickIsRecurring = false;
+      });
+      print('--- task_page.dart: _submitQuickAdd completed successfully.');
     } catch (e) {
+      print('--- task_page.dart: ERROR in _submitQuickAdd: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error adding task: $e')),
       );
     }
-  }
-
-  void _resetQuickAdd() {
-    print('DEBUG: _resetQuickAdd called');
-    print('DEBUG: Controller text before clear: "${_quickAddController.text}"');
-    setState(() {
-      _quickAddController.clear();
-      _selectedQuickTrackingType = 'binary';
-      _quickTargetNumber = 1;
-      _quickTargetDuration = const Duration(hours: 1);
-      _selectedQuickDueDate = null;
-      _quickFrequencyConfig = null;
-      quickIsRecurring = false;
-      _quickUnitController.clear();
-      _quickTargetNumberController.text = '1';
-      _quickHoursController.text = '1';
-      _quickMinutesController.text = '0';
-    });
-    print('DEBUG: Controller text after clear: "${_quickAddController.text}"');
   }
 
   Future<void> _selectQuickDueDate() async {
@@ -935,6 +952,7 @@ class _TaskPageState extends State<TaskPage> {
     if (picked != null && picked != _selectedQuickDueDate) {
       setState(() {
         _selectedQuickDueDate = picked;
+        // Sync to frequency config if recurring
         if (quickIsRecurring && _quickFrequencyConfig != null) {
           _quickFrequencyConfig =
               _quickFrequencyConfig!.copyWith(startDate: picked);
@@ -953,67 +971,82 @@ class _TaskPageState extends State<TaskPage> {
       'No due date': [],
     };
 
-    print('_bucketedItems: Processing ${_taskInstances.length} task instances');
     final today = _todayDate();
-    final tomorrow = _tomorrowDate();
-    // "This Week" covers the next 5 days after tomorrow
-    final thisWeekEnd = tomorrow.add(const Duration(days: 5));
+    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
+    final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-    for (final instance in _taskInstances) {
-      print('  Bucketing instance: ${instance.templateName}');
-      print('    - isActive: ${instance.isActive}');
-      if (!instance.isActive) {
-        print('    - SKIPPED: not active');
-        continue;
-      }
-      if (widget.categoryName != null &&
-          instance.templateCategoryName != widget.categoryName) {
-        print('    - SKIPPED: category mismatch');
-        continue;
-      }
+    void addToBucket(ActivityRecord h, DateTime? dueDate) {
+      if (!_showCompleted && _isTaskCompleted(h)) return;
 
-      final dueDate = instance.dueDate;
       if (dueDate == null) {
-        print('    - ADDED TO: No due date');
-        buckets['No due date']!.add(instance);
-        continue;
+        buckets['No due date']!.add(h);
+        return;
       }
-      final instanceDueDate =
-          DateTime(dueDate.year, dueDate.month, dueDate.day);
-      print('    - Due date: $instanceDueDate, Today: $today');
 
-      if (instanceDueDate.isBefore(today)) {
-        print('    - ADDED TO: Overdue');
-        buckets['Overdue']!.add(instance);
-      } else if (_isSameDay(instanceDueDate, today)) {
-        print('    - ADDED TO: Today');
-        buckets['Today']!.add(instance);
-      } else if (_isSameDay(instanceDueDate, tomorrow)) {
-        print('    - ADDED TO: Tomorrow');
-        buckets['Tomorrow']!.add(instance);
-      } else if (instanceDueDate.isAfter(tomorrow) &&
-          !instanceDueDate.isAfter(thisWeekEnd)) {
-        print('    - ADDED TO: This Week');
-        buckets['This Week']!.add(instance);
+      if (dueDate.isBefore(today)) {
+        buckets['Overdue']!.add(h);
+      } else if (_isSameDay(dueDate, today)) {
+        buckets['Today']!.add(h);
+      } else if (_isSameDay(dueDate, _tomorrowDate())) {
+        buckets['Tomorrow']!.add(h);
+      } else if (!dueDate.isAfter(endOfWeek)) {
+        buckets['This Week']!.add(h);
       } else {
-        print('    - ADDED TO: Later');
-        buckets['Later']!.add(instance);
+        buckets['Later']!.add(h);
       }
     }
 
-    print('_bucketedItems: Final bucket counts:');
-    buckets.forEach((key, value) {
-      print('  $key: ${value.length} items');
-    });
+    for (final t in _tasks) {
+      if (!t.isActive) continue;
+      if (widget.categoryId != null && t.categoryId != widget.categoryId)
+        continue;
+      addToBucket(t, t.dueDate);
+    }
+    for (final h in _habits) {
+      if (!h.isActive) continue;
+      if (widget.categoryId != null && h.categoryId != widget.categoryId)
+        continue;
+
+      if (HabitTrackingUtil.shouldTrackToday(h)) {
+        addToBucket(h, today);
+      } else {
+        final next = _nextDueDateForHabit(h, today);
+        addToBucket(h, next);
+      }
+    }
 
     return buckets;
   }
 
   Widget _buildItemTile(dynamic item, String bucketKey) {
-    if (item is ActivityInstanceRecord) {
+    if (item is ActivityRecord) {
       return _buildTaskTile(item, bucketKey);
     }
     return const SizedBox.shrink();
+  }
+
+  void _applySort(List<dynamic> items) {
+    if (sortMode != 'importance') return;
+    int cmpTask(ActivityRecord a, ActivityRecord b) {
+      final ap = a.priority;
+      final bp = b.priority;
+      if (bp != ap) return bp.compareTo(ap);
+      final ad = a.dueDate;
+      final bd = b.dueDate;
+      if (ad != null && bd != null) return ad.compareTo(bd);
+      if (ad != null) return -1;
+      if (bd != null) return 1;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    }
+
+    items.sort((x, y) {
+      final xt = x is ActivityRecord;
+      final yt = y is ActivityRecord;
+      if (xt && yt) return cmpTask(x, y);
+      if (xt && !yt) return -1;
+      if (!xt && yt) return 1;
+      return 0;
+    });
   }
 
   DateTime _todayDate() {
@@ -1026,96 +1059,90 @@ class _TaskPageState extends State<TaskPage> {
 
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
 
-  Widget _buildTaskTile(ActivityInstanceRecord instance, String bucketKey) {
+  DateTime? _nextDueDateForHabit(ActivityRecord h, DateTime today) {
+    switch (h.schedule) {
+      case 'daily':
+        return today;
+      case 'weekly':
+        if (h.specificDays.isNotEmpty) {
+          for (int i = 0; i < 7; i++) {
+            final candidate = today.add(Duration(days: i));
+            if (h.specificDays.contains(candidate.weekday)) return candidate;
+          }
+          return today.add(const Duration(days: 7));
+        }
+        return today;
+      case 'monthly':
+        return today.add(const Duration(days: 3));
+      default:
+        return today.add(const Duration(days: 1));
+    }
+  }
+
+  Widget _buildTaskTile(ActivityRecord task, String bucketKey) {
     return ItemComponent(
       page: "task",
-      subtitle: _getSubtitle(instance, bucketKey),
+      subtitle: _getSubtitle(task, bucketKey),
       showCalendar: true,
       showTaskEdit: true,
-      key: Key(instance.reference.id),
-      instance: instance,
+      key: Key(task.reference.id),
+      habit: task,
       showCompleted: _showCompleted,
       categories: _categories,
+      tasks: _tasks,
       onRefresh: _loadData,
-      onInstanceUpdated: _updateInstanceInLocalState,
-      onInstanceDeleted: _removeInstanceFromLocalState,
+      onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
+      onHabitDeleted: (deleted) async => _loadData(),
       showTypeIcon: false,
       showRecurringIcon: true,
     );
   }
 
-  void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
+  void _updateHabitInLocalState(ActivityRecord updatedHabit) {
     setState(() {
-      final index = _taskInstances.indexWhere(
-          (inst) => inst.reference.id == updatedInstance.reference.id);
-      if (index != -1) {
-        _taskInstances[index] = updatedInstance;
+      final habitIndex = _habits
+          .indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      if (habitIndex != -1) {
+        _habits[habitIndex] = updatedHabit;
       }
-      // Remove from list if completed and not showing completed
-      if (!_showCompleted && updatedInstance.status == 'completed') {
-        _taskInstances.removeWhere(
-            (inst) => inst.reference.id == updatedInstance.reference.id);
+      final taskIndex =
+          _tasks.indexWhere((h) => h.reference.id == updatedHabit.reference.id);
+      if (taskIndex != -1) {
+        _tasks[taskIndex] = updatedHabit;
       }
+      if (!_showCompleted && _isTaskCompleted(updatedHabit)) {
+        _tasks.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
+        _habits.removeWhere((h) => h.reference.id == updatedHabit.reference.id);
+      }
+      _loadDataSilently();
     });
-    // Background refresh to sync with server
-    _loadDataSilently();
-  }
-
-  void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
-    setState(() {
-      _taskInstances.removeWhere(
-          (inst) => inst.reference.id == deletedInstance.reference.id);
-    });
-    // Background refresh to sync with server
-    _loadDataSilently();
   }
 
   Future<void> _loadDataSilently() async {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
-      final instances = await queryTodaysTaskInstances(userId: uid);
+      final allHabits = await queryActivitiesRecordOnce(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
-
-      if (mounted) {
-        setState(() {
-          _categories = categories;
-          _taskInstances = instances.where((inst) {
-            final matches = (widget.categoryName == null ||
-                inst.templateCategoryName == widget.categoryName);
-            return matches;
-          }).toList();
-        });
-      }
+      if (!mounted) return;
+      setState(() {
+        _tasks = allHabits.where((h) {
+          return h.categoryType == 'task';
+        }).toList();
+        _habits = allHabits.where((h) {
+          return h.categoryType == 'habit';
+        }).toList();
+        _categories = categories;
+        if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
+          _selectedQuickCategoryId = categories.first.reference.id;
+        }
+      });
     } catch (e) {
-      // Silent error handling - don't disrupt UI
-      print('Silent refresh error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading tasks: $e')),
+        );
+      }
     }
-  }
-
-  void _applySort(List<dynamic> items) {
-    if (sortMode != 'importance') return;
-    int cmpTask(ActivityInstanceRecord a, ActivityInstanceRecord b) {
-      final ap = a.templatePriority;
-      final bp = b.templatePriority;
-      if (bp != ap) return bp.compareTo(ap);
-      final ad = a.dueDate;
-      final bd = b.dueDate;
-      if (ad != null && bd != null) return ad.compareTo(bd);
-      if (ad != null) return -1;
-      if (bd != null) return 1;
-      return a.templateName
-          .toLowerCase()
-          .compareTo(b.templateName.toLowerCase());
-    }
-
-    items.sort((x, y) {
-      final xt = x is ActivityInstanceRecord;
-      final yt = y is ActivityInstanceRecord;
-      if (xt && yt) return cmpTask(x, y);
-      if (xt && !yt) return -1;
-      if (!xt && yt) return 1;
-      return 0;
-    });
   }
 }

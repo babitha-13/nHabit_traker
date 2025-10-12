@@ -1,19 +1,20 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
 class FloatingTimer extends StatefulWidget {
-  final List<ActivityRecord> activeHabits;
+  final List<ActivityInstanceRecord> activeInstances;
   final Future<void> Function()? onRefresh;
-  final void Function(ActivityRecord updatedHabit)? onHabitUpdated;
+  final void Function(ActivityInstanceRecord updatedInstance)?
+      onInstanceUpdated;
 
   const FloatingTimer({
     Key? key,
-    required this.activeHabits,
+    required this.activeInstances,
     this.onRefresh,
-    this.onHabitUpdated,
+    this.onInstanceUpdated,
   }) : super(key: key);
 
   @override
@@ -41,7 +42,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
   @override
   void didUpdateWidget(covariant FloatingTimer oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.activeHabits != oldWidget.activeHabits) {
+    if (widget.activeInstances != oldWidget.activeInstances) {
       if (_activeTimers.isNotEmpty) {
         _startUpdateTimer();
       }
@@ -55,39 +56,32 @@ class _FloatingTimerState extends State<FloatingTimer> {
     });
   }
 
-  List<ActivityRecord> get _activeTimers {
-    return widget.activeHabits.where((habit) {
-      if (habit.trackingType != 'time') return false;
-      final isVisible = habit.showInFloatingTimer ?? true;
-      final target = HabitTrackingUtil.getTargetDuration(habit);
-      final tracked = HabitTrackingUtil.getTrackedTime(habit);
-      final notCompleted = target == Duration.zero || tracked < target;
-      return habit.isTimerActive &&
+  List<ActivityInstanceRecord> get _activeTimers {
+    return widget.activeInstances.where((instance) {
+      if (instance.templateTrackingType != 'time') return false;
+      final isVisible = instance.templateShowInFloatingTimer;
+      final target = instance.templateTarget ?? 0;
+      final tracked = instance.accumulatedTime;
+      final notCompleted = target == 0 || tracked < target;
+      return instance.isTimerActive &&
           isVisible &&
           notCompleted &&
-          !_hiddenAfterStop.contains(habit.reference.id);
+          !_hiddenAfterStop.contains(instance.reference.id);
     }).toList();
   }
 
-  Future<void> _resetTimer(ActivityRecord habit) async {
+  Future<void> _resetTimer(ActivityInstanceRecord instance) async {
     try {
-      await habit.reference.update({
+      await instance.reference.update({
         'accumulatedTime': 0,
         'timerStartTime': null,
         'isTimerActive': false,
-        'showInFloatingTimer': true,
       });
-      final updatedHabit = ActivityRecord.getDocumentFromData(
-        {
-          ...habit.snapshotData,
-          'accumulatedTime': 0,
-          'timerStartTime': null,
-          'isTimerActive': false,
-          'showInFloatingTimer': true
-        },
-        habit.reference,
+
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instance.reference.id,
       );
-      widget.onHabitUpdated?.call(updatedHabit);
+      widget.onInstanceUpdated?.call(updatedInstance);
       if (mounted) setState(() {});
     } catch (e) {
       if (mounted) {
@@ -108,12 +102,13 @@ class _FloatingTimerState extends State<FloatingTimer> {
       bottom: 80, // Above bottom navigation
       right: 80, // Increased padding to avoid FAB overlap
       child: Column(
-        children: _activeTimers.map((habit) => _buildTimerCard(habit)).toList(),
+        children:
+            _activeTimers.map((instance) => _buildTimerCard(instance)).toList(),
       ),
     );
   }
 
-  Widget _buildTimerCard(ActivityRecord habit) {
+  Widget _buildTimerCard(ActivityInstanceRecord instance) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       child: Material(
@@ -145,7 +140,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                       const SizedBox(width: 8),
                       Expanded(
                         child: Text(
-                          habit.name,
+                          instance.templateName,
                           style:
                               FlutterFlowTheme.of(context).bodyMedium.override(
                                     fontFamily: 'Readex Pro',
@@ -159,7 +154,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    HabitTrackingUtil.getTimerDisplayTextWithSeconds(habit),
+                    _getTimerDisplayWithSeconds(instance),
                     style: FlutterFlowTheme.of(context).titleMedium.override(
                           fontFamily: 'Readex Pro',
                           fontWeight: FontWeight.w600,
@@ -174,47 +169,32 @@ class _FloatingTimerState extends State<FloatingTimer> {
                         child: ElevatedButton(
                           onPressed: () async {
                             try {
-                              if (habit.isTimerActive) {
+                              if (instance.isTimerActive) {
                                 // Currently active - stop the timer (pause)
-
-                                // Update local state immediately for instant UI feedback
-                                final updatedHabitData =
-                                    createActivityRecordData(
-                                  isTimerActive: false,
-                                  showInFloatingTimer: true,
+                                await ActivityInstanceService
+                                    .toggleInstanceTimer(
+                                  instanceId: instance.reference.id,
                                 );
-                                final updatedHabit =
-                                    ActivityRecord.getDocumentFromData(
-                                  {
-                                    ...habit.snapshotData,
-                                    ...updatedHabitData,
-                                  },
-                                  habit.reference,
-                                );
-                                widget.onHabitUpdated?.call(updatedHabit);
 
-                                await HabitTrackingUtil.pauseTimer(habit);
+                                final updatedInstance =
+                                    await ActivityInstanceService
+                                        .getUpdatedInstance(
+                                  instanceId: instance.reference.id,
+                                );
+                                widget.onInstanceUpdated?.call(updatedInstance);
                               } else {
                                 // Not active - start/resume the timer
-
-                                // Update local state immediately for instant UI feedback
-                                final updatedHabitData =
-                                    createActivityRecordData(
-                                  isTimerActive: true,
-                                  showInFloatingTimer: true,
-                                  timerStartTime: DateTime.now(),
+                                await ActivityInstanceService
+                                    .toggleInstanceTimer(
+                                  instanceId: instance.reference.id,
                                 );
-                                final updatedHabit =
-                                    ActivityRecord.getDocumentFromData(
-                                  {
-                                    ...habit.snapshotData,
-                                    ...updatedHabitData,
-                                  },
-                                  habit.reference,
-                                );
-                                widget.onHabitUpdated?.call(updatedHabit);
 
-                                await HabitTrackingUtil.startTimer(habit);
+                                final updatedInstance =
+                                    await ActivityInstanceService
+                                        .getUpdatedInstance(
+                                  instanceId: instance.reference.id,
+                                );
+                                widget.onInstanceUpdated?.call(updatedInstance);
                               }
                               if (mounted) setState(() {});
                             } catch (e) {
@@ -250,9 +230,13 @@ class _FloatingTimerState extends State<FloatingTimer> {
                             );
                             if (shouldForceStop == true) {
                               try {
-                                await HabitTrackingUtil.forceStopTimer(habit);
+                                await instance.reference.update({
+                                  'accumulatedTime': 0,
+                                  'timerStartTime': null,
+                                  'isTimerActive': false,
+                                });
                                 // Hide this timer after force stop
-                                _hiddenAfterStop.add(habit.reference.id);
+                                _hiddenAfterStop.add(instance.reference.id);
                                 if (mounted) setState(() {});
                                 if (widget.onRefresh != null)
                                   await widget.onRefresh!();
@@ -284,7 +268,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                             ),
                           ),
                           child: Text(
-                            habit.isTimerActive ? 'Stop' : 'Play',
+                            instance.isTimerActive ? 'Stop' : 'Play',
                             style: const TextStyle(fontSize: 12),
                           ),
                         ),
@@ -293,7 +277,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                       // Reset button
                       Expanded(
                         child: ElevatedButton(
-                          onPressed: () => _resetTimer(habit),
+                          onPressed: () => _resetTimer(instance),
                           style: ElevatedButton.styleFrom(
                             backgroundColor: Colors.redAccent,
                             foregroundColor: Colors.white,
@@ -316,7 +300,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                 right: -4,
                 child: IconButton(
                   onPressed: () {
-                    _hiddenAfterStop.add(habit.reference.id);
+                    _hiddenAfterStop.add(instance.reference.id);
                     setState(() {});
                   },
                   icon: Icon(
@@ -340,5 +324,24 @@ class _FloatingTimerState extends State<FloatingTimer> {
         ),
       ),
     );
+  }
+
+  String _getTimerDisplayWithSeconds(ActivityInstanceRecord instance) {
+    final accumulated = instance.accumulatedTime;
+    int totalMilliseconds = accumulated;
+
+    // Add elapsed time if timer is active
+    if (instance.isTimerActive && instance.timerStartTime != null) {
+      final elapsed =
+          DateTime.now().difference(instance.timerStartTime!).inMilliseconds;
+      totalMilliseconds += elapsed;
+    }
+
+    final totalSeconds = totalMilliseconds ~/ 1000;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 }

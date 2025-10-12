@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 
 class EditTask extends StatefulWidget {
@@ -179,6 +180,23 @@ class _EditTaskState extends State<EditTask> {
     );
     try {
       await docRef.update(updateData);
+
+      // Update all pending instances with new template data
+      final instances = await ActivityInstanceService.getInstancesForTemplate(
+          templateId: widget.task.reference.id);
+
+      for (final instance in instances.where((i) => i.status != 'completed')) {
+        await instance.reference.update({
+          'templateName': updateData['name'],
+          'templateCategoryId': updateData['categoryId'],
+          'templateCategoryName': updateData['categoryName'],
+          'templateTrackingType': updateData['trackingType'],
+          'templateTarget': updateData['target'],
+          'templateUnit': updateData['unit'],
+          'lastUpdated': DateTime.now(),
+        });
+      }
+
       final updatedHabit =
           ActivityRecord.getDocumentFromData(updateData, docRef);
       widget.onSave(updatedHabit);

@@ -1,7 +1,5 @@
-import 'dart:math';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/schema/timer_log_record.dart';
 import 'package:habit_tracker/Helper/backend/timer_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 

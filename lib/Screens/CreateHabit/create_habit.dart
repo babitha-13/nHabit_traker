@@ -281,7 +281,46 @@ class _createActivityPageState extends State<createActivityPage> {
           Navigator.pop(context, true);
         }
       } else {
-        await ActivityRecord.collectionForUser(userId).add(recordData);
+        print(
+            '--- create_habit.dart: Preparing to call createActivity for a new habit...');
+        print(
+            '--- create_habit.dart: Habit Name: ${_nameController.text.trim()}');
+        print('--- create_habit.dart: Category Name: ${selectedCategory.name}');
+        print('--- create_habit.dart: User ID: $userId');
+
+        await createActivity(
+          name: _nameController.text.trim(),
+          categoryName: selectedCategory.name,
+          trackingType: _selectedTrackingType!,
+          target: targetValue,
+          isRecurring: true, // Habits are always recurring
+          userId: userId,
+          priority: weight,
+          unit: _unitController.text.trim(),
+          categoryType: 'habit',
+          // Pass new frequency fields
+          frequencyType: _frequencyConfig.type.toString().split('.').last,
+          everyXValue: _frequencyConfig.type == FrequencyType.everyXPeriod
+              ? _frequencyConfig.everyXValue
+              : null,
+          everyXPeriodType: _frequencyConfig.type == FrequencyType.everyXPeriod
+              ? _frequencyConfig.everyXPeriodType.toString().split('.').last
+              : null,
+          timesPerPeriod: _frequencyConfig.type == FrequencyType.timesPerPeriod
+              ? _frequencyConfig.timesPerPeriod
+              : null,
+          periodType: _frequencyConfig.type == FrequencyType.timesPerPeriod
+              ? _frequencyConfig.periodType.toString().split('.').last
+              : null,
+          specificDays: _frequencyConfig.type == FrequencyType.specificDays
+              ? _frequencyConfig.selectedDays
+              : null,
+          startDate: _frequencyConfig.startDate,
+          endDate: _frequencyConfig.endDate,
+        );
+
+        print('--- create_habit.dart: createActivity call finished.');
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('New Habit Created successfully!')),

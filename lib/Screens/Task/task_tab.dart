@@ -40,8 +40,10 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       );
     }
 
-    final updatedFetched = await queryTaskCategoriesOnce(userId: currentUserUid);
-    final otherCategories = updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
+    final updatedFetched =
+        await queryTaskCategoriesOnce(userId: currentUserUid);
+    final otherCategories =
+        updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
 
     setState(() {
       _categories = updatedFetched;
@@ -50,7 +52,6 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       _tabController = TabController(length: _tabNames.length, vsync: this);
     });
   }
-
 
   @override
   void dispose() {
@@ -73,12 +74,12 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   child: _tabNames.isEmpty
                       ? const SizedBox()
                       : TabBar(
-                    indicatorColor: Colors.black,
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabs:
-                    _tabNames.map((name) => Tab(text: name)).toList(),
-                  ),
+                          indicatorColor: Colors.black,
+                          controller: _tabController,
+                          isScrollable: true,
+                          tabs:
+                              _tabNames.map((name) => Tab(text: name)).toList(),
+                        ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.add, color: Colors.black),
@@ -91,28 +92,15 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
             ),
           ),
           Expanded(
-            child: _categories.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-              controller: _tabController,
-              children: _tabNames.map((name) {
-                if (name.toLowerCase() == "inbox") {
-                  final inboxCategory = _categories.firstWhere(
-                        (c) => c.name.toLowerCase() == 'inbox',
-                  );
-                  return TaskPage(categoryId: inboxCategory.reference.id, showCompleted: _showCompleted);
-                }
-                final category = _categories.firstWhere(
-                      (c) => c.name == name,
-                );
-                if (category == null) {
-                  return const Center(child: Text("No category found"));
-                }
-                return TaskPage(categoryId: category.reference.id, showCompleted: _showCompleted);
-              }).toList(),
-            )
-
-          )
+              child: _categories.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: _tabNames.map((name) {
+                        return TaskPage(
+                            categoryName: name, showCompleted: _showCompleted);
+                      }).toList(),
+                    ))
         ],
       ),
     );
@@ -175,7 +163,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                     }
 
                     final exists = _categories.any(
-                          (c) => c.name.toLowerCase() == newName.toLowerCase(),
+                      (c) => c.name.toLowerCase() == newName.toLowerCase(),
                     );
                     if (exists || newName.toLowerCase() == "inbox") {
                       if (context.mounted) {

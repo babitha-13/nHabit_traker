@@ -8,9 +8,9 @@ import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
@@ -354,11 +354,12 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
 
 /// Query to get today's task instances (current and overdue)
 /// This is the main function to use for displaying active tasks to users
-Future<List<TaskInstanceRecord>> queryTodaysTaskInstances({
+/// TODO: Phase 2 - Implement with ActivityInstanceService
+Future<List<ActivityInstanceRecord>> queryTodaysTaskInstances({
   required String userId,
 }) async {
   try {
-    return await TaskInstanceService.getTodaysTaskInstances(userId: userId);
+    return await ActivityInstanceService.getActiveTaskInstances(userId: userId);
   } catch (e) {
     print('Error querying today\'s task instances: $e');
     return []; // Return empty list on error
@@ -367,13 +368,27 @@ Future<List<TaskInstanceRecord>> queryTodaysTaskInstances({
 
 /// Query to get today's habit instances (current and overdue)
 /// This is the main function to use for displaying active habits to users
-Future<List<HabitInstanceRecord>> queryTodaysHabitInstances({
+/// TODO: Phase 2 - Implement with ActivityInstanceService
+Future<List<ActivityInstanceRecord>> queryTodaysHabitInstances({
   required String userId,
 }) async {
   try {
-    return await TaskInstanceService.getTodaysHabitInstances(userId: userId);
+    return await ActivityInstanceService.getActiveHabitInstances(
+        userId: userId);
   } catch (e) {
     print('Error querying today\'s habit instances: $e');
+    return []; // Return empty list on error
+  }
+}
+
+/// Query to get all today's instances (current and overdue tasks and habits)
+Future<List<ActivityInstanceRecord>> queryAllTodaysInstances({
+  required String userId,
+}) async {
+  try {
+    return await ActivityInstanceService.getAllActiveInstances(userId: userId);
+  } catch (e) {
+    print('Error querying all today\'s instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -408,6 +423,14 @@ Future<DocumentReference> createActivity({
   String? unit,
   int priority = 1,
   List<int>? specificDays,
+  // New frequency parameters
+  String? frequencyType,
+  int? everyXValue,
+  String? everyXPeriodType,
+  int? timesPerPeriod,
+  String? periodType,
+  DateTime? startDate,
+  DateTime? endDate,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
@@ -434,25 +457,40 @@ Future<DocumentReference> createActivity({
     priority: priority,
     specificDays: specificDays,
 
-    // Date range fields - default startDate to today, endDate to 2099 for perpetual habits
-    startDate: DateTime.now(),
-    endDate:
-        DateTime(2099, 12, 31), // Default to far future for perpetual habits
+    // Date range fields
+    startDate: startDate ?? DateTime.now(),
+    endDate: endDate,
+
+    // New frequency fields
+    frequencyType: frequencyType,
+    everyXValue: everyXValue,
+    everyXPeriodType: everyXPeriodType,
+    timesPerPeriod: timesPerPeriod,
+    periodType: periodType,
   );
 
   final habitRef = await ActivityRecord.collectionForUser(uid).add(habitData);
 
-  // Create initial habit instance
+  // Create initial activity instance
   try {
-    final habit = await ActivityRecord.getDocumentOnce(habitRef);
-    await TaskInstanceService.initializeHabitInstances(
+    print('Creating activity instance for template: ${habitRef.id}');
+    final activity = await ActivityRecord.getDocumentOnce(habitRef);
+    print('Activity template loaded: ${activity.name}');
+
+    final instanceRef = await ActivityInstanceService.createActivityInstance(
       templateId: habitRef.id,
-      template: habit,
+      dueDate: InstanceDateCalculator.calculateInitialDueDate(
+        template: activity,
+        explicitDueDate: dueDate,
+      ),
+      template: activity,
       userId: uid,
     );
+    print('Activity instance created successfully: ${instanceRef.id}');
   } catch (e) {
-    print('Error creating initial habit instance: $e');
-    // Don't fail the habit creation if instance creation fails
+    print('Error creating initial activity instance: $e');
+    print('Stack trace: ${StackTrace.current}');
+    // Don't fail the activity creation if instance creation fails
   }
 
   return habitRef;
@@ -607,6 +645,8 @@ Future<void> deleteTask(DocumentReference taskRef) async {
   });
 
   // Also delete all instances for this task
+  // TODO: Phase 6 - Implement with ActivityInstanceService
+  /*
   try {
     await TaskInstanceService.deleteInstancesForTemplate(
       templateId: taskRef.id,
@@ -616,6 +656,7 @@ Future<void> deleteTask(DocumentReference taskRef) async {
     print('Error deleting task instances: $e');
     // Don't fail the task deletion if instance deletion fails
   }
+  */
 }
 
 /// Create a work session entry
@@ -730,6 +771,8 @@ Future<void> deleteHabit(DocumentReference habitRef) async {
   });
 
   // Also delete all instances for this habit
+  // TODO: Phase 6 - Implement with ActivityInstanceService
+  /*
   try {
     await TaskInstanceService.deleteInstancesForTemplate(
       templateId: habitRef.id,
@@ -739,6 +782,7 @@ Future<void> deleteHabit(DocumentReference habitRef) async {
     print('Error deleting habit instances: $e');
     // Don't fail the habit deletion if instance deletion fails
   }
+  */
 }
 
 /// Update a category
@@ -822,7 +866,9 @@ Future<void> deleteSequence(String sequenceId, {String? userId}) async {
 }
 
 // ==================== TASK INSTANCE MANAGEMENT ====================
+// TODO: Phase 3 - Implement with ActivityInstanceService
 
+/*
 /// Complete a task instance and generate next occurrence if recurring
 Future<void> completeTaskInstance({
   required String instanceId,
@@ -852,7 +898,10 @@ Future<void> skipTaskInstance({
     userId: userId,
   );
 }
+*/
 
+// TODO: Phase 3 - Implement with ActivityInstanceService
+/*
 /// Complete a habit instance and generate next occurrence
 Future<void> completeHabitInstance({
   required String instanceId,
@@ -903,3 +952,119 @@ Future<void> updateInstanceProgress({
     userId: userId,
   );
 }
+
+// ==================== ACTIVITY INSTANCE CONVENIENCE WRAPPERS ====================
+
+/// Complete an activity instance
+Future<void> completeActivityInstance({
+  required String instanceId,
+  dynamic finalValue,
+  int? finalAccumulatedTime,
+  String? notes,
+  String? userId,
+}) async {
+  return ActivityInstanceService.completeInstance(
+    instanceId: instanceId,
+    finalValue: finalValue,
+    finalAccumulatedTime: finalAccumulatedTime,
+    notes: notes,
+    userId: userId,
+  );
+}
+
+/// Uncomplete an activity instance (mark as pending)
+Future<void> uncompleteActivityInstance({
+  required String instanceId,
+  String? userId,
+}) async {
+  return ActivityInstanceService.uncompleteInstance(
+    instanceId: instanceId,
+    userId: userId,
+  );
+}
+
+/// Update activity instance progress (for quantitative tracking)
+Future<void> updateActivityInstanceProgress({
+  required String instanceId,
+  required dynamic currentValue,
+  String? userId,
+}) async {
+  return ActivityInstanceService.updateInstanceProgress(
+    instanceId: instanceId,
+    currentValue: currentValue,
+    userId: userId,
+  );
+}
+
+/// Toggle activity instance timer (for time tracking)
+Future<void> toggleActivityInstanceTimer({
+  required String instanceId,
+  String? userId,
+}) async {
+  return ActivityInstanceService.toggleInstanceTimer(
+    instanceId: instanceId,
+    userId: userId,
+  );
+}
+
+/// Skip an activity instance
+Future<void> skipActivityInstance({
+  required String instanceId,
+  String? notes,
+  String? userId,
+}) async {
+  return ActivityInstanceService.skipInstance(
+    instanceId: instanceId,
+    notes: notes,
+    userId: userId,
+  );
+}
+
+/// Reschedule an activity instance
+Future<void> rescheduleActivityInstance({
+  required String instanceId,
+  required DateTime newDueDate,
+  String? userId,
+}) async {
+  return ActivityInstanceService.rescheduleInstance(
+    instanceId: instanceId,
+    newDueDate: newDueDate,
+    userId: userId,
+  );
+}
+
+/// Remove due date from an activity instance
+Future<void> removeDueDateFromInstance({
+  required String instanceId,
+  String? userId,
+}) async {
+  return ActivityInstanceService.removeDueDateFromInstance(
+    instanceId: instanceId,
+    userId: userId,
+  );
+}
+
+/// Skip all instances until a specific date
+Future<void> skipActivityInstancesUntil({
+  required String templateId,
+  required DateTime untilDate,
+  String? userId,
+}) async {
+  return ActivityInstanceService.skipInstancesUntil(
+    templateId: templateId,
+    untilDate: untilDate,
+    userId: userId,
+  );
+}
+
+/// Get updated instance data after changes
+Future<ActivityInstanceRecord> getUpdatedActivityInstance({
+  required String instanceId,
+  String? userId,
+}) async {
+  return ActivityInstanceService.getUpdatedInstance(
+    instanceId: instanceId,
+    userId: userId,
+  );
+}
+*/

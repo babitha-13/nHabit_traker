@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
@@ -11,6 +11,7 @@ import 'package:habit_tracker/Helper/utils/date_filter_dropdown.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+import 'package:collection/collection.dart';
 
 class QueuePage extends StatefulWidget {
   final bool showCompleted;
@@ -23,10 +24,8 @@ class QueuePage extends StatefulWidget {
 class _QueuePageState extends State<QueuePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<ActivityRecord> _habits = [];
+  List<ActivityInstanceRecord> _instances = [];
   List<CategoryRecord> _categories = [];
-  List<ActivityRecord> _tasks = [];
-  List<ActivityRecord> _tasksTodayOrder = [];
   final Map<String, bool> _timeSectionExpanded = {
     'Overdue': true,
     'Today': true
@@ -41,7 +40,7 @@ class _QueuePageState extends State<QueuePage> {
   void initState() {
     super.initState();
     _showCompleted = widget.showCompleted;
-    _loadHabits();
+    _loadData();
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
         setState(() {
@@ -49,10 +48,10 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     });
-    NotificationCenter.addObserver(this, 'loadHabits', (param) {
+    NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
         setState(() {
-          _loadHabits();
+          _loadData();
         });
       }
     });
@@ -72,203 +71,61 @@ class _QueuePageState extends State<QueuePage> {
       final route = ModalRoute.of(context);
       if (route != null && route.isCurrent && _shouldReloadOnReturn) {
         _shouldReloadOnReturn = false;
-        _loadHabits();
+        _loadData();
       }
     } else {
       _didInitialDependencies = true;
     }
   }
 
-  Future<void> _loadHabits() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final allHabits = await queryActivitiesRecordOnce(userId: userId);
-        final categories = await queryHabitCategoriesOnce(userId: userId);
+        final allInstances = await queryAllTodaysInstances(userId: userId);
+        final habitCategories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
-        final allCategories = [...categories, ...taskCategories];
-        setState(() {
-          _habits = allHabits;
-          _categories = allCategories;
-          _tasks = allHabits.where((h) {
-            if (h.categoryType != 'task') return false;
-            if (_isTaskCompleted(h) && !_showCompleted) return false;
-            return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
-          }).toList();
-          _isLoading = false;
-        });
-        if (_tasks.isNotEmpty) {
-          for (final task in _tasks) {
-            print(
-                '  - ${task.name}: ${task.trackingType}, target: ${task.target}');
-          }
+        final allCategories = [...habitCategories, ...taskCategories];
+
+        // DEBUG: Print instance details
+        print('QueuePage: Received ${allInstances.length} instances');
+        int taskCount = 0;
+        int habitCount = 0;
+        for (final inst in allInstances) {
+          print('  Instance: ${inst.templateName}');
+          print('    - Category ID: ${inst.templateCategoryId}');
+          print('    - Category Name: ${inst.templateCategoryName}');
+          print('    - Category Type: ${inst.templateCategoryType}');
+          print('    - Status: ${inst.status}');
+          print('    - Due Date: ${inst.dueDate}');
+          if (inst.templateCategoryType == 'task') taskCount++;
+          if (inst.templateCategoryType == 'habit') habitCount++;
+        }
+        print('QueuePage: Tasks: $taskCount, Habits: $habitCount');
+
+        if (mounted) {
+          setState(() {
+            _instances = allInstances;
+            _categories = allCategories;
+            _isLoading = false;
+          });
         }
       } else {
-        setState(() {
-          _isLoading = false;
-        });
+        if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      print('QueuePage: Error loading data: $e');
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
-  bool _isTaskCompleted(ActivityRecord task) {
-    if (!task.isActive) return false;
-    switch (task.trackingType) {
-      case 'binary':
-        return task.status == 'complete';
-      case 'quantitative':
-        final currentValue = task.currentValue ?? 0;
-        final target = task.target ?? 0;
-        return target > 0 && currentValue >= target;
-      case 'time':
-        final currentMinutes = (task.accumulatedTime) ~/ 60000;
-        final targetMinutes = task.target ?? 0;
-        return targetMinutes > 0 && currentMinutes >= targetMinutes;
-      default:
-        return task.status == 'complete';
-    }
+  bool _isInstanceCompleted(ActivityInstanceRecord instance) {
+    return instance.status == 'completed';
   }
 
-  bool _isFlexibleWeekly(ActivityRecord habit) {
-    return habit.schedule == 'weekly' && habit.specificDays.isEmpty;
-  }
-
-  int _completedCountThisWeek(ActivityRecord habit) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final weekStart = today.subtract(Duration(days: today.weekday - 1));
-    final weekEnd = weekStart.add(const Duration(days: 6));
-    return habit.completedDates.where((date) {
-      final d = DateTime(date.year, date.month, date.day);
-      return !d.isBefore(weekStart) && !d.isAfter(weekEnd);
-    }).length;
-  }
-
-  int _daysRemainingThisWeekInclusiveToday() {
-    final now = DateTime.now();
-    return DateTime.sunday - now.weekday + 1;
-  }
-
-  int _remainingCompletionsThisWeek(ActivityRecord habit) {
-    final done = _completedCountThisWeek(habit);
-    final remaining = habit.weeklyTarget - done;
-    return remaining > 0 ? remaining : 0;
-  }
-
-  bool _shouldShowInTodayMain(ActivityRecord habit) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    if (habit.skippedDates.any((d) =>
-        d.year == today.year && d.month == today.month && d.day == today.day)) {
-      return false;
-    }
-    if (habit.hasSnoozedUntil()) {
-      final until = habit.snoozedUntil!;
-      final untilDate = DateTime(until.year, until.month, until.day);
-      if (!today.isAfter(untilDate)) {
-        return false;
-      }
-    }
-    if (habit.schedule == 'daily') return true;
-    if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
-      return habit.specificDays.contains(now.weekday);
-    }
-    if (_isFlexibleWeekly(habit)) {
-      final remaining = _remainingCompletionsThisWeek(habit);
-      if (remaining <= 0) return false;
-      final daysRemaining = _daysRemainingThisWeekInclusiveToday();
-      return remaining >= daysRemaining;
-    }
-    return false;
-  }
-
-  bool _shouldShowInDateFilter(ActivityRecord habit) {
-    switch (_selectedDateFilter) {
-      case DateFilterType.today:
-        return _shouldShowInTodayMain(habit);
-      case DateFilterType.tomorrow:
-        return _shouldShowInTomorrowMain(habit);
-      case DateFilterType.week:
-        return _shouldShowInThisWeekMain(habit);
-      case DateFilterType.later:
-        return _shouldShowInLaterMain(habit);
-    }
-  }
-
-  bool _shouldShowInTomorrowMain(ActivityRecord habit) {
-    final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    if (habit.skippedDates.any((d) =>
-        d.year == tomorrow.year &&
-        d.month == tomorrow.month &&
-        d.day == tomorrow.day)) {
-      return false;
-    }
-    if (habit.hasSnoozedUntil()) {
-      final until = habit.snoozedUntil!;
-      final untilDate = DateTime(until.year, until.month, until.day);
-      if (!tomorrow.isAfter(untilDate)) {
-        return false;
-      }
-    }
-    if (habit.schedule == 'daily') return true;
-    if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
-      return habit.specificDays.contains(tomorrow.weekday);
-    }
-    if (_isFlexibleWeekly(habit)) {
-      final remaining = _remainingCompletionsThisWeek(habit);
-      if (remaining <= 0) return false;
-      return remaining > 0;
-    }
-    return false;
-  }
-
-  bool _shouldShowInThisWeekMain(ActivityRecord habit) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    for (int i = 0; i < 7; i++) {
-      final checkDate = startOfWeek.add(Duration(days: i));
-      if (habit.skippedDates.any((d) =>
-          d.year == checkDate.year &&
-          d.month == checkDate.month &&
-          d.day == checkDate.day)) {
-        continue;
-      }
-      if (habit.hasSnoozedUntil()) {
-        final until = habit.snoozedUntil!;
-        final untilDate = DateTime(until.year, until.month, until.day);
-        if (!checkDate.isAfter(untilDate)) {
-          continue;
-        }
-      }
-      if (habit.schedule == 'daily') return true;
-      if (habit.schedule == 'weekly' && habit.specificDays.isNotEmpty) {
-        if (habit.specificDays.contains(checkDate.weekday)) return true;
-      }
-      if (_isFlexibleWeekly(habit)) {
-        final remaining = _remainingCompletionsThisWeek(habit);
-        if (remaining > 0) return true;
-      }
-    }
-    return false;
-  }
-
-  bool _shouldShowInLaterMain(ActivityRecord habit) {
-    return !_shouldShowInTodayMain(habit) &&
-        !_shouldShowInTomorrowMain(habit) &&
-        !_shouldShowInThisWeekMain(habit);
-  }
-
-  Map<String, List<ActivityRecord>> get _bucketedItems {
-    final Map<String, List<ActivityRecord>> buckets = {
+  Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
+    final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
       'Today': [],
       'Tomorrow': [],
@@ -280,60 +137,53 @@ class _QueuePageState extends State<QueuePage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-    void addToBucket(ActivityRecord h, DateTime? dueDate) {
-      if (!_showCompleted && _isTaskCompleted(h)) return;
-
-      if (dueDate == null) {
-        buckets['Later']!.add(h);
-        return;
+    print('_bucketedItems: Processing ${_instances.length} instances');
+    for (final instance in _instances) {
+      if (!_showCompleted && _isInstanceCompleted(instance)) {
+        print('  ${instance.templateName}: SKIPPED (completed)');
+        continue;
+      }
+      if (!DateFilterHelper.isInstanceInFilter(instance, _selectedDateFilter)) {
+        print(
+            '  ${instance.templateName}: SKIPPED (date filter) - dueDate: ${instance.dueDate}, filter: $_selectedDateFilter');
+        continue;
       }
 
+      final dueDate = instance.dueDate;
+      if (dueDate == null) {
+        buckets['Later']!.add(instance);
+        continue;
+      }
       final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
 
       if (dateOnly.isBefore(today)) {
-        buckets['Overdue']!.add(h);
+        buckets['Overdue']!.add(instance);
       } else if (_isSameDay(dateOnly, today)) {
-        buckets['Today']!.add(h);
+        buckets['Today']!.add(instance);
       } else if (_isSameDay(dateOnly, _tomorrowDate())) {
-        buckets['Tomorrow']!.add(h);
+        buckets['Tomorrow']!.add(instance);
       } else if (!dateOnly.isAfter(endOfWeek)) {
-        buckets['This Week']!.add(h);
+        buckets['This Week']!.add(instance);
       } else {
-        buckets['Later']!.add(h);
-      }
-    }
-
-    for (final item in _habits) {
-      if (!item.isActive) continue;
-      final isRecurring = _isRecurringItem(item);
-
-      if (isRecurring) {
-        if (_shouldShowInDateFilter(item)) {
-          addToBucket(item, today);
-        } else {
-          final next = _nextDueDateForHabit(item, today);
-          addToBucket(item, next);
-        }
-      } else {
-        addToBucket(item, item.dueDate);
+        buckets['Later']!.add(instance);
       }
     }
 
     return buckets;
   }
 
-  String _getSubtitle(ActivityRecord item, String bucketKey) {
+  String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
-      return item.categoryName;
+      return item.templateCategoryName;
     }
 
     final dueDate = item.dueDate;
     if (dueDate != null) {
       final formattedDate = DateFormat.MMMd().format(dueDate);
-      return '$formattedDate • ${item.categoryName}';
+      return '$formattedDate • ${item.templateCategoryName}';
     }
 
-    return item.categoryName;
+    return item.templateCategoryName;
   }
 
   DateTime _todayDate() {
@@ -345,31 +195,6 @@ class _QueuePageState extends State<QueuePage> {
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
-
-  DateTime? _nextDueDateForHabit(ActivityRecord h, DateTime today) {
-    switch (h.schedule) {
-      case 'daily':
-        return today.add(const Duration(days: 1));
-      case 'weekly':
-        if (h.specificDays.isNotEmpty) {
-          for (int i = 1; i <= 7; i++) {
-            final candidate = today.add(Duration(days: i));
-            if (h.specificDays.contains(candidate.weekday)) return candidate;
-          }
-          return today.add(const Duration(days: 7));
-        }
-        return today.add(const Duration(days: 1));
-      case 'monthly':
-        return today.add(const Duration(days: 3));
-      default:
-        return today.add(const Duration(days: 1));
-    }
-  }
-
-  // Helper method to determine if an item is recurring
-  bool _isRecurringItem(ActivityRecord item) {
-    return item.isRecurring;
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -385,23 +210,20 @@ class _QueuePageState extends State<QueuePage> {
                     ),
                   ],
                 ),
-          FloatingTimer(
-            activeHabits: _activeFloatingHabits,
-            onRefresh: _loadHabits,
-            onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-          ),
+          // FloatingTimer(
+          //   activeHabits: _activeFloatingHabits,
+          //   onRefresh: _loadData,
+          //   onHabitUpdated: (updated) => {},
+          // ),
         ],
       ),
     );
   }
 
-  List<ActivityRecord> get _activeFloatingHabits {
-    final all = [
-      ..._tasksTodayOrder,
-      ..._bucketedItems.values.expand((list) => list)
-    ];
-    return all.where((h) => h.showInFloatingTimer == true).toList();
-  }
+  // List<ActivityRecord> get _activeFloatingHabits {
+  //   // TODO: Re-implement with instances
+  //   return [];
+  // }
 
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
@@ -492,32 +314,16 @@ class _QueuePageState extends State<QueuePage> {
             delegate: SliverChildBuilderDelegate(
               (context, index) {
                 final item = items[index];
-                final category = _categories.firstWhere(
-                  (c) => c.name == item.categoryName,
-                  orElse: () {
-                    try {
-                      return _categories
-                          .firstWhere((c) => c.categoryType == 'task');
-                    } catch (e) {
-                      return CategoryRecord.getDocumentFromData(
-                          {},
-                          FirebaseFirestore.instance
-                              .collection('categories')
-                              .doc());
-                    }
-                  },
-                );
-                final isHabit = item.categoryType == 'habit';
+                final isHabit = item.templateCategoryType == 'habit';
                 return ItemComponent(
                   subtitle: _getSubtitle(item, key),
                   key: Key(item.reference.id),
-                  habit: item,
+                  instance: item,
                   showCompleted: _showCompleted,
-                  categoryColorHex: _getTaskCategoryColor(item),
-                  onRefresh: _loadHabits,
-                  onHabitUpdated: (updated) =>
-                      _updateHabitInLocalState(updated),
-                  onHabitDeleted: (deleted) async => _loadHabits(),
+                  categoryColorHex: _getCategoryColor(item),
+                  onRefresh: _loadData,
+                  onHabitUpdated: (updated) => {},
+                  onHabitDeleted: (deleted) async => _loadData(),
                   isHabit: isHabit,
                   showTypeIcon: true,
                   showRecurringIcon: true,
@@ -541,68 +347,13 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  String _getTaskCategoryColor(ActivityRecord task) {
-    CategoryRecord? matchedCategory;
-    try {
-      if (task.categoryId.isNotEmpty) {
-        matchedCategory =
-            _categories.firstWhere((c) => c.reference.id == task.categoryId);
-      } else if (task.categoryName.isNotEmpty) {
-        final taskName = task.categoryName.trim().toLowerCase();
-        matchedCategory = _categories.firstWhere(
-          (c) => c.name.trim().toLowerCase() == taskName,
-        );
-      }
-    } catch (_) {}
-    if (matchedCategory != null && matchedCategory.color.isNotEmpty) {
-      return matchedCategory.color;
+  String _getCategoryColor(ActivityInstanceRecord instance) {
+    final category = _categories
+        .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
+    if (category == null) {
+      print(
+          'QueuePage: Could not find category for instance ${instance.templateName} with category name: ${instance.templateCategoryName}');
     }
-    final name = task.categoryName.trim().toLowerCase();
-    if (name == 'tasks' || name == 'task') {
-      return '#2196F3';
-    }
-    return '#2196F3';
-  }
-
-  void _updateHabitInLocalState(ActivityRecord updated) {
-    setState(() {
-      final habitIndex =
-          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
-      if (habitIndex != -1) {
-        _habits[habitIndex] = updated;
-      }
-
-      final taskIndex =
-          _tasks.indexWhere((t) => t.reference.id == updated.reference.id);
-      if (taskIndex != -1) {
-        _tasks[taskIndex] = updated;
-      }
-    });
-  }
-
-  Future<void> _loadDataSilently() async {
-    try {
-      final uid = currentUserUid;
-      if (uid.isEmpty) return;
-      final allHabits = await queryActivitiesRecordOnce(userId: uid);
-      final categories = await queryCategoriesRecordOnce(userId: uid);
-      if (!mounted) return;
-      setState(() {
-        _tasks = allHabits.where((h) {
-          if (h.categoryType != 'task') return false;
-          return DateFilterHelper.isItemInFilter(h, _selectedDateFilter);
-        }).toList();
-        _habits = allHabits.where((h) {
-          return h.categoryType == 'habit';
-        }).toList();
-        _categories = categories;
-      });
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error loading tasks: $e')),
-        );
-      }
-    }
+    return category?.color ?? '#000000';
   }
 }

@@ -2,9 +2,8 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
@@ -12,7 +11,6 @@ import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
-import 'package:provider/provider.dart';
 import 'package:collection/collection.dart';
 
 class HabitsPage extends StatefulWidget {
@@ -26,7 +24,7 @@ class HabitsPage extends StatefulWidget {
 class _HabitsPageState extends State<HabitsPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<ActivityRecord> _habits = [];
+  List<ActivityInstanceRecord> _habitInstances = [];
   List<CategoryRecord> _categories = [];
   final Map<String, bool> _categoryExpanded = {};
   bool _isLoading = true;
@@ -76,70 +74,62 @@ class _HabitsPageState extends State<HabitsPage> {
     }
   }
 
-  String _getDueDateSubtitle(ActivityRecord habit) {
+  String _getDueDateSubtitle(ActivityInstanceRecord instance) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final tomorrow = today.add(const Duration(days: 1));
 
-    if (habit.dueDate == null) {
+    if (instance.dueDate == null) {
       return 'No due date';
     }
 
-    final dueDate =
-        DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
+    final dueDate = DateTime(
+        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
 
     if (dueDate.isAtSameMomentAs(today)) {
       return 'Today';
     } else if (dueDate.isAtSameMomentAs(tomorrow)) {
       return 'Tomorrow';
     } else {
-      return DateFormat.yMMMd().format(habit.dueDate!);
+      return DateFormat.yMMMd().format(instance.dueDate!);
     }
   }
 
   Future<void> _loadHabits() async {
-    setState(() {
-      _isLoading = true;
-    });
-
+    setState(() => _isLoading = true);
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final allHabits = await queryActivitiesRecordOnce(userId: userId);
+        final instances = await queryTodaysHabitInstances(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
-        // Filter habits based on their own categoryType field
-        final habitsOnly = allHabits.where((h) {
-          return h.categoryType == 'habit';
-        }).toList();
-
-        setState(() {
-          _habits = habitsOnly;
-          _categories = categories;
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() {
+            _habitInstances = instances;
+            _categories = categories;
+            _isLoading = false;
+          });
+        }
       } else {
-        setState(() {
-          _isLoading = false;
-        });
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
       }
     } catch (e) {
       print('Error loading habits: $e');
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
-  Map<String, List<ActivityRecord>> get _groupedHabits {
-    final grouped = <String, List<ActivityRecord>>{};
-    for (final habit in _habits) {
-      final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
-      if (!_showCompleted && isCompleted) continue;
-      final categoryName = _categories
-              .firstWhereOrNull((c) => c.reference.id == habit.categoryId)
-              ?.name ??
-          'Uncategorized';
-      (grouped[categoryName] ??= []).add(habit);
+  Map<String, List<ActivityInstanceRecord>> get _groupedHabits {
+    final grouped = <String, List<ActivityInstanceRecord>>{};
+    for (final instance in _habitInstances) {
+      if (!_showCompleted && instance.status == 'completed') continue;
+      final categoryName = instance.templateCategoryName.isNotEmpty
+          ? instance.templateCategoryName
+          : 'Uncategorized';
+      (grouped[categoryName] ??= []).add(instance);
     }
     return grouped;
   }
@@ -152,19 +142,20 @@ class _HabitsPageState extends State<HabitsPage> {
           _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _buildAllHabitsView(),
-          FloatingTimer(
-            activeHabits: _activeFloatingHabits,
-            onRefresh: _loadHabits,
-            onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-          ),
+          // FloatingTimer(
+          //   activeHabits: _activeFloatingHabits,
+          //   onRefresh: _loadHabits,
+          //   onHabitUpdated: (updated) => {}, // _updateHabitInLocalState(updated),
+          // ),
         ],
       ),
     );
   }
 
-  List<ActivityRecord> get _activeFloatingHabits {
-    return _habits.where((h) => h.showInFloatingTimer == true).toList();
-  }
+  // List<ActivityRecord> get _activeFloatingHabits {
+  //   // TODO: Re-implement with instances
+  //   return [];
+  // }
 
   Widget _buildAllHabitsView() {
     final groupedHabits = _groupedHabits;
@@ -235,71 +226,29 @@ class _HabitsPageState extends State<HabitsPage> {
       );
 
       if (expanded) {
-        final sortedHabits = List<ActivityRecord>.from(habits);
-        sortedHabits.sort((a, b) {
-          final ao = a.hasManualOrder() ? a.manualOrder : habits.indexOf(a);
-          final bo = b.hasManualOrder() ? b.manualOrder : habits.indexOf(b);
-          return ao.compareTo(bo);
-        });
+        final sortedHabits = List<ActivityInstanceRecord>.from(habits);
 
         slivers.add(
-          SliverReorderableList(
-            itemCount: sortedHabits.length,
-            itemBuilder: (context, index) {
-              final habit = sortedHabits[index];
-              return ReorderableDelayedDragStartListener(
-                key: ValueKey('habit_${habit.reference.id}'),
-                index: index,
-                child: ItemComponent(
-                  subtitle: _getDueDateSubtitle(habit),
+          SliverList(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) {
+                final instance = sortedHabits[index];
+                return ItemComponent(
+                  subtitle: _getDueDateSubtitle(instance),
                   showCompleted: _showCompleted,
-                  key: Key(habit.reference.id),
-                  habit: habit,
+                  key: Key(instance.reference.id),
+                  instance: instance,
                   categoryColorHex: category!.color,
                   onRefresh: _loadHabits,
-                  onHabitUpdated: (updated) =>
-                      _updateHabitInLocalState(updated),
+                  onHabitUpdated: (updated) => {},
                   onHabitDeleted: (deleted) async => _loadHabits(),
                   isHabit: true,
                   showTypeIcon: false,
                   showRecurringIcon: false,
-                ),
-              );
-            },
-            proxyDecorator: (child, index, animation) {
-              final size = MediaQuery.of(context).size;
-              return AnimatedBuilder(
-                animation: animation,
-                builder: (context, _) {
-                  return Material(
-                    elevation: 6,
-                    color: Colors.transparent,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: size.width,
-                        maxHeight: 140,
-                      ),
-                      child: child,
-                    ),
-                  );
-                },
-              );
-            },
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > sortedHabits.length) {
-                newIndex = sortedHabits.length;
-              }
-              if (newIndex > oldIndex) newIndex -= 1;
-              final item = sortedHabits.removeAt(oldIndex);
-              sortedHabits.insert(newIndex, item);
-              for (int i = 0; i < sortedHabits.length; i++) {
-                final h = sortedHabits[i];
-                try {
-                  await updateHabit(habitRef: h.reference, manualOrder: i);
-                } catch (_) {}
-              }
-              await _loadHabits();
-            },
+                );
+              },
+              childCount: sortedHabits.length,
+            ),
           ),
         );
       }
@@ -468,17 +417,6 @@ class _HabitsPageState extends State<HabitsPage> {
         );
       }),
     );
-  }
-
-  void _updateHabitInLocalState(ActivityRecord updated) {
-    setState(() {
-      final habitIndex =
-          _habits.indexWhere((h) => h.reference.id == updated.reference.id);
-      if (habitIndex != -1) {
-        _habits[habitIndex] = updated;
-      }
-    });
-    _loadHabits();
   }
 
   void _handleCategoryMenuAction(String action, CategoryRecord category) {

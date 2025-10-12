@@ -2,30 +2,36 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/timer_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart'; // Keep for fetching template on edit
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
+import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Screens/Edit%20Task/edit_task.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
-import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 
 class ItemComponent extends StatefulWidget {
-  final ActivityRecord habit;
+  final ActivityInstanceRecord instance;
   final Future<void> Function()? onRefresh;
-  final void Function(ActivityRecord updatedHabit)? onHabitUpdated;
-  final void Function(ActivityRecord deletedHabit)? onHabitDeleted;
+  final void Function(ActivityRecord updatedHabit)?
+      onHabitUpdated; // TODO: Refactor to instance
+  final void Function(ActivityRecord deletedHabit)?
+      onHabitDeleted; // TODO: Refactor to instance
+  final void Function(ActivityInstanceRecord updatedInstance)?
+      onInstanceUpdated;
+  final void Function(ActivityInstanceRecord deletedInstance)?
+      onInstanceDeleted;
   final String? categoryColorHex, page;
   final bool? showCompleted;
   final bool showCalendar;
   final bool showTaskEdit;
   final List<CategoryRecord>? categories;
-  final List<ActivityRecord>? tasks;
+  final List<ActivityRecord>? tasks; // TODO: Refactor to instance
   final bool isHabit;
   final bool showTypeIcon;
   final bool showRecurringIcon;
@@ -33,10 +39,12 @@ class ItemComponent extends StatefulWidget {
 
   const ItemComponent(
       {Key? key,
-      required this.habit,
+      required this.instance,
       this.onRefresh,
       this.onHabitUpdated,
       this.onHabitDeleted,
+      this.onInstanceUpdated,
+      this.onInstanceDeleted,
       this.categoryColorHex,
       this.showCompleted,
       this.showCalendar = false,
@@ -58,13 +66,14 @@ class _ItemComponentState extends State<ItemComponent>
     with TickerProviderStateMixin {
   bool _isUpdating = false;
   Timer? _timer;
-  int? _quantProgressOverride;
+  num? _quantProgressOverride;
   bool? _timerStateOverride;
 
   @override
   void initState() {
     super.initState();
-    if (widget.habit.trackingType == 'time' && widget.habit.isTimerActive) {
+    if (widget.instance.templateTrackingType == 'time' &&
+        widget.instance.isTimerActive) {
       _startTimer();
     }
   }
@@ -72,54 +81,67 @@ class _ItemComponentState extends State<ItemComponent>
   @override
   void didUpdateWidget(covariant ItemComponent oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.habit.trackingType == 'quantitative' &&
+
+    // Reset quantitative progress override when backend catches up
+    if (widget.instance.templateTrackingType == 'quantitative' &&
         _quantProgressOverride != null) {
-      final num backend =
-          HabitTrackingUtil.getCurrentProgress(widget.habit) ?? 0;
-      if (backend.toInt() == _quantProgressOverride) {
+      final backendValue = widget.instance.currentValue;
+      if (backendValue == _quantProgressOverride) {
         setState(() => _quantProgressOverride = null);
       }
     }
-    if (widget.habit.trackingType == 'time' && _timerStateOverride != null) {
-      if (widget.habit.isTimerActive == _timerStateOverride) {
+
+    // Reset timer state override when backend catches up
+    if (widget.instance.templateTrackingType == 'time' &&
+        _timerStateOverride != null) {
+      if (widget.instance.isTimerActive == _timerStateOverride) {
         setState(() => _timerStateOverride = null);
+      }
+    }
+
+    // Handle timer state changes (existing logic)
+    if (widget.instance.templateTrackingType == 'time') {
+      if (widget.instance.isTimerActive && !oldWidget.instance.isTimerActive) {
+        _startTimer();
+      } else if (!widget.instance.isTimerActive &&
+          oldWidget.instance.isTimerActive) {
+        _stopTimer();
       }
     }
   }
 
   bool _isRecurringItem() {
-    return widget.habit.isRecurring;
+    // Check if the template is recurring
+    // For habits: always recurring
+    // For tasks: check if it's a recurring task
+    if (widget.instance.templateCategoryType == 'habit') {
+      return true; // Habits are always recurring
+    } else {
+      // For tasks, we need to determine if the template is recurring
+      // Since we don't have the isRecurring field cached in the instance,
+      // we'll use a heuristic: if it's a task with a due date, it's likely recurring
+      // This is a temporary solution until we add templateIsRecurring to the instance record
+      return widget.instance.templateCategoryType == 'task' &&
+          widget.instance.dueDate != null;
+    }
   }
 
+  // TODO: Phase 6 - This needs to fetch the template, then create a new template and first instance
   Future<void> _copyHabit() async {
-    try {
-      await createActivity(
-        name: widget.habit.name,
-        categoryName: widget.habit.categoryName.isNotEmpty
-            ? widget.habit.categoryName
-            : 'default',
-        trackingType: widget.habit.trackingType,
-        target: widget.habit.target,
-        schedule: widget.habit.schedule,
-        frequency: widget.habit.frequency ?? 1,
-        description: widget.habit.description.isNotEmpty
-            ? widget.habit.description
-            : null,
-        categoryType: widget.habit.categoryType,
-      );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Habit copied')),
-        );
-      }
-      await widget.onRefresh?.call();
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error copying habit: $e')),
-        );
-      }
-    }
+    ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Copying not implemented yet.')));
+  }
+
+  void _startTimer() {
+    _timer?.cancel();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  void _stopTimer() {
+    _timer?.cancel();
+    _timer = null;
   }
 
   @override
@@ -128,35 +150,13 @@ class _ItemComponentState extends State<ItemComponent>
     super.dispose();
   }
 
-  void _startTimer() {
-    _timer?.cancel();
-    final startTime = widget.habit.timerStartTime ?? DateTime.now();
-    final target = HabitTrackingUtil.getTargetDuration(widget.habit);
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) async {
-      if (mounted) {
-        setState(() {});
-      }
-      final elapsed = DateTime.now().difference(startTime);
-      if (target > Duration.zero && elapsed >= target) {
-        timer.cancel();
-        setState(() => _timerStateOverride = false);
-        await HabitTrackingUtil.stopTimer(widget.habit);
-        final updated =
-            await ActivityRecord.getDocumentOnce(widget.habit.reference);
-        if (mounted) {
-          widget.onHabitUpdated?.call(updated);
-        }
-      }
-    });
-  }
-
   bool get _isCompleted {
-    return HabitTrackingUtil.isCompletedToday(widget.habit);
+    return widget.instance.status == 'completed';
   }
 
   Color get _impactLevelColor {
     final theme = FlutterFlowTheme.of(context);
-    switch (widget.habit.priority) {
+    switch (widget.instance.templatePriority) {
       case 1:
         return theme.accent3;
       case 2:
@@ -169,56 +169,62 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   String _getTimerDisplayWithSeconds() {
-    return HabitTrackingUtil.getTimerDisplayTextWithSeconds(widget.habit);
+    return TimerLogicHelper.formatTimeDisplay(widget.instance);
   }
 
   bool get _isTimerActiveLocal {
-    if (widget.habit.trackingType == 'time' && _timerStateOverride != null) {
+    if (widget.instance.templateTrackingType == 'time' &&
+        _timerStateOverride != null) {
       return _timerStateOverride!;
     }
-    return widget.habit.isTimerActive;
+    return widget.instance.isTimerActive;
   }
 
   num _currentProgressLocal() {
-    if (widget.habit.trackingType == 'quantitative' &&
+    // Use optimistic override if present
+    if (widget.instance.templateTrackingType == 'quantitative' &&
         _quantProgressOverride != null) {
       return _quantProgressOverride!;
     }
-    return HabitTrackingUtil.getCurrentProgress(widget.habit) ?? 0;
+
+    final val = widget.instance.currentValue;
+    if (val is num) return val;
+    if (val is String) return num.tryParse(val) ?? 0;
+    return 0;
   }
 
   double get _progressPercentClamped {
     try {
-      if (widget.habit.trackingType == 'quantitative') {
+      if (widget.instance.templateTrackingType == 'quantitative') {
         final num progress = _currentProgressLocal();
-        final num target = HabitTrackingUtil.getTarget(widget.habit) ?? 0;
+        final num target = (widget.instance.templateTarget is num)
+            ? widget.instance.templateTarget
+            : 0;
         if (target == 0) return 0.0;
         final pct = (progress.toDouble() / target.toDouble());
         if (pct.isNaN) return 0.0;
         return pct.clamp(0.0, 1.0);
+      } else if (widget.instance.templateTrackingType == 'time') {
+        // Use real-time accumulated time including currently running elapsed
+        final realTimeAccumulated =
+            TimerLogicHelper.getRealTimeAccumulated(widget.instance);
+        final target = widget.instance.templateTarget ?? 0;
+        if (target == 0) return 0.0;
+        // Convert target from minutes to milliseconds for comparison
+        final targetMs = target * 60000;
+        final pct = (realTimeAccumulated / targetMs);
+        if (pct.isNaN) return 0.0;
+        // Allow > 1.0 to show overtime, but clamp for display
+        return pct.clamp(0.0, 1.0);
       }
-      final pct = HabitTrackingUtil.getProgressPercentage(widget.habit);
-      return pct.clamp(0.0, 1.0);
+      return 0.0;
     } catch (_) {
       return 0.0;
     }
   }
 
   bool get _isFullyCompleted {
-    switch (widget.habit.trackingType) {
-      case 'quantitative':
-        final progress = _currentProgressLocal();
-        final target = HabitTrackingUtil.getTarget(widget.habit) ?? 0;
-        return target > 0 && progress >= target;
-      case 'binary':
-        return HabitTrackingUtil.isCompletedToday(widget.habit);
-      case 'time':
-        final tracked = HabitTrackingUtil.getTrackedTime(widget.habit);
-        final target = HabitTrackingUtil.getTargetDuration(widget.habit);
-        return target > Duration.zero && tracked >= target;
-      default:
-        return false;
-    }
+    return widget.instance.status == 'completed';
   }
 
   @override
@@ -227,27 +233,13 @@ class _ItemComponentState extends State<ItemComponent>
       return const SizedBox.shrink();
     }
     return Slidable(
-      key: ValueKey(widget.habit.reference.id),
+      key: ValueKey(widget.instance.reference.id),
       endActionPane: ActionPane(
         motion: const ScrollMotion(),
         dismissible: DismissiblePane(
           onDismissed: () {},
           confirmDismiss: () async {
-            final docRef = await TimerService.startTimer(
-              taskTitle: widget.habit.name,
-              categoryColor: widget.categoryColorHex,
-            );
-            if (docRef != null && mounted) {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => TimerPage(
-                    initialTimerLogRef: docRef,
-                    taskTitle: widget.habit.name,
-                  ),
-                ),
-              );
-            }
+            // TODO: Phase 3 - Timer logic
             return false;
           },
         ),
@@ -299,31 +291,22 @@ class _ItemComponentState extends State<ItemComponent>
                         Column(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            Visibility(
-                              visible: widget.showTypeIcon,
-                              maintainSize: true,
-                              maintainAnimation: true,
-                              maintainState: true,
-                              child: Icon(
+                            // Only show type icon if enabled
+                            if (widget.showTypeIcon)
+                              Icon(
                                 widget.isHabit ? Icons.flag : Icons.assignment,
                                 size: 16,
                                 color:
                                     FlutterFlowTheme.of(context).secondaryText,
                               ),
-                            ),
-                            Visibility(
-                              visible: widget.showRecurringIcon &&
-                                  _isRecurringItem(),
-                              maintainSize: true,
-                              maintainAnimation: true,
-                              maintainState: true,
-                              child: Icon(
+                            // Only show recurring icon if enabled and item is recurring
+                            if (widget.showRecurringIcon && _isRecurringItem())
+                              Icon(
                                 Icons.repeat,
                                 size: 16,
                                 color:
                                     FlutterFlowTheme.of(context).secondaryText,
                               ),
-                            ),
                           ],
                         ),
                         const SizedBox(width: 8),
@@ -333,7 +316,7 @@ class _ItemComponentState extends State<ItemComponent>
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               Text(
-                                widget.habit.name,
+                                widget.instance.templateName,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: FlutterFlowTheme.of(context)
@@ -352,8 +335,7 @@ class _ItemComponentState extends State<ItemComponent>
                                     ),
                               ),
                               if (widget.subtitle != null &&
-                                  widget.subtitle!.isNotEmpty &&
-                                  widget.page != "task") ...[
+                                  widget.subtitle!.isNotEmpty) ...[
                                 const SizedBox(height: 2),
                                 Text(
                                   widget.subtitle!,
@@ -372,7 +354,8 @@ class _ItemComponentState extends State<ItemComponent>
                             ],
                           ),
                         ),
-                        if (widget.habit.trackingType != 'binary') ...[
+                        if (widget.instance.templateTrackingType !=
+                            'binary') ...[
                           const SizedBox(width: 5),
                           Align(
                             alignment: Alignment.center,
@@ -435,7 +418,7 @@ class _ItemComponentState extends State<ItemComponent>
                 ],
               ),
             ),
-            if (widget.habit.trackingType != 'binary') ...[
+            if (widget.instance.templateTrackingType != 'binary') ...[
               const SizedBox(height: 3),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 11),
@@ -483,7 +466,7 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Widget _buildHabitPriorityStars() {
-    final current = widget.habit.priority;
+    final current = widget.instance.templatePriority;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
@@ -491,22 +474,7 @@ class _ItemComponentState extends State<ItemComponent>
         final filled = current >= level;
         return GestureDetector(
           onTap: () async {
-            try {
-              final next = current == 0 ? 1 : (current % 3) + 1;
-              await updateHabit(
-                habitRef: widget.habit.reference,
-                priority: next,
-              );
-              final updated =
-                  await ActivityRecord.getDocumentOnce(widget.habit.reference);
-              widget.onHabitUpdated?.call(updated);
-            } catch (e) {
-              if (mounted) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(content: Text('Error updating priority: $e')),
-                );
-              }
-            }
+            await _updateTemplatePriority(level);
           },
           child: Icon(
             filled ? Icons.star : Icons.star_border,
@@ -518,6 +486,50 @@ class _ItemComponentState extends State<ItemComponent>
         );
       }),
     );
+  }
+
+  Future<void> _updateTemplatePriority(int newPriority) async {
+    try {
+      // Get the template document
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
+
+      // Update the template's priority
+      await templateRef.update({
+        'priority': newPriority,
+        'lastUpdated': DateTime.now(),
+      });
+
+      // Also update the instance's cached priority for immediate UI update
+      final instanceRef = ActivityInstanceRecord.collectionForUser(uid)
+          .doc(widget.instance.reference.id);
+      await instanceRef.update({
+        'templatePriority': newPriority,
+        'lastUpdated': DateTime.now(),
+      });
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Show confirmation
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+            content: Text(
+                'Priority set to $newPriority star${newPriority > 1 ? 's' : ''}')),
+      );
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating priority: $e')),
+        );
+      }
+    }
   }
 
   Future<void> _showHabitOverflowMenu(BuildContext anchorContext) async {
@@ -555,48 +567,34 @@ class _ItemComponentState extends State<ItemComponent>
       ],
     );
     if (selected == null) return;
+
+    // To edit/delete, we need the original template document.
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final templateRef =
+        ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
+
     if (selected == 'edit') {
+      final template = await ActivityRecord.getDocumentOnce(templateRef);
       if (widget.showTaskEdit) {
         showDialog(
           context: context,
           builder: (_) => EditTask(
-            task: widget.habit,
+            task: template, // Pass the template here
             categories: widget.categories ?? [],
             onSave: (updatedHabit) async {
-              // The database was already updated by the EditTask dialog
-              // Just update the local state
-              if (widget.tasks != null) {
-                final index = widget.tasks!.indexWhere(
-                    (t) => t.reference.id == updatedHabit.reference.id);
-                if (index != -1) {
-                  widget.tasks![index] = updatedHabit;
-                }
-              }
+              // Template updated, no need to refresh instances here
             },
           ),
-        ).then((value) {
-          if (value) {
-            if (widget.onHabitUpdated != null) {
-              widget.onHabitUpdated!(widget.habit);
-            }
-            // Also trigger a refresh to reload the habits page
-            if (widget.onRefresh != null) {
-              widget.onRefresh!();
-            }
-          }
-        });
+        );
       } else {
         Navigator.push(
           context,
           MaterialPageRoute(
-            builder: (context) => createActivityPage(habitToEdit: widget.habit),
+            builder: (context) => createActivityPage(habitToEdit: template),
           ),
         ).then((value) {
           if (value == true) {
-            // Trigger a refresh to reload the habits page
-            if (widget.onRefresh != null) {
-              widget.onRefresh!();
-            }
+            widget.onRefresh?.call();
           }
         });
       }
@@ -606,9 +604,9 @@ class _ItemComponentState extends State<ItemComponent>
       final shouldDelete = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Delete Habit'),
-          content:
-              Text('Delete "${widget.habit.name}"? This cannot be undone.'),
+          title: const Text('Delete Activity'),
+          content: Text(
+              'Delete "${widget.instance.templateName}"? This will delete the activity and all its history. This cannot be undone.'),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -626,18 +624,23 @@ class _ItemComponentState extends State<ItemComponent>
       );
       if (shouldDelete == true) {
         try {
-          await deleteHabit(widget.habit.reference);
+          // Soft delete the template
+          await deleteHabit(templateRef);
+          // Hard delete all instances for the template
+          await ActivityInstanceService.deleteInstancesForTemplate(
+              templateId: widget.instance.templateId);
+
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Habit deleted')),
+              const SnackBar(content: Text('Activity deleted')),
             );
+            // Call onInstanceDeleted for granular UI update
+            widget.onInstanceDeleted?.call(widget.instance);
           }
-          widget.onHabitDeleted?.call(widget.habit);
-          await widget.onRefresh?.call();
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error deleting habit: $e')),
+              SnackBar(content: Text('Error deleting activity: $e')),
             );
           }
         }
@@ -645,86 +648,7 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
-  Future<void> _updateDueDate(DateTime newDate) async {
-    try {
-      await widget.habit.reference.update({'dueDate': newDate});
-      final updated =
-          await ActivityRecord.getDocumentOnce(widget.habit.reference);
-      widget.onHabitUpdated?.call(updated);
-      if (mounted) {
-        final label = DateFormat('EEE, MMM d').format(newDate);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Due date set to $label')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error setting due date: $e')),
-        );
-      }
-    }
-  }
-
-  void _scheduleForToday() {
-    _updateDueDate(_todayDate());
-  }
-
-  void _scheduleForTomorrow() {
-    _updateDueDate(_tomorrowDate());
-  }
-
-  void _pickDueDate() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: widget.habit.dueDate ?? _tomorrowDate(),
-      firstDate: _todayDate(),
-      lastDate: _todayDate().add(const Duration(days: 365 * 5)),
-    );
-    if (picked != null) {
-      _updateDueDate(picked);
-    }
-  }
-
-  void _skipOccurrence() {
-    HabitTrackingUtil.addSkippedDate(widget.habit, DateTime.now());
-  }
-
-  void _rescheduleOccurrence() {
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(content: Text('Rescheduling not implemented yet.')),
-    );
-  }
-
-  void _skipUntil() async {
-    final picked = await showDatePicker(
-      context: context,
-      initialDate: _tomorrowDate(),
-      firstDate: _todayDate(),
-      lastDate: _todayDate().add(const Duration(days: 365 * 5)),
-    );
-    if (picked != null) {
-      try {
-        await updateHabit(
-            habitRef: widget.habit.reference, snoozedUntil: picked);
-        final updated =
-            await ActivityRecord.getDocumentOnce(widget.habit.reference);
-        widget.onHabitUpdated?.call(updated);
-        if (mounted) {
-          final label = DateFormat('EEE, MMM d').format(picked);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Skipped until $label')),
-          );
-        }
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error skipping: $e')),
-          );
-        }
-      }
-    }
-  }
+  // TODO: Phase 4 - Reschedule/Skip logic
 
   Future<void> _showScheduleMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
@@ -733,40 +657,92 @@ class _ItemComponentState extends State<ItemComponent>
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
 
-    List<PopupMenuEntry<String>> items;
-    if (_isRecurringItem()) {
-      items = const [
-        PopupMenuItem<String>(
-            value: 'skip_occurrence',
-            height: 32,
-            child:
-                Text('Skip This Occurrence', style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'reschedule_occurrence',
-            height: 32,
-            child: Text('Reschedule This Occurrence',
-                style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'skip_until',
-            height: 32,
-            child: Text('Skip Until...', style: TextStyle(fontSize: 12))),
-      ];
+    // Determine if this is a recurring task/habit
+    final isRecurring = widget.instance.templateCategoryType == 'habit' ||
+        (widget.instance.templateCategoryType == 'task' && _isRecurringItem());
+
+    final menuItems = <PopupMenuEntry<String>>[];
+
+    if (isRecurring) {
+      // Recurring tasks/habits menu
+      menuItems.addAll([
+        const PopupMenuItem<String>(
+          value: 'skip',
+          height: 32,
+          child: Text('Skip this occurrence', style: TextStyle(fontSize: 12)),
+        ),
+        const PopupMenuItem<String>(
+          value: 'skip_until_today',
+          height: 32,
+          child: Text('Skip until today', style: TextStyle(fontSize: 12)),
+        ),
+        const PopupMenuItem<String>(
+          value: 'skip_until',
+          height: 32,
+          child: Text('Skip until...', style: TextStyle(fontSize: 12)),
+        ),
+        const PopupMenuDivider(height: 6),
+        const PopupMenuItem<String>(
+          value: 'reschedule',
+          height: 32,
+          child: Text('Change due date', style: TextStyle(fontSize: 12)),
+        ),
+      ]);
     } else {
-      items = const [
-        PopupMenuItem<String>(
-            value: 'schedule_today',
+      // One-time tasks menu - show contextual options
+      final currentDueDate = widget.instance.dueDate;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+
+      final isDueToday =
+          currentDueDate != null && _isSameDay(currentDueDate, today);
+      final isDueTomorrow =
+          currentDueDate != null && _isSameDay(currentDueDate, tomorrow);
+
+      // Only show "Schedule for today" if not already due today
+      if (!isDueToday) {
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'today',
             height: 32,
-            child: Text('Schedule for Today', style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'schedule_tomorrow',
+            child: Text('Schedule for today', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      }
+
+      // Only show "Schedule for tomorrow" if not already due tomorrow
+      if (!isDueTomorrow) {
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'tomorrow',
             height: 32,
             child:
-                Text('Schedule for Tomorrow', style: TextStyle(fontSize: 12))),
-        PopupMenuItem<String>(
-            value: 'pick_date',
+                Text('Schedule for tomorrow', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      }
+
+      // Always show "Pick due date"
+      menuItems.add(
+        const PopupMenuItem<String>(
+          value: 'pick_date',
+          height: 32,
+          child: Text('Pick due date...', style: TextStyle(fontSize: 12)),
+        ),
+      );
+
+      // Only show "Clear due date" if task has a due date
+      if (currentDueDate != null) {
+        menuItems.addAll([
+          const PopupMenuDivider(height: 6),
+          const PopupMenuItem<String>(
+            value: 'clear_due_date',
             height: 32,
-            child: Text('Pick a Date...', style: TextStyle(fontSize: 12))),
-      ];
+            child: Text('Clear due date', style: TextStyle(fontSize: 12)),
+          ),
+        ]);
+      }
     }
 
     final selected = await showMenu<String>(
@@ -781,81 +757,143 @@ class _ItemComponentState extends State<ItemComponent>
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
       ),
-      items: items,
+      items: menuItems,
     );
+
     if (selected == null) return;
 
-    switch (selected) {
-      case 'schedule_today':
-        _scheduleForToday();
-        break;
-      case 'schedule_tomorrow':
-        _scheduleForTomorrow();
-        break;
-      case 'pick_date':
-        _pickDueDate();
-        break;
-      case 'skip_occurrence':
-        _skipOccurrence();
-        break;
-      case 'reschedule_occurrence':
-        _rescheduleOccurrence();
-        break;
-      case 'skip_until':
-        _skipUntil();
-        break;
-    }
+    await _handleScheduleAction(selected);
   }
 
-  Future<void> _showQuantControlsMenu(
-      BuildContext anchorContext, bool canDecrement) async {
-    final box = anchorContext.findRenderObject() as RenderBox?;
-    final overlay =
-        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
-    final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
-    final size = box?.size ?? const Size(0, 0);
-    final selected = await showMenu<String>(
-      context: anchorContext,
-      position: RelativeRect.fromLTRB(
-        position.dx,
-        position.dy + size.height,
-        overlay.size.width - position.dx - size.width,
-        overlay.size.height - position.dy,
-      ),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
-      ),
-      items: [
-        const PopupMenuItem<String>(
-          value: 'inc',
-          height: 36,
-          child: Row(
-            children: [
-              Icon(Icons.add, size: 18),
-              SizedBox(width: 8),
-              Text('Increase')
-            ],
-          ),
-        ),
-        PopupMenuItem<String>(
-          value: 'dec',
-          enabled: canDecrement,
-          height: 36,
-          child: const Row(
-            children: [
-              Icon(Icons.remove, size: 18),
-              SizedBox(width: 8),
-              Text('Decrease')
-            ],
-          ),
-        ),
-      ],
-    );
-    if (selected == 'inc') {
-      await _updateProgress(1);
-    } else if (selected == 'dec' && canDecrement) {
-      await _updateProgress(-1);
+  Future<void> _handleScheduleAction(String action) async {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+
+      switch (action) {
+        case 'skip':
+          await ActivityInstanceService.skipInstance(
+            instanceId: widget.instance.reference.id,
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Occurrence skipped')),
+          );
+          break;
+
+        case 'skip_until_today':
+          await ActivityInstanceService.skipInstancesUntil(
+            templateId: widget.instance.templateId,
+            untilDate: today,
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Skipped until today')),
+          );
+          break;
+
+        case 'skip_until':
+          final picked = await showDatePicker(
+            context: context,
+            initialDate: tomorrow,
+            firstDate: today,
+            lastDate: today.add(const Duration(days: 365 * 5)),
+          );
+          if (picked != null) {
+            await ActivityInstanceService.skipInstancesUntil(
+              templateId: widget.instance.templateId,
+              untilDate: picked,
+            );
+            final label = DateFormat('EEE, MMM d').format(picked);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Skipped until $label')),
+            );
+          }
+          break;
+
+        case 'reschedule':
+          final picked = await showDatePicker(
+            context: context,
+            initialDate: widget.instance.dueDate ?? tomorrow,
+            firstDate: today,
+            lastDate: today.add(const Duration(days: 365 * 5)),
+          );
+          if (picked != null) {
+            await ActivityInstanceService.rescheduleInstance(
+              instanceId: widget.instance.reference.id,
+              newDueDate: picked,
+            );
+            final label = DateFormat('EEE, MMM d').format(picked);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Rescheduled to $label')),
+            );
+          }
+          break;
+
+        case 'today':
+          await ActivityInstanceService.rescheduleInstance(
+            instanceId: widget.instance.reference.id,
+            newDueDate: today,
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Scheduled for today')),
+          );
+          break;
+
+        case 'tomorrow':
+          await ActivityInstanceService.rescheduleInstance(
+            instanceId: widget.instance.reference.id,
+            newDueDate: tomorrow,
+          );
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Scheduled for tomorrow')),
+          );
+          break;
+
+        case 'pick_date':
+          final picked = await showDatePicker(
+            context: context,
+            initialDate: widget.instance.dueDate ?? tomorrow,
+            firstDate: today,
+            lastDate: today.add(const Duration(days: 365 * 5)),
+          );
+          if (picked != null) {
+            await ActivityInstanceService.rescheduleInstance(
+              instanceId: widget.instance.reference.id,
+              newDueDate: picked,
+            );
+            final label = DateFormat('EEE, MMM d').format(picked);
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Scheduled for $label')),
+            );
+          }
+          break;
+
+        case 'clear_due_date':
+          print(
+              'DEBUG: Attempting to clear due date for instance: ${widget.instance.reference.id}');
+          await ActivityInstanceService.removeDueDateFromInstance(
+            instanceId: widget.instance.reference.id,
+          );
+          print('DEBUG: Due date cleared successfully');
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Due date cleared')),
+          );
+          break;
+      }
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: $e')),
+        );
+      }
     }
   }
 
@@ -869,37 +907,17 @@ class _ItemComponentState extends State<ItemComponent>
     return Colors.black;
   }
 
-  DateTime _todayDate() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
-  }
-
-  DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
-  DateTime _nextWeekend() {
-    final today = _todayDate();
-    final int daysUntilSaturday = (DateTime.saturday - today.weekday) % 7;
-    return today
-        .add(Duration(days: daysUntilSaturday == 0 ? 7 : daysUntilSaturday));
-  }
-
-  DateTime _nextWeekMonday() {
-    final today = _todayDate();
-    final int daysUntilMonday = (DateTime.monday - today.weekday) % 7;
-    return today
-        .add(Duration(days: daysUntilMonday == 0 ? 7 : daysUntilMonday));
-  }
-
   String _getProgressDisplayText() {
-    switch (widget.habit.trackingType) {
+    switch (widget.instance.templateTrackingType) {
       case 'binary':
         return '';
       case 'quantitative':
         final progress = _currentProgressLocal();
-        final target = HabitTrackingUtil.getTarget(widget.habit);
-        return '$progress/$target ${widget.habit.unit}';
+        final target = widget.instance.templateTarget;
+        return '$progress/$target ${widget.instance.templateUnit}';
       case 'time':
-        final target = HabitTrackingUtil.getTarget(widget.habit);
-        final targetFormatted = HabitTrackingUtil.formatTargetTime(target);
+        final target = widget.instance.templateTarget ?? 0;
+        final targetFormatted = TimerLogicHelper.formatTargetTime(target);
         return '${_getTimerDisplayWithSeconds()} / $targetFormatted';
       default:
         return '';
@@ -907,7 +925,8 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Widget _buildLeftControlsCompact() {
-    switch (widget.habit.trackingType) {
+    // TODO: Phase 3 - Re-implement completion logic for each type
+    switch (widget.instance.templateTrackingType) {
       case 'binary':
         return SizedBox(
           width: 24,
@@ -917,32 +936,7 @@ class _ItemComponentState extends State<ItemComponent>
             onChanged: _isUpdating
                 ? null
                 : (value) async {
-                    setState(() => _isUpdating = true);
-                    try {
-                      if (value == true) {
-                        await HabitTrackingUtil.markCompleted(widget.habit);
-                      } else {
-                        final today = DateTime.now();
-                        final todayDate =
-                            DateTime(today.year, today.month, today.day);
-                        final completedDates = <DateTime>[];
-                        completedDates.removeWhere((date) =>
-                            date.year == todayDate.year &&
-                            date.month == todayDate.month &&
-                            date.day == todayDate.day);
-                        await widget.habit.reference.update({
-                          'status': 'incomplete',
-                          'completedDates': completedDates,
-                          'lastUpdated': DateTime.now(),
-                        });
-                      }
-                      final updated = await ActivityRecord.getDocumentOnce(
-                          widget.habit.reference);
-                      widget.onHabitUpdated?.call(updated);
-                    } catch (_) {
-                    } finally {
-                      if (mounted) setState(() => _isUpdating = false);
-                    }
+                    await _handleBinaryCompletion(value ?? false);
                   },
             activeColor: _impactLevelColor,
             materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
@@ -953,9 +947,6 @@ class _ItemComponentState extends State<ItemComponent>
         final canDecrement = current > 0;
         return Builder(
           builder: (btnCtx) => GestureDetector(
-            // onDoubleTap: _isUpdating || !canDecrement
-            //     ? null
-            //     : () => _updateProgress(-1),
             onLongPress: () => _showQuantControlsMenu(btnCtx, canDecrement),
             child: Container(
               width: 24,
@@ -994,41 +985,9 @@ class _ItemComponentState extends State<ItemComponent>
             color: Colors.transparent,
             child: InkWell(
               borderRadius: BorderRadius.circular(4),
-              onTap: () async {
-                setState(() => _isUpdating = true);
-                try {
-                  if (_isTimerActiveLocal) {
-                    _timer?.cancel();
-                    await HabitTrackingUtil.stopTimer(widget.habit);
-                    TimerManager().stop(widget.habit);
-
-                    await widget.habit.reference
-                        .update(createActivityRecordData(
-                      isTimerActive: false,
-                      showInFloatingTimer: false,
-                    ));
-                  } else {
-                    final now = DateTime.now();
-                    await HabitTrackingUtil.startTimer(widget.habit);
-                    TimerManager().start(widget.habit);
-
-                    await widget.habit.reference
-                        .update(createActivityRecordData(
-                      isTimerActive: true,
-                      showInFloatingTimer: true,
-                      timerStartTime: now,
-                    ));
-                    _startTimer();
-                  }
-                  final updated = await ActivityRecord.getDocumentOnce(
-                      widget.habit.reference);
-                  widget.onHabitUpdated?.call(updated);
-                } catch (_) {
-                  setState(() => _timerStateOverride = null);
-                } finally {
-                  setState(() => _isUpdating = false);
-                }
-              },
+              onTap: _isUpdating ? null : () => _toggleTimer(),
+              onLongPress:
+                  _isUpdating ? null : () => _showTimeControlsMenu(context),
               child: Icon(
                 isActive ? Icons.stop : Icons.play_arrow,
                 size: 16,
@@ -1044,29 +1003,33 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _updateProgress(int delta) async {
     if (_isUpdating) return;
+
     setState(() {
       _isUpdating = true;
     });
-    try {
-      final currentProgress = _currentProgressLocal();
 
-      final current = (currentProgress is int)
-          ? currentProgress
-          : (currentProgress is double)
-              ? currentProgress.round()
-              : int.tryParse(currentProgress.toString()) ?? 0;
-      int newProgress = current + delta;
-      if (newProgress < 0) {
-        newProgress = 0;
-      }
-      _quantProgressOverride = newProgress;
-      if (mounted) setState(() {});
-      await HabitTrackingUtil.updateProgress(widget.habit, newProgress);
-      final updated =
-          await ActivityRecord.getDocumentOnce(widget.habit.reference);
-      widget.onHabitUpdated?.call(updated);
+    try {
+      final currentValue = _currentProgressLocal();
+      final newValue = (currentValue + delta).clamp(0, double.infinity);
+
+      // Set optimistic state immediately
+      setState(() => _quantProgressOverride = newValue.toInt());
+
+      await ActivityInstanceService.updateInstanceProgress(
+        instanceId: widget.instance.reference.id,
+        currentValue: newValue,
+      );
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
     } catch (e) {
-      print('Error updating progress: $e');
+      // Revert optimistic state on error
+      setState(() => _quantProgressOverride = null);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating progress: $e')),
@@ -1079,5 +1042,394 @@ class _ItemComponentState extends State<ItemComponent>
         });
       }
     }
+  }
+
+  Future<void> _handleBinaryCompletion(bool completed) async {
+    if (_isUpdating) return;
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      if (completed) {
+        await ActivityInstanceService.completeInstance(
+          instanceId: widget.instance.reference.id,
+        );
+      } else {
+        await ActivityInstanceService.uncompleteInstance(
+          instanceId: widget.instance.reference.id,
+        );
+      }
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating completion: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _toggleTimer() async {
+    if (_isUpdating) return;
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      final wasActive = _isTimerActiveLocal;
+
+      // Set optimistic state immediately
+      setState(() => _timerStateOverride = !wasActive);
+
+      await ActivityInstanceService.toggleInstanceTimer(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Integrate with TimerManager for floating timer
+      if (!wasActive) {
+        // Timer was started - add to TimerManager
+        TimerManager().startInstance(updatedInstance);
+      } else {
+        // Timer was stopped - remove from TimerManager
+        TimerManager().stopInstance(updatedInstance);
+
+        // Only check completion if target is set and met
+        if (TimerLogicHelper.hasMetTarget(updatedInstance)) {
+          await _checkTimerCompletion(updatedInstance);
+        }
+      }
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+    } catch (e) {
+      // Revert optimistic state on error
+      setState(() => _timerStateOverride = null);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error toggling timer: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _checkTimerCompletion(ActivityInstanceRecord instance) async {
+    if (instance.templateTrackingType != 'time') return;
+
+    final target = instance.templateTarget ?? 0;
+    if (target == 0) return; // No target set
+
+    // Use the instance's accumulatedTime (already updated by stop)
+    final accumulated = instance.accumulatedTime;
+
+    // Only complete if target is met or exceeded
+    if (accumulated >= target) {
+      try {
+        await ActivityInstanceService.completeInstance(
+          instanceId: instance.reference.id,
+          finalAccumulatedTime: accumulated,
+        );
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Task completed! Target reached.')),
+          );
+        }
+
+        // Get updated instance and call callback for immediate UI update
+        final completedInstance =
+            await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        widget.onInstanceUpdated?.call(completedInstance);
+      } catch (e) {
+        print('Error auto-completing timer task: $e');
+      }
+    }
+  }
+
+  num _getTargetValue() {
+    return widget.instance.templateTarget ?? 0;
+  }
+
+  Future<void> _showQuantControlsMenu(
+      BuildContext anchorContext, bool canDecrement) async {
+    final box = anchorContext.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
+    final size = box?.size ?? const Size(0, 0);
+
+    // Calculate remaining quantity needed to complete
+    final current = _currentProgressLocal();
+    final target = _getTargetValue();
+    final remaining = target - current;
+    final canMarkComplete = remaining > 0;
+
+    final selected = await showMenu<String>(
+      context: anchorContext,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy + size.height,
+        overlay.size.width - position.dx - size.width,
+        overlay.size.height - position.dy,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
+      ),
+      items: [
+        const PopupMenuItem<String>(
+          value: 'inc',
+          height: 36,
+          child: Row(
+            children: [
+              Icon(Icons.add, size: 18),
+              SizedBox(width: 8),
+              Text('Increase by 1')
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'dec',
+          enabled: canDecrement,
+          height: 36,
+          child: const Row(
+            children: [
+              Icon(Icons.remove, size: 18),
+              SizedBox(width: 8),
+              Text('Decrease by 1')
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 6),
+        PopupMenuItem<String>(
+          value: 'complete',
+          enabled: canMarkComplete,
+          height: 36,
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle, size: 18),
+              const SizedBox(width: 8),
+              Text('Mark as Complete${canMarkComplete ? ' (+$remaining)' : ''}')
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (selected == 'inc') {
+      await _updateProgress(1);
+    } else if (selected == 'dec' && canDecrement) {
+      await _updateProgress(-1);
+    } else if (selected == 'complete' && canMarkComplete) {
+      await _updateProgress(remaining.toInt());
+    }
+  }
+
+  Future<void> _showTimeControlsMenu(BuildContext anchorContext) async {
+    final box = anchorContext.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
+    final size = box?.size ?? const Size(0, 0);
+
+    // Calculate remaining time needed to complete
+    final realTimeAccumulated =
+        TimerLogicHelper.getRealTimeAccumulated(widget.instance);
+    final target = widget.instance.templateTarget ?? 0;
+    final targetMs = target * 60000; // Convert minutes to milliseconds
+    final remainingMs = targetMs - realTimeAccumulated;
+    final canMarkComplete = remainingMs > 0;
+
+    final selected = await showMenu<String>(
+      context: anchorContext,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy + size.height,
+        overlay.size.width - position.dx - size.width,
+        overlay.size.height - position.dy,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
+      ),
+      items: [
+        const PopupMenuItem<String>(
+          value: 'reset',
+          height: 36,
+          child: Row(
+            children: [
+              Icon(Icons.refresh, size: 18),
+              SizedBox(width: 8),
+              Text('Reset Timer')
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 6),
+        PopupMenuItem<String>(
+          value: 'complete',
+          enabled: canMarkComplete,
+          height: 36,
+          child: Row(
+            children: [
+              const Icon(Icons.check_circle, size: 18),
+              const SizedBox(width: 8),
+              Text(
+                  'Mark as Complete${canMarkComplete ? ' (+${_formatRemainingTime(remainingMs)})' : ''}')
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (selected == null) return;
+
+    if (selected == 'reset') {
+      await _resetTimer();
+    } else if (selected == 'complete' && canMarkComplete) {
+      await _markTimerComplete();
+    }
+  }
+
+  String _formatRemainingTime(int remainingMs) {
+    final totalSeconds = remainingMs ~/ 1000;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (minutes > 0) {
+      return '${minutes}m ${seconds}s';
+    }
+    return '${seconds}s';
+  }
+
+  Future<void> _resetTimer() async {
+    if (_isUpdating) return;
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      // Reset timer by updating the instance directly
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(widget.instance.reference.id);
+      await instanceRef.update({
+        'accumulatedTime': 0,
+        'isTimerActive': false,
+        'timerStartTime': null,
+        'lastUpdated': DateTime.now(),
+      });
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Timer reset to 0')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error resetting timer: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _markTimerComplete() async {
+    if (_isUpdating) return;
+
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
+      // Calculate the remaining time needed to reach target
+      final realTimeAccumulated =
+          TimerLogicHelper.getRealTimeAccumulated(widget.instance);
+      final target = widget.instance.templateTarget ?? 0;
+      final targetMs = target * 60000; // Convert minutes to milliseconds
+      final remainingMs = targetMs - realTimeAccumulated;
+
+      // Add the remaining time to accumulated time
+      final newAccumulatedTime = (realTimeAccumulated + remainingMs).toInt();
+
+      // Complete the instance with the final accumulated time
+      await ActivityInstanceService.completeInstance(
+        instanceId: widget.instance.reference.id,
+        finalAccumulatedTime: newAccumulatedTime,
+      );
+
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Task completed! Remaining time added.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error completing task: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 }

@@ -7,7 +7,6 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
-import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
@@ -453,10 +452,6 @@ class _HomeState extends State<Home> {
           cWidget = HabitsPage(
             showCompleted: _showCompleted,
           );
-        }
-        if (s == "Progress") {
-          title = s;
-          cWidget = const ProgressPage();
         }
         if (s == "Manage Categories") {
           title = s;
