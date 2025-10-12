@@ -68,7 +68,7 @@ final habits = await queryActivitiesRecordOnce(userId: userId);
 
 **NEW WAY (Instances):**
 ```dart
-final taskInstances = await queryTodaysTaskInstances(userId: userId);
+final taskInstances = await queryTaskInstances(userId: userId);
 final habitInstances = await queryTodaysHabitInstances(userId: userId);
 ```
 
@@ -180,7 +180,7 @@ class TodayTasksList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<TaskInstanceRecord>>(
-      future: queryTodaysTaskInstances(userId: currentUserId),
+      future: queryTaskInstances(userId: currentUserId),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return CircularProgressIndicator();
         

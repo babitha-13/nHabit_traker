@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 
@@ -8,12 +9,14 @@ class EditTask extends StatefulWidget {
   final ActivityRecord task;
   final List<CategoryRecord> categories;
   final Function(ActivityRecord) onSave;
+  final ActivityInstanceRecord? instance;
 
   const EditTask({
     super.key,
     required this.task,
     required this.categories,
     required this.onSave,
+    this.instance,
   });
 
   @override
@@ -29,8 +32,11 @@ class _EditTaskState extends State<EditTask> {
   Duration _targetDuration = const Duration(hours: 1);
   String _unit = '';
   DateTime? _dueDate;
+  DateTime? _instanceDueDate;
+  DateTime? _endDate;
   bool quickIsTaskRecurring = false;
   FrequencyConfig? _frequencyConfig;
+  bool _isStartDateReadOnly = false;
 
   @override
   void initState() {
@@ -38,7 +44,27 @@ class _EditTaskState extends State<EditTask> {
     final t = widget.task;
     _titleController = TextEditingController(text: t.name);
     _unitController = TextEditingController(text: t.unit);
-    _selectedCategoryId = t.categoryId;
+
+    // Set the category ID - try both categoryId and categoryName matching
+    String? matchingCategoryId;
+    if (t.categoryId.isNotEmpty &&
+        widget.categories.any((c) => c.reference.id == t.categoryId)) {
+      matchingCategoryId = t.categoryId;
+    } else if (t.categoryName.isNotEmpty &&
+        widget.categories.any((c) => c.name == t.categoryName)) {
+      // Find the category by name and use its ID
+      final category =
+          widget.categories.firstWhere((c) => c.name == t.categoryName);
+      matchingCategoryId = category.reference.id;
+    }
+    _selectedCategoryId = matchingCategoryId;
+
+    print('DEBUG: Task category ID: ${t.categoryId}');
+    print('DEBUG: Task category Name: ${t.categoryName}');
+    print(
+        'DEBUG: Available categories: ${widget.categories.map((c) => '${c.name} (${c.reference.id})').toList()}');
+    print('DEBUG: Selected category ID: $_selectedCategoryId');
+
     _selectedTrackingType = t.trackingType;
     _targetNumber = t.target is int ? t.target as int : 1;
     _targetDuration = t.trackingType == 'time'
@@ -46,12 +72,21 @@ class _EditTaskState extends State<EditTask> {
         : const Duration(hours: 1);
     _unit = t.unit;
     _dueDate = t.dueDate;
+    _endDate = t.endDate;
+
+    // Load instance data if provided
+    if (widget.instance != null) {
+      _instanceDueDate = widget.instance!.dueDate;
+    }
 
     // Load existing frequency configuration
     quickIsTaskRecurring = t.isRecurring;
     if (quickIsTaskRecurring) {
       _frequencyConfig = _convertTaskFrequencyToConfig(t);
     }
+
+    // Check if start date should be read-only
+    _checkStartDateReadOnly();
   }
 
   @override
@@ -59,6 +94,42 @@ class _EditTaskState extends State<EditTask> {
     _titleController.dispose();
     _unitController.dispose();
     super.dispose();
+  }
+
+  Future<void> _checkStartDateReadOnly() async {
+    // Only for recurring tasks
+    if (!quickIsTaskRecurring) {
+      setState(() => _isStartDateReadOnly = false);
+      return;
+    }
+
+    // Check if start date has passed
+    final startDate = widget.task.startDate;
+    if (startDate == null) {
+      setState(() => _isStartDateReadOnly = false);
+      return;
+    }
+
+    final today = DateTime.now();
+    if (!startDate.isBefore(today)) {
+      setState(() => _isStartDateReadOnly = false);
+      return;
+    }
+
+    // Check if any instances have been completed
+    try {
+      final completedInstances =
+          await ActivityInstanceService.getInstancesForTemplate(
+        templateId: widget.task.reference.id,
+      );
+
+      final hasCompletedInstances =
+          completedInstances.any((i) => i.status == 'completed');
+      setState(() => _isStartDateReadOnly = hasCompletedInstances);
+    } catch (e) {
+      // If we can't check, assume it's not read-only
+      setState(() => _isStartDateReadOnly = false);
+    }
   }
 
   FrequencyConfig _convertTaskFrequencyToConfig(ActivityRecord task) {
@@ -118,15 +189,66 @@ class _EditTaskState extends State<EditTask> {
   }
 
   void _save() async {
+    // Validate required fields
+    if (_selectedCategoryId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a category')),
+      );
+      return;
+    }
+
     final docRef = widget.task.reference;
+
+    print('DEBUG: Starting save operation');
+    print('DEBUG: quickIsTaskRecurring: $quickIsTaskRecurring');
+    print('DEBUG: _frequencyConfig: $_frequencyConfig');
+    print('DEBUG: _endDate: $_endDate');
+    print('DEBUG: _selectedCategoryId: $_selectedCategoryId');
+    print(
+        'DEBUG: Available categories: ${widget.categories.map((c) => '${c.name} (${c.reference.id})').toList()}');
+
+    // Handle instance due date change if applicable
+    if (widget.instance != null && _instanceDueDate != null) {
+      final originalInstanceDueDate = widget.instance!.dueDate;
+      if (originalInstanceDueDate != _instanceDueDate) {
+        try {
+          print(
+              'DEBUG: Moving instance from $originalInstanceDueDate to $_instanceDueDate');
+          await ActivityInstanceService.rescheduleInstance(
+            instanceId: widget.instance!.reference.id,
+            newDueDate: _instanceDueDate!,
+          );
+          print('DEBUG: Instance due date updated successfully');
+        } catch (e) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating instance due date: $e')),
+          );
+          return;
+        }
+      }
+    }
+
+    // Find the selected category name
+    print('DEBUG: Looking for category with ID: $_selectedCategoryId');
+    final selectedCategory = widget.categories
+        .where((c) => c.reference.id == _selectedCategoryId)
+        .firstOrNull;
+
+    print('DEBUG: Found category: ${selectedCategory?.name}');
+
+    if (selectedCategory == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Selected category not found')),
+      );
+      return;
+    }
 
     final updateData = createActivityRecordData(
       isRecurring: quickIsTaskRecurring,
       name: _titleController.text.trim(),
       categoryId: _selectedCategoryId,
-      categoryName: widget.categories
-          .firstWhere((c) => c.reference.id == _selectedCategoryId)
-          .name,
+      categoryName: selectedCategory.name,
       trackingType: _selectedTrackingType,
       unit: _unit,
       target: _selectedTrackingType == 'quantitative'
@@ -149,7 +271,7 @@ class _EditTaskState extends State<EditTask> {
           : DateTime.now(),
       endDate: quickIsTaskRecurring && _frequencyConfig != null
           ? _frequencyConfig!.endDate
-          : null,
+          : _endDate,
 
       // New frequency fields - only store relevant fields based on frequency type
       frequencyType: quickIsTaskRecurring && _frequencyConfig != null
@@ -178,28 +300,116 @@ class _EditTaskState extends State<EditTask> {
           ? _frequencyConfig!.periodType.toString().split('.').last
           : null,
     );
+
+    print('DEBUG: About to update template with data: $updateData');
     try {
       await docRef.update(updateData);
+      print('DEBUG: Template updated successfully');
 
-      // Update all pending instances with new template data
-      final instances = await ActivityInstanceService.getInstancesForTemplate(
-          templateId: widget.task.reference.id);
+      // Update all pending instances with new template data (with error handling)
+      try {
+        print('DEBUG: Fetching instances for template');
+        final instances = await ActivityInstanceService.getInstancesForTemplate(
+            templateId: widget.task.reference.id);
 
-      for (final instance in instances.where((i) => i.status != 'completed')) {
-        await instance.reference.update({
-          'templateName': updateData['name'],
-          'templateCategoryId': updateData['categoryId'],
-          'templateCategoryName': updateData['categoryName'],
-          'templateTrackingType': updateData['trackingType'],
-          'templateTarget': updateData['target'],
-          'templateUnit': updateData['unit'],
-          'lastUpdated': DateTime.now(),
-        });
+        final pendingInstances =
+            instances.where((i) => i.status != 'completed').toList();
+        print(
+            'DEBUG: Found ${pendingInstances.length} pending instances to update');
+
+        // Update instances in batches to avoid timeout
+        const batchSize = 10;
+        int successCount = 0;
+        int failureCount = 0;
+
+        for (int i = 0; i < pendingInstances.length; i += batchSize) {
+          final batch = pendingInstances.skip(i).take(batchSize);
+          print(
+              'DEBUG: Updating batch ${(i ~/ batchSize) + 1} with ${batch.length} instances');
+
+          final results = await Future.wait(batch.map((instance) async {
+            try {
+              print('DEBUG: Updating instance ${instance.reference.id}');
+              print(
+                  'DEBUG: Old category: ${instance.templateCategoryName} (${instance.templateCategoryId})');
+              print(
+                  'DEBUG: New category: ${updateData['categoryName']} (${updateData['categoryId']})');
+
+              await instance.reference.update({
+                'templateName': updateData['name'],
+                'templateCategoryId': updateData['categoryId'],
+                'templateCategoryName': updateData['categoryName'],
+                'templateTrackingType': updateData['trackingType'],
+                'templateTarget': updateData['target'],
+                'templateUnit': updateData['unit'],
+                'lastUpdated': DateTime.now(),
+              });
+
+              print(
+                  'DEBUG: Instance ${instance.reference.id} updated successfully');
+              return true;
+            } catch (e) {
+              print(
+                  'ERROR: Failed to update instance ${instance.reference.id}: $e');
+              return false;
+            }
+          }));
+
+          // Count successes and failures
+          for (final result in results) {
+            if (result) {
+              successCount++;
+            } else {
+              failureCount++;
+            }
+          }
+        }
+
+        print(
+            'DEBUG: Instance update summary: $successCount successful, $failureCount failed');
+
+        // Verify the updates by re-fetching a few instances
+        if (successCount > 0) {
+          try {
+            final verifyInstances =
+                await ActivityInstanceService.getInstancesForTemplate(
+                    templateId: widget.task.reference.id);
+            final sampleInstance = verifyInstances.firstWhere(
+              (i) => i.status != 'completed',
+              orElse: () => verifyInstances.first,
+            );
+            print(
+                'DEBUG: Verification - Sample instance category: ${sampleInstance.templateCategoryName} (${sampleInstance.templateCategoryId})');
+          } catch (e) {
+            print('DEBUG: Verification failed: $e');
+          }
+        }
+
+        print('DEBUG: All instance updates completed');
+      } catch (e) {
+        print('Error updating instances: $e');
+        // Don't fail the entire save operation if instance updates fail
       }
 
       final updatedHabit =
           ActivityRecord.getDocumentFromData(updateData, docRef);
+      print('DEBUG: Save completed successfully');
+      print(
+          'DEBUG: Updated habit category: ${updatedHabit.categoryId} - ${updatedHabit.categoryName}');
+
+      // Call onSave to trigger UI refresh
       widget.onSave(updatedHabit);
+
+      if (!mounted) return;
+
+      // Show success message
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Task updated successfully'),
+          duration: Duration(seconds: 1),
+        ),
+      );
+
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
@@ -217,6 +427,48 @@ class _EditTaskState extends State<EditTask> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked != null) setState(() => _dueDate = picked);
+  }
+
+  Future<void> _pickInstanceDueDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _instanceDueDate ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) setState(() => _instanceDueDate = picked);
+  }
+
+  Future<void> _pickStartDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: widget.task.startDate ?? DateTime.now(),
+      firstDate: DateTime.now().subtract(const Duration(days: 365)),
+      lastDate: DateTime.now().add(const Duration(days: 365)),
+    );
+    if (picked != null) {
+      setState(() => _dueDate = picked);
+      // Update the frequency config start date if it exists
+      if (_frequencyConfig != null) {
+        _frequencyConfig = _frequencyConfig!.copyWith(startDate: picked);
+      }
+    }
+  }
+
+  Future<void> _pickEndDate() async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _endDate ?? DateTime.now().add(const Duration(days: 30)),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 365 * 5)),
+    );
+    if (picked != null) {
+      setState(() => _endDate = picked);
+      // Update the frequency config end date if it exists
+      if (_frequencyConfig != null) {
+        _frequencyConfig = _frequencyConfig!.copyWith(endDate: picked);
+      }
+    }
   }
 
   String _getFrequencyDescription() {
@@ -293,10 +545,14 @@ class _EditTaskState extends State<EditTask> {
                 ),
                 const SizedBox(height: 12),
                 DropdownButtonFormField<String>(
-                  value: widget.categories
-                          .any((c) => c.reference.id == _selectedCategoryId)
-                      ? _selectedCategoryId
-                      : null,
+                  value: () {
+                    if (_selectedCategoryId == null) return null;
+                    final isValid = widget.categories
+                        .any((c) => c.reference.id == _selectedCategoryId);
+                    print(
+                        'DEBUG: Dropdown value check - selectedId: $_selectedCategoryId, isValid: $isValid');
+                    return isValid ? _selectedCategoryId : null;
+                  }(),
                   decoration: InputDecoration(
                     labelText: 'Category',
                     border: OutlineInputBorder(
@@ -305,10 +561,26 @@ class _EditTaskState extends State<EditTask> {
                     contentPadding:
                         const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
                   ),
-                  items: widget.categories
-                      .map((c) => DropdownMenuItem(
-                          value: c.reference.id, child: Text(c.name)))
-                      .toList(),
+                  items: () {
+                    // Debug: Check for duplicate IDs
+                    final categoryIds =
+                        widget.categories.map((c) => c.reference.id).toList();
+                    final duplicateIds = categoryIds
+                        .where((id) =>
+                            categoryIds.indexOf(id) !=
+                            categoryIds.lastIndexOf(id))
+                        .toList();
+                    if (duplicateIds.isNotEmpty) {
+                      print(
+                          'DEBUG: Duplicate category IDs found: $duplicateIds');
+                    }
+                    print(
+                        'DEBUG: Category dropdown items: ${widget.categories.map((c) => '${c.name} -> ${c.reference.id}').toList()}');
+                    return widget.categories
+                        .map((c) => DropdownMenuItem(
+                            value: c.reference.id, child: Text(c.name)))
+                        .toList();
+                  }(),
                   onChanged: (v) => setState(() => _selectedCategoryId = v),
                 ),
                 const SizedBox(height: 12),
@@ -410,18 +682,79 @@ class _EditTaskState extends State<EditTask> {
                   ),
                 ],
                 const SizedBox(height: 12),
-                Row(
-                  children: [
-                    Expanded(
+                // Date fields - different layout for recurring vs one-time tasks
+                if (quickIsTaskRecurring) ...[
+                  // Recurring tasks: Show start date, end date, and next due date
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Start Date: ${widget.task.startDate != null ? "${widget.task.startDate!.day}/${widget.task.startDate!.month}/${widget.task.startDate!.year}" : "None"}',
+                          style: TextStyle(
+                            color: _isStartDateReadOnly ? Colors.grey : null,
+                          ),
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.calendar_today),
+                        onPressed: _isStartDateReadOnly ? null : _pickStartDate,
+                      ),
+                    ],
+                  ),
+                  if (_isStartDateReadOnly)
+                    const Padding(
+                      padding: EdgeInsets.only(left: 16, bottom: 8),
                       child: Text(
-                        '${quickIsTaskRecurring ? "Starting Date" : "Due Date"}: ${_dueDate != null ? "${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}" : "None"}',
+                        'Start date cannot be changed after instances are completed',
+                        style: TextStyle(fontSize: 12, color: Colors.grey),
                       ),
                     ),
-                    IconButton(
+                  const SizedBox(height: 8),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'End Date: ${_endDate != null ? "${_endDate!.day}/${_endDate!.month}/${_endDate!.year}" : "Perpetual"}',
+                        ),
+                      ),
+                      IconButton(
                         icon: const Icon(Icons.calendar_today),
-                        onPressed: _pickDueDate),
+                        onPressed: _pickEndDate,
+                      ),
+                    ],
+                  ),
+                  if (widget.instance != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            'Move this instance to: ${_instanceDueDate != null ? "${_instanceDueDate!.day}/${_instanceDueDate!.month}/${_instanceDueDate!.year}" : "None"}',
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.calendar_today),
+                          onPressed: _pickInstanceDueDate,
+                        ),
+                      ],
+                    ),
                   ],
-                ),
+                ] else ...[
+                  // One-time tasks: Show simple due date
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Due Date: ${_dueDate != null ? "${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}" : "None"}',
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.calendar_today),
+                        onPressed: _pickDueDate,
+                      ),
+                    ],
+                  ),
+                ],
                 const SizedBox(height: 12),
                 Row(
                   children: [

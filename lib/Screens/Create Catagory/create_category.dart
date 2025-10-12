@@ -188,6 +188,11 @@ class _CreateCategoryState extends State<CreateCategory> {
                       return;
                     }
                     if (isEdit) {
+                      // Check if name changed for cascade update
+                      final oldName = widget.category!.name;
+                      final newName = nameController.text.trim();
+                      final nameChanged = oldName != newName;
+
                       await updateCategory(
                         categoryId: widget.category!.reference.id,
                         name: nameController.text,
@@ -199,6 +204,32 @@ class _CreateCategoryState extends State<CreateCategory> {
                         categoryType:
                             widget.categoryType, // Only update if provided
                       );
+
+                      // If name changed, cascade the update to all templates and instances
+                      if (nameChanged) {
+                        try {
+                          await updateCategoryNameCascade(
+                            categoryId: widget.category!.reference.id,
+                            newCategoryName: newName,
+                            userId: currentUserUid,
+                          );
+
+                          print(
+                              'DEBUG: Category name cascade completed for: $oldName -> $newName');
+                        } catch (e) {
+                          print('ERROR: Cascade update failed: $e');
+                          // Show warning but don't fail the operation
+                          if (mounted) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                    'Warning: Some items may not reflect the new category name immediately'),
+                                backgroundColor: Colors.orange,
+                              ),
+                            );
+                          }
+                        }
+                      }
 
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(

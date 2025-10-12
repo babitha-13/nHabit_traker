@@ -136,7 +136,7 @@ class _TaskPageState extends State<TaskPage> {
         setState(() => _isLoading = false);
         return;
       }
-      final instances = await queryTodaysTaskInstances(userId: uid);
+      final instances = await queryTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
 
       // DEBUG: Print instance details
@@ -1074,7 +1074,7 @@ class _TaskPageState extends State<TaskPage> {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
-      final instances = await queryTodaysTaskInstances(userId: uid);
+      final instances = await queryTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
 
       if (mounted) {

@@ -3,10 +3,12 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
+import 'package:collection/collection.dart';
 
 class createActivityPage extends StatefulWidget {
   final ActivityRecord? habitToEdit;
@@ -144,6 +146,33 @@ class _createActivityPageState extends State<createActivityPage> {
         setState(() {
           _categories = categories;
           _isLoading = false;
+
+          // Apply the same category matching logic as task page
+          if (widget.habitToEdit != null) {
+            final habit = widget.habitToEdit!;
+            String? matchingCategoryId;
+
+            // Try categoryId first
+            if (habit.categoryId.isNotEmpty &&
+                categories.any((c) => c.reference.id == habit.categoryId)) {
+              matchingCategoryId = habit.categoryId;
+            }
+            // Try categoryName as fallback (exact match)
+            else if (habit.categoryName.isNotEmpty &&
+                categories.any((c) => c.name == habit.categoryName)) {
+              final category =
+                  categories.firstWhere((c) => c.name == habit.categoryName);
+              matchingCategoryId = category.reference.id;
+            }
+
+            _selectedCategoryId = matchingCategoryId;
+
+            print(
+                'DEBUG: Habit category matching - original ID: ${habit.categoryId}, name: ${habit.categoryName}');
+            print(
+                'DEBUG: Available categories: ${categories.map((c) => '${c.name} (${c.reference.id})').toList()}');
+            print('DEBUG: Final selected category ID: $_selectedCategoryId');
+          }
         });
       }
     } catch (e) {
@@ -273,7 +302,95 @@ class _createActivityPageState extends State<createActivityPage> {
       print('DEBUG: Saving ActivityRecord data: $recordData');
 
       if (widget.habitToEdit != null) {
+        // Update the template
         await widget.habitToEdit!.reference.update(recordData);
+
+        // Update all pending instances with new template data
+        try {
+          print('DEBUG: Fetching instances for template');
+          final instances =
+              await ActivityInstanceService.getInstancesForTemplate(
+                  templateId: widget.habitToEdit!.reference.id);
+
+          final pendingInstances =
+              instances.where((i) => i.status != 'completed').toList();
+          print(
+              'DEBUG: Found ${pendingInstances.length} pending instances to update');
+
+          // Update instances in batches to avoid timeout
+          const batchSize = 10;
+          int successCount = 0;
+          int failureCount = 0;
+
+          for (int i = 0; i < pendingInstances.length; i += batchSize) {
+            final batch = pendingInstances.skip(i).take(batchSize);
+            print(
+                'DEBUG: Updating batch ${(i ~/ batchSize) + 1} with ${batch.length} instances');
+
+            final results = await Future.wait(batch.map((instance) async {
+              try {
+                print('DEBUG: Updating instance ${instance.reference.id}');
+                print(
+                    'DEBUG: Old category: ${instance.templateCategoryName} (${instance.templateCategoryId})');
+                print(
+                    'DEBUG: New category: ${recordData['categoryName']} (${recordData['categoryId']})');
+
+                await instance.reference.update({
+                  'templateName': recordData['name'],
+                  'templateCategoryId': recordData['categoryId'],
+                  'templateCategoryName': recordData['categoryName'],
+                  'templateTrackingType': recordData['trackingType'],
+                  'templateTarget': recordData['target'],
+                  'templateUnit': recordData['unit'],
+                  'lastUpdated': DateTime.now(),
+                });
+
+                print(
+                    'DEBUG: Instance ${instance.reference.id} updated successfully');
+                return true;
+              } catch (e) {
+                print(
+                    'ERROR: Failed to update instance ${instance.reference.id}: $e');
+                return false;
+              }
+            }));
+
+            // Count successes and failures
+            for (final result in results) {
+              if (result) {
+                successCount++;
+              } else {
+                failureCount++;
+              }
+            }
+          }
+
+          print(
+              'DEBUG: Instance update summary: $successCount successful, $failureCount failed');
+
+          // Verify the updates by re-fetching a few instances
+          if (successCount > 0) {
+            try {
+              final verifyInstances =
+                  await ActivityInstanceService.getInstancesForTemplate(
+                      templateId: widget.habitToEdit!.reference.id);
+              final sampleInstance = verifyInstances.firstWhere(
+                (i) => i.status != 'completed',
+                orElse: () => verifyInstances.first,
+              );
+              print(
+                  'DEBUG: Verification - Sample instance category: ${sampleInstance.templateCategoryName} (${sampleInstance.templateCategoryId})');
+            } catch (e) {
+              print('DEBUG: Verification failed: $e');
+            }
+          }
+
+          print('DEBUG: All habit instance updates completed');
+        } catch (e) {
+          print('Error updating habit instances: $e');
+          // Don't fail the entire save operation if instance updates fail
+        }
+
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Habit updated successfully!')),
@@ -387,7 +504,14 @@ class _createActivityPageState extends State<createActivityPage> {
                           children: [
                             Expanded(
                               child: DropdownButtonFormField<String>(
-                                value: _selectedCategoryId,
+                                value: () {
+                                  if (_selectedCategoryId == null) return null;
+                                  final isValid = _categories.any((c) =>
+                                      c.reference.id == _selectedCategoryId);
+                                  print(
+                                      'DEBUG: Habit dropdown value check - selectedId: $_selectedCategoryId, isValid: $isValid');
+                                  return isValid ? _selectedCategoryId : null;
+                                }(),
                                 decoration: const InputDecoration(
                                   labelText: 'Category *',
                                   border: OutlineInputBorder(),

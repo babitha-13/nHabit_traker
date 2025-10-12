@@ -355,7 +355,7 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
 /// Query to get today's task instances (current and overdue)
 /// This is the main function to use for displaying active tasks to users
 /// TODO: Phase 2 - Implement with ActivityInstanceService
-Future<List<ActivityInstanceRecord>> queryTodaysTaskInstances({
+Future<List<ActivityInstanceRecord>> queryTaskInstances({
   required String userId,
 }) async {
   try {
@@ -382,7 +382,7 @@ Future<List<ActivityInstanceRecord>> queryTodaysHabitInstances({
 }
 
 /// Query to get all today's instances (current and overdue tasks and habits)
-Future<List<ActivityInstanceRecord>> queryAllTodaysInstances({
+Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,
 }) async {
   try {
@@ -1068,3 +1068,86 @@ Future<ActivityInstanceRecord> getUpdatedActivityInstance({
   );
 }
 */
+
+/// Update category name and cascade to all templates and instances
+Future<void> updateCategoryNameCascade({
+  required String categoryId,
+  required String newCategoryName,
+  required String userId,
+}) async {
+  try {
+    print('DEBUG: Starting category name cascade update');
+    print('DEBUG: Category ID: $categoryId');
+    print('DEBUG: New name: $newCategoryName');
+
+    // 1. Find all templates with this categoryId
+    final templatesQuery = ActivityRecord.collectionForUser(userId)
+        .where('categoryId', isEqualTo: categoryId);
+    final templatesSnapshot = await templatesQuery.get();
+    final templates = templatesSnapshot.docs;
+
+    print('DEBUG: Found ${templates.length} templates to update');
+
+    // 2. Update all templates
+    int templateSuccessCount = 0;
+    for (final templateDoc in templates) {
+      try {
+        await templateDoc.reference.update({
+          'categoryName': newCategoryName,
+          'lastUpdated': DateTime.now(),
+        });
+        templateSuccessCount++;
+      } catch (e) {
+        print('ERROR: Failed to update template ${templateDoc.id}: $e');
+      }
+    }
+
+    print('DEBUG: Updated $templateSuccessCount/${templates.length} templates');
+
+    // 3. Find ALL instances (pending AND completed) with this categoryId
+    final instancesQuery = ActivityInstanceRecord.collectionForUser(userId)
+        .where('templateCategoryId', isEqualTo: categoryId);
+    final instancesSnapshot = await instancesQuery.get();
+    final instances = instancesSnapshot.docs;
+
+    print(
+        'DEBUG: Found ${instances.length} instances to update (all statuses)');
+
+    // 4. Update all instances in batches
+    const batchSize = 10;
+    int instanceSuccessCount = 0;
+    int instanceFailureCount = 0;
+
+    for (int i = 0; i < instances.length; i += batchSize) {
+      final batch = instances.skip(i).take(batchSize);
+
+      final results = await Future.wait(batch.map((instanceDoc) async {
+        try {
+          await instanceDoc.reference.update({
+            'templateCategoryName': newCategoryName,
+            'lastUpdated': DateTime.now(),
+          });
+          return true;
+        } catch (e) {
+          print('ERROR: Failed to update instance ${instanceDoc.id}: $e');
+          return false;
+        }
+      }));
+
+      for (final result in results) {
+        if (result) {
+          instanceSuccessCount++;
+        } else {
+          instanceFailureCount++;
+        }
+      }
+    }
+
+    print('DEBUG: Updated $instanceSuccessCount/${instances.length} instances');
+    print('DEBUG: Failed: $instanceFailureCount');
+    print('DEBUG: Category name cascade update completed');
+  } catch (e) {
+    print('ERROR: Category name cascade update failed: $e');
+    throw e;
+  }
+}

@@ -126,10 +126,68 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
-  // TODO: Phase 6 - This needs to fetch the template, then create a new template and first instance
   Future<void> _copyHabit() async {
-    ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Copying not implemented yet.')));
+    try {
+      setState(() => _isUpdating = true);
+
+      // Get the template from the instance
+      final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+          .doc(widget.instance.templateId);
+      final template = await ActivityRecord.getDocumentOnce(templateRef);
+
+      // Create a new template with "Copy of" prefix
+      final newTemplateName = 'Copy of ${template.name}';
+
+      // Create the new activity template
+      final newTemplateRef = await createActivity(
+        name: newTemplateName,
+        categoryName: template.categoryName,
+        trackingType: template.trackingType,
+        target: template.target,
+        schedule: template.schedule,
+        frequency: template.frequency ?? 1,
+        description: template.description,
+        categoryType: template.categoryType,
+        priority: template.priority,
+        unit: template.unit,
+        isRecurring: template.isRecurring,
+        frequencyType: template.frequencyType,
+        specificDays: template.specificDays,
+        startDate: template.startDate,
+        dueDate: template.dueDate,
+      );
+
+      // Get the new template to create an instance
+      final newTemplate = await ActivityRecord.getDocumentOnce(newTemplateRef);
+
+      // Create a new instance for the duplicated template
+      await ActivityInstanceService.createActivityInstance(
+        templateId: newTemplateRef.id,
+        template: newTemplate,
+      );
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Task "${newTemplateName}" created successfully')),
+        );
+
+        // Refresh the page to show the new task
+        if (widget.onRefresh != null) {
+          await widget.onRefresh!();
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error copying task: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isUpdating = false);
+      }
+    }
   }
 
   void _startTimer() {
@@ -580,9 +638,13 @@ class _ItemComponentState extends State<ItemComponent>
           context: context,
           builder: (_) => EditTask(
             task: template, // Pass the template here
+            instance: widget.instance, // Pass the instance here
             categories: widget.categories ?? [],
             onSave: (updatedHabit) async {
-              // Template updated, no need to refresh instances here
+              // Trigger refresh to show updated instances
+              if (widget.onRefresh != null) {
+                await widget.onRefresh!();
+              }
             },
           ),
         );
@@ -685,7 +747,7 @@ class _ItemComponentState extends State<ItemComponent>
         const PopupMenuItem<String>(
           value: 'reschedule',
           height: 32,
-          child: Text('Change due date', style: TextStyle(fontSize: 12)),
+          child: Text('Move this instance', style: TextStyle(fontSize: 12)),
         ),
       ]);
     } else {
@@ -824,7 +886,7 @@ class _ItemComponentState extends State<ItemComponent>
             );
             final label = DateFormat('EEE, MMM d').format(picked);
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Rescheduled to $label')),
+              SnackBar(content: Text('Moved to $label')),
             );
           }
           break;

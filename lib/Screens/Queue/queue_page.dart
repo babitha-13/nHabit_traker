@@ -1,13 +1,10 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/date_filter_dropdown.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
@@ -34,7 +31,6 @@ class _QueuePageState extends State<QueuePage> {
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
-  DateFilterType _selectedDateFilter = DateFilterType.today;
 
   @override
   void initState() {
@@ -83,7 +79,7 @@ class _QueuePageState extends State<QueuePage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final allInstances = await queryAllTodaysInstances(userId: userId);
+        final allInstances = await queryAllInstances(userId: userId);
         final habitCategories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final allCategories = [...habitCategories, ...taskCategories];
@@ -141,11 +137,6 @@ class _QueuePageState extends State<QueuePage> {
     for (final instance in _instances) {
       if (!_showCompleted && _isInstanceCompleted(instance)) {
         print('  ${instance.templateName}: SKIPPED (completed)');
-        continue;
-      }
-      if (!DateFilterHelper.isInstanceInFilter(instance, _selectedDateFilter)) {
-        print(
-            '  ${instance.templateName}: SKIPPED (date filter) - dueDate: ${instance.dueDate}, filter: $_selectedDateFilter');
         continue;
       }
 
