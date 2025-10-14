@@ -144,8 +144,6 @@ class _ItemComponentState extends State<ItemComponent>
         categoryName: template.categoryName,
         trackingType: template.trackingType,
         target: template.target,
-        schedule: template.schedule,
-        frequency: template.frequency ?? 1,
         description: template.description,
         categoryType: template.categoryType,
         priority: template.priority,

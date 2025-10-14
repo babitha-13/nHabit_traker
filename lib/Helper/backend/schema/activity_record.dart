@@ -49,16 +49,6 @@ class ActivityRecord extends FirestoreRecord {
   dynamic get target => _target;
   bool hasTarget() => _target != null;
 
-  // "schedule" field.
-  String? _schedule;
-  String get schedule => _schedule ?? '';
-  bool hasSchedule() => _schedule != null;
-
-  // "frequency" field.
-  int? _frequency;
-  int? get frequency => _frequency;
-  bool hasFrequency() => _frequency != null;
-
   // "description" field.
   String? _description;
   String get description => _description ?? '';
@@ -210,8 +200,6 @@ class ActivityRecord extends FirestoreRecord {
     _priority = snapshotData['priority'] as int?;
     _trackingType = snapshotData['trackingType'] as String?;
     _target = snapshotData['target'];
-    _schedule = snapshotData['schedule'] as String?;
-    _frequency = snapshotData['frequency'] as int?;
     _description = snapshotData['description'] as String?;
     _isActive = snapshotData['isActive'] as bool?;
     _createdTime = snapshotData['createdTime'] as DateTime?;
@@ -302,8 +290,6 @@ Map<String, dynamic> createActivityRecordData({
   int? priority,
   String? trackingType,
   dynamic target,
-  String? schedule,
-  int? frequency,
   String? description,
   bool? isActive,
   DateTime? createdTime,
@@ -343,8 +329,6 @@ Map<String, dynamic> createActivityRecordData({
       'priority': priority,
       'trackingType': trackingType,
       'target': target,
-      'schedule': schedule,
-      'frequency': frequency,
       'description': description,
       'isActive': isActive,
       'createdTime': createdTime,
@@ -388,8 +372,6 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e1?.priority == e2?.priority &&
         e1?.trackingType == e2?.trackingType &&
         e1?.target == e2?.target &&
-        e1?.schedule == e2?.schedule &&
-        e1?.frequency == e2?.frequency &&
         e1?.description == e2?.description &&
         e1?.isActive == e2?.isActive &&
         e1?.createdTime == e2?.createdTime &&
@@ -428,8 +410,6 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e?.completedDates,
         e?.trackingType,
         e?.target,
-        e?.schedule,
-        e?.frequency,
         e?.description,
         e?.isActive,
         e?.createdTime,

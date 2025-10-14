@@ -366,6 +366,18 @@ Future<List<ActivityInstanceRecord>> queryTaskInstances({
   }
 }
 
+/// Query to get all task instances (active and completed) for Recent Completions
+Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
+  required String userId,
+}) async {
+  try {
+    return await ActivityInstanceService.getAllTaskInstances(userId: userId);
+  } catch (e) {
+    print('Error querying all task instances: $e');
+    return []; // Return empty list on error
+  }
+}
+
 /// Query to get today's habit instances (current and overdue)
 /// This is the main function to use for displaying active habits to users
 /// TODO: Phase 2 - Implement with ActivityInstanceService
@@ -411,8 +423,6 @@ Future<DocumentReference> createActivity({
   required String categoryName,
   required String trackingType,
   dynamic target,
-  String? schedule,
-  int frequency = 1,
   String? description,
   String? userId,
   required String categoryType, // 'habit' or 'task'
@@ -442,8 +452,6 @@ Future<DocumentReference> createActivity({
     categoryName: categoryName,
     trackingType: trackingType,
     target: target,
-    schedule: effectiveIsRecurring ? schedule : null,
-    frequency: effectiveIsRecurring ? frequency : null,
     description: description,
     isActive: true,
     createdTime: DateTime.now(),

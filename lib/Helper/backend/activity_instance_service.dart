@@ -59,6 +59,10 @@ class ActivityInstanceService {
       templateUnit: template.unit,
       templateDescription: template.description,
       templateShowInFloatingTimer: template.showInFloatingTimer,
+      templateEveryXValue: template.everyXValue,
+      templateEveryXPeriodType: template.everyXPeriodType,
+      templateTimesPerPeriod: template.timesPerPeriod,
+      templatePeriodType: template.periodType,
     );
 
     print(
@@ -138,6 +142,73 @@ class ActivityInstanceService {
       return finalInstanceList;
     } catch (e) {
       print('Error getting active task instances: $e');
+      return [];
+    }
+  }
+
+  /// Get all task instances (active and completed) for Recent Completions
+  static Future<List<ActivityInstanceRecord>> getAllTaskInstances({
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      print(
+          'ActivityInstanceService: Getting all task instances for user $uid');
+
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'task');
+
+      final result = await query.get();
+      final allInstances = result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      print(
+          'ActivityInstanceService: Found ${allInstances.length} total task instances (all statuses)');
+
+      // Group instances by templateId and keep only the one with the earliest due date
+      final Map<String, ActivityInstanceRecord> earliestInstances = {};
+      for (final instance in allInstances) {
+        final templateId = instance.templateId;
+        if (!earliestInstances.containsKey(templateId)) {
+          earliestInstances[templateId] = instance;
+        } else {
+          final existing = earliestInstances[templateId]!;
+          // Handle null due dates: nulls go last
+          if (instance.dueDate == null && existing.dueDate == null) {
+            // Both null, keep existing
+            continue;
+          } else if (instance.dueDate == null) {
+            // New is null, keep existing
+            continue;
+          } else if (existing.dueDate == null) {
+            // Existing is null, replace with new
+            earliestInstances[templateId] = instance;
+          } else {
+            // Both have dates, compare
+            if (instance.dueDate!.isBefore(existing.dueDate!)) {
+              earliestInstances[templateId] = instance;
+            }
+          }
+        }
+      }
+
+      final finalInstanceList = earliestInstances.values.toList();
+
+      // Sort: instances with due dates first (oldest first), then nulls last
+      finalInstanceList.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1; // a goes after b
+        if (b.dueDate == null) return -1; // a goes before b
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+
+      print(
+          'ActivityInstanceService: Returning ${finalInstanceList.length} unique task instances (all statuses)');
+
+      return finalInstanceList;
+    } catch (e) {
+      print('Error getting all task instances: $e');
       return [];
     }
   }

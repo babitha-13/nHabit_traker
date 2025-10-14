@@ -8,7 +8,6 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:collection/collection.dart';
 
 class createActivityPage extends StatefulWidget {
   final ActivityRecord? habitToEdit;
@@ -25,7 +24,6 @@ class _createActivityPageState extends State<createActivityPage> {
   final _unitController = TextEditingController();
   String? _selectedCategoryId;
   String? _selectedTrackingType;
-  String _selectedSchedule = 'daily';
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _isSaving = false;
@@ -38,16 +36,6 @@ class _createActivityPageState extends State<createActivityPage> {
   DateTime _startDate = DateTime.now();
   DateTime? _endDate; // null means perpetual (will be set to 2099 in backend)
 
-  static const List<String> _weekDays = [
-    'Monday',
-    'Tuesday',
-    'Wednesday',
-    'Thursday',
-    'Friday',
-    'Saturday',
-    'Sunday'
-  ];
-
   @override
   void initState() {
     super.initState();
@@ -58,10 +46,9 @@ class _createActivityPageState extends State<createActivityPage> {
     if (widget.habitToEdit != null) {
       final habit = widget.habitToEdit!;
       _nameController.text = habit.name;
-      _unitController.text = habit.unit ?? '';
+      _unitController.text = habit.unit;
       _selectedCategoryId = habit.categoryId;
       _selectedTrackingType = habit.trackingType;
-      _selectedSchedule = habit.schedule ?? 'daily';
       weight = habit.priority;
       if (habit.trackingType == 'quantitative') {
         _targetNumber = habit.target ?? 1;
@@ -86,45 +73,52 @@ class _createActivityPageState extends State<createActivityPage> {
 
   FrequencyConfig _convertLegacyScheduleToFrequencyConfig(
       ActivityRecord habit, DateTime startDate, DateTime? endDate) {
-    FrequencyType type;
-    int timesPerPeriod = 1;
-    PeriodType periodType = PeriodType.weeks;
-    int everyXValue = 1;
-    PeriodType everyXPeriodType = PeriodType.days;
-    List<int> selectedDays = [];
-
-    switch (habit.schedule) {
-      case 'daily':
-        type = FrequencyType.everyXPeriod;
-        everyXValue = habit.frequency ?? 1;
-        everyXPeriodType = PeriodType.days;
-        break;
-      case 'weekly':
-        if (habit.specificDays != null && habit.specificDays!.isNotEmpty) {
-          type = FrequencyType.specificDays;
-          selectedDays = habit.specificDays!;
-        } else {
+    // For existing habits, try to use the new frequency fields first
+    if (habit.hasFrequencyType()) {
+      FrequencyType type;
+      switch (habit.frequencyType) {
+        case 'everyXPeriod':
+          type = FrequencyType.everyXPeriod;
+          break;
+        case 'timesPerPeriod':
           type = FrequencyType.timesPerPeriod;
-          timesPerPeriod = habit.frequency ?? 1;
-          periodType = PeriodType.weeks;
-        }
-        break;
-      case 'monthly':
-        type = FrequencyType.timesPerPeriod;
-        timesPerPeriod = habit.frequency ?? 1;
-        periodType = PeriodType.months;
-        break;
-      default:
-        type = FrequencyType.everyXPeriod;
+          break;
+        case 'specificDays':
+          type = FrequencyType.specificDays;
+          break;
+        default:
+          type = FrequencyType.everyXPeriod;
+      }
+
+      return FrequencyConfig(
+        type: type,
+        timesPerPeriod: habit.hasTimesPerPeriod() ? habit.timesPerPeriod : 1,
+        periodType: habit.hasPeriodType()
+            ? (habit.periodType == 'weeks'
+                ? PeriodType.weeks
+                : habit.periodType == 'months'
+                    ? PeriodType.months
+                    : PeriodType.year)
+            : PeriodType.weeks,
+        everyXValue: habit.hasEveryXValue() ? habit.everyXValue : 1,
+        everyXPeriodType: habit.hasEveryXPeriodType()
+            ? (habit.everyXPeriodType == 'days'
+                ? PeriodType.days
+                : habit.everyXPeriodType == 'weeks'
+                    ? PeriodType.weeks
+                    : PeriodType.months)
+            : PeriodType.days,
+        selectedDays: habit.hasSpecificDays() ? habit.specificDays : [],
+        startDate: startDate,
+        endDate: endDate,
+      );
     }
 
+    // Fallback to default configuration for habits without frequency data
     return FrequencyConfig(
-      type: type,
-      timesPerPeriod: timesPerPeriod,
-      periodType: periodType,
-      everyXValue: everyXValue,
-      everyXPeriodType: everyXPeriodType,
-      selectedDays: selectedDays,
+      type: FrequencyType.everyXPeriod,
+      everyXValue: 1,
+      everyXPeriodType: PeriodType.days,
       startDate: startDate,
       endDate: endDate,
     );
@@ -227,38 +221,6 @@ class _createActivityPageState extends State<createActivityPage> {
           break;
       }
 
-      // Convert frequency config to schedule and frequency fields
-      String? schedule;
-      int? frequency;
-      List<int>? specificDays;
-
-      switch (_frequencyConfig.type) {
-        case FrequencyType.specificDays:
-          schedule = 'weekly';
-          frequency = _frequencyConfig.selectedDays.length;
-          specificDays = _frequencyConfig.selectedDays;
-          break;
-        case FrequencyType.timesPerPeriod:
-          schedule = _frequencyConfig.periodType == PeriodType.weeks
-              ? 'weekly'
-              : _frequencyConfig.periodType == PeriodType.months
-                  ? 'monthly'
-                  : 'yearly';
-          frequency = _frequencyConfig.timesPerPeriod;
-          break;
-        case FrequencyType.everyXPeriod:
-          schedule = _frequencyConfig.everyXPeriodType == PeriodType.days
-              ? 'daily'
-              : _frequencyConfig.everyXPeriodType == PeriodType.weeks
-                  ? 'weekly'
-                  : 'monthly';
-          frequency = _frequencyConfig.everyXValue;
-          break;
-        default:
-          schedule = 'daily';
-          frequency = 1;
-      }
-
       final recordData = createActivityRecordData(
         priority: weight,
         name: _nameController.text.trim(),
@@ -266,8 +228,6 @@ class _createActivityPageState extends State<createActivityPage> {
         categoryName: selectedCategory.name,
         trackingType: _selectedTrackingType,
         target: targetValue,
-        schedule: null, // Deprecated
-        frequency: null, // Deprecated
         unit: _unitController.text.trim(),
         dayEndTime: 0,
         specificDays: _frequencyConfig.type == FrequencyType.specificDays
@@ -719,9 +679,5 @@ class _createActivityPageState extends State<createActivityPage> {
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(title, style: FlutterFlowTheme.of(context).titleMedium),
     );
-  }
-
-  String _formatDate(DateTime date) {
-    return '${date.day}/${date.month}/${date.year}';
   }
 }

@@ -6,9 +6,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
-  final bool showCompleted;
-
-  const TaskTab({super.key, required this.showCompleted});
+  const TaskTab({super.key});
 
   @override
   State<TaskTab> createState() => _TaskTabState();
@@ -18,12 +16,9 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   late TabController _tabController;
   List<CategoryRecord> _categories = [];
   List<String> _tabNames = ["Inbox"];
-  late bool _showCompleted;
-
   @override
   void initState() {
     super.initState();
-    _showCompleted = widget.showCompleted;
     _tabController = TabController(length: _tabNames.length, vsync: this);
     _loadCategories();
   }
@@ -97,8 +92,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   : TabBarView(
                       controller: _tabController,
                       children: _tabNames.map((name) {
-                        return TaskPage(
-                            categoryName: name, showCompleted: _showCompleted);
+                        return TaskPage(categoryName: name);
                       }).toList(),
                     ))
         ],

@@ -8,16 +8,14 @@ import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
   final String? categoryName;
-  final bool showCompleted;
 
-  const TaskPage({super.key, this.categoryName, required this.showCompleted});
+  const TaskPage({super.key, this.categoryName});
 
   @override
   State<TaskPage> createState() => _TaskPageState();
@@ -30,6 +28,7 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickHoursController = TextEditingController();
   final TextEditingController _quickMinutesController = TextEditingController();
   List<ActivityInstanceRecord> _taskInstances = [];
+  List<ActivityInstanceRecord> _activeTaskInstances = [];
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _didInitialDependencies = false;
@@ -40,9 +39,9 @@ class _TaskPageState extends State<TaskPage> {
   int _quickTargetNumber = 1;
   Duration _quickTargetDuration = const Duration(hours: 1);
   final TextEditingController _quickUnitController = TextEditingController();
-  late bool _showCompleted;
   bool quickIsRecurring = false;
   FrequencyConfig? _quickFrequencyConfig;
+  // Removed legacy Recent Completions expansion state; now uses standard sections
   final Map<String, bool> _sectionExpanded = {
     'Overdue': true,
     'Today': true,
@@ -50,29 +49,22 @@ class _TaskPageState extends State<TaskPage> {
     'This Week': true,
     'Later': true,
     'No due date': true,
+    // Recent Completions should be collapsed by default
+    'Recent Completions': false,
   };
 
   @override
   void initState() {
     super.initState();
-    _showCompleted = widget.showCompleted;
     _quickTargetNumberController.text = _quickTargetNumber.toString();
     _quickHoursController.text = _quickTargetDuration.inHours.toString();
     _quickMinutesController.text =
         (_quickTargetDuration.inMinutes % 60).toString();
     _loadData();
-    NotificationCenter.addObserver(this, 'showTaskCompleted', (param) {
-      if (param is bool && mounted) {
-        setState(() {
-          _showCompleted = param;
-        });
-      }
-    });
   }
 
   @override
   void dispose() {
-    NotificationCenter.removeObserver(this);
     _quickAddController.dispose();
     _quickTargetNumberController.dispose();
     _quickHoursController.dispose();
@@ -136,7 +128,7 @@ class _TaskPageState extends State<TaskPage> {
         setState(() => _isLoading = false);
         return;
       }
-      final instances = await queryTaskInstances(userId: uid);
+      final instances = await queryAllTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
 
       // DEBUG: Print instance details
@@ -160,13 +152,22 @@ class _TaskPageState extends State<TaskPage> {
       if (mounted) {
         setState(() {
           _categories = categories;
-          _taskInstances = instances.where((inst) {
+          // Filter by category and separate active from all instances
+          final categoryFiltered = instances.where((inst) {
             final matches = (widget.categoryName == null ||
                 inst.templateCategoryName == widget.categoryName);
             print(
                 'Instance ${inst.templateName} matches filter: $matches (categoryName: ${inst.templateCategoryName} vs ${widget.categoryName})');
             return matches;
           }).toList();
+
+          // Store all instances (for Recent Completions)
+          _taskInstances = categoryFiltered;
+
+          // Filter active instances for main sections
+          _activeTaskInstances = categoryFiltered
+              .where((inst) => inst.status == 'pending')
+              .toList();
 
           print(
               'TaskPage: After filtering: ${_taskInstances.length} instances');
@@ -680,14 +681,15 @@ class _TaskPageState extends State<TaskPage> {
       'Tomorrow',
       'This Week',
       'Later',
-      'No due date'
+      'No due date',
+      'Recent Completions',
     ];
     final widgets = <Widget>[];
     for (final key in order) {
       final items = List<dynamic>.from(buckets[key]!);
       final visibleItems = items.where((item) {
         if (item is ActivityInstanceRecord) {
-          return _showCompleted || !_isTaskCompleted(item);
+          return !_isTaskCompleted(item);
         }
         return true;
       }).toList();
@@ -731,6 +733,9 @@ class _TaskPageState extends State<TaskPage> {
         ),
       ));
     }
+
+    // Recent Completions will be handled via buckets like other sections
+
     return widgets;
   }
 
@@ -780,19 +785,27 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   String _getSubtitle(ActivityInstanceRecord instance, String bucketKey) {
+    if (bucketKey == 'Recent Completions') {
+      final completedAt = instance.completedAt!;
+      final completedStr =
+          _isSameDay(completedAt, DateTime.now()) ? 'Today' : 'Yesterday';
+      final due = instance.dueDate;
+      final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
+      return 'Completed $completedStr • Due: $dueStr';
+    }
+
     // For Today and Tomorrow, dates are obvious, so don't show anything
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
       return '';
     }
 
-    // For Overdue, This Week, and Later, show only the date (no category since we're in a category tab)
+    // For Overdue, This Week, Later, show only the date
     final dueDate = instance.dueDate;
     if (dueDate != null) {
       final formattedDate = DateFormat.MMMd().format(dueDate);
       return formattedDate;
     }
 
-    // Fallback to empty string if no due date
     return '';
   }
 
@@ -951,15 +964,17 @@ class _TaskPageState extends State<TaskPage> {
       'This Week': [],
       'Later': [],
       'No due date': [],
+      'Recent Completions': [],
     };
 
-    print('_bucketedItems: Processing ${_taskInstances.length} task instances');
+    print(
+        '_bucketedItems: Processing ${_activeTaskInstances.length} active task instances');
     final today = _todayDate();
     final tomorrow = _tomorrowDate();
     // "This Week" covers the next 5 days after tomorrow
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
 
-    for (final instance in _taskInstances) {
+    for (final instance in _activeTaskInstances) {
       print('  Bucketing instance: ${instance.templateName}');
       print('    - isActive: ${instance.isActive}');
       if (!instance.isActive) {
@@ -1001,6 +1016,27 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
 
+    // Populate Recent Completions (completed today or yesterday)
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    for (final instance in _taskInstances) {
+      if (instance.status != 'completed') continue;
+      if (instance.completedAt == null) continue;
+      if (widget.categoryName != null &&
+          instance.templateCategoryName != widget.categoryName) {
+        continue;
+      }
+      final completedDate = instance.completedAt!;
+      final completedDateOnly =
+          DateTime(completedDate.year, completedDate.month, completedDate.day);
+      final isRecent = completedDateOnly.isAfter(yesterdayStart) ||
+          completedDateOnly.isAtSameMomentAs(yesterdayStart);
+      if (isRecent) {
+        buckets['Recent Completions']!.add(instance);
+      }
+    }
+
     print('_bucketedItems: Final bucket counts:');
     buckets.forEach((key, value) {
       print('  $key: ${value.length} items');
@@ -1008,6 +1044,10 @@ class _TaskPageState extends State<TaskPage> {
 
     return buckets;
   }
+
+  // Recent Completions UI is now handled via standard sections and ItemComponent
+
+  // Removed legacy actions for custom Recent Completions UI
 
   Widget _buildItemTile(dynamic item, String bucketKey) {
     if (item is ActivityInstanceRecord) {
@@ -1034,7 +1074,6 @@ class _TaskPageState extends State<TaskPage> {
       showTaskEdit: true,
       key: Key(instance.reference.id),
       instance: instance,
-      showCompleted: _showCompleted,
       categories: _categories,
       onRefresh: _loadData,
       onInstanceUpdated: _updateInstanceInLocalState,
@@ -1051,8 +1090,8 @@ class _TaskPageState extends State<TaskPage> {
       if (index != -1) {
         _taskInstances[index] = updatedInstance;
       }
-      // Remove from list if completed and not showing completed
-      if (!_showCompleted && updatedInstance.status == 'completed') {
+      // Remove from list if completed (completed items now show in Recent Completions)
+      if (updatedInstance.status == 'completed') {
         _taskInstances.removeWhere(
             (inst) => inst.reference.id == updatedInstance.reference.id);
       }

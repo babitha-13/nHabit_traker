@@ -4,14 +4,12 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
-import 'package:collection/collection.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
@@ -240,8 +238,8 @@ class _HabitsPageState extends State<HabitsPage> {
                   instance: instance,
                   categoryColorHex: category!.color,
                   onRefresh: _loadHabits,
-                  onHabitUpdated: (updated) => {},
-                  onHabitDeleted: (deleted) async => _loadHabits(),
+                  onInstanceUpdated: _updateInstanceInLocalState,
+                  onInstanceDeleted: _removeInstanceFromLocalState,
                   isHabit: true,
                   showTypeIcon: false,
                   showRecurringIcon: false,
@@ -435,6 +433,48 @@ class _HabitsPageState extends State<HabitsPage> {
       context: context,
       builder: (context) => CreateCategory(category: category),
     );
+  }
+
+  void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
+    setState(() {
+      final index = _habitInstances.indexWhere(
+          (inst) => inst.reference.id == updatedInstance.reference.id);
+      if (index != -1) {
+        _habitInstances[index] = updatedInstance;
+      }
+      // Remove from list if completed and not showing completed
+      if (!_showCompleted && updatedInstance.status == 'completed') {
+        _habitInstances.removeWhere(
+            (inst) => inst.reference.id == updatedInstance.reference.id);
+      }
+    });
+    // Background refresh to sync with server
+    _loadHabitsSilently();
+  }
+
+  void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
+    setState(() {
+      _habitInstances.removeWhere(
+          (inst) => inst.reference.id == deletedInstance.reference.id);
+    });
+    // Background refresh to sync with server
+    _loadHabitsSilently();
+  }
+
+  Future<void> _loadHabitsSilently() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isNotEmpty) {
+        final instances = await queryTodaysHabitInstances(userId: userId);
+        if (mounted) {
+          setState(() {
+            _habitInstances = instances;
+          });
+        }
+      }
+    } catch (e) {
+      print('Error silently loading habits: $e');
+    }
   }
 
   void _showDeleteCategoryConfirmation(CategoryRecord category) {

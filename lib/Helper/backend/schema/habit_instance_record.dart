@@ -99,6 +99,23 @@ class HabitInstanceRecord extends FirestoreRecord {
   String get templateUnit => _templateUnit ?? '';
   bool hasTemplateUnit() => _templateUnit != null;
 
+  // Template frequency fields (cached from template)
+  int? _templateEveryXValue;
+  int get templateEveryXValue => _templateEveryXValue ?? 1;
+  bool hasTemplateEveryXValue() => _templateEveryXValue != null;
+
+  String? _templateEveryXPeriodType;
+  String get templateEveryXPeriodType => _templateEveryXPeriodType ?? '';
+  bool hasTemplateEveryXPeriodType() => _templateEveryXPeriodType != null;
+
+  int? _templateTimesPerPeriod;
+  int get templateTimesPerPeriod => _templateTimesPerPeriod ?? 1;
+  bool hasTemplateTimesPerPeriod() => _templateTimesPerPeriod != null;
+
+  String? _templatePeriodType;
+  String get templatePeriodType => _templatePeriodType ?? '';
+  bool hasTemplatePeriodType() => _templatePeriodType != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -120,6 +137,11 @@ class HabitInstanceRecord extends FirestoreRecord {
     _templateTrackingType = snapshotData['templateTrackingType'] as String?;
     _templateTarget = snapshotData['templateTarget'];
     _templateUnit = snapshotData['templateUnit'] as String?;
+    _templateEveryXValue = snapshotData['templateEveryXValue'] as int?;
+    _templateEveryXPeriodType =
+        snapshotData['templateEveryXPeriodType'] as String?;
+    _templateTimesPerPeriod = snapshotData['templateTimesPerPeriod'] as int?;
+    _templatePeriodType = snapshotData['templatePeriodType'] as String?;
   }
 
   static CollectionReference get collection =>
@@ -183,6 +205,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateTrackingType,
   dynamic templateTarget,
   String? templateUnit,
+  int? templateEveryXValue,
+  String? templateEveryXPeriodType,
+  int? templateTimesPerPeriod,
+  String? templatePeriodType,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -206,6 +232,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateTrackingType': templateTrackingType,
       'templateTarget': templateTarget,
       'templateUnit': templateUnit,
+      'templateEveryXValue': templateEveryXValue,
+      'templateEveryXPeriodType': templateEveryXPeriodType,
+      'templateTimesPerPeriod': templateTimesPerPeriod,
+      'templatePeriodType': templatePeriodType,
     }.withoutNulls,
   );
 

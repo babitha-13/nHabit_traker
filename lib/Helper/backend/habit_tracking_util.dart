@@ -64,45 +64,8 @@ class HabitTrackingUtil {
       }
     }
 
-    // Fallback to old logic for legacy data
-    switch (habit.schedule) {
-      case 'daily':
-        return true;
-      case 'weekly':
-        if (habit.specificDays.isNotEmpty) {
-          final weekday = now.weekday;
-          return habit.specificDays.contains(weekday);
-        } else {
-          final weekStart = today.subtract(Duration(days: today.weekday - 1));
-          final weekEnd = weekStart.add(const Duration(days: 6));
-
-          // Note: completedDates tracking moved to separate completion records
-          final completedThisWeek = <DateTime>[].where((date) {
-            final completionDate = DateTime(date.year, date.month, date.day);
-            return completionDate
-                    .isAfter(weekStart.subtract(const Duration(days: 1))) &&
-                completionDate.isBefore(weekEnd.add(const Duration(days: 1)));
-          }).length;
-          return completedThisWeek < (habit.frequency ?? 1);
-        }
-      case 'monthly':
-        // Check if we haven't completed enough times this month
-        final monthStart = DateTime(now.year, now.month, 1);
-        final monthEnd = DateTime(now.year, now.month + 1, 0);
-
-        // Note: completedDates tracking moved to separate completion records
-        final completedThisMonth = <DateTime>[].where((date) {
-          final completionDate = DateTime(date.year, date.month, date.day);
-          return completionDate
-                  .isAfter(monthStart.subtract(const Duration(days: 1))) &&
-              completionDate.isBefore(monthEnd.add(const Duration(days: 1)));
-        }).length;
-
-        return completedThisMonth <
-            (habit.frequency ?? 1); // reuse as count for month for now
-      default:
-        return true;
-    }
+    // Fallback to default behavior for habits without frequency data
+    return true;
   }
 
   /// Check if progress should be reset based on day end time

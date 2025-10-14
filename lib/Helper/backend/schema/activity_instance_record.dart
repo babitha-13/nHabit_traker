@@ -111,6 +111,23 @@ class ActivityInstanceRecord extends FirestoreRecord {
   bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
   bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
 
+  // Template frequency fields (cached from template)
+  int? _templateEveryXValue;
+  int get templateEveryXValue => _templateEveryXValue ?? 1;
+  bool hasTemplateEveryXValue() => _templateEveryXValue != null;
+
+  String? _templateEveryXPeriodType;
+  String get templateEveryXPeriodType => _templateEveryXPeriodType ?? '';
+  bool hasTemplateEveryXPeriodType() => _templateEveryXPeriodType != null;
+
+  int? _templateTimesPerPeriod;
+  int get templateTimesPerPeriod => _templateTimesPerPeriod ?? 1;
+  bool hasTemplateTimesPerPeriod() => _templateTimesPerPeriod != null;
+
+  String? _templatePeriodType;
+  String get templatePeriodType => _templatePeriodType ?? '';
+  bool hasTemplatePeriodType() => _templatePeriodType != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -136,6 +153,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _templateDescription = snapshotData['templateDescription'] as String?;
     _templateShowInFloatingTimer =
         snapshotData['templateShowInFloatingTimer'] as bool?;
+    _templateEveryXValue = snapshotData['templateEveryXValue'] as int?;
+    _templateEveryXPeriodType =
+        snapshotData['templateEveryXPeriodType'] as String?;
+    _templateTimesPerPeriod = snapshotData['templateTimesPerPeriod'] as int?;
+    _templatePeriodType = snapshotData['templatePeriodType'] as String?;
   }
 
   static CollectionReference get collection =>
@@ -210,6 +232,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateUnit,
   String? templateDescription,
   bool? templateShowInFloatingTimer,
+  int? templateEveryXValue,
+  String? templateEveryXPeriodType,
+  int? templateTimesPerPeriod,
+  String? templatePeriodType,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -236,6 +262,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateUnit': templateUnit,
       'templateDescription': templateDescription,
       'templateShowInFloatingTimer': templateShowInFloatingTimer,
+      'templateEveryXValue': templateEveryXValue,
+      'templateEveryXPeriodType': templateEveryXPeriodType,
+      'templateTimesPerPeriod': templateTimesPerPeriod,
+      'templatePeriodType': templatePeriodType,
     }.withoutNulls,
   );
 
@@ -273,7 +303,11 @@ class ActivityInstanceRecordDocumentEquality
         e1?.templateTarget == e2?.templateTarget &&
         e1?.templateUnit == e2?.templateUnit &&
         e1?.templateDescription == e2?.templateDescription &&
-        e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer;
+        e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer &&
+        e1?.templateEveryXValue == e2?.templateEveryXValue &&
+        e1?.templateEveryXPeriodType == e2?.templateEveryXPeriodType &&
+        e1?.templateTimesPerPeriod == e2?.templateTimesPerPeriod &&
+        e1?.templatePeriodType == e2?.templatePeriodType;
   }
 
   @override
@@ -301,5 +335,9 @@ class ActivityInstanceRecordDocumentEquality
         e?.templateUnit,
         e?.templateDescription,
         e?.templateShowInFloatingTimer,
+        e?.templateEveryXValue,
+        e?.templateEveryXPeriodType,
+        e?.templateTimesPerPeriod,
+        e?.templatePeriodType,
       ]);
 }

@@ -873,8 +873,6 @@ class _TaskPageState extends State<TaskPage> {
         dueDate: _selectedQuickDueDate,
         priority: 1,
         unit: _quickUnit,
-        schedule: null, // Deprecated
-        frequency: null, // Deprecated
         specificDays: _quickFrequencyConfig != null &&
                 _quickFrequencyConfig!.type == FrequencyType.specificDays
             ? _quickFrequencyConfig!.selectedDays
@@ -1060,10 +1058,41 @@ class _TaskPageState extends State<TaskPage> {
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
 
   DateTime? _nextDueDateForHabit(ActivityRecord h, DateTime today) {
-    switch (h.schedule) {
-      case 'daily':
-        return today;
-      case 'weekly':
+    // Use new frequency system
+    switch (h.frequencyType) {
+      case 'everyXPeriod':
+        final value = h.everyXValue;
+        switch (h.everyXPeriodType) {
+          case 'days':
+            return today.add(Duration(days: value));
+          case 'weeks':
+            return today.add(Duration(days: 7 * value));
+          case 'months':
+            return _addMonths(today, value);
+          default:
+            return today.add(Duration(days: value));
+        }
+
+      case 'timesPerPeriod':
+        switch (h.periodType) {
+          case 'weeks':
+            if (h.specificDays.isNotEmpty) {
+              for (int i = 0; i < 7; i++) {
+                final candidate = today.add(Duration(days: i));
+                if (h.specificDays.contains(candidate.weekday)) return candidate;
+              }
+              return today.add(const Duration(days: 7));
+            }
+            return today.add(const Duration(days: 7));
+          case 'months':
+            return _addMonths(today, 1);
+          case 'year':
+            return DateTime(today.year + 1, today.month, today.day);
+          default:
+            return today.add(const Duration(days: 7));
+        }
+
+      case 'specificDays':
         if (h.specificDays.isNotEmpty) {
           for (int i = 0; i < 7; i++) {
             final candidate = today.add(Duration(days: i));
@@ -1071,12 +1100,29 @@ class _TaskPageState extends State<TaskPage> {
           }
           return today.add(const Duration(days: 7));
         }
-        return today;
-      case 'monthly':
-        return today.add(const Duration(days: 3));
+        return today.add(const Duration(days: 1));
+
       default:
+        // Fallback to daily
         return today.add(const Duration(days: 1));
     }
+  }
+
+  /// Add months to a date, handling edge cases
+  DateTime _addMonths(DateTime date, int months) {
+    final nextMonth = DateTime(
+      date.year,
+      date.month + months,
+      date.day,
+    );
+
+    // Handle cases where the day doesn't exist in the target month
+    if (nextMonth.month != (date.month + months) % 12) {
+      // Day doesn't exist in target month, use last day of month
+      return DateTime(nextMonth.year, nextMonth.month, 0);
+    }
+
+    return nextMonth;
   }
 
   Widget _buildTaskTile(ActivityRecord task, String bucketKey) {

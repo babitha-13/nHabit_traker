@@ -134,12 +134,15 @@ class TaskInstanceService {
         // Generate next instance if task is recurring and still active
         if (template.isRecurring &&
             template.isActive &&
-            template.schedule != null &&
+            template.frequencyType.isNotEmpty &&
             instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule,
-            frequency: template.frequency,
+            frequencyType: template.frequencyType,
+            everyXValue: template.everyXValue,
+            everyXPeriodType: template.everyXPeriodType,
+            timesPerPeriod: template.timesPerPeriod,
+            periodType: template.periodType,
             specificDays: template.specificDays,
           );
 
@@ -208,12 +211,15 @@ class TaskInstanceService {
 
         // Generate next instance if task is recurring
         if (template.isRecurring &&
-            template.schedule != null &&
+            template.frequencyType.isNotEmpty &&
             instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule,
-            frequency: template.frequency,
+            frequencyType: template.frequencyType,
+            everyXValue: template.everyXValue,
+            everyXPeriodType: template.everyXPeriodType,
+            timesPerPeriod: template.timesPerPeriod,
+            periodType: template.periodType,
             specificDays: template.specificDays,
           );
 
@@ -330,6 +336,10 @@ class TaskInstanceService {
       templateTrackingType: template.trackingType,
       templateTarget: template.target,
       templateUnit: template.unit,
+      templateEveryXValue: template.everyXValue,
+      templateEveryXPeriodType: template.everyXPeriodType,
+      templateTimesPerPeriod: template.timesPerPeriod,
+      templatePeriodType: template.periodType,
     );
 
     return await HabitInstanceRecord.collectionForUser(uid).add(instanceData);
@@ -375,11 +385,14 @@ class TaskInstanceService {
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        if (template.schedule != null && instance.dueDate != null) {
+        if (template.frequencyType.isNotEmpty && instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule,
-            frequency: template.frequency,
+            frequencyType: template.frequencyType,
+            everyXValue: template.everyXValue,
+            everyXPeriodType: template.everyXPeriodType,
+            timesPerPeriod: template.timesPerPeriod,
+            periodType: template.periodType,
             specificDays: template.specificDays,
           );
 
@@ -435,11 +448,14 @@ class TaskInstanceService {
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        if (template.schedule != null && instance.dueDate != null) {
+        if (template.frequencyType.isNotEmpty && instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
-            schedule: template.schedule,
-            frequency: template.frequency,
+            frequencyType: template.frequencyType,
+            everyXValue: template.everyXValue,
+            everyXPeriodType: template.everyXPeriodType,
+            timesPerPeriod: template.timesPerPeriod,
+            periodType: template.periodType,
             specificDays: template.specificDays,
           );
 
@@ -465,46 +481,71 @@ class TaskInstanceService {
   /// This is the core logic that handles Microsoft To-Do style recurrence
   static DateTime? _calculateNextDueDate({
     required DateTime currentDueDate,
-    required String schedule,
-    required int? frequency,
+    String? frequencyType,
+    int? everyXValue,
+    String? everyXPeriodType,
+    int? timesPerPeriod,
+    String? periodType,
     List<int>? specificDays,
   }) {
-    // Use default frequency of 1 if null
-    final effectiveFrequency = frequency ?? 1;
-    switch (schedule.toLowerCase()) {
-      case 'daily':
-        return currentDueDate.add(Duration(days: effectiveFrequency));
+    // Handle different frequency types
+    switch (frequencyType) {
+      case 'everyXPeriod':
+        final value = everyXValue ?? 1;
+        switch (everyXPeriodType) {
+          case 'days':
+            return currentDueDate.add(Duration(days: value));
+          case 'weeks':
+            return currentDueDate.add(Duration(days: 7 * value));
+          case 'months':
+            return _addMonths(currentDueDate, value);
+          default:
+            return currentDueDate.add(Duration(days: value));
+        }
 
-      case 'weekly':
+      case 'timesPerPeriod':
+        switch (periodType) {
+          case 'weeks':
+            // For times per week, calculate next occurrence
+            return _getNextWeeklyOccurrence(currentDueDate, specificDays ?? []);
+          case 'months':
+            // For times per month, add 1 month and divide by times
+            return _addMonths(currentDueDate, 1);
+          case 'year':
+            // For times per year, add 1 year and divide by times
+            return DateTime(currentDueDate.year + 1, currentDueDate.month,
+                currentDueDate.day);
+          default:
+            return currentDueDate.add(Duration(days: 7));
+        }
+
+      case 'specificDays':
         if (specificDays != null && specificDays.isNotEmpty) {
-          // Find next occurrence based on specific days
           return _getNextWeeklyOccurrence(currentDueDate, specificDays);
-        } else {
-          // Default weekly (every 7 * frequency days)
-          return currentDueDate.add(Duration(days: 7 * effectiveFrequency));
         }
-
-      case 'monthly':
-        // Add months, handling edge cases like Jan 31 -> Feb 28
-        final nextMonth = DateTime(
-          currentDueDate.year,
-          currentDueDate.month + effectiveFrequency,
-          currentDueDate.day,
-        );
-
-        // Handle cases where the day doesn't exist in the target month
-        if (nextMonth.month !=
-            (currentDueDate.month + effectiveFrequency) % 12) {
-          // Day doesn't exist in target month, use last day of month
-          return DateTime(nextMonth.year, nextMonth.month, 0);
-        }
-
-        return nextMonth;
+        return currentDueDate.add(Duration(days: 1));
 
       default:
-        print('Unknown schedule type: $schedule');
-        return null;
+        // Default to daily
+        return currentDueDate.add(Duration(days: 1));
     }
+  }
+
+  /// Add months to a date, handling edge cases
+  static DateTime _addMonths(DateTime date, int months) {
+    final nextMonth = DateTime(
+      date.year,
+      date.month + months,
+      date.day,
+    );
+
+    // Handle cases where the day doesn't exist in the target month
+    if (nextMonth.month != (date.month + months) % 12) {
+      // Day doesn't exist in target month, use last day of month
+      return DateTime(nextMonth.year, nextMonth.month, 0);
+    }
+
+    return nextMonth;
   }
 
   /// Get next weekly occurrence based on specific days

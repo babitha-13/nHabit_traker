@@ -11,8 +11,6 @@ class ActivityService {
           activity.categoryName.isNotEmpty ? activity.categoryName : 'default',
       trackingType: activity.trackingType,
       target: activity.target,
-      schedule: activity.schedule,
-      frequency: activity.frequency ?? 1,
       description:
           activity.description.isNotEmpty ? activity.description : null,
       categoryType: activity.categoryType,

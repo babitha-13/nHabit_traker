@@ -100,8 +100,6 @@ class _ItemComponentState extends State<ItemComponent>
             : 'default',
         trackingType: widget.habit.trackingType,
         target: widget.habit.target,
-        schedule: widget.habit.schedule,
-        frequency: widget.habit.frequency ?? 1,
         description: widget.habit.description.isNotEmpty
             ? widget.habit.description
             : null,

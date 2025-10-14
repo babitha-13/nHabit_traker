@@ -257,8 +257,6 @@ class _EditTaskState extends State<EditTask> {
               ? _targetDuration.inMinutes
               : null,
       dueDate: _dueDate,
-      schedule: null, // Deprecated
-      frequency: null, // Deprecated
       specificDays: quickIsTaskRecurring &&
               _frequencyConfig != null &&
               _frequencyConfig!.type == FrequencyType.specificDays

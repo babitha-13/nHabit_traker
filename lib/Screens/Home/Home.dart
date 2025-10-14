@@ -27,14 +27,13 @@ class _HomeState extends State<Home> {
   DateTime preBackPress = DateTime.now();
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  bool _showCompleted = false, _showTaskCompleted = false;
   int currentIndex = 1;
   late Widget cWidget;
 
   @override
   void initState() {
     super.initState();
-    cWidget = QueuePage(showCompleted: _showCompleted);
+    cWidget = const QueuePage();
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.white,
@@ -83,64 +82,6 @@ class _HomeState extends State<Home> {
                   ),
             ),
             actions: [
-              Visibility(
-                visible: title != "Progress" &&
-                    title != "Tasks" &&
-                    title != "Manage Categories",
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Show Completed',
-                        style: FlutterFlowTheme.of(context).bodyMedium.override(
-                              fontFamily: 'Readex Pro',
-                              color: Colors.white,
-                            ),
-                      ),
-                      const SizedBox(width: 8),
-                      Switch(
-                        value: _showCompleted,
-                        onChanged: (value) {
-                          setState(() => _showCompleted = value);
-                          NotificationCenter.post(
-                              "showCompleted", _showCompleted);
-                        },
-                        activeColor: Colors.white,
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              Visibility(
-                visible: title != "Progress" &&
-                    title != "Queue" &&
-                    title != "Habits" &&
-                    title != "Manage Categories",
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Show Completed',
-                      style: FlutterFlowTheme.of(context).bodyMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(width: 5),
-                    Switch(
-                      value: _showTaskCompleted,
-                      onChanged: (value) {
-                        setState(() => _showTaskCompleted = value);
-                        NotificationCenter.post(
-                            "showTaskCompleted", _showTaskCompleted);
-                      },
-                      activeColor: Colors.white,
-                    ),
-                  ],
-                ),
-              ),
               Visibility(
                 visible: title == "Tasks",
                 child: PopupMenuButton<String>(
@@ -423,9 +364,7 @@ class _HomeState extends State<Home> {
       if (mounted) {
         title = "Queue";
         setState(() {
-          cWidget = QueuePage(
-            showCompleted: _showCompleted,
-          );
+          cWidget = const QueuePage();
         });
       }
       return false;
@@ -437,21 +376,15 @@ class _HomeState extends State<Home> {
       setState(() {
         if (s == "Queue") {
           title = s;
-          cWidget = QueuePage(
-            showCompleted: _showCompleted,
-          );
+          cWidget = const QueuePage();
         }
         if (s == "Tasks") {
           title = s;
-          cWidget = TaskTab(
-            showCompleted: _showTaskCompleted,
-          );
+          cWidget = const TaskTab();
         }
         if (s == "Habits") {
           title = s;
-          cWidget = HabitsPage(
-            showCompleted: _showCompleted,
-          );
+          cWidget = const HabitsPage(showCompleted: true);
         }
         if (s == "Manage Categories") {
           title = s;

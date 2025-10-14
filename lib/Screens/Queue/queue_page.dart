@@ -1,18 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Helper/utils/progress_donut_chart.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 
 class QueuePage extends StatefulWidget {
-  final bool showCompleted;
-  const QueuePage({super.key, required this.showCompleted});
+  const QueuePage({super.key});
 
   @override
   _QueuePageState createState() => _QueuePageState();
@@ -25,25 +26,22 @@ class _QueuePageState extends State<QueuePage> {
   List<CategoryRecord> _categories = [];
   final Map<String, bool> _timeSectionExpanded = {
     'Overdue': true,
-    'Today': true
+    'Today': true,
+    'Recent Completions': false,
   };
   bool _isLoading = true;
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
-  late bool _showCompleted;
+  // Progress tracking variables
+  double _dailyTarget = 0.0;
+  double _pointsEarned = 0.0;
+  double _dailyPercentage = 0.0;
+  // Removed legacy Recent Completions expansion state; now uses standard sections
 
   @override
   void initState() {
     super.initState();
-    _showCompleted = widget.showCompleted;
     _loadData();
-    NotificationCenter.addObserver(this, 'showCompleted', (param) {
-      if (param is bool && mounted) {
-        setState(() {
-          _showCompleted = param;
-        });
-      }
-    });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
         setState(() {
@@ -106,6 +104,9 @@ class _QueuePageState extends State<QueuePage> {
             _categories = allCategories;
             _isLoading = false;
           });
+
+          // Calculate progress for today's habits
+          _calculateProgress();
         }
       } else {
         if (mounted) setState(() => _isLoading = false);
@@ -114,6 +115,78 @@ class _QueuePageState extends State<QueuePage> {
       print('QueuePage: Error loading data: $e');
       if (mounted) setState(() => _isLoading = false);
     }
+  }
+
+  /// Calculate progress for today's habits
+  void _calculateProgress() async {
+    final todayHabits = _instances
+        .where((inst) =>
+            inst.templateCategoryType == 'habit' && _isTodayOrOverdue(inst))
+        .toList();
+
+    // Also include completed habits from today
+    final completedTodayHabits = _instances
+        .where((inst) =>
+            inst.templateCategoryType == 'habit' &&
+            inst.status == 'completed' &&
+            _wasCompletedToday(inst))
+        .toList();
+
+    // Combine both pending and completed habits for today
+    final allTodayHabits = [...todayHabits, ...completedTodayHabits];
+
+    // Use enhanced calculation with template data for accurate frequency
+    try {
+      _dailyTarget = await PointsService.calculateTotalDailyTargetWithTemplates(
+          allTodayHabits, _categories, currentUserUid);
+    } catch (e) {
+      // Fallback to basic calculation if template fetch fails
+      _dailyTarget =
+          PointsService.calculateTotalDailyTarget(allTodayHabits, _categories);
+    }
+
+    _pointsEarned =
+        PointsService.calculateTotalPointsEarned(allTodayHabits, _categories);
+    _dailyPercentage = PointsService.calculateDailyPerformancePercent(
+        _pointsEarned, _dailyTarget);
+
+    // Debug logging
+    print('QueuePage: Progress calculation:');
+    print('  - Pending habits: ${todayHabits.length}');
+    print('  - Completed today: ${completedTodayHabits.length}');
+    print('  - Total habits: ${allTodayHabits.length}');
+    print('  - Daily target: $_dailyTarget');
+    print('  - Points earned: $_pointsEarned');
+    print('  - Percentage: $_dailyPercentage%');
+
+    // Update UI with new progress values
+    if (mounted) {
+      setState(() {
+        // Progress values are already updated above
+      });
+    }
+  }
+
+  /// Check if instance is due today or overdue
+  bool _isTodayOrOverdue(ActivityInstanceRecord instance) {
+    if (instance.dueDate == null) return true; // No due date = today
+
+    final today = _todayDate();
+    final dueDate = DateTime(
+        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
+
+    return dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
+  }
+
+  /// Check if a completed instance was completed today
+  bool _wasCompletedToday(ActivityInstanceRecord instance) {
+    if (instance.completedAt == null) return false;
+
+    final today = _todayDate();
+    final completedDate = DateTime(instance.completedAt!.year,
+        instance.completedAt!.month, instance.completedAt!.day);
+
+    return completedDate.isAtSameMomentAs(today);
   }
 
   bool _isInstanceCompleted(ActivityInstanceRecord instance) {
@@ -127,6 +200,7 @@ class _QueuePageState extends State<QueuePage> {
       'Tomorrow': [],
       'This Week': [],
       'Later': [],
+      'Recent Completions': [],
     };
 
     final today = _todayDate();
@@ -135,7 +209,7 @@ class _QueuePageState extends State<QueuePage> {
 
     print('_bucketedItems: Processing ${_instances.length} instances');
     for (final instance in _instances) {
-      if (!_showCompleted && _isInstanceCompleted(instance)) {
+      if (_isInstanceCompleted(instance)) {
         print('  ${instance.templateName}: SKIPPED (completed)');
         continue;
       }
@@ -160,10 +234,37 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
 
+    // Populate Recent Completions (completed today or yesterday)
+    final now = DateTime.now();
+    final todayStart = DateTime(now.year, now.month, now.day);
+    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    for (final instance in _instances) {
+      if (instance.status != 'completed') continue;
+      if (instance.completedAt == null) continue;
+      final completedDate = instance.completedAt!;
+      final completedDateOnly =
+          DateTime(completedDate.year, completedDate.month, completedDate.day);
+      final isRecent = completedDateOnly.isAfter(yesterdayStart) ||
+          completedDateOnly.isAtSameMomentAs(yesterdayStart);
+      if (isRecent) {
+        buckets['Recent Completions']!.add(instance);
+      }
+    }
+
     return buckets;
   }
 
   String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
+    if (bucketKey == 'Recent Completions') {
+      final completedAt = item.completedAt!;
+      final completedStr =
+          _isSameDay(completedAt, DateTime.now()) ? 'Today' : 'Yesterday';
+      final due = item.dueDate;
+      final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
+      final icon = item.templateCategoryType == 'task' ? '📋' : '🔁';
+      return 'Completed $completedStr • ${item.templateCategoryName} • Due: $dueStr • $icon';
+    }
+
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
       return item.templateCategoryName;
     }
@@ -196,6 +297,25 @@ class _QueuePageState extends State<QueuePage> {
               ? const Center(child: CircularProgressIndicator())
               : Column(
                   children: [
+                    // Progress indicator
+                    Container(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        children: [
+                          ProgressDonutChart(
+                            percentage: _dailyPercentage,
+                            totalTarget: _dailyTarget,
+                            pointsEarned: _pointsEarned,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            'Daily Progress',
+                            style: FlutterFlowTheme.of(context).bodySmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    const Divider(height: 1),
                     Expanded(
                       child: _buildDailyView(),
                     ),
@@ -218,7 +338,14 @@ class _QueuePageState extends State<QueuePage> {
 
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Today', 'Tomorrow', 'This Week', 'Later'];
+    final order = [
+      'Overdue',
+      'Today',
+      'Tomorrow',
+      'This Week',
+      'Later',
+      'Recent Completions'
+    ];
     final theme = FlutterFlowTheme.of(context);
 
     final visibleSections =
@@ -310,9 +437,10 @@ class _QueuePageState extends State<QueuePage> {
                   subtitle: _getSubtitle(item, key),
                   key: Key(item.reference.id),
                   instance: item,
-                  showCompleted: _showCompleted,
                   categoryColorHex: _getCategoryColor(item),
                   onRefresh: _loadData,
+                  onInstanceUpdated: _updateInstanceInLocalState,
+                  onInstanceDeleted: _removeInstanceFromLocalState,
                   onHabitUpdated: (updated) => {},
                   onHabitDeleted: (deleted) async => _loadData(),
                   isHabit: isHabit,
@@ -346,5 +474,34 @@ class _QueuePageState extends State<QueuePage> {
           'QueuePage: Could not find category for instance ${instance.templateName} with category name: ${instance.templateCategoryName}');
     }
     return category?.color ?? '#000000';
+  }
+
+  // Recent Completions UI is now handled via standard sections and ItemComponent
+
+  /// Update instance in local state and recalculate progress
+  void _updateInstanceInLocalState(
+      ActivityInstanceRecord updatedInstance) async {
+    setState(() {
+      final index = _instances.indexWhere(
+          (inst) => inst.reference.id == updatedInstance.reference.id);
+      if (index != -1) {
+        _instances[index] = updatedInstance;
+      }
+    });
+
+    // Recalculate progress for instant updates
+    _calculateProgress();
+  }
+
+  /// Remove instance from local state and recalculate progress
+  void _removeInstanceFromLocalState(
+      ActivityInstanceRecord deletedInstance) async {
+    setState(() {
+      _instances.removeWhere(
+          (inst) => inst.reference.id == deletedInstance.reference.id);
+    });
+
+    // Recalculate progress for instant updates
+    _calculateProgress();
   }
 }
