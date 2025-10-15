@@ -3,7 +3,6 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
@@ -119,7 +118,12 @@ class _TaskPageState extends State<TaskPage> {
                 onRefresh: _loadData,
                 child: CustomScrollView(
                   slivers: [
-                    SliverToBoxAdapter(child: _buildQuickAdd()),
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: _buildQuickAdd(),
+                      ),
+                    ),
                     ..._buildSections(),
                   ],
                 ),
@@ -283,7 +287,7 @@ class _TaskPageState extends State<TaskPage> {
                         },
                         tooltip: 'Select task type',
                       ),
-                      const SizedBox(width: 4),
+                      const SizedBox(width: 12),
                       // Show due date button only when no date is selected
                       if (_selectedQuickDueDate == null)
                         IconButton(
@@ -345,6 +349,7 @@ class _TaskPageState extends State<TaskPage> {
                             ),
                           ),
                         ),
+                      const SizedBox(width: 12),
                       // Show recurring button only when no frequency is configured
                       if (!quickIsRecurring || _quickFrequencyConfig == null)
                         IconButton(
@@ -874,7 +879,7 @@ class _TaskPageState extends State<TaskPage> {
           targetValue = null;
       }
 
-      final docRef = await createActivity(
+      await createActivity(
         name: title,
         categoryName:
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
@@ -916,23 +921,8 @@ class _TaskPageState extends State<TaskPage> {
       // Reset the form immediately after creating the task
       _resetQuickAdd();
 
-      // We created a template, now find the first instance created for it.
-      try {
-        final instances = await ActivityInstanceService.getInstancesForTemplate(
-            templateId: docRef.id);
-        if (instances.isNotEmpty) {
-          final newInstance = instances.first;
-          // Broadcast the instance creation event (will trigger _handleInstanceCreated)
-          InstanceEvents.broadcastInstanceCreated(newInstance);
-        } else {
-          // If no instances found, try a silent refresh without loading indicator
-          _loadDataSilently();
-        }
-      } catch (e) {
-        print('Error getting instances for template, doing silent refresh: $e');
-        // Even if there's an error getting instances, do a silent refresh
-        _loadDataSilently();
-      }
+      // The createActivity function already broadcasts the instance creation event
+      // No need to manually broadcast or refresh - the event handler will handle it
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1184,35 +1174,76 @@ class _TaskPageState extends State<TaskPage> {
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     // Only add task instances to this page
     if (instance.templateCategoryType == 'task') {
-      setState(() {
-        _taskInstances.add(instance);
-      });
-      print('TaskPage: Added new task instance ${instance.templateName}');
+      // Check if instance matches this page's category filter
+      final matchesCategory = widget.categoryName == null ||
+          instance.templateCategoryName == widget.categoryName;
+
+      if (matchesCategory) {
+        setState(() {
+          _taskInstances.add(instance);
+          // Also add to active list if pending
+          if (instance.status == 'pending') {
+            _activeTaskInstances.add(instance);
+          }
+        });
+        print('TaskPage: Added new task instance ${instance.templateName}');
+      }
     }
   }
 
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
-      setState(() {
-        final index = _taskInstances
-            .indexWhere((inst) => inst.reference.id == instance.reference.id);
-        if (index != -1) {
-          _taskInstances[index] = instance;
-          print('TaskPage: Updated task instance ${instance.templateName}');
-        }
-      });
+      // Check if instance matches this page's category filter
+      final matchesCategory = widget.categoryName == null ||
+          instance.templateCategoryName == widget.categoryName;
+
+      if (matchesCategory) {
+        setState(() {
+          final index = _taskInstances
+              .indexWhere((inst) => inst.reference.id == instance.reference.id);
+          if (index != -1) {
+            _taskInstances[index] = instance;
+
+            // Also update _activeTaskInstances
+            final activeIndex = _activeTaskInstances.indexWhere(
+                (inst) => inst.reference.id == instance.reference.id);
+            if (activeIndex != -1) {
+              _activeTaskInstances[activeIndex] = instance;
+            } else if (instance.status == 'pending') {
+              // If instance is now pending and not in active list, add it
+              _activeTaskInstances.add(instance);
+            }
+
+            // Remove from active list if no longer pending
+            if (instance.status != 'pending') {
+              _activeTaskInstances.removeWhere(
+                  (inst) => inst.reference.id == instance.reference.id);
+            }
+
+            print('TaskPage: Updated task instance ${instance.templateName}');
+          }
+        });
+      }
     }
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
-      setState(() {
-        _taskInstances
-            .removeWhere((inst) => inst.reference.id == instance.reference.id);
-        print('TaskPage: Removed task instance ${instance.templateName}');
-      });
+      // Check if instance matches this page's category filter
+      final matchesCategory = widget.categoryName == null ||
+          instance.templateCategoryName == widget.categoryName;
+
+      if (matchesCategory) {
+        setState(() {
+          _taskInstances.removeWhere(
+              (inst) => inst.reference.id == instance.reference.id);
+          _activeTaskInstances.removeWhere(
+              (inst) => inst.reference.id == instance.reference.id);
+          print('TaskPage: Removed task instance ${instance.templateName}');
+        });
+      }
     }
   }
 }

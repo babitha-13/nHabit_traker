@@ -120,10 +120,11 @@ class _ItemComponentState extends State<ItemComponent>
     } else {
       // For tasks, we need to determine if the template is recurring
       // Since we don't have the isRecurring field cached in the instance,
-      // we'll use a heuristic: if it's a task with a due date, it's likely recurring
-      // This is a temporary solution until we add templateIsRecurring to the instance record
+      // we'll use a heuristic: check if it has frequency configuration
+      // A task is recurring if it has any frequency configuration
       return widget.instance.templateCategoryType == 'task' &&
-          widget.instance.dueDate != null;
+          (widget.instance.templateEveryXPeriodType.isNotEmpty ||
+              widget.instance.templatePeriodType.isNotEmpty);
     }
   }
 

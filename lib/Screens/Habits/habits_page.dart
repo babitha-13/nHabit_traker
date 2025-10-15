@@ -205,13 +205,6 @@ class _HabitsPageState extends State<HabitsPage> {
               'Create your first habit to get started!',
               style: FlutterFlowTheme.of(context).bodyMedium,
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                _shouldReloadOnReturn = true;
-              },
-              child: const Text('Add Habit'),
-            ),
           ],
         ),
       );

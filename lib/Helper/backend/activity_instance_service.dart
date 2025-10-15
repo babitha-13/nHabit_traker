@@ -189,7 +189,7 @@ class ActivityInstanceService {
       print(
           'ActivityInstanceService: Found ${allInstances.length} total task instances (all statuses)');
 
-      // Group instances by templateId and keep only the one with the earliest due date
+      // Group instances by templateId, prioritizing pending over completed
       final Map<String, ActivityInstanceRecord> earliestInstances = {};
       for (final instance in allInstances) {
         final templateId = instance.templateId;
@@ -197,20 +197,25 @@ class ActivityInstanceService {
           earliestInstances[templateId] = instance;
         } else {
           final existing = earliestInstances[templateId]!;
-          // Handle null due dates: nulls go last
-          if (instance.dueDate == null && existing.dueDate == null) {
-            // Both null, keep existing
-            continue;
-          } else if (instance.dueDate == null) {
-            // New is null, keep existing
-            continue;
-          } else if (existing.dueDate == null) {
-            // Existing is null, replace with new
+
+          // Prioritize pending instances over completed/skipped
+          if (existing.status != 'pending' && instance.status == 'pending') {
             earliestInstances[templateId] = instance;
-          } else {
-            // Both have dates, compare
-            if (instance.dueDate!.isBefore(existing.dueDate!)) {
+          } else if (existing.status == 'pending' &&
+              instance.status != 'pending') {
+            continue; // Keep pending, skip completed/skipped
+          } else if (existing.status == instance.status) {
+            // Same status: compare by due date (keep earliest)
+            if (instance.dueDate == null && existing.dueDate == null) {
+              continue;
+            } else if (instance.dueDate == null) {
+              continue;
+            } else if (existing.dueDate == null) {
               earliestInstances[templateId] = instance;
+            } else {
+              if (instance.dueDate!.isBefore(existing.dueDate!)) {
+                earliestInstances[templateId] = instance;
+              }
             }
           }
         }
@@ -499,7 +504,7 @@ class ActivityInstanceService {
 
       final List<ActivityInstanceRecord> finalInstanceList = [];
 
-      // For tasks: use earliest-only logic (existing behavior)
+      // For tasks: use earliest-only logic with status priority
       final Map<String, ActivityInstanceRecord> earliestTasks = {};
       for (final instance in taskInstances) {
         final templateId = instance.templateId;
@@ -507,19 +512,25 @@ class ActivityInstanceService {
           earliestTasks[templateId] = instance;
         } else {
           final existing = earliestTasks[templateId]!;
-          // Handle null due dates: nulls go last
-          if (existing.dueDate == null) {
-            // Keep existing (null), unless new also has a date
-            if (instance.dueDate != null) {
-              earliestTasks[templateId] = instance;
-            }
-          } else if (instance.dueDate == null) {
-            // Keep existing (has date)
+
+          // Prioritize pending instances
+          if (existing.status != 'pending' && instance.status == 'pending') {
+            earliestTasks[templateId] = instance;
+          } else if (existing.status == 'pending' &&
+              instance.status != 'pending') {
             continue;
-          } else {
-            // Both have dates, compare normally
-            if (instance.dueDate!.isBefore(existing.dueDate!)) {
-              earliestTasks[templateId] = instance;
+          } else if (existing.status == instance.status) {
+            // Same status: compare by due date
+            if (existing.dueDate == null) {
+              if (instance.dueDate != null) {
+                earliestTasks[templateId] = instance;
+              }
+            } else if (instance.dueDate == null) {
+              continue;
+            } else {
+              if (instance.dueDate!.isBefore(existing.dueDate!)) {
+                earliestTasks[templateId] = instance;
+              }
             }
           }
         }
@@ -761,6 +772,11 @@ class ActivityInstanceService {
         'lastUpdated': now,
       });
 
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
       // For habits, generate next instance immediately using window system
       if (instance.templateCategoryType == 'habit') {
         await _generateNextHabitInstance(instance, uid);
@@ -781,12 +797,25 @@ class ActivityInstanceService {
             );
 
             if (nextDueDate != null) {
-              await createActivityInstance(
+              final newInstanceRef = await createActivityInstance(
                 templateId: instance.templateId,
                 dueDate: nextDueDate,
                 template: template,
                 userId: uid,
               );
+
+              // Broadcast the instance creation event for UI update
+              try {
+                final newInstance = await getUpdatedInstance(
+                  instanceId: newInstanceRef.id,
+                  userId: uid,
+                );
+                InstanceEvents.broadcastInstanceCreated(newInstance);
+                print(
+                    'ActivityInstanceService: Broadcasted next instance creation for ${template.name}');
+              } catch (e) {
+                print('Error broadcasting next instance creation: $e');
+              }
             }
           }
         }
@@ -818,6 +847,11 @@ class ActivityInstanceService {
         'completedAt': null,
         'lastUpdated': DateService.currentDate,
       });
+
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       print('Error uncompleting activity instance: $e');
       rethrow;
@@ -1065,12 +1099,25 @@ class ActivityInstanceService {
             );
 
             if (nextDueDate != null) {
-              await createActivityInstance(
+              final newInstanceRef = await createActivityInstance(
                 templateId: instance.templateId,
                 dueDate: nextDueDate,
                 template: template,
                 userId: uid,
               );
+
+              // Broadcast the instance creation event for UI update
+              try {
+                final newInstance = await getUpdatedInstance(
+                  instanceId: newInstanceRef.id,
+                  userId: uid,
+                );
+                InstanceEvents.broadcastInstanceCreated(newInstance);
+                print(
+                    'ActivityInstanceService: Broadcasted next instance creation for ${template.name}');
+              } catch (e) {
+                print('Error broadcasting next instance creation: $e');
+              }
             }
           }
         }
