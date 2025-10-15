@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 enum DateFilterType {
   today,
@@ -149,8 +150,7 @@ class DateFilterHelper {
   static bool isItemInFilter(dynamic item, DateFilterType filterType) {
     if (item is! ActivityRecord) return false;
 
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateService.todayStart;
 
     switch (filterType) {
       case DateFilterType.today:
@@ -166,8 +166,7 @@ class DateFilterHelper {
 
   static bool isInstanceInFilter(
       ActivityInstanceRecord instance, DateFilterType filterType) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateService.todayStart;
 
     switch (filterType) {
       case DateFilterType.today:

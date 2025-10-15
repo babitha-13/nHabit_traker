@@ -187,6 +187,22 @@ class PointsService {
 
         if (target <= 0) return 0.0;
 
+        // For windowed habits, use differential progress (today's contribution)
+        if (instance.templateCategoryType == 'habit' &&
+            instance.windowDuration > 1) {
+          final lastDayValue = _getLastDayValue(instance);
+          final todayContribution = currentValue - lastDayValue;
+          final dailyTarget =
+              target / instance.windowDuration; // Daily target within window
+
+          if (dailyTarget <= 0) return 0.0;
+
+          final dailyProgressFraction =
+              (todayContribution / dailyTarget).clamp(0.0, 1.0);
+          return dailyProgressFraction * fullWeight;
+        }
+
+        // For non-windowed habits, use total progress
         final completionFraction = (currentValue / target).clamp(0.0, 1.0);
         return completionFraction * fullWeight;
 
@@ -203,6 +219,22 @@ class PointsService {
 
         if (targetMs <= 0) return 0.0;
 
+        // For windowed habits, use differential progress (today's contribution)
+        if (instance.templateCategoryType == 'habit' &&
+            instance.windowDuration > 1) {
+          final lastDayValue = _getLastDayValue(instance);
+          final todayContribution = accumulatedTime - lastDayValue;
+          final dailyTargetMs =
+              targetMs / instance.windowDuration; // Daily target within window
+
+          if (dailyTargetMs <= 0) return 0.0;
+
+          final dailyProgressFraction =
+              (todayContribution / dailyTargetMs).clamp(0.0, 1.0);
+          return dailyProgressFraction * fullWeight;
+        }
+
+        // For non-windowed habits, use total progress
         final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
         return completionFraction * fullWeight;
 
@@ -331,6 +363,14 @@ class PointsService {
     final target = instance.templateTarget;
     if (target is num) return target.toDouble();
     if (target is String) return double.tryParse(target) ?? 0.0;
+    return 0.0;
+  }
+
+  /// Helper method to get last day value from instance (for differential progress)
+  static double _getLastDayValue(ActivityInstanceRecord instance) {
+    final value = instance.lastDayValue;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
   }
 

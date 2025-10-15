@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/finalize_habit_data.dart';
+import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
@@ -24,6 +25,9 @@ void main() async {
   await FlutterFlowTheme.initialize();
   final appState = FFAppState(); // Initialize FFAppState
   await appState.initializePersistedState();
+
+  // Initialize background scheduler for day-end processing
+  BackgroundScheduler.initialize();
   runApp(ChangeNotifierProvider(
     create: (context) => appState,
     child: const MyApp(),

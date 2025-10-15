@@ -2,12 +2,12 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'schema/activity_record.dart';
 import 'backend.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 class HabitTrackingUtil {
   /// Check if a habit should be tracked today based on its schedule
   static bool shouldTrackToday(ActivityRecord habit) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateService.todayStart;
 
     // Date range check
     final startDate = habit.startDate;

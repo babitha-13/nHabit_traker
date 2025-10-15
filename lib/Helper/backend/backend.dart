@@ -8,6 +8,7 @@ import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
@@ -284,8 +285,7 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
 
     // Filter habits based on date boundaries
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
+    final today = DateService.todayStart;
     final activeHabits =
         habits.where((habit) => isHabitActiveByDate(habit, today)).toList();
 
@@ -1071,6 +1071,30 @@ Future<ActivityInstanceRecord> getUpdatedActivityInstance({
   String? userId,
 }) async {
   return ActivityInstanceService.getUpdatedInstance(
+    instanceId: instanceId,
+    userId: userId,
+  );
+}
+
+/// Snooze an activity instance until a specific date
+Future<void> snoozeActivityInstance({
+  required String instanceId,
+  required DateTime snoozeUntil,
+  String? userId,
+}) async {
+  return ActivityInstanceService.snoozeInstance(
+    instanceId: instanceId,
+    snoozeUntil: snoozeUntil,
+    userId: userId,
+  );
+}
+
+/// Unsnooze an activity instance (remove snooze)
+Future<void> unsnoozeActivityInstance({
+  required String instanceId,
+  String? userId,
+}) async {
+  return ActivityInstanceService.unsnoozeInstance(
     instanceId: instanceId,
     userId: userId,
   );

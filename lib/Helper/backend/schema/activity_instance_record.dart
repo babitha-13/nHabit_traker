@@ -40,6 +40,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
   dynamic get currentValue => _currentValue;
   bool hasCurrentValue() => _currentValue != null;
 
+  // Differential progress tracking for windowed habits
+  dynamic _lastDayValue;
+  dynamic get lastDayValue => _lastDayValue;
+  bool hasLastDayValue() => _lastDayValue != null;
+
   int? _accumulatedTime; // For duration tracking (milliseconds)
   int get accumulatedTime => _accumulatedTime ?? 0;
   bool hasAccumulatedTime() => _accumulatedTime != null;
@@ -128,6 +133,38 @@ class ActivityInstanceRecord extends FirestoreRecord {
   String get templatePeriodType => _templatePeriodType ?? '';
   bool hasTemplatePeriodType() => _templatePeriodType != null;
 
+  // Two-field system for habits (completionStatus + dayState)
+  String? _completionStatus; // 'pending', 'completed', 'skipped' (habits only)
+  String get completionStatus => _completionStatus ?? 'pending';
+  bool hasCompletionStatus() => _completionStatus != null;
+
+  String? _dayState; // 'open', 'closed' (habits only)
+  String get dayState => _dayState ?? 'open';
+  bool hasDayState() => _dayState != null;
+
+  // Supporting fields for habits
+  DateTime? _belongsToDate; // Normalized date this counts for (habits only)
+  DateTime? get belongsToDate => _belongsToDate;
+  bool hasBelongsToDate() => _belongsToDate != null;
+
+  DateTime? _closedAt; // When dayState changed to 'closed'
+  DateTime? get closedAt => _closedAt;
+  bool hasClosedAt() => _closedAt != null;
+
+  // Window fields for habit completion windows
+  DateTime? _windowEndDate; // End of completion window
+  DateTime? get windowEndDate => _windowEndDate;
+  bool hasWindowEndDate() => _windowEndDate != null;
+
+  int? _windowDuration; // Duration in days (cached from template)
+  int get windowDuration => _windowDuration ?? 1;
+  bool hasWindowDuration() => _windowDuration != null;
+
+  // Snooze fields for temporarily hiding from queue
+  DateTime? _snoozedUntil; // When snooze expires
+  DateTime? get snoozedUntil => _snoozedUntil;
+  bool hasSnoozedUntil() => _snoozedUntil != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -135,6 +172,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _completedAt = snapshotData['completedAt'] as DateTime?;
     _skippedAt = snapshotData['skippedAt'] as DateTime?;
     _currentValue = snapshotData['currentValue'];
+    _lastDayValue = snapshotData['lastDayValue'];
     _accumulatedTime = snapshotData['accumulatedTime'] as int?;
     _isTimerActive = snapshotData['isTimerActive'] as bool?;
     _timerStartTime = snapshotData['timerStartTime'] as DateTime?;
@@ -158,6 +196,13 @@ class ActivityInstanceRecord extends FirestoreRecord {
         snapshotData['templateEveryXPeriodType'] as String?;
     _templateTimesPerPeriod = snapshotData['templateTimesPerPeriod'] as int?;
     _templatePeriodType = snapshotData['templatePeriodType'] as String?;
+    _completionStatus = snapshotData['completionStatus'] as String?;
+    _dayState = snapshotData['dayState'] as String?;
+    _belongsToDate = snapshotData['belongsToDate'] as DateTime?;
+    _closedAt = snapshotData['closedAt'] as DateTime?;
+    _windowEndDate = snapshotData['windowEndDate'] as DateTime?;
+    _windowDuration = snapshotData['windowDuration'] as int?;
+    _snoozedUntil = snapshotData['snoozedUntil'] as DateTime?;
   }
 
   static CollectionReference get collection =>
@@ -215,6 +260,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   DateTime? completedAt,
   DateTime? skippedAt,
   dynamic currentValue,
+  dynamic lastDayValue,
   int? accumulatedTime,
   bool? isTimerActive,
   DateTime? timerStartTime,
@@ -236,6 +282,12 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateEveryXPeriodType,
   int? templateTimesPerPeriod,
   String? templatePeriodType,
+  String? completionStatus,
+  String? dayState,
+  DateTime? belongsToDate,
+  DateTime? closedAt,
+  DateTime? windowEndDate,
+  int? windowDuration,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -245,6 +297,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'completedAt': completedAt,
       'skippedAt': skippedAt,
       'currentValue': currentValue,
+      'lastDayValue': lastDayValue,
       'accumulatedTime': accumulatedTime,
       'isTimerActive': isTimerActive,
       'timerStartTime': timerStartTime,
@@ -266,6 +319,12 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateEveryXPeriodType': templateEveryXPeriodType,
       'templateTimesPerPeriod': templateTimesPerPeriod,
       'templatePeriodType': templatePeriodType,
+      'completionStatus': completionStatus,
+      'dayState': dayState,
+      'belongsToDate': belongsToDate,
+      'closedAt': closedAt,
+      'windowEndDate': windowEndDate,
+      'windowDuration': windowDuration,
     }.withoutNulls,
   );
 
@@ -287,6 +346,7 @@ class ActivityInstanceRecordDocumentEquality
         e1?.completedAt == e2?.completedAt &&
         e1?.skippedAt == e2?.skippedAt &&
         e1?.currentValue == e2?.currentValue &&
+        e1?.lastDayValue == e2?.lastDayValue &&
         e1?.accumulatedTime == e2?.accumulatedTime &&
         e1?.isTimerActive == e2?.isTimerActive &&
         e1?.timerStartTime == e2?.timerStartTime &&
@@ -307,7 +367,13 @@ class ActivityInstanceRecordDocumentEquality
         e1?.templateEveryXValue == e2?.templateEveryXValue &&
         e1?.templateEveryXPeriodType == e2?.templateEveryXPeriodType &&
         e1?.templateTimesPerPeriod == e2?.templateTimesPerPeriod &&
-        e1?.templatePeriodType == e2?.templatePeriodType;
+        e1?.templatePeriodType == e2?.templatePeriodType &&
+        e1?.completionStatus == e2?.completionStatus &&
+        e1?.dayState == e2?.dayState &&
+        e1?.belongsToDate == e2?.belongsToDate &&
+        e1?.closedAt == e2?.closedAt &&
+        e1?.windowEndDate == e2?.windowEndDate &&
+        e1?.windowDuration == e2?.windowDuration;
   }
 
   @override
@@ -339,5 +405,11 @@ class ActivityInstanceRecordDocumentEquality
         e?.templateEveryXPeriodType,
         e?.templateTimesPerPeriod,
         e?.templatePeriodType,
+        e?.completionStatus,
+        e?.dayState,
+        e?.belongsToDate,
+        e?.closedAt,
+        e?.windowEndDate,
+        e?.windowDuration,
       ]);
 }

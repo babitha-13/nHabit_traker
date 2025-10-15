@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -18,8 +19,7 @@ class TaskInstanceService {
 
   /// Get today's date at midnight (start of day)
   static DateTime get _todayStart {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
+    return DateService.todayStart;
   }
 
   // ==================== TASK INSTANCES ====================
@@ -260,15 +260,23 @@ class TaskInstanceService {
     final today = _todayStart;
 
     try {
+      // Remove server-side date filter to allow client-side date filtering with test dates
       final query = HabitInstanceRecord.collectionForUser(uid)
           .where('isActive', isEqualTo: true)
-          .where('status', isEqualTo: 'pending')
-          .where('dueDate', isLessThanOrEqualTo: today);
+          .where('status', isEqualTo: 'pending');
 
       final result = await query.get();
-      final instances = result.docs
+      final allInstances = result.docs
           .map((doc) => HabitInstanceRecord.fromSnapshot(doc))
           .toList();
+
+      // Filter by date on client side using DateService
+      final instances = allInstances.where((instance) {
+        if (instance.dueDate == null)
+          return true; // Include instances without due dates
+        return instance.dueDate!.isBefore(today) ||
+            instance.dueDate!.isAtSameMomentAs(today);
+      }).toList();
 
       // Filter instances based on template date boundaries
       final activeInstances = <HabitInstanceRecord>[];

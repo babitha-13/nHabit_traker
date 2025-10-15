@@ -116,6 +116,24 @@ class HabitInstanceRecord extends FirestoreRecord {
   String get templatePeriodType => _templatePeriodType ?? '';
   bool hasTemplatePeriodType() => _templatePeriodType != null;
 
+  // Two-field system for habits (completionStatus + dayState)
+  String? _completionStatus; // 'pending', 'completed', 'skipped' (habits only)
+  String get completionStatus => _completionStatus ?? 'pending';
+  bool hasCompletionStatus() => _completionStatus != null;
+
+  String? _dayState; // 'open', 'closed' (habits only)
+  String get dayState => _dayState ?? 'open';
+  bool hasDayState() => _dayState != null;
+
+  // Supporting fields for habits
+  DateTime? _belongsToDate; // Normalized date this counts for (habits only)
+  DateTime? get belongsToDate => _belongsToDate;
+  bool hasBelongsToDate() => _belongsToDate != null;
+
+  DateTime? _closedAt; // When dayState changed to 'closed'
+  DateTime? get closedAt => _closedAt;
+  bool hasClosedAt() => _closedAt != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -142,6 +160,10 @@ class HabitInstanceRecord extends FirestoreRecord {
         snapshotData['templateEveryXPeriodType'] as String?;
     _templateTimesPerPeriod = snapshotData['templateTimesPerPeriod'] as int?;
     _templatePeriodType = snapshotData['templatePeriodType'] as String?;
+    _completionStatus = snapshotData['completionStatus'] as String?;
+    _dayState = snapshotData['dayState'] as String?;
+    _belongsToDate = snapshotData['belongsToDate'] as DateTime?;
+    _closedAt = snapshotData['closedAt'] as DateTime?;
   }
 
   static CollectionReference get collection =>
@@ -209,6 +231,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateEveryXPeriodType,
   int? templateTimesPerPeriod,
   String? templatePeriodType,
+  String? completionStatus,
+  String? dayState,
+  DateTime? belongsToDate,
+  DateTime? closedAt,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -236,6 +262,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateEveryXPeriodType': templateEveryXPeriodType,
       'templateTimesPerPeriod': templateTimesPerPeriod,
       'templatePeriodType': templatePeriodType,
+      'completionStatus': completionStatus,
+      'dayState': dayState,
+      'belongsToDate': belongsToDate,
+      'closedAt': closedAt,
     }.withoutNulls,
   );
 

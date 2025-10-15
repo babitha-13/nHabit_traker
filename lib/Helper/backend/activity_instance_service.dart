@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
@@ -26,7 +27,7 @@ class ActivityInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-    final now = DateTime.now();
+    final now = DateService.currentDate;
 
     print(
         'ActivityInstanceService: Creating instance for template $templateId');
@@ -41,6 +42,20 @@ class ActivityInstanceService {
         );
     print('ActivityInstanceService: Initial due date: $initialDueDate');
 
+    // For habits, set belongsToDate to the normalized date
+    final normalizedDate = initialDueDate != null
+        ? DateTime(
+            initialDueDate.year, initialDueDate.month, initialDueDate.day)
+        : DateTime(now.year, now.month, now.day);
+
+    // Calculate window fields for habits
+    DateTime? windowEndDate;
+    int? windowDuration;
+    if (template.categoryType == 'habit') {
+      windowDuration = _calculateWindowDuration(template);
+      windowEndDate = normalizedDate.add(Duration(days: windowDuration - 1));
+    }
+
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: initialDueDate,
@@ -48,6 +63,7 @@ class ActivityInstanceService {
       createdTime: now,
       lastUpdated: now,
       isActive: true,
+      lastDayValue: 0, // Initialize for differential tracking
       // Cache template data for quick access (denormalized)
       templateName: template.name,
       templateCategoryId: template.categoryId,
@@ -63,6 +79,12 @@ class ActivityInstanceService {
       templateEveryXPeriodType: template.everyXPeriodType,
       templateTimesPerPeriod: template.timesPerPeriod,
       templatePeriodType: template.periodType,
+      // Set habit-specific fields
+      completionStatus: template.categoryType == 'habit' ? 'pending' : null,
+      dayState: template.categoryType == 'habit' ? 'open' : null,
+      belongsToDate: template.categoryType == 'habit' ? normalizedDate : null,
+      windowEndDate: windowEndDate,
+      windowDuration: windowDuration,
     );
 
     print(
@@ -271,6 +293,18 @@ class ActivityInstanceService {
 
       print(
           'ActivityInstanceService: Returning ${finalInstanceList.length} unique habit instances.');
+
+      // Debug: Log each instance being returned
+      for (final instance in finalInstanceList) {
+        print(
+            'ActivityInstanceService: Returning instance ${instance.templateName}');
+        print('  - Instance ID: ${instance.reference.id}');
+        print('  - Due Date: ${instance.dueDate}');
+        print('  - Window End Date: ${instance.windowEndDate}');
+        print('  - Current Value: ${instance.currentValue}');
+        print('  - Status: ${instance.status}');
+        print('  - Belongs To Date: ${instance.belongsToDate}');
+      }
 
       return finalInstanceList;
     } catch (e) {
@@ -483,7 +517,7 @@ class ActivityInstanceService {
       }
 
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      final now = DateTime.now();
+      final now = DateService.currentDate;
 
       // Update current instance as completed
       await instanceRef.update({
@@ -495,28 +529,33 @@ class ActivityInstanceService {
         'lastUpdated': now,
       });
 
-      // Get the template to check if it's recurring
-      final templateRef =
-          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-      final templateDoc = await templateRef.get();
+      // For habits, generate next instance immediately using window system
+      if (instance.templateCategoryType == 'habit') {
+        await _generateNextHabitInstance(instance, uid);
+      } else {
+        // For tasks, use the existing recurring logic
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+        final templateDoc = await templateRef.get();
 
-      if (templateDoc.exists) {
-        final template = ActivityRecord.fromSnapshot(templateDoc);
+        if (templateDoc.exists) {
+          final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        // Generate next instance if template is recurring and still active
-        if (template.isRecurring && template.isActive) {
-          final nextDueDate = _calculateNextDueDate(
-            currentDueDate: instance.dueDate!,
-            template: template,
-          );
-
-          if (nextDueDate != null) {
-            await createActivityInstance(
-              templateId: instance.templateId,
-              dueDate: nextDueDate,
+          // Generate next instance if template is recurring and still active
+          if (template.isRecurring && template.isActive) {
+            final nextDueDate = _calculateNextDueDate(
+              currentDueDate: instance.dueDate!,
               template: template,
-              userId: uid,
             );
+
+            if (nextDueDate != null) {
+              await createActivityInstance(
+                templateId: instance.templateId,
+                dueDate: nextDueDate,
+                template: template,
+                userId: uid,
+              );
+            }
           }
         }
       }
@@ -545,7 +584,7 @@ class ActivityInstanceService {
       await instanceRef.update({
         'status': 'pending',
         'completedAt': null,
-        'lastUpdated': DateTime.now(),
+        'lastUpdated': DateService.currentDate,
       });
     } catch (e) {
       print('Error uncompleting activity instance: $e');
@@ -573,12 +612,21 @@ class ActivityInstanceService {
       }
 
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      final now = DateTime.now();
+      final now = DateService.currentDate;
 
-      await instanceRef.update({
+      // For windowed habits, update lastDayValue to current value for next day's calculation
+      final updateData = <String, dynamic>{
         'currentValue': currentValue,
         'lastUpdated': now,
-      });
+      };
+
+      // For windowed habits, update lastDayValue to track differential progress
+      if (instance.templateCategoryType == 'habit' &&
+          instance.windowDuration > 1) {
+        updateData['lastDayValue'] = currentValue;
+      }
+
+      await instanceRef.update(updateData);
 
       // Check if target is reached and auto-complete
       if (instance.templateTrackingType == 'quantitative' &&
@@ -600,6 +648,72 @@ class ActivityInstanceService {
     }
   }
 
+  /// Snooze an instance until a specific date
+  static Future<void> snoozeInstance({
+    required String instanceId,
+    required DateTime snoozeUntil,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+      final instanceDoc = await instanceRef.get();
+
+      if (!instanceDoc.exists) {
+        throw Exception('Activity instance not found');
+      }
+
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+
+      // Validate snooze date is not beyond window end
+      if (instance.windowEndDate != null &&
+          snoozeUntil.isAfter(instance.windowEndDate!)) {
+        throw Exception('Cannot snooze beyond window end date');
+      }
+
+      await instanceRef.update({
+        'snoozedUntil': snoozeUntil,
+        'lastUpdated': DateService.currentDate,
+      });
+
+      print(
+          'ActivityInstanceService: Snoozed instance ${instance.templateName} until $snoozeUntil');
+    } catch (e) {
+      print('Error snoozing instance: $e');
+      rethrow;
+    }
+  }
+
+  /// Unsnooze an instance (remove snooze)
+  static Future<void> unsnoozeInstance({
+    required String instanceId,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+      final instanceDoc = await instanceRef.get();
+
+      if (!instanceDoc.exists) {
+        throw Exception('Activity instance not found');
+      }
+
+      await instanceRef.update({
+        'snoozedUntil': null,
+        'lastUpdated': DateService.currentDate,
+      });
+
+      print('ActivityInstanceService: Unsnoozed instance $instanceId');
+    } catch (e) {
+      print('Error unsnoozing instance: $e');
+      rethrow;
+    }
+  }
+
   /// Toggle timer for time tracking
   static Future<void> toggleInstanceTimer({
     required String instanceId,
@@ -617,19 +731,27 @@ class ActivityInstanceService {
       }
 
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      final now = DateTime.now();
+      final now = DateService.currentDate;
 
       if (instance.isTimerActive && instance.timerStartTime != null) {
         // Stop timer - calculate elapsed time and add to accumulated
         final elapsed = now.difference(instance.timerStartTime!).inMilliseconds;
         final newAccumulated = instance.accumulatedTime + elapsed;
 
-        await instanceRef.update({
+        final updateData = <String, dynamic>{
           'isTimerActive': false,
           'timerStartTime': null,
           'accumulatedTime': newAccumulated,
           'lastUpdated': now,
-        });
+        };
+
+        // For windowed habits, update lastDayValue to track differential progress
+        if (instance.templateCategoryType == 'habit' &&
+            instance.windowDuration > 1) {
+          updateData['lastDayValue'] = newAccumulated;
+        }
+
+        await instanceRef.update(updateData);
       } else {
         // Start timer
         await instanceRef.update({
@@ -664,7 +786,7 @@ class ActivityInstanceService {
       }
 
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      final now = DateTime.now();
+      final now = DateService.currentDate;
 
       // Update current instance as skipped
       await instanceRef.update({
@@ -724,7 +846,7 @@ class ActivityInstanceService {
 
       await instanceRef.update({
         'dueDate': newDueDate,
-        'lastUpdated': DateTime.now(),
+        'lastUpdated': DateService.currentDate,
       });
     } catch (e) {
       print('Error rescheduling activity instance: $e');
@@ -753,7 +875,7 @@ class ActivityInstanceService {
       print('DEBUG: Updating instance to remove due date');
       await instanceRef.update({
         'dueDate': null,
-        'lastUpdated': DateTime.now(),
+        'lastUpdated': DateService.currentDate,
       });
       print('DEBUG: Instance updated successfully, due date removed');
     } catch (e) {
@@ -778,7 +900,7 @@ class ActivityInstanceService {
           .where('dueDate', isLessThan: untilDate);
 
       final instances = await query.get();
-      final now = DateTime.now();
+      final now = DateService.currentDate;
 
       // Mark all instances before untilDate as skipped
       for (final doc in instances.docs) {
@@ -977,5 +1099,128 @@ class ActivityInstanceService {
       hoursFromStart.floor(),
       ((hoursFromStart - hoursFromStart.floor()) * 60).round(),
     );
+  }
+
+  /// Calculate window duration for a habit based on its frequency
+  static int _calculateWindowDuration(ActivityRecord template) {
+    switch (template.frequencyType) {
+      case 'everyXPeriod':
+        // "Every X days/weeks/months" → Window = X days
+        final everyXValue = template.everyXValue;
+        final periodType = template.everyXPeriodType;
+
+        switch (periodType) {
+          case 'days':
+            return everyXValue;
+          case 'weeks':
+            return everyXValue * 7;
+          case 'months':
+            return everyXValue * 30; // Approximate
+          case 'year':
+            return everyXValue * 365; // Approximate
+          default:
+            return 1; // Default to daily
+        }
+
+      case 'timesPerPeriod':
+        // "X times per period" → Window = periodDays / X (rounded)
+        final timesPerPeriod = template.timesPerPeriod;
+        final periodType = template.periodType;
+
+        int periodDays;
+        switch (periodType) {
+          case 'days':
+            periodDays = 1;
+            break;
+          case 'weeks':
+            periodDays = 7;
+            break;
+          case 'months':
+            periodDays = 30; // Approximate
+            break;
+          case 'year':
+            periodDays = 365; // Approximate
+            break;
+          default:
+            periodDays = 1;
+        }
+
+        return (periodDays / timesPerPeriod).round();
+
+      case 'specificDays':
+        // For specific days, use 1 day window (daily)
+        return 1;
+
+      default:
+        return 1; // Default to daily
+    }
+  }
+
+  /// Generate next habit instance using window system
+  static Future<void> _generateNextHabitInstance(
+    ActivityInstanceRecord instance,
+    String userId,
+  ) async {
+    try {
+      // Calculate next window start = current windowEndDate + 1
+      final nextBelongsToDate =
+          instance.windowEndDate!.add(const Duration(days: 1));
+      final nextWindowEndDate =
+          nextBelongsToDate.add(Duration(days: instance.windowDuration - 1));
+
+      // Get template for next instance
+      final templateRef =
+          ActivityRecord.collectionForUser(userId).doc(instance.templateId);
+      final templateDoc = await templateRef.get();
+
+      if (!templateDoc.exists) {
+        print(
+            'ActivityInstanceService: Template not found for next habit instance');
+        return;
+      }
+
+      final template = ActivityRecord.fromSnapshot(templateDoc);
+
+      // Create next instance data
+      final nextInstanceData = createActivityInstanceRecordData(
+        templateId: instance.templateId,
+        dueDate: nextBelongsToDate, // dueDate = start of window
+        status: 'pending',
+        createdTime: DateService.currentDate,
+        lastUpdated: DateService.currentDate,
+        isActive: true,
+        lastDayValue: 0, // Initialize for differential tracking
+        templateName: template.name,
+        templateCategoryId: template.categoryId,
+        templateCategoryName: template.categoryName,
+        templateCategoryType: template.categoryType,
+        templatePriority: template.priority,
+        templateTrackingType: template.trackingType,
+        templateTarget: template.target,
+        templateUnit: template.unit,
+        templateDescription: template.description,
+        templateShowInFloatingTimer: template.showInFloatingTimer,
+        templateEveryXValue: template.everyXValue,
+        templateEveryXPeriodType: template.everyXPeriodType,
+        templateTimesPerPeriod: template.timesPerPeriod,
+        templatePeriodType: template.periodType,
+        completionStatus: 'pending',
+        dayState: 'open',
+        belongsToDate: nextBelongsToDate,
+        windowEndDate: nextWindowEndDate,
+        windowDuration: instance.windowDuration,
+      );
+
+      // Add to Firestore
+      await ActivityInstanceRecord.collectionForUser(userId)
+          .add(nextInstanceData);
+
+      print(
+          'ActivityInstanceService: Generated next habit instance for ${instance.templateName} (${nextBelongsToDate} - ${nextWindowEndDate})');
+    } catch (e) {
+      print(
+          'ActivityInstanceService: Error generating next habit instance: $e');
+      // Don't rethrow - we don't want to fail the completion
+    }
   }
 }

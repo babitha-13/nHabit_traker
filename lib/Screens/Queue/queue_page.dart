@@ -8,6 +8,8 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/progress_donut_chart.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -27,6 +29,8 @@ class _QueuePageState extends State<QueuePage> {
   final Map<String, bool> _timeSectionExpanded = {
     'Overdue': true,
     'Today': true,
+    'Tomorrow': false, // Collapsed by default
+    'This Week': false, // Collapsed by default
     'Recent Completions': false,
   };
   bool _isLoading = true;
@@ -119,6 +123,9 @@ class _QueuePageState extends State<QueuePage> {
 
   /// Calculate progress for today's habits
   void _calculateProgress() async {
+    print('QueuePage: _calculateProgress() called');
+    print('  - Total instances: ${_instances.length}');
+
     final todayHabits = _instances
         .where((inst) =>
             inst.templateCategoryType == 'habit' && _isTodayOrOverdue(inst))
@@ -134,6 +141,19 @@ class _QueuePageState extends State<QueuePage> {
 
     // Combine both pending and completed habits for today
     final allTodayHabits = [...todayHabits, ...completedTodayHabits];
+
+    print('QueuePage: Habit filtering results:');
+    print('  - Today habits: ${todayHabits.length}');
+    for (final habit in todayHabits) {
+      print(
+          '    - ${habit.templateName} (${habit.templateCategoryType}) - Status: ${habit.status} - Value: ${habit.currentValue}');
+    }
+    print('  - Completed today: ${completedTodayHabits.length}');
+    for (final habit in completedTodayHabits) {
+      print(
+          '    - ${habit.templateName} (${habit.templateCategoryType}) - Status: ${habit.status} - Value: ${habit.currentValue}');
+    }
+    print('  - Total habits for calculation: ${allTodayHabits.length}');
 
     // Use enhanced calculation with template data for accurate frequency
     try {
@@ -159,12 +179,19 @@ class _QueuePageState extends State<QueuePage> {
     print('  - Points earned: $_pointsEarned');
     print('  - Percentage: $_dailyPercentage%');
 
-    // Update UI with new progress values
+    // Update UI with new progress values immediately
     if (mounted) {
       setState(() {
         // Progress values are already updated above
       });
     }
+
+    // Publish to shared state for other pages (after UI update)
+    TodayProgressState().updateProgress(
+      target: _dailyTarget,
+      earned: _pointsEarned,
+      percentage: _dailyPercentage,
+    );
   }
 
   /// Check if instance is due today or overdue
@@ -175,7 +202,47 @@ class _QueuePageState extends State<QueuePage> {
     final dueDate = DateTime(
         instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
 
-    return dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
+    // For habits: include if today is within the window [dueDate, windowEndDate]
+    if (instance.templateCategoryType == 'habit') {
+      final windowEnd = instance.windowEndDate;
+
+      if (windowEnd != null) {
+        // Today should be >= dueDate AND <= windowEnd
+        final isWithinWindow = !today.isBefore(dueDate) &&
+            !today.isAfter(
+                DateTime(windowEnd.year, windowEnd.month, windowEnd.day));
+
+        print(
+            'QueuePage: _isTodayOrOverdue check for ${instance.templateName}:');
+        print('  - Today: $today');
+        print('  - Due Date: $dueDate');
+        print('  - Window End: ${windowEnd}');
+        print('  - Is within window: $isWithinWindow');
+
+        return isWithinWindow;
+      }
+
+      // Fallback to due date check if no window
+      final isDueToday = dueDate.isAtSameMomentAs(today);
+      print(
+          'QueuePage: _isTodayOrOverdue check for ${instance.templateName} (no window):');
+      print('  - Today: $today');
+      print('  - Due Date: $dueDate');
+      print('  - Is due today: $isDueToday');
+
+      return isDueToday;
+    }
+
+    // For tasks: only if due today or overdue
+    final isTodayOrOverdue =
+        dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
+
+    print('QueuePage: _isTodayOrOverdue check for ${instance.templateName}:');
+    print('  - Today: $today');
+    print('  - Due Date: $dueDate');
+    print('  - Is today or overdue: $isTodayOrOverdue');
+
+    return isTodayOrOverdue;
   }
 
   /// Check if a completed instance was completed today
@@ -199,7 +266,6 @@ class _QueuePageState extends State<QueuePage> {
       'Today': [],
       'Tomorrow': [],
       'This Week': [],
-      'Later': [],
       'Recent Completions': [],
     };
 
@@ -214,23 +280,45 @@ class _QueuePageState extends State<QueuePage> {
         continue;
       }
 
+      // Skip snoozed instances
+      if (instance.snoozedUntil != null &&
+          DateTime.now().isBefore(instance.snoozedUntil!)) {
+        print(
+            '  ${instance.templateName}: SKIPPED (snoozed until ${instance.snoozedUntil})');
+        continue;
+      }
+
       final dueDate = instance.dueDate;
       if (dueDate == null) {
-        buckets['Later']!.add(instance);
+        // Skip instances without due dates (no "Later" section)
+        print('  ${instance.templateName}: SKIPPED (no due date)');
         continue;
       }
       final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
 
-      if (dateOnly.isBefore(today)) {
+      // OVERDUE: Only tasks that are overdue
+      if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
         buckets['Overdue']!.add(instance);
-      } else if (_isSameDay(dateOnly, today)) {
+        print('  ${instance.templateName}: OVERDUE (task)');
+      }
+      // TODAY: Both habits and tasks for today
+      else if (_isSameDay(dateOnly, today)) {
         buckets['Today']!.add(instance);
-      } else if (_isSameDay(dateOnly, _tomorrowDate())) {
+        print('  ${instance.templateName}: TODAY');
+      }
+      // TOMORROW: Both habits and tasks for tomorrow
+      else if (_isSameDay(dateOnly, _tomorrowDate())) {
         buckets['Tomorrow']!.add(instance);
-      } else if (!dateOnly.isAfter(endOfWeek)) {
+        print('  ${instance.templateName}: TOMORROW');
+      }
+      // THIS WEEK: Both habits and tasks for this week
+      else if (!dateOnly.isAfter(endOfWeek)) {
         buckets['This Week']!.add(instance);
-      } else {
-        buckets['Later']!.add(instance);
+        print('  ${instance.templateName}: THIS WEEK');
+      }
+      // Skip anything beyond this week (no "Later" section)
+      else {
+        print('  ${instance.templateName}: SKIPPED (beyond this week)');
       }
     }
 
@@ -266,6 +354,15 @@ class _QueuePageState extends State<QueuePage> {
     }
 
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
+      // For habits, show window countdown
+      if (item.templateCategoryType == 'habit' && item.windowEndDate != null) {
+        final daysLeft = _getWindowDaysLeft(item);
+        if (daysLeft > 0) {
+          return '${item.templateCategoryName} • $daysLeft days left';
+        } else {
+          return '${item.templateCategoryName} • Window expires today';
+        }
+      }
       return item.templateCategoryName;
     }
 
@@ -279,14 +376,40 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   DateTime _todayDate() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
+    return DateService.todayStart;
   }
 
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
 
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
+
+  String _getDayEndCountdown() {
+    final now = DateTime.now();
+    final tomorrow = DateTime(now.year, now.month, now.day + 1);
+    final timeUntilMidnight = tomorrow.difference(now);
+
+    final hours = timeUntilMidnight.inHours;
+    final minutes = timeUntilMidnight.inMinutes % 60;
+
+    if (hours > 0) {
+      return 'Day ends in ${hours}h ${minutes}m';
+    } else {
+      return 'Day ends in ${minutes}m';
+    }
+  }
+
+  /// Calculate days left in habit window
+  int _getWindowDaysLeft(ActivityInstanceRecord item) {
+    if (item.windowEndDate == null) return 0;
+
+    final today = _todayDate();
+    final windowEnd = DateTime(item.windowEndDate!.year,
+        item.windowEndDate!.month, item.windowEndDate!.day);
+
+    final daysLeft = windowEnd.difference(today).inDays;
+    return daysLeft >= 0 ? daysLeft : 0;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -343,7 +466,6 @@ class _QueuePageState extends State<QueuePage> {
       'Today',
       'Tomorrow',
       'This Week',
-      'Later',
       'Recent Completions'
     ];
     final theme = FlutterFlowTheme.of(context);
@@ -400,12 +522,27 @@ class _QueuePageState extends State<QueuePage> {
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
-                  '$key (${items.length})',
-                  style: theme.titleMedium.override(
-                    fontFamily: 'Readex Pro',
-                    fontWeight: FontWeight.w600,
-                  ),
+                Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '$key (${items.length})',
+                      style: theme.titleMedium.override(
+                        fontFamily: 'Readex Pro',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    if (key == 'Today') ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        _getDayEndCountdown(),
+                        style: theme.bodySmall.override(
+                          fontFamily: 'Readex Pro',
+                          color: theme.secondaryText,
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
                 GestureDetector(
                   onTap: () {
@@ -481,15 +618,25 @@ class _QueuePageState extends State<QueuePage> {
   /// Update instance in local state and recalculate progress
   void _updateInstanceInLocalState(
       ActivityInstanceRecord updatedInstance) async {
+    print(
+        'QueuePage: _updateInstanceInLocalState called for ${updatedInstance.templateName}');
+    print('  - Status: ${updatedInstance.status}');
+    print('  - Current Value: ${updatedInstance.currentValue}');
+    print('  - Category Type: ${updatedInstance.templateCategoryType}');
+
     setState(() {
       final index = _instances.indexWhere(
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _instances[index] = updatedInstance;
+        print('  - Updated instance at index $index');
+      } else {
+        print('  - Instance not found in local state!');
       }
     });
 
     // Recalculate progress for instant updates
+    print('QueuePage: Triggering _calculateProgress() after instance update');
     _calculateProgress();
   }
 

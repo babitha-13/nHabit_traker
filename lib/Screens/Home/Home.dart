@@ -12,8 +12,11 @@ import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
+import 'package:habit_tracker/Screens/Progress/progress_page.dart';
+import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
+import 'package:flutter/foundation.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -207,6 +210,23 @@ class _HomeState extends State<Home> {
                                   );
                                 },
                               ),
+                              // Development/Testing only - show in debug mode
+                              if (kDebugMode) ...[
+                                _DrawerItem(
+                                  icon: Icons.science,
+                                  label: 'Testing Tools',
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const SimpleTestingPage(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                               const Divider(),
                               _DrawerItem(
                                 icon: Icons.person,
@@ -385,6 +405,10 @@ class _HomeState extends State<Home> {
         if (s == "Habits") {
           title = s;
           cWidget = const HabitsPage(showCompleted: true);
+        }
+        if (s == "Progress") {
+          title = s;
+          cWidget = const ProgressPage();
         }
         if (s == "Manage Categories") {
           title = s;
