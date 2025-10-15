@@ -10,6 +10,8 @@ import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -61,10 +63,31 @@ class _TaskPageState extends State<TaskPage> {
     _quickMinutesController.text =
         (_quickTargetDuration.inMinutes % 60).toString();
     _loadData();
+
+    // Listen for instance events
+    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
+        (param) {
+      if (param is ActivityInstanceRecord && mounted) {
+        _handleInstanceCreated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
+        (param) {
+      if (param is ActivityInstanceRecord && mounted) {
+        _handleInstanceUpdated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
+        (param) {
+      if (param is ActivityInstanceRecord && mounted) {
+        _handleInstanceDeleted(param);
+      }
+    });
   }
 
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this);
     _quickAddController.dispose();
     _quickTargetNumberController.dispose();
     _quickHoursController.dispose();
@@ -899,9 +922,8 @@ class _TaskPageState extends State<TaskPage> {
             templateId: docRef.id);
         if (instances.isNotEmpty) {
           final newInstance = instances.first;
-          setState(() {
-            _taskInstances.add(newInstance);
-          });
+          // Broadcast the instance creation event (will trigger _handleInstanceCreated)
+          InstanceEvents.broadcastInstanceCreated(newInstance);
         } else {
           // If no instances found, try a silent refresh without loading indicator
           _loadDataSilently();
@@ -1156,5 +1178,41 @@ class _TaskPageState extends State<TaskPage> {
       if (!xt && yt) return 1;
       return 0;
     });
+  }
+
+  // Event handlers for live updates
+  void _handleInstanceCreated(ActivityInstanceRecord instance) {
+    // Only add task instances to this page
+    if (instance.templateCategoryType == 'task') {
+      setState(() {
+        _taskInstances.add(instance);
+      });
+      print('TaskPage: Added new task instance ${instance.templateName}');
+    }
+  }
+
+  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+    // Only handle task instances
+    if (instance.templateCategoryType == 'task') {
+      setState(() {
+        final index = _taskInstances
+            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+        if (index != -1) {
+          _taskInstances[index] = instance;
+          print('TaskPage: Updated task instance ${instance.templateName}');
+        }
+      });
+    }
+  }
+
+  void _handleInstanceDeleted(ActivityInstanceRecord instance) {
+    // Only handle task instances
+    if (instance.templateCategoryType == 'task') {
+      setState(() {
+        _taskInstances
+            .removeWhere((inst) => inst.reference.id == instance.reference.id);
+        print('TaskPage: Removed task instance ${instance.templateName}');
+      });
+    }
   }
 }

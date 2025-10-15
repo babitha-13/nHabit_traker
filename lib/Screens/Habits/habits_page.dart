@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'dart:async';
@@ -47,6 +48,32 @@ class _HabitsPageState extends State<HabitsPage> {
         setState(() {
           _loadHabits();
         });
+      }
+    });
+
+    // Listen for instance events (only habit instances)
+    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
+        (param) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          param.templateCategoryType == 'habit') {
+        _handleInstanceCreated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
+        (param) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          param.templateCategoryType == 'habit') {
+        _handleInstanceUpdated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
+        (param) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          param.templateCategoryType == 'habit') {
+        _handleInstanceDeleted(param);
       }
     });
   }
@@ -98,7 +125,7 @@ class _HabitsPageState extends State<HabitsPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final instances = await queryTodaysHabitInstances(userId: userId);
+        final instances = await queryCurrentHabitInstances(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
         if (mounted) {
           setState(() {
@@ -465,7 +492,7 @@ class _HabitsPageState extends State<HabitsPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final instances = await queryTodaysHabitInstances(userId: userId);
+        final instances = await queryCurrentHabitInstances(userId: userId);
         if (mounted) {
           setState(() {
             _habitInstances = instances;
@@ -528,5 +555,39 @@ class _HabitsPageState extends State<HabitsPage> {
         ],
       ),
     );
+  }
+
+  // Event handlers for live updates (habit instances only)
+  void _handleInstanceCreated(ActivityInstanceRecord instance) {
+    setState(() {
+      _habitInstances.add(instance);
+    });
+    print('HabitsPage: Added new habit instance ${instance.templateName}');
+  }
+
+  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+    setState(() {
+      final index = _habitInstances
+          .indexWhere((inst) => inst.reference.id == instance.reference.id);
+      if (index != -1) {
+        _habitInstances[index] = instance;
+        print('HabitsPage: Updated habit instance ${instance.templateName}');
+      }
+      // Remove from list if completed and not showing completed
+      if (!_showCompleted && instance.status == 'completed') {
+        _habitInstances
+            .removeWhere((inst) => inst.reference.id == instance.reference.id);
+        print(
+            'HabitsPage: Removed completed habit instance ${instance.templateName}');
+      }
+    });
+  }
+
+  void _handleInstanceDeleted(ActivityInstanceRecord instance) {
+    setState(() {
+      _habitInstances
+          .removeWhere((inst) => inst.reference.id == instance.reference.id);
+    });
+    print('HabitsPage: Removed habit instance ${instance.templateName}');
   }
 }

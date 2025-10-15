@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
 class EditTask extends StatefulWidget {
   final ActivityRecord task;
@@ -366,7 +367,7 @@ class _EditTaskState extends State<EditTask> {
         print(
             'DEBUG: Instance update summary: $successCount successful, $failureCount failed');
 
-        // Verify the updates by re-fetching a few instances
+        // Broadcast events for successfully updated instances
         if (successCount > 0) {
           try {
             final verifyInstances =
@@ -378,6 +379,20 @@ class _EditTaskState extends State<EditTask> {
             );
             print(
                 'DEBUG: Verification - Sample instance category: ${sampleInstance.templateCategoryName} (${sampleInstance.templateCategoryId})');
+
+            // Broadcast update events for all pending instances that were updated
+            for (final instance in pendingInstances) {
+              try {
+                final updatedInstance =
+                    await ActivityInstanceService.getUpdatedInstance(
+                  instanceId: instance.reference.id,
+                );
+                InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+              } catch (e) {
+                print(
+                    'DEBUG: Failed to broadcast event for instance ${instance.reference.id}: $e');
+              }
+            }
           } catch (e) {
             print('DEBUG: Verification failed: $e');
           }

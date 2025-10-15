@@ -1,6 +1,7 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
 
 /// Service for calculating fractional points and daily targets for habit tracking
 class PointsService {
@@ -192,14 +193,13 @@ class PointsService {
             instance.windowDuration > 1) {
           final lastDayValue = _getLastDayValue(instance);
           final todayContribution = currentValue - lastDayValue;
-          final dailyTarget =
-              target / instance.windowDuration; // Daily target within window
 
-          if (dailyTarget <= 0) return 0.0;
+          // For windowed habits, calculate progress as fraction of total target
+          // Each increment should contribute proportionally to the total target
+          if (target <= 0) return 0.0;
 
-          final dailyProgressFraction =
-              (todayContribution / dailyTarget).clamp(0.0, 1.0);
-          return dailyProgressFraction * fullWeight;
+          final progressFraction = (todayContribution / target).clamp(0.0, 1.0);
+          return progressFraction * fullWeight;
         }
 
         // For non-windowed habits, use total progress
@@ -224,14 +224,14 @@ class PointsService {
             instance.windowDuration > 1) {
           final lastDayValue = _getLastDayValue(instance);
           final todayContribution = accumulatedTime - lastDayValue;
-          final dailyTargetMs =
-              targetMs / instance.windowDuration; // Daily target within window
 
-          if (dailyTargetMs <= 0) return 0.0;
+          // For windowed habits, calculate progress as fraction of total target
+          // Each increment should contribute proportionally to the total target
+          if (targetMs <= 0) return 0.0;
 
-          final dailyProgressFraction =
-              (todayContribution / dailyTargetMs).clamp(0.0, 1.0);
-          return dailyProgressFraction * fullWeight;
+          final progressFraction =
+              (todayContribution / targetMs).clamp(0.0, 1.0);
+          return progressFraction * fullWeight;
         }
 
         // For non-windowed habits, use total progress
@@ -400,6 +400,117 @@ class PointsService {
           'PointsService: Error finding category for ${instance.templateName}: $e');
       return null;
     }
+  }
+
+  // ==================== TASK POINT CALCULATIONS ====================
+
+  /// Calculate the daily target points for a single task instance
+  /// For tasks: target = priority (no category weightage)
+  static double calculateTaskDailyTarget(TaskInstanceRecord instance) {
+    final priority = instance.templatePriority.toDouble();
+
+    print('=== TASK DAILY TARGET CALCULATION DEBUG ===');
+    print('Task: ${instance.templateName}');
+    print('Priority: $priority');
+    print('Final daily target: $priority');
+    print('==========================================');
+
+    return priority;
+  }
+
+  /// Calculate points earned for a single task instance
+  /// Returns fractional points based on completion percentage
+  static double calculateTaskPointsEarned(TaskInstanceRecord instance) {
+    final priority = instance.templatePriority.toDouble();
+
+    switch (instance.templateTrackingType) {
+      case 'binary':
+        // Binary tasks: full points if completed, 0 if not
+        return instance.status == 'completed' ? priority : 0.0;
+
+      case 'quantitative':
+        // Quantitative tasks: points based on progress percentage
+        if (instance.status == 'completed') {
+          return priority;
+        }
+
+        final currentValue = _getTaskCurrentValue(instance);
+        final target = _getTaskTargetValue(instance);
+
+        if (target <= 0) return 0.0;
+
+        final completionFraction = (currentValue / target).clamp(0.0, 1.0);
+        return completionFraction * priority;
+
+      case 'time':
+        // Time-based tasks: points based on accumulated time vs target
+        if (instance.status == 'completed') {
+          return priority;
+        }
+
+        final accumulatedTime = instance.accumulatedTime;
+        final targetMinutes = _getTaskTargetValue(instance);
+        final targetMs =
+            targetMinutes * 60000; // Convert minutes to milliseconds
+
+        if (targetMs <= 0) return 0.0;
+
+        final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
+        return completionFraction * priority;
+
+      default:
+        return 0.0;
+    }
+  }
+
+  /// Calculate total daily target for all task instances
+  static double calculateTotalTaskTarget(List<TaskInstanceRecord> instances) {
+    double totalTarget = 0.0;
+
+    print(
+        'PointsService: Calculating task daily target for ${instances.length} instances');
+
+    for (final instance in instances) {
+      final target = calculateTaskDailyTarget(instance);
+      totalTarget += target;
+      print('PointsService: ${instance.templateName} daily target: $target');
+    }
+
+    print('PointsService: Total task daily target: $totalTarget');
+    return totalTarget;
+  }
+
+  /// Calculate total points earned for all task instances
+  static double calculateTotalTaskPoints(List<TaskInstanceRecord> instances) {
+    double totalPoints = 0.0;
+
+    print(
+        'PointsService: Calculating total task points for ${instances.length} instances');
+
+    for (final instance in instances) {
+      final points = calculateTaskPointsEarned(instance);
+      totalPoints += points;
+      print('PointsService: ${instance.templateName} earned $points points');
+    }
+
+    print('PointsService: Total task points earned: $totalPoints');
+    return totalPoints;
+  }
+
+  /// Helper method to get current value from task instance
+  static double _getTaskCurrentValue(TaskInstanceRecord instance) {
+    final value = instance.currentValue;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0.0;
+    return 0.0;
+  }
+
+  /// Helper method to get target value from task instance
+  static double _getTaskTargetValue(TaskInstanceRecord instance) {
+    final target = instance.templateTarget;
+    if (target is num) return target.toDouble();
+    if (target is String) return double.tryParse(target) ?? 0.0;
+    return 0.0;
   }
 }
 

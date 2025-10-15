@@ -14,6 +14,7 @@ import 'package:habit_tracker/Screens/Edit%20Task/edit_task.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
 class ItemComponent extends StatefulWidget {
   final ActivityInstanceRecord instance;
@@ -579,6 +580,9 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
+
+      // Broadcast the instance update event
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -696,6 +700,9 @@ class _ItemComponentState extends State<ItemComponent>
             );
             // Call onInstanceDeleted for granular UI update
             widget.onInstanceDeleted?.call(widget.instance);
+
+            // Broadcast the instance deletion event
+            InstanceEvents.broadcastInstanceDeleted(widget.instance);
           }
         } catch (e) {
           if (mounted) {
@@ -717,37 +724,99 @@ class _ItemComponentState extends State<ItemComponent>
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
 
-    // Determine if this is a recurring task/habit
-    final isRecurring = widget.instance.templateCategoryType == 'habit' ||
-        (widget.instance.templateCategoryType == 'task' && _isRecurringItem());
+    final isHabit = widget.instance.templateCategoryType == 'habit';
+    final isRecurringTask =
+        widget.instance.templateCategoryType == 'task' && _isRecurringItem();
+    final isSnoozed = widget.instance.snoozedUntil != null &&
+        DateTime.now().isBefore(widget.instance.snoozedUntil!);
 
     final menuItems = <PopupMenuEntry<String>>[];
 
-    if (isRecurring) {
-      // Recurring tasks/habits menu
-      menuItems.addAll([
-        const PopupMenuItem<String>(
-          value: 'skip',
-          height: 32,
-          child: Text('Skip this occurrence', style: TextStyle(fontSize: 12)),
-        ),
-        const PopupMenuItem<String>(
-          value: 'skip_until_today',
-          height: 32,
-          child: Text('Skip until today', style: TextStyle(fontSize: 12)),
-        ),
-        const PopupMenuItem<String>(
-          value: 'skip_until',
-          height: 32,
-          child: Text('Skip until...', style: TextStyle(fontSize: 12)),
-        ),
-        const PopupMenuDivider(height: 6),
-        const PopupMenuItem<String>(
-          value: 'reschedule',
-          height: 32,
-          child: Text('Move this instance', style: TextStyle(fontSize: 12)),
-        ),
-      ]);
+    if (isHabit) {
+      // Habit-specific menu
+      if (isSnoozed) {
+        // Show bring back option for snoozed habits
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'bring_back',
+            height: 32,
+            child: Text('Bring back', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      } else {
+        // Check if habit has partial progress
+        final currentValue = _currentProgressLocal();
+        final hasProgress = currentValue > 0;
+
+        if (hasProgress) {
+          menuItems.add(
+            const PopupMenuItem<String>(
+              value: 'skip_rest',
+              height: 32,
+              child: Text('Skip the rest', style: TextStyle(fontSize: 12)),
+            ),
+          );
+        } else {
+          menuItems.add(
+            const PopupMenuItem<String>(
+              value: 'skip',
+              height: 32,
+              child: Text('Skip', style: TextStyle(fontSize: 12)),
+            ),
+          );
+        }
+
+        // Add snooze option
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'snooze',
+            height: 32,
+            child: Text('Snooze until...', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      }
+    } else if (isRecurringTask) {
+      // Recurring task menu
+      if (isSnoozed) {
+        // Show bring back option for snoozed tasks
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'bring_back',
+            height: 32,
+            child: Text('Bring back', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      } else {
+        // Standard recurring task options
+        menuItems.addAll([
+          const PopupMenuItem<String>(
+            value: 'skip',
+            height: 32,
+            child: Text('Skip this occurrence', style: TextStyle(fontSize: 12)),
+          ),
+          const PopupMenuItem<String>(
+            value: 'skip_until_today',
+            height: 32,
+            child: Text('Skip until today', style: TextStyle(fontSize: 12)),
+          ),
+          const PopupMenuItem<String>(
+            value: 'skip_until',
+            height: 32,
+            child: Text('Skip until...', style: TextStyle(fontSize: 12)),
+          ),
+          const PopupMenuDivider(height: 6),
+          const PopupMenuItem<String>(
+            value: 'snooze',
+            height: 32,
+            child: Text('Snooze until...', style: TextStyle(fontSize: 12)),
+          ),
+          const PopupMenuItem<String>(
+            value: 'reschedule',
+            height: 32,
+            child: Text('Move this instance', style: TextStyle(fontSize: 12)),
+          ),
+        ]);
+      }
     } else {
       // One-time tasks menu - show contextual options
       final currentDueDate = widget.instance.dueDate;
@@ -833,11 +902,15 @@ class _ItemComponentState extends State<ItemComponent>
 
       switch (action) {
         case 'skip':
+          // Handle both regular skip and habit skip
           await ActivityInstanceService.skipInstance(
             instanceId: widget.instance.reference.id,
           );
+          final message = widget.instance.templateCategoryType == 'habit'
+              ? 'Habit skipped'
+              : 'Occurrence skipped';
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Occurrence skipped')),
+            SnackBar(content: Text(message)),
           );
           break;
 
@@ -938,6 +1011,18 @@ class _ItemComponentState extends State<ItemComponent>
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Due date cleared')),
           );
+          break;
+
+        case 'skip_rest':
+          await _handleHabitSkipRest();
+          break;
+
+        case 'snooze':
+          await _handleSnooze();
+          break;
+
+        case 'bring_back':
+          await _handleBringBack();
           break;
       }
 
@@ -1087,6 +1172,9 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
+
+      // Broadcast the instance update event
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       // Revert optimistic state on error
       setState(() => _quantProgressOverride = null);
@@ -1129,6 +1217,14 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
+
+      // Broadcast the instance update event
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+      // For habits, trigger a full refresh to fetch the newly generated instance
+      if (widget.instance.templateCategoryType == 'habit' && completed) {
+        widget.onRefresh?.call();
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1182,6 +1278,9 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
+
+      // Broadcast the instance update event
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       // Revert optimistic state on error
       setState(() => _timerStateOverride = null);
@@ -1468,6 +1567,9 @@ class _ItemComponentState extends State<ItemComponent>
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
 
+      // Broadcast the instance update event
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1491,5 +1593,84 @@ class _ItemComponentState extends State<ItemComponent>
 
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  /// Handle skip for habits with partial progress
+  Future<void> _handleHabitSkipRest() async {
+    try {
+      // Mark as skipped but preserve currentValue for points calculation
+      await ActivityInstanceService.skipInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Habit skipped (progress preserved)')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error skipping habit: $e')),
+        );
+      }
+    }
+  }
+
+  /// Show date picker for snooze
+  Future<void> _handleSnooze() async {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      // For habits, limit snooze date to window end date
+      DateTime maxDate;
+      if (widget.instance.templateCategoryType == 'habit' &&
+          widget.instance.windowEndDate != null) {
+        maxDate = widget.instance.windowEndDate!;
+      } else {
+        // For tasks, allow up to 1 year in the future
+        maxDate = today.add(const Duration(days: 365));
+      }
+
+      final picked = await showDatePicker(
+        context: context,
+        initialDate: today.add(const Duration(days: 1)),
+        firstDate: today,
+        lastDate: maxDate,
+      );
+
+      if (picked != null) {
+        await ActivityInstanceService.snoozeInstance(
+          instanceId: widget.instance.reference.id,
+          snoozeUntil: picked,
+        );
+        final label = DateFormat('EEE, MMM d').format(picked);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Snoozed until $label')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error snoozing: $e')),
+        );
+      }
+    }
+  }
+
+  /// Unsnooze instance
+  Future<void> _handleBringBack() async {
+    try {
+      await ActivityInstanceService.unsnoozeInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Brought back to queue')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error bringing back: $e')),
+        );
+      }
+    }
   }
 }

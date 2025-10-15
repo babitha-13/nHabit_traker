@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
@@ -19,8 +19,6 @@ class _ProgressPageState extends State<ProgressPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   List<DailyProgressRecord> _progressHistory = [];
   bool _isLoading = true;
-  String _selectedUserId =
-      'szbvXb6Z5TXikcqaU1SfChU6iXl2'; // TODO: Get from auth
 
   // Live today's progress data
   double _todayTarget = 0.0;
@@ -62,22 +60,22 @@ class _ProgressPageState extends State<ProgressPage> {
     });
 
     try {
-      // First, trigger day-end processing to ensure we have progress data
-      print(
-          'ProgressPage: Triggering day-end processing to generate progress data...');
-      await DayEndProcessor.processDayEnd(userId: _selectedUserId);
+      final userId = currentUserUid;
+      if (userId.isEmpty) {
+        print('ProgressPage: No authenticated user');
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+        return;
+      }
 
-      // Also process yesterday to catch any missed data
-      final yesterday =
-          DateService.currentDate.subtract(const Duration(days: 1));
-      await DayEndProcessor.processDayEnd(
-          userId: _selectedUserId, targetDate: yesterday);
-
-      // Load last 30 days of progress data
+      // Load last 90 days of progress data to match heat map range
       final endDate = DateService.currentDate;
-      final startDate = endDate.subtract(const Duration(days: 30));
+      final startDate = endDate.subtract(const Duration(days: 90));
 
-      final query = await DailyProgressRecord.collectionForUser(_selectedUserId)
+      final query = await DailyProgressRecord.collectionForUser(userId)
           .where('date', isGreaterThanOrEqualTo: startDate)
           .where('date', isLessThanOrEqualTo: endDate)
           .orderBy('date', descending: true)
@@ -114,51 +112,7 @@ class _ProgressPageState extends State<ProgressPage> {
     });
   }
 
-  Future<void> _generateProgressData() async {
-    if (!mounted) return;
-
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      print('ProgressPage: Manually generating progress data...');
-
-      // Process the last 7 days to generate any missing progress data
-      for (int i = 0; i < 7; i++) {
-        final date = DateService.currentDate.subtract(Duration(days: i));
-        await DayEndProcessor.processDayEnd(
-          userId: _selectedUserId,
-          targetDate: date,
-        );
-      }
-
-      // Reload the progress history
-      await _loadProgressHistory();
-
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Progress data generated successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      print('ProgressPage: Error generating progress data: $e');
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error generating progress data: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    }
-  }
+  // Removed manual progress generation to avoid unintended side effects.
 
   @override
   Widget build(BuildContext context) {
@@ -182,11 +136,6 @@ class _ProgressPageState extends State<ProgressPage> {
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.white),
             onPressed: _loadProgressHistory,
-          ),
-          IconButton(
-            icon: const Icon(Icons.analytics, color: Colors.white),
-            onPressed: _generateProgressData,
-            tooltip: 'Generate Progress Data',
           ),
           // Development/Testing only - show in debug mode
           if (kDebugMode)
@@ -214,10 +163,7 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   Widget _buildProgressContent() {
-    if (_progressHistory.isEmpty) {
-      return _buildEmptyState();
-    }
-
+    // Show content even if no historical data - we have today's live progress
     return SingleChildScrollView(
       padding: const EdgeInsets.all(16.0),
       child: Column(
@@ -225,39 +171,13 @@ class _ProgressPageState extends State<ProgressPage> {
         children: [
           _buildSummaryCards(),
           const SizedBox(height: 24),
-          _buildCalendarHeatmap(),
-          const SizedBox(height: 24),
           _buildTrendChart(),
         ],
       ),
     );
   }
 
-  Widget _buildEmptyState() {
-    return Center(
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Icon(
-            Icons.analytics_outlined,
-            size: 64,
-            color: FlutterFlowTheme.of(context).secondaryText,
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'No progress data available',
-            style: FlutterFlowTheme.of(context).titleMedium,
-          ),
-          const SizedBox(height: 8),
-          Text(
-            'Complete some habits to see your progress history',
-            style: FlutterFlowTheme.of(context).bodyMedium,
-            textAlign: TextAlign.center,
-          ),
-        ],
-      ),
-    );
-  }
+  // Removed _buildEmptyState - we always show progress (at least today's live data)
 
   Widget _buildSummaryCards() {
     final last7Days = _getLastNDays(7);
@@ -342,102 +262,6 @@ class _ProgressPageState extends State<ProgressPage> {
     );
   }
 
-  Widget _buildCalendarHeatmap() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: FlutterFlowTheme.of(context).secondaryBackground,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: FlutterFlowTheme.of(context).alternate,
-          width: 1,
-        ),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            'Activity Heatmap',
-            style: FlutterFlowTheme.of(context).titleMedium.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-          const SizedBox(height: 16),
-          _buildHeatmapGrid(),
-          const SizedBox(height: 12),
-          _buildHeatmapLegend(),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildHeatmapGrid() {
-    final today = DateService.currentDate;
-    final startDate = today.subtract(const Duration(days: 89)); // ~3 months
-    final progressMap = <DateTime, double>{};
-
-    for (final record in _progressHistory) {
-      if (record.date != null) {
-        progressMap[record.date!] = record.completionPercentage;
-      }
-    }
-
-    return Wrap(
-      spacing: 2,
-      runSpacing: 2,
-      children: List.generate(90, (index) {
-        final date = startDate.add(Duration(days: index));
-        final percentage = progressMap[date] ?? 0.0;
-        final color = _getHeatmapColor(percentage);
-
-        return Container(
-          width: 12,
-          height: 12,
-          decoration: BoxDecoration(
-            color: color,
-            borderRadius: BorderRadius.circular(2),
-          ),
-        );
-      }),
-    );
-  }
-
-  Widget _buildHeatmapLegend() {
-    return Row(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      children: [
-        Text(
-          'Less',
-          style: FlutterFlowTheme.of(context).bodySmall.override(
-                fontFamily: 'Readex Pro',
-                color: FlutterFlowTheme.of(context).secondaryText,
-              ),
-        ),
-        Row(
-          children: [
-            Container(width: 12, height: 12, color: Colors.grey[300]),
-            const SizedBox(width: 4),
-            Container(width: 12, height: 12, color: Colors.green[200]),
-            const SizedBox(width: 4),
-            Container(width: 12, height: 12, color: Colors.green[400]),
-            const SizedBox(width: 4),
-            Container(width: 12, height: 12, color: Colors.green[600]),
-            const SizedBox(width: 4),
-            Container(width: 12, height: 12, color: Colors.green[800]),
-          ],
-        ),
-        Text(
-          'More',
-          style: FlutterFlowTheme.of(context).bodySmall.override(
-                fontFamily: 'Readex Pro',
-                color: FlutterFlowTheme.of(context).secondaryText,
-              ),
-        ),
-      ],
-    );
-  }
-
   Widget _buildTrendChart() {
     // Get last 7 days of progress data
     final last7Days = _getLastNDays(7);
@@ -485,36 +309,48 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   double _calculateAveragePercentage(List<DailyProgressRecord> records) {
-    if (records.isEmpty) return 0.0;
+    if (records.isEmpty) {
+      // If no historical data, return today's percentage
+      return _todayPercentage;
+    }
+    // Include today's live data in average
     final total =
-        records.fold(0.0, (sum, record) => sum + record.completionPercentage);
-    return total / records.length;
+        records.fold(0.0, (sum, record) => sum + record.completionPercentage) +
+            _todayPercentage;
+    final count = records.length + 1; // +1 for today
+    return total / count;
   }
 
   double _calculateAverageTarget(List<DailyProgressRecord> records) {
-    if (records.isEmpty) return 0.0;
-    final total = records.fold(0.0, (sum, record) => sum + record.targetPoints);
-    return total / records.length;
+    if (records.isEmpty) {
+      // If no historical data, return today's target
+      return _todayTarget;
+    }
+    // Include today's live data in average
+    final total =
+        records.fold(0.0, (sum, record) => sum + record.targetPoints) +
+            _todayTarget;
+    final count = records.length + 1; // +1 for today
+    return total / count;
   }
 
   double _calculateAverageEarned(List<DailyProgressRecord> records) {
-    if (records.isEmpty) return 0.0;
-    final total = records.fold(0.0, (sum, record) => sum + record.earnedPoints);
-    return total / records.length;
+    if (records.isEmpty) {
+      // If no historical data, return today's earned
+      return _todayEarned;
+    }
+    // Include today's live data in average
+    final total =
+        records.fold(0.0, (sum, record) => sum + record.earnedPoints) +
+            _todayEarned;
+    final count = records.length + 1; // +1 for today
+    return total / count;
   }
 
   Color _getPerformanceColor(double percentage) {
     if (percentage < 30) return Colors.red;
     if (percentage < 70) return Colors.orange;
     return Colors.green;
-  }
-
-  Color _getHeatmapColor(double percentage) {
-    if (percentage == 0) return Colors.grey[300]!;
-    if (percentage < 25) return Colors.green[200]!;
-    if (percentage < 50) return Colors.green[400]!;
-    if (percentage < 75) return Colors.green[600]!;
-    return Colors.green[800]!;
   }
 
   bool _isSameDay(DateTime a, DateTime b) {
@@ -536,29 +372,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   // Build 7-day column chart
   Widget _build7DayColumnChart(List<DailyProgressRecord> data) {
-    if (data.isEmpty) {
-      return Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(
-              Icons.bar_chart,
-              size: 32,
-              color: FlutterFlowTheme.of(context).secondaryText,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              'No data available',
-              style: FlutterFlowTheme.of(context).bodyMedium.override(
-                    fontFamily: 'Readex Pro',
-                    color: FlutterFlowTheme.of(context).secondaryText,
-                  ),
-            ),
-          ],
-        ),
-      );
-    }
-
+    // Don't show empty state - we always have today's live data
     // Create data for last 7 days (including today)
     final List<Map<String, dynamic>> chartData = [];
     final today = DateService.currentDate;

@@ -12,6 +12,7 @@ import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
@@ -393,6 +394,20 @@ Future<List<ActivityInstanceRecord>> queryTodaysHabitInstances({
   }
 }
 
+/// Query to get current habit instances for Habits page (no future instances)
+/// Only shows instances whose window includes today
+Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
+  required String userId,
+}) async {
+  try {
+    return await ActivityInstanceService.getCurrentHabitInstances(
+        userId: userId);
+  } catch (e) {
+    print('Error querying current habit instances: $e');
+    return []; // Return empty list on error
+  }
+}
+
 /// Query to get all today's instances (current and overdue tasks and habits)
 Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,
@@ -495,6 +510,16 @@ Future<DocumentReference> createActivity({
       userId: uid,
     );
     print('Activity instance created successfully: ${instanceRef.id}');
+
+    // Get the created instance and broadcast the event
+    try {
+      final instance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instanceRef.id,
+      );
+      InstanceEvents.broadcastInstanceCreated(instance);
+    } catch (e) {
+      print('Error broadcasting instance creation: $e');
+    }
   } catch (e) {
     print('Error creating initial activity instance: $e');
     print('Stack trace: ${StackTrace.current}');
@@ -1098,6 +1123,49 @@ Future<void> unsnoozeActivityInstance({
     instanceId: instanceId,
     userId: userId,
   );
+}
+
+/// Manually update lastDayValue for windowed habits (for testing/fixing)
+Future<void> updateLastDayValuesForWindowedHabits({
+  String? userId,
+}) async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  final uid = userId ?? currentUser?.uid ?? '';
+  
+  if (uid.isEmpty) {
+    throw Exception('No authenticated user');
+  }
+
+  // Get all active windowed habit instances
+  final query = ActivityInstanceRecord.collectionForUser(uid)
+      .where('templateCategoryType', isEqualTo: 'habit')
+      .where('status', isEqualTo: 'pending')
+      .where('windowDuration', isGreaterThan: 1);
+
+  final querySnapshot = await query.get();
+  final instances = querySnapshot.docs
+      .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+      .toList();
+
+  print('Backend: Found ${instances.length} windowed habits to update lastDayValue');
+
+  if (instances.isEmpty) return;
+
+  final batch = FirebaseFirestore.instance.batch();
+  final now = DateTime.now();
+
+  for (final instance in instances) {
+    final instanceRef = instance.reference;
+    batch.update(instanceRef, {
+      'lastDayValue': instance.currentValue,
+      'lastUpdated': now,
+    });
+
+    print('Backend: Updated lastDayValue for ${instance.templateName} to ${instance.currentValue}');
+  }
+
+  await batch.commit();
+  print('Backend: Updated lastDayValue for ${instances.length} windowed habits');
 }
 */
 

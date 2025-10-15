@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
+import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Service for processing day-end operations on habits
@@ -26,17 +27,65 @@ class DayEndProcessor {
         'DayEndProcessor: Processing day-end for user $userId, date: $processDate');
 
     try {
-      // Step 1: Close all open habit instances for the target date
-      await _closeOpenHabitInstances(userId, processDate);
+      // Step 1: Update lastDayValue for active windowed habits
+      await _updateLastDayValues(userId, processDate);
 
-      // Step 2: Create daily progress record for the target date
+      // Step 2: Create daily progress record BEFORE closing instances
+      // This preserves the exact values shown in Queue page
       await _createDailyProgressRecord(userId, processDate);
+
+      // Step 3: Close all open habit instances for the target date
+      await _closeOpenHabitInstances(userId, processDate);
 
       print('DayEndProcessor: Successfully processed day-end for $processDate');
     } catch (e) {
       print('DayEndProcessor: Error processing day-end: $e');
       rethrow;
     }
+  }
+
+  /// Update lastDayValue for active windowed habits at day-end
+  static Future<void> _updateLastDayValues(
+    String userId,
+    DateTime targetDate,
+  ) async {
+    final normalizedDate =
+        DateTime(targetDate.year, targetDate.month, targetDate.day);
+
+    // Query active habit instances with windows that are still open
+    final query = ActivityInstanceRecord.collectionForUser(userId)
+        .where('templateCategoryType', isEqualTo: 'habit')
+        .where('status', isEqualTo: 'pending')
+        .where('windowEndDate', isGreaterThan: normalizedDate);
+
+    final querySnapshot = await query.get();
+    final instances = querySnapshot.docs
+        .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+        .toList();
+
+    print(
+        'DayEndProcessor: Found ${instances.length} active windowed habits to update lastDayValue');
+
+    if (instances.isEmpty) return;
+
+    final batch = FirebaseFirestore.instance.batch();
+    final now = DateTime.now();
+
+    for (final instance in instances) {
+      // Update lastDayValue to current value for next day's differential calculation
+      final instanceRef = instance.reference;
+      batch.update(instanceRef, {
+        'lastDayValue': instance.currentValue,
+        'lastUpdated': now,
+      });
+
+      print(
+          'DayEndProcessor: Updated lastDayValue for ${instance.templateName} to ${instance.currentValue}');
+    }
+
+    await batch.commit();
+    print(
+        'DayEndProcessor: Updated lastDayValue for ${instances.length} active windowed habits');
   }
 
   /// Close habit instances whose windows have expired
@@ -73,20 +122,23 @@ class DayEndProcessor {
     }
 
     final batch = FirebaseFirestore.instance.batch();
-    final now = DateTime.now();
+    // Use the targetDate being processed (normalizedDate) for skippedAt
+    // This ensures if we're processing Oct 15, habits are marked skipped on Oct 15
+    final skippedAtDate = normalizedDate;
 
     for (final instance in instances) {
       // Mark as skipped (preserve currentValue for partial completions)
       final instanceRef = instance.reference;
       batch.update(instanceRef, {
         'status': 'skipped',
-        'skippedAt': now,
-        'lastUpdated': now,
+        'skippedAt': skippedAtDate, // Use the date being processed
+        'lastUpdated': DateTime.now(), // Real time for audit trail
       });
 
       print(
           'DayEndProcessor: Marking instance ${instance.templateName} as skipped (window expired)');
       print('  - Final currentValue: ${instance.currentValue}');
+      print('  - skippedAt will be set to: $skippedAtDate');
       print('  - Will be marked as skipped with preserved value');
 
       // Generate next instance for this habit
@@ -179,43 +231,26 @@ class DayEndProcessor {
       return;
     }
 
-    // Get all habit instances that were completed or skipped on the target date
-    // This includes both instances that belonged to that date and were completed then,
-    // and instances that were completed on that date regardless of their window
-    final completedInstancesQuery =
-        ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateCategoryType', isEqualTo: 'habit')
-            .where('status', isEqualTo: 'completed')
-            .where('completedAt', isGreaterThanOrEqualTo: normalizedDate)
-            .where('completedAt',
-                isLessThan: normalizedDate.add(const Duration(days: 1)));
+    // Get all habit instances (we'll filter them using the shared calculator)
+    final allInstancesQuery = ActivityInstanceRecord.collectionForUser(userId)
+        .where('templateCategoryType', isEqualTo: 'habit');
 
-    final skippedInstancesQuery =
-        ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateCategoryType', isEqualTo: 'habit')
-            .where('status', isEqualTo: 'skipped')
-            .where('skippedAt', isGreaterThanOrEqualTo: normalizedDate)
-            .where('skippedAt',
-                isLessThan: normalizedDate.add(const Duration(days: 1)));
-
-    final completedSnapshot = await completedInstancesQuery.get();
-    final skippedSnapshot = await skippedInstancesQuery.get();
-
-    final completedInstances = completedSnapshot.docs
-        .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-        .toList();
-    final skippedInstances = skippedSnapshot.docs
+    final allInstancesSnapshot = await allInstancesQuery.get();
+    final allInstances = allInstancesSnapshot.docs
         .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
         .toList();
 
-    final instances = [...completedInstances, ...skippedInstances];
+    // Get all task instances for the target date (using ActivityInstanceRecord)
+    final allTaskInstancesQuery =
+        ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'task');
 
-    if (instances.isEmpty) {
-      print('DayEndProcessor: No habit instances found for $normalizedDate');
-      return;
-    }
+    final allTaskInstancesSnapshot = await allTaskInstancesQuery.get();
+    final allTaskInstances = allTaskInstancesSnapshot.docs
+        .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+        .toList();
 
-    // Get categories for point calculation
+    // Get categories for calculation
     final categoriesQuery = CategoryRecord.collectionForUser(userId)
         .where('categoryType', isEqualTo: 'habit');
 
@@ -224,49 +259,122 @@ class DayEndProcessor {
         .map((doc) => CategoryRecord.fromSnapshot(doc))
         .toList();
 
-    // Calculate daily progress using PointsService
-    final targetPoints =
-        PointsService.calculateTotalDailyTarget(instances, categories);
-    final earnedPoints =
-        PointsService.calculateTotalPointsEarned(instances, categories);
-    final completionPercentage = PointsService.calculateDailyPerformancePercent(
-        earnedPoints, targetPoints);
+    // Use the SAME calculation as Queue page via shared DailyProgressCalculator
+    // No need for includeSkippedForComputation since instances are still pending
+    final calculationResult =
+        await DailyProgressCalculator.calculateDailyProgress(
+      userId: userId,
+      targetDate: normalizedDate,
+      allInstances: allInstances,
+      categories: categories,
+      taskInstances: allTaskInstances,
+    );
 
-    // Count habit statistics
-    int totalHabits = instances.length;
-    int completedHabits =
-        instances.where((i) => i.completionStatus == 'completed').length;
-    int partialHabits = instances
+    final targetPoints = calculationResult['target'] as double;
+    final earnedPoints = calculationResult['earned'] as double;
+    final completionPercentage = calculationResult['percentage'] as double;
+    final instances =
+        calculationResult['instances'] as List<ActivityInstanceRecord>;
+    final taskInstances =
+        calculationResult['taskInstances'] as List<ActivityInstanceRecord>;
+    // Use the full math set for totals and category breakdowns
+    final allForMath =
+        calculationResult['allForMath'] as List<ActivityInstanceRecord>;
+    final allTasksForMath =
+        calculationResult['allTasksForMath'] as List<ActivityInstanceRecord>;
+
+    // Extract separate breakdowns for analytics
+    final habitTarget = calculationResult['habitTarget'] as double;
+    final habitEarned = calculationResult['habitEarned'] as double;
+    final taskTarget = calculationResult['taskTarget'] as double;
+    final taskEarned = calculationResult['taskEarned'] as double;
+
+    print(
+        'DayEndProcessor: Found ${instances.length} habit instances and ${taskInstances.length} task instances for $normalizedDate');
+
+    if (instances.isEmpty && taskInstances.isEmpty) {
+      // Still create a progress record with 0 values for tracking
+      print(
+          'DayEndProcessor: No habits or tasks for this day, creating empty progress record');
+      final emptyProgressData = createDailyProgressRecordData(
+        userId: userId,
+        date: normalizedDate,
+        targetPoints: 0.0,
+        earnedPoints: 0.0,
+        completionPercentage: 0.0,
+        totalHabits: 0,
+        completedHabits: 0,
+        partialHabits: 0,
+        skippedHabits: 0,
+        totalTasks: 0,
+        completedTasks: 0,
+        partialTasks: 0,
+        skippedTasks: 0,
+        taskTargetPoints: 0.0,
+        taskEarnedPoints: 0.0,
+        categoryBreakdown: {},
+        createdAt: DateTime.now(),
+      );
+      await DailyProgressRecord.collectionForUser(userId)
+          .add(emptyProgressData);
+      print(
+          'DayEndProcessor: Created empty progress record for $normalizedDate');
+      return;
+    }
+
+    // Count habit statistics using allForMath and completion-on-date rule
+    int totalHabits = allForMath.length;
+    final completedOnDate = allForMath.where((i) {
+      if (i.status != 'completed' || i.completedAt == null) return false;
+      final completedDate = DateTime(
+          i.completedAt!.year, i.completedAt!.month, i.completedAt!.day);
+      return completedDate.isAtSameMomentAs(normalizedDate);
+    }).toList();
+    int completedHabits = completedOnDate.length;
+    int partialHabits = allForMath
         .where((i) =>
-            i.completionStatus == 'skipped' &&
-            i.currentValue != null &&
+            i.status != 'completed' &&
             (i.currentValue is num ? (i.currentValue as num) > 0 : false))
         .length;
-    int skippedHabits = instances
-        .where((i) =>
-            i.completionStatus == 'skipped' &&
-            (i.currentValue == null ||
-                (i.currentValue is num ? (i.currentValue as num) == 0 : true)))
+    int skippedHabits = allForMath.where((i) => i.status == 'skipped').length;
+
+    // Count task statistics using allTasksForMath and completion-on-date rule
+    int totalTasks = allTasksForMath.length;
+    final completedTasksOnDate = allTasksForMath.where((task) {
+      if (task.status != 'completed' || task.completedAt == null) return false;
+      final completedDate = DateTime(task.completedAt!.year,
+          task.completedAt!.month, task.completedAt!.day);
+      return completedDate.isAtSameMomentAs(normalizedDate);
+    }).toList();
+    int completedTasks = completedTasksOnDate.length;
+    int partialTasks = allTasksForMath
+        .where((task) =>
+            task.status != 'completed' &&
+            (task.currentValue is num ? (task.currentValue as num) > 0 : false))
         .length;
+    int skippedTasks =
+        allTasksForMath.where((task) => task.status == 'skipped').length;
 
     // Create category breakdown
     final categoryBreakdown = <String, Map<String, dynamic>>{};
     for (final category in categories) {
-      final categoryInstances =
-          instances.where((i) => i.templateCategoryId == category.reference.id);
-      if (categoryInstances.isNotEmpty) {
-        final categoryTarget = PointsService.calculateTotalDailyTarget(
-            categoryInstances.toList(), [category]);
+      final categoryAll = allForMath
+          .where((i) => i.templateCategoryId == category.reference.id)
+          .toList();
+      if (categoryAll.isNotEmpty) {
+        final categoryCompleted = completedOnDate
+            .where((i) => i.templateCategoryId == category.reference.id)
+            .toList();
+        final categoryTarget =
+            PointsService.calculateTotalDailyTarget(categoryAll, [category]);
         final categoryEarned = PointsService.calculateTotalPointsEarned(
-            categoryInstances.toList(), [category]);
+            categoryCompleted, [category]);
 
         categoryBreakdown[category.reference.id] = {
           'target': categoryTarget,
           'earned': categoryEarned,
-          'completed': categoryInstances
-              .where((i) => i.completionStatus == 'completed')
-              .length,
-          'total': categoryInstances.length,
+          'completed': categoryCompleted.length,
+          'total': categoryAll.length,
         };
       }
     }
@@ -282,6 +390,12 @@ class DayEndProcessor {
       completedHabits: completedHabits,
       partialHabits: partialHabits,
       skippedHabits: skippedHabits,
+      totalTasks: totalTasks,
+      completedTasks: completedTasks,
+      partialTasks: partialTasks,
+      skippedTasks: skippedTasks,
+      taskTargetPoints: taskTarget,
+      taskEarnedPoints: taskEarned,
       categoryBreakdown: categoryBreakdown,
       createdAt: DateTime.now(),
     );
@@ -289,11 +403,15 @@ class DayEndProcessor {
     await DailyProgressRecord.collectionForUser(userId).add(progressData);
 
     print('DayEndProcessor: Created daily progress record for $normalizedDate');
-    print('  - Target: $targetPoints points');
-    print('  - Earned: $earnedPoints points');
+    print(
+        '  - Total Target: $targetPoints points (Habits: $habitTarget, Tasks: $taskTarget)');
+    print(
+        '  - Total Earned: $earnedPoints points (Habits: $habitEarned, Tasks: $taskEarned)');
     print('  - Percentage: ${completionPercentage.toStringAsFixed(1)}%');
     print(
-        '  - Habits: $completedHabits/$totalHabits completed, $partialHabits partial, $skippedHabits skipped');
+        '  - Habit Counts -> total: $totalHabits, completed: $completedHabits, partial: $partialHabits, skipped: $skippedHabits');
+    print(
+        '  - Task Counts -> total: $totalTasks, completed: $completedTasks, partial: $partialTasks, skipped: $skippedTasks');
   }
 
   /// Check if day-end processing is needed

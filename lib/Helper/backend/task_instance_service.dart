@@ -271,9 +271,12 @@ class TaskInstanceService {
           .toList();
 
       // Filter by date on client side using DateService
+      // For habits, use window logic; for tasks, use due date logic
       final instances = allInstances.where((instance) {
         if (instance.dueDate == null)
           return true; // Include instances without due dates
+
+        // For tasks, use simple due date logic
         return instance.dueDate!.isBefore(today) ||
             instance.dueDate!.isAtSameMomentAs(today);
       }).toList();

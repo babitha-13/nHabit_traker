@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
@@ -235,56 +236,88 @@ class ActivityInstanceService {
     }
   }
 
-  /// Get active habit instances for the user
-  static Future<List<ActivityInstanceRecord>> getActiveHabitInstances({
+  /// Get current active habit instances for the user (Habits page)
+  /// Only returns instances whose window includes today - no future instances
+  static Future<List<ActivityInstanceRecord>> getCurrentHabitInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
       print(
-          'ActivityInstanceService: Getting active habit instances for user $uid');
+          'ActivityInstanceService: Getting current habit instances for user $uid');
+      // Fetch ALL habit instances regardless of status to include completed/skipped/snoozed
+      // The calculator and UI will filter appropriately
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit')
-          .where('status', isEqualTo: 'pending');
+          .where('templateCategoryType', isEqualTo: 'habit');
 
       final result = await query.get();
-      final allPendingInstances = result.docs
+      final allHabitInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
 
       print(
-          'ActivityInstanceService: Found ${allPendingInstances.length} total pending habit instances.');
+          'ActivityInstanceService: Found ${allHabitInstances.length} total habit instances (all statuses).');
 
-      // Group instances by templateId and keep only the one with the earliest due date
-      final Map<String, ActivityInstanceRecord> earliestInstances = {};
-      for (final instance in allPendingInstances) {
+      // Group instances by templateId and apply window-based filtering
+      final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
+      for (final instance in allHabitInstances) {
         final templateId = instance.templateId;
-        if (!earliestInstances.containsKey(templateId)) {
-          earliestInstances[templateId] = instance;
-        } else {
-          final existing = earliestInstances[templateId]!;
-          // Handle null due dates: nulls go last
-          if (existing.dueDate == null) {
-            // Keep existing (null), unless new also has a date
-            if (instance.dueDate != null) {
-              earliestInstances[templateId] = instance;
-            }
-          } else if (instance.dueDate == null) {
-            // Keep existing (has date)
-            continue;
-          } else {
-            // Both have dates, compare normally
-            if (instance.dueDate!.isBefore(existing.dueDate!)) {
-              earliestInstances[templateId] = instance;
+        (instancesByTemplate[templateId] ??= []).add(instance);
+      }
+
+      final List<ActivityInstanceRecord> relevantInstances = [];
+      final today = DateService.todayStart;
+
+      for (final templateId in instancesByTemplate.keys) {
+        final instances = instancesByTemplate[templateId]!;
+
+        // Sort instances by due date (earliest first)
+        instances.sort((a, b) {
+          if (a.dueDate == null && b.dueDate == null) return 0;
+          if (a.dueDate == null) return 1;
+          if (b.dueDate == null) return -1;
+          return a.dueDate!.compareTo(b.dueDate!);
+        });
+
+        // Find instances to include for this template
+        final instancesToInclude = <ActivityInstanceRecord>[];
+
+        for (final instance in instances) {
+          // Include instance if today falls within its window [dueDate, windowEndDate]
+          if (instance.dueDate != null && instance.windowEndDate != null) {
+            final windowStart = DateTime(instance.dueDate!.year,
+                instance.dueDate!.month, instance.dueDate!.day);
+            final windowEnd = DateTime(instance.windowEndDate!.year,
+                instance.windowEndDate!.month, instance.windowEndDate!.day);
+
+            print(
+                'ActivityInstanceService: Checking instance ${instance.templateName}');
+            print('  - Status: ${instance.status}');
+            print('  - Due Date: ${instance.dueDate}');
+            print('  - Window End: ${instance.windowEndDate}');
+            print('  - Today: $today');
+            print('  - Window Start: $windowStart');
+            print('  - Window End: $windowEnd');
+
+            if (!today.isBefore(windowStart) && !today.isAfter(windowEnd)) {
+              instancesToInclude.add(instance);
+              print(
+                  'ActivityInstanceService: Including instance ${instance.templateName} (today within window)');
+            } else {
+              print(
+                  'ActivityInstanceService: Excluding instance ${instance.templateName} (today outside window)');
             }
           }
         }
+
+        // For Habits page: Only include current instances, NOT future instances
+        // This prevents showing "Tomorrow" instances in the Habits page
+
+        relevantInstances.addAll(instancesToInclude);
       }
 
-      final finalInstanceList = earliestInstances.values.toList();
-
       // Sort: instances with due dates first (oldest first), then nulls last
-      finalInstanceList.sort((a, b) {
+      relevantInstances.sort((a, b) {
         if (a.dueDate == null && b.dueDate == null) return 0;
         if (a.dueDate == null) return 1; // a goes after b
         if (b.dueDate == null) return -1; // a goes before b
@@ -292,10 +325,10 @@ class ActivityInstanceService {
       });
 
       print(
-          'ActivityInstanceService: Returning ${finalInstanceList.length} unique habit instances.');
+          'ActivityInstanceService: Returning ${relevantInstances.length} current habit instances.');
 
       // Debug: Log each instance being returned
-      for (final instance in finalInstanceList) {
+      for (final instance in relevantInstances) {
         print(
             'ActivityInstanceService: Returning instance ${instance.templateName}');
         print('  - Instance ID: ${instance.reference.id}');
@@ -306,7 +339,124 @@ class ActivityInstanceService {
         print('  - Belongs To Date: ${instance.belongsToDate}');
       }
 
-      return finalInstanceList;
+      return relevantInstances;
+    } catch (e) {
+      print('Error getting current habit instances: $e');
+      return [];
+    }
+  }
+
+  /// Get active habit instances for the user (Queue page - includes future instances)
+  static Future<List<ActivityInstanceRecord>> getActiveHabitInstances({
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      print(
+          'ActivityInstanceService: Getting active habit instances for user $uid');
+      // Fetch ALL habit instances regardless of status to include completed/skipped/snoozed
+      // The calculator and UI will filter appropriately
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'habit');
+
+      final result = await query.get();
+      final allHabitInstances = result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      print(
+          'ActivityInstanceService: Found ${allHabitInstances.length} total habit instances (all statuses).');
+
+      // Group instances by templateId and apply window-based filtering
+      final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
+      for (final instance in allHabitInstances) {
+        final templateId = instance.templateId;
+        (instancesByTemplate[templateId] ??= []).add(instance);
+      }
+
+      final List<ActivityInstanceRecord> relevantInstances = [];
+      final today = DateService.todayStart;
+
+      for (final templateId in instancesByTemplate.keys) {
+        final instances = instancesByTemplate[templateId]!;
+
+        // Sort instances by due date (earliest first)
+        instances.sort((a, b) {
+          if (a.dueDate == null && b.dueDate == null) return 0;
+          if (a.dueDate == null) return 1;
+          if (b.dueDate == null) return -1;
+          return a.dueDate!.compareTo(b.dueDate!);
+        });
+
+        // Find instances to include for this template
+        final instancesToInclude = <ActivityInstanceRecord>[];
+
+        for (final instance in instances) {
+          // Include instance if today falls within its window [dueDate, windowEndDate]
+          if (instance.dueDate != null && instance.windowEndDate != null) {
+            final windowStart = DateTime(instance.dueDate!.year,
+                instance.dueDate!.month, instance.dueDate!.day);
+            final windowEnd = DateTime(instance.windowEndDate!.year,
+                instance.windowEndDate!.month, instance.windowEndDate!.day);
+
+            print(
+                'ActivityInstanceService: Checking instance ${instance.templateName}');
+            print('  - Status: ${instance.status}');
+            print('  - Due Date: ${instance.dueDate}');
+            print('  - Window End: ${instance.windowEndDate}');
+            print('  - Today: $today');
+            print('  - Window Start: $windowStart');
+            print('  - Window End: $windowEnd');
+
+            if (!today.isBefore(windowStart) && !today.isAfter(windowEnd)) {
+              instancesToInclude.add(instance);
+              print(
+                  'ActivityInstanceService: Including instance ${instance.templateName} (today within window)');
+            } else {
+              print(
+                  'ActivityInstanceService: Excluding instance ${instance.templateName} (today outside window)');
+            }
+          }
+        }
+
+        // ALWAYS include the next pending instance (for future planning)
+        final nextPending = instances.firstWhere(
+          (instance) => instance.status == 'pending',
+          orElse: () => instances.first,
+        );
+        if (!instancesToInclude.contains(nextPending)) {
+          instancesToInclude.add(nextPending);
+          print(
+              'ActivityInstanceService: Including next instance ${nextPending.templateName} (future planning)');
+        }
+
+        relevantInstances.addAll(instancesToInclude);
+      }
+
+      // Sort: instances with due dates first (oldest first), then nulls last
+      relevantInstances.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1; // a goes after b
+        if (b.dueDate == null) return -1; // a goes before b
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+
+      print(
+          'ActivityInstanceService: Returning ${relevantInstances.length} relevant habit instances.');
+
+      // Debug: Log each instance being returned
+      for (final instance in relevantInstances) {
+        print(
+            'ActivityInstanceService: Returning instance ${instance.templateName}');
+        print('  - Instance ID: ${instance.reference.id}');
+        print('  - Due Date: ${instance.dueDate}');
+        print('  - Window End Date: ${instance.windowEndDate}');
+        print('  - Current Value: ${instance.currentValue}');
+        print('  - Status: ${instance.status}');
+        print('  - Belongs To Date: ${instance.belongsToDate}');
+      }
+
+      return relevantInstances;
     } catch (e) {
       print('Error getting active habit instances: $e');
       return [];
@@ -321,30 +471,47 @@ class ActivityInstanceService {
     try {
       print(
           'ActivityInstanceService: Getting all active instances for user $uid');
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('status', isEqualTo: 'pending');
+      // Fetch ALL instances regardless of status to include completed/skipped/snoozed
+      // The calculator and UI will filter appropriately
+      final query = ActivityInstanceRecord.collectionForUser(uid);
 
       final result = await query.get();
-      final allPendingInstances = result.docs
+      final allInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
 
       print(
-          'ActivityInstanceService: Found ${allPendingInstances.length} total pending instances.');
+          'ActivityInstanceService: Found ${allInstances.length} total instances (all statuses).');
+      // Debug: Log status breakdown
+      final statusCounts = <String, int>{};
+      for (final inst in allInstances) {
+        statusCounts[inst.status] = (statusCounts[inst.status] ?? 0) + 1;
+      }
+      print('ActivityInstanceService: Status breakdown: $statusCounts');
 
-      // Group instances by templateId and keep only the one with the earliest due date
-      final Map<String, ActivityInstanceRecord> earliestInstances = {};
-      for (final instance in allPendingInstances) {
+      // Separate tasks and habits for different filtering logic
+      final taskInstances = allInstances
+          .where((inst) => inst.templateCategoryType == 'task')
+          .toList();
+      final habitInstances = allInstances
+          .where((inst) => inst.templateCategoryType == 'habit')
+          .toList();
+
+      final List<ActivityInstanceRecord> finalInstanceList = [];
+
+      // For tasks: use earliest-only logic (existing behavior)
+      final Map<String, ActivityInstanceRecord> earliestTasks = {};
+      for (final instance in taskInstances) {
         final templateId = instance.templateId;
-        if (!earliestInstances.containsKey(templateId)) {
-          earliestInstances[templateId] = instance;
+        if (!earliestTasks.containsKey(templateId)) {
+          earliestTasks[templateId] = instance;
         } else {
-          final existing = earliestInstances[templateId]!;
+          final existing = earliestTasks[templateId]!;
           // Handle null due dates: nulls go last
           if (existing.dueDate == null) {
             // Keep existing (null), unless new also has a date
             if (instance.dueDate != null) {
-              earliestInstances[templateId] = instance;
+              earliestTasks[templateId] = instance;
             }
           } else if (instance.dueDate == null) {
             // Keep existing (has date)
@@ -352,13 +519,78 @@ class ActivityInstanceService {
           } else {
             // Both have dates, compare normally
             if (instance.dueDate!.isBefore(existing.dueDate!)) {
-              earliestInstances[templateId] = instance;
+              earliestTasks[templateId] = instance;
             }
           }
         }
       }
+      finalInstanceList.addAll(earliestTasks.values);
 
-      final finalInstanceList = earliestInstances.values.toList();
+      // For habits: use window-based filtering (new behavior)
+      final Map<String, List<ActivityInstanceRecord>> habitInstancesByTemplate =
+          {};
+      for (final instance in habitInstances) {
+        final templateId = instance.templateId;
+        (habitInstancesByTemplate[templateId] ??= []).add(instance);
+      }
+
+      final today = DateService.todayStart;
+
+      for (final templateId in habitInstancesByTemplate.keys) {
+        final instances = habitInstancesByTemplate[templateId]!;
+
+        // Sort instances by due date (earliest first)
+        instances.sort((a, b) {
+          if (a.dueDate == null && b.dueDate == null) return 0;
+          if (a.dueDate == null) return 1;
+          if (b.dueDate == null) return -1;
+          return a.dueDate!.compareTo(b.dueDate!);
+        });
+
+        // Find instances to include for this template
+        final instancesToInclude = <ActivityInstanceRecord>[];
+
+        for (final instance in instances) {
+          // Include instance if today falls within its window [dueDate, windowEndDate]
+          if (instance.dueDate != null && instance.windowEndDate != null) {
+            final windowStart = DateTime(instance.dueDate!.year,
+                instance.dueDate!.month, instance.dueDate!.day);
+            final windowEnd = DateTime(instance.windowEndDate!.year,
+                instance.windowEndDate!.month, instance.windowEndDate!.day);
+
+            print(
+                'ActivityInstanceService: Checking habit instance ${instance.templateName}');
+            print('  - Status: ${instance.status}');
+            print('  - Due Date: ${instance.dueDate}');
+            print('  - Window End: ${instance.windowEndDate}');
+            print('  - Today: $today');
+            print('  - Window Start: $windowStart');
+            print('  - Window End: $windowEnd');
+
+            if (!today.isBefore(windowStart) && !today.isAfter(windowEnd)) {
+              instancesToInclude.add(instance);
+              print(
+                  'ActivityInstanceService: Including habit instance ${instance.templateName} (today within window)');
+            } else {
+              print(
+                  'ActivityInstanceService: Excluding habit instance ${instance.templateName} (today outside window)');
+            }
+          }
+        }
+
+        // ALWAYS include the next pending instance (for future planning)
+        final nextPending = instances.firstWhere(
+          (instance) => instance.status == 'pending',
+          orElse: () => instances.first,
+        );
+        if (!instancesToInclude.contains(nextPending)) {
+          instancesToInclude.add(nextPending);
+          print(
+              'ActivityInstanceService: Including next habit instance ${nextPending.templateName} (future planning)');
+        }
+
+        finalInstanceList.addAll(instancesToInclude);
+      }
 
       // Sort: instances with due dates first (oldest first), then nulls last
       finalInstanceList.sort((a, b) {
@@ -369,7 +601,7 @@ class ActivityInstanceService {
       });
 
       print(
-          'ActivityInstanceService: Returning ${finalInstanceList.length} unique instances.');
+          'ActivityInstanceService: Returning ${finalInstanceList.length} relevant instances (${earliestTasks.length} tasks + ${finalInstanceList.length - earliestTasks.length} habits).');
 
       return finalInstanceList;
     } catch (e) {
@@ -620,11 +852,8 @@ class ActivityInstanceService {
         'lastUpdated': now,
       };
 
-      // For windowed habits, update lastDayValue to track differential progress
-      if (instance.templateCategoryType == 'habit' &&
-          instance.windowDuration > 1) {
-        updateData['lastDayValue'] = currentValue;
-      }
+      // Note: lastDayValue should be updated at day-end, not during progress updates
+      // This allows differential progress calculation to work correctly
 
       await instanceRef.update(updateData);
 
@@ -640,7 +869,17 @@ class ActivityInstanceService {
             finalValue: currentValue,
             userId: uid,
           );
+        } else {
+          // Broadcast the instance update event for progress changes
+          final updatedInstance =
+              await getUpdatedInstance(instanceId: instanceId, userId: uid);
+          InstanceEvents.broadcastInstanceUpdated(updatedInstance);
         }
+      } else {
+        // Broadcast the instance update event for progress changes
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       }
     } catch (e) {
       print('Error updating instance progress: $e');
@@ -680,6 +919,11 @@ class ActivityInstanceService {
 
       print(
           'ActivityInstanceService: Snoozed instance ${instance.templateName} until $snoozeUntil');
+
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       print('Error snoozing instance: $e');
       rethrow;
@@ -708,6 +952,11 @@ class ActivityInstanceService {
       });
 
       print('ActivityInstanceService: Unsnoozed instance $instanceId');
+
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       print('Error unsnoozing instance: $e');
       rethrow;
@@ -796,28 +1045,33 @@ class ActivityInstanceService {
         'lastUpdated': now,
       });
 
-      // Get the template to check if it's recurring
-      final templateRef =
-          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-      final templateDoc = await templateRef.get();
+      // For habits, generate next instance immediately using window system
+      if (instance.templateCategoryType == 'habit') {
+        await _generateNextHabitInstance(instance, uid);
+      } else {
+        // For tasks, use the existing recurring logic
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+        final templateDoc = await templateRef.get();
 
-      if (templateDoc.exists) {
-        final template = ActivityRecord.fromSnapshot(templateDoc);
+        if (templateDoc.exists) {
+          final template = ActivityRecord.fromSnapshot(templateDoc);
 
-        // Generate next instance if template is recurring and still active
-        if (template.isRecurring && template.isActive) {
-          final nextDueDate = _calculateNextDueDate(
-            currentDueDate: instance.dueDate!,
-            template: template,
-          );
-
-          if (nextDueDate != null) {
-            await createActivityInstance(
-              templateId: instance.templateId,
-              dueDate: nextDueDate,
+          // Generate next instance if template is recurring and still active
+          if (template.isRecurring && template.isActive) {
+            final nextDueDate = _calculateNextDueDate(
+              currentDueDate: instance.dueDate!,
               template: template,
-              userId: uid,
             );
+
+            if (nextDueDate != null) {
+              await createActivityInstance(
+                templateId: instance.templateId,
+                dueDate: nextDueDate,
+                template: template,
+                userId: uid,
+              );
+            }
           }
         }
       }
@@ -848,6 +1102,11 @@ class ActivityInstanceService {
         'dueDate': newDueDate,
         'lastUpdated': DateService.currentDate,
       });
+
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       print('Error rescheduling activity instance: $e');
       rethrow;
@@ -878,6 +1137,11 @@ class ActivityInstanceService {
         'lastUpdated': DateService.currentDate,
       });
       print('DEBUG: Instance updated successfully, due date removed');
+
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       print('Error removing due date from instance: $e');
       rethrow;

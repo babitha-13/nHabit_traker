@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/points_service.dart';
+import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/progress_donut_chart.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
@@ -51,6 +52,26 @@ class _QueuePageState extends State<QueuePage> {
         setState(() {
           _loadData();
         });
+      }
+    });
+
+    // Listen for instance events
+    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
+        (param) {
+      if (param is ActivityInstanceRecord && mounted) {
+        _handleInstanceCreated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
+        (param) {
+      if (param is ActivityInstanceRecord && mounted) {
+        _handleInstanceUpdated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
+        (param) {
+      if (param is ActivityInstanceRecord && mounted) {
+        _handleInstanceDeleted(param);
       }
     });
   }
@@ -121,62 +142,47 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  /// Calculate progress for today's habits
+  /// Calculate progress for today's habits and tasks
+  /// Uses shared DailyProgressCalculator for consistency with historical data
   void _calculateProgress() async {
     print('QueuePage: _calculateProgress() called');
     print('  - Total instances: ${_instances.length}');
 
-    final todayHabits = _instances
-        .where((inst) =>
-            inst.templateCategoryType == 'habit' && _isTodayOrOverdue(inst))
+    // Separate habit and task instances
+    final habitInstances = _instances
+        .where((inst) => inst.templateCategoryType == 'habit')
+        .toList();
+    final taskInstances = _instances
+        .where((inst) => inst.templateCategoryType == 'task')
         .toList();
 
-    // Also include completed habits from today
-    final completedTodayHabits = _instances
-        .where((inst) =>
-            inst.templateCategoryType == 'habit' &&
-            inst.status == 'completed' &&
-            _wasCompletedToday(inst))
-        .toList();
+    print('  - Habit instances: ${habitInstances.length}');
+    print('  - Task instances: ${taskInstances.length}');
 
-    // Combine both pending and completed habits for today
-    final allTodayHabits = [...todayHabits, ...completedTodayHabits];
+    // Use the shared calculator - same logic as DayEndProcessor
+    final progressData = await DailyProgressCalculator.calculateTodayProgress(
+      userId: currentUserUid,
+      allInstances: habitInstances,
+      categories: _categories,
+      taskInstances: taskInstances,
+    );
 
-    print('QueuePage: Habit filtering results:');
-    print('  - Today habits: ${todayHabits.length}');
-    for (final habit in todayHabits) {
-      print(
-          '    - ${habit.templateName} (${habit.templateCategoryType}) - Status: ${habit.status} - Value: ${habit.currentValue}');
-    }
-    print('  - Completed today: ${completedTodayHabits.length}');
-    for (final habit in completedTodayHabits) {
-      print(
-          '    - ${habit.templateName} (${habit.templateCategoryType}) - Status: ${habit.status} - Value: ${habit.currentValue}');
-    }
-    print('  - Total habits for calculation: ${allTodayHabits.length}');
+    _dailyTarget = progressData['target'] as double;
+    _pointsEarned = progressData['earned'] as double;
+    _dailyPercentage = progressData['percentage'] as double;
 
-    // Use enhanced calculation with template data for accurate frequency
-    try {
-      _dailyTarget = await PointsService.calculateTotalDailyTargetWithTemplates(
-          allTodayHabits, _categories, currentUserUid);
-    } catch (e) {
-      // Fallback to basic calculation if template fetch fails
-      _dailyTarget =
-          PointsService.calculateTotalDailyTarget(allTodayHabits, _categories);
-    }
-
-    _pointsEarned =
-        PointsService.calculateTotalPointsEarned(allTodayHabits, _categories);
-    _dailyPercentage = PointsService.calculateDailyPerformancePercent(
-        _pointsEarned, _dailyTarget);
+    // Extract breakdown for detailed logging
+    final habitTarget = progressData['habitTarget'] as double;
+    final habitEarned = progressData['habitEarned'] as double;
+    final taskTarget = progressData['taskTarget'] as double;
+    final taskEarned = progressData['taskEarned'] as double;
 
     // Debug logging
-    print('QueuePage: Progress calculation:');
-    print('  - Pending habits: ${todayHabits.length}');
-    print('  - Completed today: ${completedTodayHabits.length}');
-    print('  - Total habits: ${allTodayHabits.length}');
-    print('  - Daily target: $_dailyTarget');
-    print('  - Points earned: $_pointsEarned');
+    print('QueuePage: Progress calculation (via DailyProgressCalculator):');
+    print(
+        '  - Total target: $_dailyTarget (Habits: $habitTarget, Tasks: $taskTarget)');
+    print(
+        '  - Total earned: $_pointsEarned (Habits: $habitEarned, Tasks: $taskEarned)');
     print('  - Percentage: $_dailyPercentage%');
 
     // Update UI with new progress values immediately
@@ -245,19 +251,10 @@ class _QueuePageState extends State<QueuePage> {
     return isTodayOrOverdue;
   }
 
-  /// Check if a completed instance was completed today
-  bool _wasCompletedToday(ActivityInstanceRecord instance) {
-    if (instance.completedAt == null) return false;
-
-    final today = _todayDate();
-    final completedDate = DateTime(instance.completedAt!.year,
-        instance.completedAt!.month, instance.completedAt!.day);
-
-    return completedDate.isAtSameMomentAs(today);
-  }
+  // Removed _wasCompletedToday - now handled by DailyProgressCalculator
 
   bool _isInstanceCompleted(ActivityInstanceRecord instance) {
-    return instance.status == 'completed';
+    return instance.status == 'completed' || instance.status == 'skipped';
   }
 
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
@@ -302,9 +299,9 @@ class _QueuePageState extends State<QueuePage> {
         print('  ${instance.templateName}: OVERDUE (task)');
       }
       // TODAY: Both habits and tasks for today
-      else if (_isSameDay(dateOnly, today)) {
+      else if (_isTodayOrOverdue(instance)) {
         buckets['Today']!.add(instance);
-        print('  ${instance.templateName}: TODAY');
+        print('  ${instance.templateName}: TODAY (within window or due today)');
       }
       // TOMORROW: Both habits and tasks for tomorrow
       else if (_isSameDay(dateOnly, _tomorrowDate())) {
@@ -328,14 +325,27 @@ class _QueuePageState extends State<QueuePage> {
     final yesterdayStart = todayStart.subtract(const Duration(days: 1));
     for (final instance in _instances) {
       if (instance.status != 'completed') continue;
-      if (instance.completedAt == null) continue;
+      print(
+          'QueuePage: Processing completed instance ${instance.templateName}');
+      print('  - Status: ${instance.status}');
+      print('  - CompletedAt: ${instance.completedAt}');
+      if (instance.completedAt == null) {
+        print('  - SKIPPED: completedAt is null');
+        continue;
+      }
       final completedDate = instance.completedAt!;
       final completedDateOnly =
           DateTime(completedDate.year, completedDate.month, completedDate.day);
       final isRecent = completedDateOnly.isAfter(yesterdayStart) ||
           completedDateOnly.isAtSameMomentAs(yesterdayStart);
+      print('  - Completed date only: $completedDateOnly');
+      print('  - Yesterday start: $yesterdayStart');
+      print('  - Is recent: $isRecent');
       if (isRecent) {
         buckets['Recent Completions']!.add(instance);
+        print('  - ADDED to Recent Completions');
+      } else {
+        print('  - NOT recent enough');
       }
     }
 
@@ -344,13 +354,24 @@ class _QueuePageState extends State<QueuePage> {
 
   String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
     if (bucketKey == 'Recent Completions') {
+      print(
+          'QueuePage: _getSubtitle for Recent Completions - ${item.templateName}');
+      print('  - CompletedAt: ${item.completedAt}');
+      print('  - Status: ${item.status}');
+      if (item.completedAt == null) {
+        print('  - ERROR: completedAt is null!');
+        return 'Completed • ${item.templateCategoryName} • Error: No completion date';
+      }
       final completedAt = item.completedAt!;
       final completedStr =
           _isSameDay(completedAt, DateTime.now()) ? 'Today' : 'Yesterday';
       final due = item.dueDate;
       final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
       final icon = item.templateCategoryType == 'task' ? '📋' : '🔁';
-      return 'Completed $completedStr • ${item.templateCategoryName} • Due: $dueStr • $icon';
+      final subtitle =
+          'Completed $completedStr • ${item.templateCategoryName} • Due: $dueStr • $icon';
+      print('  - Generated subtitle: $subtitle');
+      return subtitle;
     }
 
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
@@ -360,7 +381,7 @@ class _QueuePageState extends State<QueuePage> {
         if (daysLeft > 0) {
           return '${item.templateCategoryName} • $daysLeft days left';
         } else {
-          return '${item.templateCategoryName} • Window expires today';
+          return item.templateCategoryName;
         }
       }
       return item.templateCategoryName;
@@ -532,16 +553,6 @@ class _QueuePageState extends State<QueuePage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (key == 'Today') ...[
-                      const SizedBox(height: 2),
-                      Text(
-                        _getDayEndCountdown(),
-                        style: theme.bodySmall.override(
-                          fontFamily: 'Readex Pro',
-                          color: theme.secondaryText,
-                        ),
-                      ),
-                    ],
                   ],
                 ),
                 GestureDetector(
@@ -583,6 +594,7 @@ class _QueuePageState extends State<QueuePage> {
                   isHabit: isHabit,
                   showTypeIcon: true,
                   showRecurringIcon: true,
+                  showCompleted: key == 'Recent Completions' ? true : null,
                 );
               },
               childCount: items.length,
@@ -648,6 +660,39 @@ class _QueuePageState extends State<QueuePage> {
           (inst) => inst.reference.id == deletedInstance.reference.id);
     });
 
+    // Recalculate progress for instant updates
+    _calculateProgress();
+  }
+
+  // Event handlers for live updates
+  void _handleInstanceCreated(ActivityInstanceRecord instance) {
+    setState(() {
+      _instances.add(instance);
+    });
+    print('QueuePage: Added new instance ${instance.templateName}');
+    // Recalculate progress for instant updates
+    _calculateProgress();
+  }
+
+  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+    setState(() {
+      final index = _instances
+          .indexWhere((inst) => inst.reference.id == instance.reference.id);
+      if (index != -1) {
+        _instances[index] = instance;
+        print('QueuePage: Updated instance ${instance.templateName}');
+      }
+    });
+    // Recalculate progress for instant updates
+    _calculateProgress();
+  }
+
+  void _handleInstanceDeleted(ActivityInstanceRecord instance) {
+    setState(() {
+      _instances
+          .removeWhere((inst) => inst.reference.id == instance.reference.id);
+    });
+    print('QueuePage: Removed instance ${instance.templateName}');
     // Recalculate progress for instant updates
     _calculateProgress();
   }

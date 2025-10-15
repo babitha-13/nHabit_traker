@@ -58,6 +58,36 @@ class DailyProgressRecord extends FirestoreRecord {
   int get skippedHabits => _skippedHabits ?? 0;
   bool hasSkippedHabits() => _skippedHabits != null;
 
+  // "totalTasks" field - tasks scheduled for this day
+  int? _totalTasks;
+  int get totalTasks => _totalTasks ?? 0;
+  bool hasTotalTasks() => _totalTasks != null;
+
+  // "completedTasks" field - fully completed
+  int? _completedTasks;
+  int get completedTasks => _completedTasks ?? 0;
+  bool hasCompletedTasks() => _completedTasks != null;
+
+  // "partialTasks" field - partial completion (e.g., 6/8 items)
+  int? _partialTasks;
+  int get partialTasks => _partialTasks ?? 0;
+  bool hasPartialTasks() => _partialTasks != null;
+
+  // "skippedTasks" field - manually skipped or rescheduled
+  int? _skippedTasks;
+  int get skippedTasks => _skippedTasks ?? 0;
+  bool hasSkippedTasks() => _skippedTasks != null;
+
+  // "taskTargetPoints" field - total daily target for all tasks
+  double? _taskTargetPoints;
+  double get taskTargetPoints => _taskTargetPoints ?? 0.0;
+  bool hasTaskTargetPoints() => _taskTargetPoints != null;
+
+  // "taskEarnedPoints" field - total points earned from tasks
+  double? _taskEarnedPoints;
+  double get taskEarnedPoints => _taskEarnedPoints ?? 0.0;
+  bool hasTaskEarnedPoints() => _taskEarnedPoints != null;
+
   // "categoryBreakdown" field - per-category stats
   Map<String, dynamic>? _categoryBreakdown;
   Map<String, dynamic> get categoryBreakdown => _categoryBreakdown ?? {};
@@ -84,6 +114,12 @@ class DailyProgressRecord extends FirestoreRecord {
     _completedHabits = snapshotData['completedHabits'] as int?;
     _partialHabits = snapshotData['partialHabits'] as int?;
     _skippedHabits = snapshotData['skippedHabits'] as int?;
+    _totalTasks = snapshotData['totalTasks'] as int?;
+    _completedTasks = snapshotData['completedTasks'] as int?;
+    _partialTasks = snapshotData['partialTasks'] as int?;
+    _skippedTasks = snapshotData['skippedTasks'] as int?;
+    _taskTargetPoints = (snapshotData['taskTargetPoints'] as num?)?.toDouble();
+    _taskEarnedPoints = (snapshotData['taskEarnedPoints'] as num?)?.toDouble();
     _categoryBreakdown =
         snapshotData['categoryBreakdown'] as Map<String, dynamic>?;
     _createdAt = snapshotData['createdAt'] as DateTime?;
@@ -147,6 +183,12 @@ Map<String, dynamic> createDailyProgressRecordData({
   int? completedHabits,
   int? partialHabits,
   int? skippedHabits,
+  int? totalTasks,
+  int? completedTasks,
+  int? partialTasks,
+  int? skippedTasks,
+  double? taskTargetPoints,
+  double? taskEarnedPoints,
   Map<String, dynamic>? categoryBreakdown,
   DateTime? createdAt,
   DateTime? lastEditedAt,
@@ -162,6 +204,12 @@ Map<String, dynamic> createDailyProgressRecordData({
       'completedHabits': completedHabits,
       'partialHabits': partialHabits,
       'skippedHabits': skippedHabits,
+      'totalTasks': totalTasks,
+      'completedTasks': completedTasks,
+      'partialTasks': partialTasks,
+      'skippedTasks': skippedTasks,
+      'taskTargetPoints': taskTargetPoints,
+      'taskEarnedPoints': taskEarnedPoints,
       'categoryBreakdown': categoryBreakdown,
       'createdAt': createdAt,
       'lastEditedAt': lastEditedAt,
@@ -189,6 +237,12 @@ class DailyProgressRecordDocumentEquality
         e1?.completedHabits == e2?.completedHabits &&
         e1?.partialHabits == e2?.partialHabits &&
         e1?.skippedHabits == e2?.skippedHabits &&
+        e1?.totalTasks == e2?.totalTasks &&
+        e1?.completedTasks == e2?.completedTasks &&
+        e1?.partialTasks == e2?.partialTasks &&
+        e1?.skippedTasks == e2?.skippedTasks &&
+        e1?.taskTargetPoints == e2?.taskTargetPoints &&
+        e1?.taskEarnedPoints == e2?.taskEarnedPoints &&
         const MapEquality()
             .equals(e1?.categoryBreakdown, e2?.categoryBreakdown) &&
         e1?.createdAt == e2?.createdAt &&
@@ -206,6 +260,12 @@ class DailyProgressRecordDocumentEquality
         e?.completedHabits,
         e?.partialHabits,
         e?.skippedHabits,
+        e?.totalTasks,
+        e?.completedTasks,
+        e?.partialTasks,
+        e?.skippedTasks,
+        e?.taskTargetPoints,
+        e?.taskEarnedPoints,
         const MapEquality().hash(e?.categoryBreakdown),
         e?.createdAt,
         e?.lastEditedAt,
