@@ -162,6 +162,19 @@ class ActivityInstanceRecord extends FirestoreRecord {
   DateTime? get snoozedUntil => _snoozedUntil;
   bool hasSnoozedUntil() => _snoozedUntil != null;
 
+  // Order fields for drag-to-reorder functionality (per page)
+  int? _queueOrder; // Order position in Queue page
+  int get queueOrder => _queueOrder ?? 0;
+  bool hasQueueOrder() => _queueOrder != null;
+
+  int? _habitsOrder; // Order position in Habits page
+  int get habitsOrder => _habitsOrder ?? 0;
+  bool hasHabitsOrder() => _habitsOrder != null;
+
+  int? _tasksOrder; // Order position in Tasks page
+  int get tasksOrder => _tasksOrder ?? 0;
+  bool hasTasksOrder() => _tasksOrder != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -199,6 +212,9 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _windowEndDate = snapshotData['windowEndDate'] as DateTime?;
     _windowDuration = snapshotData['windowDuration'] as int?;
     _snoozedUntil = snapshotData['snoozedUntil'] as DateTime?;
+    _queueOrder = snapshotData['queueOrder'] as int?;
+    _habitsOrder = snapshotData['habitsOrder'] as int?;
+    _tasksOrder = snapshotData['tasksOrder'] as int?;
   }
 
   static CollectionReference get collection =>
@@ -283,6 +299,9 @@ Map<String, dynamic> createActivityInstanceRecordData({
   DateTime? closedAt,
   DateTime? windowEndDate,
   int? windowDuration,
+  int? queueOrder,
+  int? habitsOrder,
+  int? tasksOrder,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -319,6 +338,9 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'closedAt': closedAt,
       'windowEndDate': windowEndDate,
       'windowDuration': windowDuration,
+      'queueOrder': queueOrder,
+      'habitsOrder': habitsOrder,
+      'tasksOrder': tasksOrder,
     }.withoutNulls,
   );
 
@@ -366,7 +388,10 @@ class ActivityInstanceRecordDocumentEquality
         e1?.belongsToDate == e2?.belongsToDate &&
         e1?.closedAt == e2?.closedAt &&
         e1?.windowEndDate == e2?.windowEndDate &&
-        e1?.windowDuration == e2?.windowDuration;
+        e1?.windowDuration == e2?.windowDuration &&
+        e1?.queueOrder == e2?.queueOrder &&
+        e1?.habitsOrder == e2?.habitsOrder &&
+        e1?.tasksOrder == e2?.tasksOrder;
   }
 
   @override
@@ -403,5 +428,8 @@ class ActivityInstanceRecordDocumentEquality
         e?.closedAt,
         e?.windowEndDate,
         e?.windowDuration,
+        e?.queueOrder,
+        e?.habitsOrder,
+        e?.tasksOrder,
       ]);
 }

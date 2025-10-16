@@ -142,7 +142,10 @@ class PointsService {
       case 'time':
         // Time-based habits: points based on accumulated time vs target
         if (instance.status == 'completed') {
-          return habitPriority;
+          final targetMinutes = _getTargetValue(instance);
+          final durationMultiplier =
+              _calculateDurationMultiplier(targetMinutes);
+          return habitPriority * durationMultiplier;
         }
 
         final accumulatedTime = instance.accumulatedTime;
@@ -164,12 +167,15 @@ class PointsService {
 
           final progressFraction =
               (todayContribution / targetMs).clamp(0.0, 1.0);
-          return progressFraction * habitPriority;
+          final durationMultiplier =
+              _calculateDurationMultiplier(targetMinutes);
+          return progressFraction * habitPriority * durationMultiplier;
         }
 
         // For non-windowed habits, use total progress
         final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
-        return completionFraction * habitPriority;
+        final durationMultiplier = _calculateDurationMultiplier(targetMinutes);
+        return completionFraction * habitPriority * durationMultiplier;
 
       default:
         return 0.0;
@@ -319,8 +325,16 @@ class PointsService {
 
   /// Calculate the daily target points for a single task instance
   /// For tasks: target = priority (no category weightage)
+  /// For time-based tasks: target = priority × duration multiplier
   static double calculateTaskDailyTarget(TaskInstanceRecord instance) {
     final priority = instance.templatePriority.toDouble();
+
+    // For time-based tasks, multiply by duration blocks
+    if (instance.templateTrackingType == 'time') {
+      final targetMinutes = _getTaskTargetValue(instance);
+      final durationMultiplier = _calculateDurationMultiplier(targetMinutes);
+      return priority * durationMultiplier;
+    }
 
     return priority;
   }
@@ -352,7 +366,10 @@ class PointsService {
       case 'time':
         // Time-based tasks: points based on accumulated time vs target
         if (instance.status == 'completed') {
-          return priority;
+          final targetMinutes = _getTaskTargetValue(instance);
+          final durationMultiplier =
+              _calculateDurationMultiplier(targetMinutes);
+          return priority * durationMultiplier;
         }
 
         final accumulatedTime = instance.accumulatedTime;
@@ -363,7 +380,8 @@ class PointsService {
         if (targetMs <= 0) return 0.0;
 
         final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
-        return completionFraction * priority;
+        final durationMultiplier = _calculateDurationMultiplier(targetMinutes);
+        return completionFraction * priority * durationMultiplier;
 
       default:
         return 0.0;
@@ -408,6 +426,13 @@ class PointsService {
     if (target is num) return target.toDouble();
     if (target is String) return double.tryParse(target) ?? 0.0;
     return 0.0;
+  }
+
+  /// Calculate duration multiplier based on target minutes
+  /// Returns the number of 15-minute blocks, minimum 1
+  static int _calculateDurationMultiplier(double targetMinutes) {
+    if (targetMinutes <= 0) return 1;
+    return (targetMinutes / 15).round().clamp(1, double.infinity).toInt();
   }
 }
 

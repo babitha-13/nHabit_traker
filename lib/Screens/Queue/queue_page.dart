@@ -12,7 +12,9 @@ import 'package:habit_tracker/Helper/utils/progress_donut_chart.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -40,6 +42,10 @@ class _QueuePageState extends State<QueuePage> {
   double _dailyPercentage = 0.0;
   // Removed legacy Recent Completions expansion state; now uses standard sections
 
+  // Search functionality
+  String _searchQuery = '';
+  final SearchStateManager _searchManager = SearchStateManager();
+
   @override
   void initState() {
     super.initState();
@@ -52,6 +58,9 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     });
+
+    // Listen for search changes
+    _searchManager.addListener(_onSearchChanged);
 
     // Listen for instance events
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
@@ -77,6 +86,7 @@ class _QueuePageState extends State<QueuePage> {
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
+    _searchManager.removeListener(_onSearchChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -101,6 +111,14 @@ class _QueuePageState extends State<QueuePage> {
     if (mounted) {
       setState(() {
         _expandedSection = expandedSection;
+      });
+    }
+  }
+
+  void _onSearchChanged(String query) {
+    if (mounted) {
+      setState(() {
+        _searchQuery = query;
       });
     }
   }
@@ -277,8 +295,17 @@ class _QueuePageState extends State<QueuePage> {
     final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
-    print('_bucketedItems: Processing ${_instances.length} instances');
-    for (final instance in _instances) {
+    // Filter instances by search query if active
+    final instancesToProcess = _instances.where((instance) {
+      if (_searchQuery.isEmpty) return true;
+      return instance.templateName
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    print(
+        '_bucketedItems: Processing ${instancesToProcess.length} instances (search: "$_searchQuery")');
+    for (final instance in instancesToProcess) {
       // Don't skip completed/skipped instances here - they'll be handled in the Completed/Skipped section
       if (_isInstanceCompleted(instance)) {
         print(
@@ -327,7 +354,7 @@ class _QueuePageState extends State<QueuePage> {
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     final weekAgoStart = todayStart.subtract(const Duration(days: 7));
-    for (final instance in _instances) {
+    for (final instance in instancesToProcess) {
       if (instance.status != 'completed' && instance.status != 'skipped')
         continue;
       print(
@@ -381,7 +408,7 @@ class _QueuePageState extends State<QueuePage> {
     }
 
     // Add snoozed instances to Completed/Skipped section
-    for (final instance in _instances) {
+    for (final instance in instancesToProcess) {
       if (instance.snoozedUntil != null &&
           DateTime.now().isBefore(instance.snoozedUntil!)) {
         print(
@@ -389,6 +416,28 @@ class _QueuePageState extends State<QueuePage> {
         print('  - SnoozedUntil: ${instance.snoozedUntil}');
         buckets['Completed/Skipped']!.add(instance);
         print('  - ADDED to Completed/Skipped');
+      }
+    }
+
+    // Sort items within each bucket by queue order
+    for (final key in buckets.keys) {
+      final items = buckets[key]!;
+      if (items.isNotEmpty) {
+        // Initialize order values for items that don't have them
+        InstanceOrderService.initializeOrderValues(items, 'queue');
+        // Sort by queue order
+        buckets[key] =
+            InstanceOrderService.sortInstancesByOrder(items, 'queue');
+      }
+    }
+
+    // Auto-expand sections with search results
+    if (_searchQuery.isNotEmpty) {
+      for (final key in buckets.keys) {
+        if (buckets[key]!.isNotEmpty) {
+          _expandedSection = key;
+          break; // Expand the first section with results
+        }
       }
     }
 
@@ -665,14 +714,16 @@ class _QueuePageState extends State<QueuePage> {
 
       if (expanded) {
         slivers.add(
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final item = items[index];
-                final isHabit = item.templateCategoryType == 'habit';
-                return ItemComponent(
-                  subtitle: _getSubtitle(item, key),
+          SliverReorderableList(
+            itemBuilder: (context, index) {
+              final item = items[index];
+              final isHabit = item.templateCategoryType == 'habit';
+              return ReorderableDragStartListener(
+                index: index,
+                key: Key('${item.reference.id}_drag'),
+                child: ItemComponent(
                   key: Key(item.reference.id),
+                  subtitle: _getSubtitle(item, key),
                   instance: item,
                   categoryColorHex: _getCategoryColor(item),
                   onRefresh: _loadData,
@@ -684,10 +735,12 @@ class _QueuePageState extends State<QueuePage> {
                   showTypeIcon: true,
                   showRecurringIcon: true,
                   showCompleted: key == 'Completed/Skipped' ? true : null,
-                );
-              },
-              childCount: items.length,
-            ),
+                ),
+              );
+            },
+            itemCount: items.length,
+            onReorder: (oldIndex, newIndex) =>
+                _handleReorder(oldIndex, newIndex, key),
           ),
         );
       }
@@ -784,5 +837,67 @@ class _QueuePageState extends State<QueuePage> {
     print('QueuePage: Removed instance ${instance.templateName}');
     // Recalculate progress for instant updates
     _calculateProgress();
+  }
+
+  /// Silent refresh instances without loading indicator
+  Future<void> _silentRefreshInstances() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+
+      final allInstances = await queryAllInstances(userId: userId);
+      final habitCategories = await queryHabitCategoriesOnce(userId: userId);
+      final taskCategories = await queryTaskCategoriesOnce(userId: userId);
+      final allCategories = [...habitCategories, ...taskCategories];
+
+      if (mounted) {
+        setState(() {
+          _instances = allInstances;
+          _categories = allCategories;
+          // Don't touch _isLoading
+        });
+        _calculateProgress();
+      }
+    } catch (e) {
+      print('Error silently refreshing instances: $e');
+    }
+  }
+
+  /// Handle reordering of items within a section
+  Future<void> _handleReorder(
+      int oldIndex, int newIndex, String sectionKey) async {
+    try {
+      final buckets = _bucketedItems;
+      final items = buckets[sectionKey]!;
+
+      if (oldIndex >= items.length || newIndex >= items.length) return;
+
+      // Create a copy of the items list for reordering
+      final reorderedItems = List<ActivityInstanceRecord>.from(items);
+
+      // Don't call setState before database update
+      // Let ReorderableList handle the drag animation
+      await InstanceOrderService.reorderInstancesInSection(
+        reorderedItems,
+        'queue',
+        oldIndex,
+        newIndex,
+      );
+
+      // Silent refresh - no loading indicator
+      await _silentRefreshInstances();
+
+      print('QueuePage: Reordered items in section $sectionKey');
+    } catch (e) {
+      print('QueuePage: Error reordering items: $e');
+      // Revert to correct state by refreshing data
+      await _loadData();
+      // Show error to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reordering items: $e')),
+        );
+      }
+    }
   }
 }

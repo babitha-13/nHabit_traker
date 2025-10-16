@@ -1096,18 +1096,25 @@ class _ItemComponentState extends State<ItemComponent>
     // TODO: Phase 3 - Re-implement completion logic for each type
     switch (widget.instance.templateTrackingType) {
       case 'binary':
-        return SizedBox(
-          width: 24,
-          height: 24,
-          child: Checkbox(
-            value: _isCompleted,
-            onChanged: _isUpdating
-                ? null
-                : (value) async {
-                    await _handleBinaryCompletion(value ?? false);
-                  },
-            activeColor: _impactLevelColor,
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        return Material(
+          type: MaterialType.transparency,
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(
+              minWidth: 24,
+              minHeight: 24,
+              maxWidth: 24,
+              maxHeight: 24,
+            ),
+            child: Checkbox(
+              value: _isCompleted,
+              onChanged: _isUpdating
+                  ? null
+                  : (value) async {
+                      await _handleBinaryCompletion(value ?? false);
+                    },
+              activeColor: _impactLevelColor,
+              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
           ),
         );
       case 'quantitative':

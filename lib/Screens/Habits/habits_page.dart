@@ -7,9 +7,11 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -33,12 +35,20 @@ class _HabitsPageState extends State<HabitsPage> {
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
 
+  // Search functionality
+  String _searchQuery = '';
+  final SearchStateManager _searchManager = SearchStateManager();
+
   @override
   void initState() {
     super.initState();
     _showCompleted = widget.showCompleted;
     _loadExpansionState();
     _loadHabits();
+
+    // Listen for search changes
+    _searchManager.addListener(_onSearchChanged);
+
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
         setState(() {
@@ -84,6 +94,7 @@ class _HabitsPageState extends State<HabitsPage> {
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
+    _searchManager.removeListener(_onSearchChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -108,6 +119,14 @@ class _HabitsPageState extends State<HabitsPage> {
     if (mounted) {
       setState(() {
         _expandedCategory = expandedSection;
+      });
+    }
+  }
+
+  void _onSearchChanged(String query) {
+    if (mounted) {
+      setState(() {
+        _searchQuery = query;
       });
     }
   }
@@ -162,13 +181,45 @@ class _HabitsPageState extends State<HabitsPage> {
 
   Map<String, List<ActivityInstanceRecord>> get _groupedHabits {
     final grouped = <String, List<ActivityInstanceRecord>>{};
-    for (final instance in _habitInstances) {
+
+    // Filter instances by search query if active
+    final instancesToProcess = _habitInstances.where((instance) {
+      if (_searchQuery.isEmpty) return true;
+      return instance.templateName
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    for (final instance in instancesToProcess) {
       if (!_showCompleted && instance.status == 'completed') continue;
       final categoryName = instance.templateCategoryName.isNotEmpty
           ? instance.templateCategoryName
           : 'Uncategorized';
       (grouped[categoryName] ??= []).add(instance);
     }
+
+    // Sort items within each category by habits order
+    for (final key in grouped.keys) {
+      final items = grouped[key]!;
+      if (items.isNotEmpty) {
+        // Initialize order values for items that don't have them
+        InstanceOrderService.initializeOrderValues(items, 'habits');
+        // Sort by habits order
+        grouped[key] =
+            InstanceOrderService.sortInstancesByOrder(items, 'habits');
+      }
+    }
+
+    // Auto-expand categories with search results
+    if (_searchQuery.isNotEmpty) {
+      for (final key in grouped.keys) {
+        if (grouped[key]!.isNotEmpty) {
+          _expandedCategory = key;
+          break; // Expand the first category with results
+        }
+      }
+    }
+
     return grouped;
   }
 
@@ -265,14 +316,16 @@ class _HabitsPageState extends State<HabitsPage> {
         final sortedHabits = List<ActivityInstanceRecord>.from(habits);
 
         slivers.add(
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final instance = sortedHabits[index];
-                return ItemComponent(
+          SliverReorderableList(
+            itemBuilder: (context, index) {
+              final instance = sortedHabits[index];
+              return ReorderableDragStartListener(
+                index: index,
+                key: Key('${instance.reference.id}_drag'),
+                child: ItemComponent(
+                  key: Key(instance.reference.id),
                   subtitle: _getDueDateSubtitle(instance),
                   showCompleted: _showCompleted,
-                  key: Key(instance.reference.id),
                   instance: instance,
                   categoryColorHex: category!.color,
                   onRefresh: _loadHabits,
@@ -281,10 +334,12 @@ class _HabitsPageState extends State<HabitsPage> {
                   isHabit: true,
                   showTypeIcon: false,
                   showRecurringIcon: false,
-                );
-              },
-              childCount: sortedHabits.length,
-            ),
+                ),
+              );
+            },
+            itemCount: sortedHabits.length,
+            onReorder: (oldIndex, newIndex) =>
+                _handleReorder(oldIndex, newIndex, categoryName),
           ),
         );
       }
@@ -589,5 +644,64 @@ class _HabitsPageState extends State<HabitsPage> {
           .removeWhere((inst) => inst.reference.id == instance.reference.id);
     });
     print('HabitsPage: Removed habit instance ${instance.templateName}');
+  }
+
+  /// Silent refresh habits without loading indicator
+  Future<void> _silentRefreshHabits() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+
+      final instances = await queryCurrentHabitInstances(userId: userId);
+      final categories = await queryHabitCategoriesOnce(userId: userId);
+
+      if (mounted) {
+        setState(() {
+          _habitInstances = instances;
+          _categories = categories;
+          // Don't touch _isLoading
+        });
+      }
+    } catch (e) {
+      print('Error silently refreshing habits: $e');
+    }
+  }
+
+  /// Handle reordering of items within a category
+  Future<void> _handleReorder(
+      int oldIndex, int newIndex, String categoryName) async {
+    try {
+      final groupedHabits = _groupedHabits;
+      final items = groupedHabits[categoryName]!;
+
+      if (oldIndex >= items.length || newIndex >= items.length) return;
+
+      // Create a copy of the items list for reordering
+      final reorderedItems = List<ActivityInstanceRecord>.from(items);
+
+      // Don't call setState before database update
+      // Let ReorderableList handle the drag animation
+      await InstanceOrderService.reorderInstancesInSection(
+        reorderedItems,
+        'habits',
+        oldIndex,
+        newIndex,
+      );
+
+      // Silent refresh - no loading indicator
+      await _silentRefreshHabits();
+
+      print('HabitsPage: Reordered items in category $categoryName');
+    } catch (e) {
+      print('HabitsPage: Error reordering items: $e');
+      // Revert to correct state by refreshing data
+      await _loadHabits();
+      // Show error to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reordering items: $e')),
+        );
+      }
+    }
   }
 }

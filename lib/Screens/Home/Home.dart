@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
@@ -34,6 +35,11 @@ class _HomeState extends State<Home> {
   int currentIndex = 1;
   late Widget cWidget;
 
+  // Search functionality
+  bool _isSearchMode = false;
+  final TextEditingController _searchController = TextEditingController();
+  final SearchStateManager _searchManager = SearchStateManager();
+
   @override
   void initState() {
     super.initState();
@@ -53,6 +59,7 @@ class _HomeState extends State<Home> {
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -77,15 +84,49 @@ class _HomeState extends State<Home> {
               icon: const Icon(Icons.menu, color: Colors.white),
               onPressed: () => scaffoldKey.currentState?.openDrawer(),
             ),
-            title: Text(
-              title,
-              style: FlutterFlowTheme.of(context).headlineMedium.override(
-                    fontFamily: 'Outfit',
-                    color: Colors.white,
-                    fontSize: 22,
+            title: _isSearchMode
+                ? TextField(
+                    controller: _searchController,
+                    style: const TextStyle(color: Colors.white, fontSize: 18),
+                    decoration: const InputDecoration(
+                      hintText: 'Search...',
+                      hintStyle: TextStyle(color: Colors.white70),
+                      border: InputBorder.none,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onChanged: (value) {
+                      _searchManager.updateQuery(value);
+                    },
+                    autofocus: true,
+                  )
+                : Text(
+                    title,
+                    style: FlutterFlowTheme.of(context).headlineMedium.override(
+                          fontFamily: 'Outfit',
+                          color: Colors.white,
+                          fontSize: 22,
+                        ),
                   ),
-            ),
             actions: [
+              // Search button - toggle search mode
+              IconButton(
+                icon: Icon(
+                  _isSearchMode ? Icons.close : Icons.search,
+                  color: Colors.white,
+                ),
+                onPressed: () {
+                  setState(() {
+                    if (_isSearchMode) {
+                      _isSearchMode = false;
+                      _searchController.clear();
+                      _searchManager.clearQuery();
+                    } else {
+                      _isSearchMode = true;
+                    }
+                  });
+                },
+                tooltip: _isSearchMode ? 'Close search' : 'Search',
+              ),
               // Goals button - always visible
               IconButton(
                 icon: const Icon(Icons.flag, color: Colors.white),
@@ -406,6 +447,13 @@ class _HomeState extends State<Home> {
   void loadPage(s) {
     if (mounted) {
       setState(() {
+        // Clear search when switching pages
+        if (_isSearchMode) {
+          _isSearchMode = false;
+          _searchController.clear();
+          _searchManager.clearQuery();
+        }
+
         if (s == "Queue") {
           title = s;
           cWidget = const QueuePage();

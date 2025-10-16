@@ -13,6 +13,8 @@ import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -47,6 +49,10 @@ class _TaskPageState extends State<TaskPage> {
   String? _expandedSection;
   final Map<String, GlobalKey> _sectionKeys = {};
 
+  // Search functionality
+  String _searchQuery = '';
+  final SearchStateManager _searchManager = SearchStateManager();
+
   @override
   void initState() {
     super.initState();
@@ -56,6 +62,9 @@ class _TaskPageState extends State<TaskPage> {
         (_quickTargetDuration.inMinutes % 60).toString();
     _loadExpansionState();
     _loadData();
+
+    // Listen for search changes
+    _searchManager.addListener(_onSearchChanged);
 
     // Listen for instance events
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
@@ -81,6 +90,7 @@ class _TaskPageState extends State<TaskPage> {
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
+    _searchManager.removeListener(_onSearchChanged);
     _quickAddController.dispose();
     _quickTargetNumberController.dispose();
     _quickHoursController.dispose();
@@ -108,6 +118,14 @@ class _TaskPageState extends State<TaskPage> {
     if (mounted) {
       setState(() {
         _expandedSection = expandedSection;
+      });
+    }
+  }
+
+  void _onSearchChanged(String query) {
+    if (mounted) {
+      setState(() {
+        _searchQuery = query;
       });
     }
   }
@@ -742,14 +760,18 @@ class _TaskPageState extends State<TaskPage> {
       );
       if (isExpanded) {
         widgets.add(
-          SliverList(
-            delegate: SliverChildBuilderDelegate(
-              (context, index) {
-                final item = visibleItems[index];
-                return _buildItemTile(item, key);
-              },
-              childCount: visibleItems.length,
-            ),
+          SliverReorderableList(
+            itemBuilder: (context, index) {
+              final item = visibleItems[index];
+              return ReorderableDragStartListener(
+                index: index,
+                key: Key('${item.reference.id}_drag'),
+                child: _buildItemTile(item, key),
+              );
+            },
+            itemCount: visibleItems.length,
+            onReorder: (oldIndex, newIndex) =>
+                _handleReorder(oldIndex, newIndex, key),
           ),
         );
         widgets.add(
@@ -1019,14 +1041,22 @@ class _TaskPageState extends State<TaskPage> {
       'Recent Completions': [],
     };
 
+    // Filter instances by search query if active
+    final activeInstancesToProcess = _activeTaskInstances.where((instance) {
+      if (_searchQuery.isEmpty) return true;
+      return instance.templateName
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+    }).toList();
+
     print(
-        '_bucketedItems: Processing ${_activeTaskInstances.length} active task instances');
+        '_bucketedItems: Processing ${activeInstancesToProcess.length} active task instances (search: "$_searchQuery")');
     final today = DateService.todayShiftedStart;
     final tomorrow = DateService.tomorrowShiftedStart;
     // "This Week" covers the next 5 days after tomorrow
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
 
-    for (final instance in _activeTaskInstances) {
+    for (final instance in activeInstancesToProcess) {
       print('  Bucketing instance: ${instance.templateName}');
       print('    - isActive: ${instance.isActive}');
       if (!instance.isActive) {
@@ -1070,7 +1100,14 @@ class _TaskPageState extends State<TaskPage> {
 
     // Populate Recent Completions (completed today or yesterday)
     final yesterdayStart = DateService.yesterdayShiftedStart;
-    for (final instance in _taskInstances) {
+    final allInstancesToProcess = _taskInstances.where((instance) {
+      if (_searchQuery.isEmpty) return true;
+      return instance.templateName
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    for (final instance in allInstancesToProcess) {
       if (instance.status != 'completed') continue;
       if (instance.completedAt == null) continue;
       if (widget.categoryName != null &&
@@ -1084,6 +1121,30 @@ class _TaskPageState extends State<TaskPage> {
           completedDateOnly.isAtSameMomentAs(yesterdayStart);
       if (isRecent) {
         buckets['Recent Completions']!.add(instance);
+      }
+    }
+
+    // Sort items within each bucket by tasks order
+    for (final key in buckets.keys) {
+      final items = buckets[key]!;
+      if (items.isNotEmpty) {
+        // Cast to ActivityInstanceRecord list
+        final typedItems = items.cast<ActivityInstanceRecord>();
+        // Initialize order values for items that don't have them
+        InstanceOrderService.initializeOrderValues(typedItems, 'tasks');
+        // Sort by tasks order
+        buckets[key] =
+            InstanceOrderService.sortInstancesByOrder(typedItems, 'tasks');
+      }
+    }
+
+    // Auto-expand sections with search results
+    if (_searchQuery.isNotEmpty) {
+      for (final key in buckets.keys) {
+        if (buckets[key]!.isNotEmpty) {
+          _expandedSection = key;
+          break; // Expand the first section with results
+        }
       }
     }
 
@@ -1274,6 +1335,73 @@ class _TaskPageState extends State<TaskPage> {
               (inst) => inst.reference.id == instance.reference.id);
           print('TaskPage: Removed task instance ${instance.templateName}');
         });
+      }
+    }
+  }
+
+  /// Silent refresh instances without loading indicator
+  Future<void> _silentRefreshInstances() async {
+    try {
+      final uid = currentUserUid;
+      if (uid.isEmpty) return;
+
+      final instances = await queryAllTaskInstances(userId: uid);
+      final categories = await queryTaskCategoriesOnce(userId: uid);
+
+      if (mounted) {
+        setState(() {
+          _categories = categories;
+          final categoryFiltered = instances.where((inst) {
+            return widget.categoryName == null ||
+                inst.templateCategoryName == widget.categoryName;
+          }).toList();
+
+          _taskInstances = categoryFiltered;
+          _activeTaskInstances = categoryFiltered
+              .where((inst) => inst.status == 'pending')
+              .toList();
+          // Don't touch _isLoading
+        });
+      }
+    } catch (e) {
+      print('Error silently refreshing instances: $e');
+    }
+  }
+
+  /// Handle reordering of items within a section
+  Future<void> _handleReorder(
+      int oldIndex, int newIndex, String sectionKey) async {
+    try {
+      final buckets = _bucketedItems;
+      final items = buckets[sectionKey]!;
+
+      if (oldIndex >= items.length || newIndex >= items.length) return;
+
+      // Create a copy of the items list for reordering
+      final reorderedItems = List<ActivityInstanceRecord>.from(items);
+
+      // Don't call setState before database update
+      // Let ReorderableList handle the drag animation
+      await InstanceOrderService.reorderInstancesInSection(
+        reorderedItems,
+        'tasks',
+        oldIndex,
+        newIndex,
+      );
+
+      // Silent refresh - no loading indicator
+      await _silentRefreshInstances();
+
+      print('TaskPage: Reordered items in section $sectionKey');
+    } catch (e) {
+      print('TaskPage: Error reordering items: $e');
+      // Revert to correct state by refreshing data
+      await _loadData();
+      // Show error to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reordering items: $e')),
+        );
       }
     }
   }

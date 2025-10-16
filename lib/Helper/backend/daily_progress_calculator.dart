@@ -275,7 +275,10 @@ class DailyProgressCalculator {
         case 'time':
           // Time-based tasks: points based on accumulated time vs target
           if (task.status == 'completed') {
-            points = priority;
+            final targetMinutes = _getTaskTargetValue(task);
+            final durationMultiplier =
+                _calculateDurationMultiplier(targetMinutes);
+            points = priority * durationMultiplier;
           } else {
             final accumulatedTime = task.accumulatedTime;
             final targetMinutes = _getTaskTargetValue(task);
@@ -285,7 +288,9 @@ class DailyProgressCalculator {
             if (targetMs > 0) {
               final completionFraction =
                   (accumulatedTime / targetMs).clamp(0.0, 1.0);
-              points = completionFraction * priority;
+              final durationMultiplier =
+                  _calculateDurationMultiplier(targetMinutes);
+              points = completionFraction * priority * durationMultiplier;
             }
           }
           break;
@@ -316,5 +321,12 @@ class DailyProgressCalculator {
     if (target is num) return target.toDouble();
     if (target is String) return double.tryParse(target) ?? 0.0;
     return 0.0;
+  }
+
+  /// Calculate duration multiplier based on target minutes
+  /// Returns the number of 15-minute blocks, minimum 1
+  static int _calculateDurationMultiplier(double targetMinutes) {
+    if (targetMinutes <= 0) return 1;
+    return (targetMinutes / 15).round().clamp(1, double.infinity).toInt();
   }
 }
