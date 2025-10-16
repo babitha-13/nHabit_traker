@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -25,7 +26,8 @@ class _HabitsPageState extends State<HabitsPage> {
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _habitInstances = [];
   List<CategoryRecord> _categories = [];
-  final Map<String, bool> _categoryExpanded = {};
+  String? _expandedCategory;
+  final Map<String, GlobalKey> _categoryKeys = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
@@ -35,6 +37,7 @@ class _HabitsPageState extends State<HabitsPage> {
   void initState() {
     super.initState();
     _showCompleted = widget.showCompleted;
+    _loadExpansionState();
     _loadHabits();
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
@@ -96,6 +99,16 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     } else {
       _didInitialDependencies = true;
+    }
+  }
+
+  Future<void> _loadExpansionState() async {
+    final expandedSection =
+        await ExpansionStateManager().getHabitsExpandedSection();
+    if (mounted) {
+      setState(() {
+        _expandedCategory = expandedSection;
+      });
     }
   }
 
@@ -234,12 +247,17 @@ class _HabitsPageState extends State<HabitsPage> {
         );
       }
 
-      final expanded = _categoryExpanded[categoryName] ?? true;
+      final expanded = _expandedCategory == categoryName;
+
+      // Get or create GlobalKey for this category
+      if (!_categoryKeys.containsKey(categoryName)) {
+        _categoryKeys[categoryName] = GlobalKey();
+      }
 
       slivers.add(
         SliverToBoxAdapter(
-          child: _buildCategoryHeader(
-              category, expanded, categoryName, habits.length),
+          child: _buildCategoryHeader(category, expanded, categoryName,
+              habits.length, _categoryKeys[categoryName]!),
         ),
       );
 
@@ -284,8 +302,9 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   Widget _buildCategoryHeader(CategoryRecord category, bool expanded,
-      String categoryName, int itemCount) {
+      String categoryName, int itemCount, GlobalKey headerKey) {
     return Container(
+      key: headerKey,
       margin: EdgeInsets.fromLTRB(16, 8, 16, expanded ? 0 : 6),
       padding: EdgeInsets.fromLTRB(12, 8, 12, expanded ? 2 : 6),
       decoration: BoxDecoration(
@@ -345,7 +364,6 @@ class _HabitsPageState extends State<HabitsPage> {
             ],
           ),
           const Spacer(),
-          _buildCategoryWeightStars(category),
           SizedBox(
             height: 20,
             width: 20,
@@ -388,8 +406,32 @@ class _HabitsPageState extends State<HabitsPage> {
             onTap: () {
               if (mounted) {
                 setState(() {
-                  _categoryExpanded[categoryName] = !expanded;
+                  if (expanded) {
+                    // Collapse current section
+                    _expandedCategory = null;
+                  } else {
+                    // Expand this section (accordion behavior)
+                    _expandedCategory = categoryName;
+                  }
                 });
+                // Save state persistently
+                ExpansionStateManager()
+                    .setHabitsExpandedSection(_expandedCategory);
+
+                // Scroll to make the newly expanded section visible
+                if (_expandedCategory == categoryName) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (headerKey.currentContext != null) {
+                      Scrollable.ensureVisible(
+                        headerKey.currentContext!,
+                        duration: Duration.zero,
+                        alignment: 0.0,
+                        alignmentPolicy:
+                            ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+                      );
+                    }
+                  });
+                }
               }
             },
             child: Icon(
@@ -399,41 +441,6 @@ class _HabitsPageState extends State<HabitsPage> {
           ),
         ],
       ),
-    );
-  }
-
-  Widget _buildCategoryWeightStars(CategoryRecord category) {
-    final current = category.weight.round().clamp(1, 3);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (i) {
-        final level = i + 1;
-        final filled = current >= level;
-        return GestureDetector(
-          onTap: () async {
-            try {
-              final next = current % 3 + 1;
-              await updateCategory(
-                categoryId: category.reference.id,
-                weight: next.toDouble(),
-              );
-              await _loadHabits();
-            } catch (e) {
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error updating category weight: $e')),
-              );
-            }
-          },
-          child: Icon(
-            filled ? Icons.star : Icons.star_border,
-            size: 24,
-            color: filled
-                ? Colors.amber
-                : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
-          ),
-        );
-      }),
     );
   }
 

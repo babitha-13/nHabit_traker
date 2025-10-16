@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 /// Background scheduler for automatic day-end processing
 /// Handles running DayEndProcessor at appropriate times
@@ -30,16 +31,16 @@ class BackgroundScheduler {
     _checkForMissedProcessing();
   }
 
-  /// Schedule the day-end timer to run at midnight
+  /// Schedule the day-end timer to run at the next 2:00 AM boundary
   static void _scheduleDayEndTimer() {
     final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    final timeUntilMidnight = tomorrow.difference(now);
+    final nextBoundary = DateService.nextShiftedBoundary(now);
+    final timeUntilBoundary = nextBoundary.difference(now);
 
     print(
-        'BackgroundScheduler: Scheduling day-end timer for ${timeUntilMidnight.inHours}h ${timeUntilMidnight.inMinutes % 60}m');
+        'BackgroundScheduler: Scheduling day-end timer for ${timeUntilBoundary.inHours}h ${timeUntilBoundary.inMinutes % 60}m (next 2 AM)');
 
-    _dayEndTimer = Timer(timeUntilMidnight, () {
+    _dayEndTimer = Timer(timeUntilBoundary, () {
       _processDayEnd();
       // Reschedule for the next day
       _scheduleDayEndTimer();
@@ -53,7 +54,7 @@ class BackgroundScheduler {
     });
   }
 
-  /// Check if we need to process any missed days
+  /// Check if we need to process any missed days (shifted boundary)
   static Future<void> _checkForMissedProcessing() async {
     if (_isProcessing) {
       print('BackgroundScheduler: Already processing, skipping check');
@@ -68,32 +69,33 @@ class BackgroundScheduler {
       }
 
       final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
+      final latestProcessable = DateService.latestProcessableShiftedDate;
 
-      // Check if we've already processed today
-      if (_lastProcessedDate != null &&
-          _isSameDay(_lastProcessedDate!, today)) {
+      // If we haven't processed any day yet, start from latestProcessable
+      if (_lastProcessedDate == null) {
+        await _processMultipleDays(currentUser, [latestProcessable]);
         return;
       }
 
-      // Check if we need to process yesterday or earlier
-      final yesterday = today.subtract(const Duration(days: 1));
+      // If last processed is already latest, nothing to do
+      final last = _lastProcessedDate!;
+      if (_isSameDay(last, latestProcessable)) {
+        return;
+      }
+
+      // Build list of missing dates from last+1 up to latestProcessable
       final daysToCheck = <DateTime>[];
-
-      // Add yesterday if we haven't processed it
-      if (_lastProcessedDate == null ||
-          _lastProcessedDate!.isBefore(yesterday)) {
-        daysToCheck.add(yesterday);
+      var cursor = DateTime(last.year, last.month, last.day)
+          .add(const Duration(days: 1));
+      while (!_isSameDay(cursor, latestProcessable)) {
+        daysToCheck.add(cursor);
+        cursor = cursor.add(const Duration(days: 1));
       }
-
-      // Add today if it's past 1 AM (grace period)
-      if (now.hour >= 1) {
-        daysToCheck.add(today);
-      }
+      daysToCheck.add(latestProcessable);
 
       if (daysToCheck.isNotEmpty) {
         print(
-            'BackgroundScheduler: Found ${daysToCheck.length} days to process');
+            'BackgroundScheduler: Found ${daysToCheck.length} shifted days to process');
         await _processMultipleDays(currentUser, daysToCheck);
       }
     } catch (e) {
@@ -116,8 +118,9 @@ class BackgroundScheduler {
         return;
       }
 
-      final yesterday = DateTime.now().subtract(const Duration(days: 1));
-      await _processDayEndForUser(currentUser, yesterday);
+      // Always process the latest processable shifted date
+      final date = DateService.latestProcessableShiftedDate;
+      await _processDayEndForUser(currentUser, date);
     } catch (e) {
       print('BackgroundScheduler: Error in day-end processing: $e');
     }
@@ -148,7 +151,7 @@ class BackgroundScheduler {
 
       await DayEndProcessor.processDayEnd(userId: userId, targetDate: date);
 
-      _lastProcessedDate = date;
+      _lastProcessedDate = DateTime(date.year, date.month, date.day);
       print(
           'BackgroundScheduler: Successfully processed day-end for ${date.toIso8601String()}');
     } catch (e) {

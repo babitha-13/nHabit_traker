@@ -11,6 +11,8 @@ import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/progress_donut_chart.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
+import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
+import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -27,13 +29,8 @@ class _QueuePageState extends State<QueuePage> {
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _instances = [];
   List<CategoryRecord> _categories = [];
-  final Map<String, bool> _timeSectionExpanded = {
-    'Overdue': true,
-    'Today': true,
-    'Tomorrow': false, // Collapsed by default
-    'This Week': false, // Collapsed by default
-    'Recent Completions': false,
-  };
+  String? _expandedSection;
+  final Map<String, GlobalKey> _sectionKeys = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
@@ -46,6 +43,7 @@ class _QueuePageState extends State<QueuePage> {
   @override
   void initState() {
     super.initState();
+    _loadExpansionState();
     _loadData();
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
@@ -94,6 +92,16 @@ class _QueuePageState extends State<QueuePage> {
       }
     } else {
       _didInitialDependencies = true;
+    }
+  }
+
+  Future<void> _loadExpansionState() async {
+    final expandedSection =
+        await ExpansionStateManager().getQueueExpandedSection();
+    if (mounted) {
+      setState(() {
+        _expandedSection = expandedSection;
+      });
     }
   }
 
@@ -261,9 +269,8 @@ class _QueuePageState extends State<QueuePage> {
     final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
       'Today': [],
-      'Tomorrow': [],
       'This Week': [],
-      'Recent Completions': [],
+      'Completed/Skipped': [],
     };
 
     final today = _todayDate();
@@ -272,16 +279,18 @@ class _QueuePageState extends State<QueuePage> {
 
     print('_bucketedItems: Processing ${_instances.length} instances');
     for (final instance in _instances) {
+      // Don't skip completed/skipped instances here - they'll be handled in the Completed/Skipped section
       if (_isInstanceCompleted(instance)) {
-        print('  ${instance.templateName}: SKIPPED (completed)');
+        print(
+            '  ${instance.templateName}: SKIPPED from main processing (will be handled in Completed/Skipped section)');
         continue;
       }
 
-      // Skip snoozed instances
+      // Skip snoozed instances from main processing (they'll be handled in Completed/Skipped section)
       if (instance.snoozedUntil != null &&
           DateTime.now().isBefore(instance.snoozedUntil!)) {
         print(
-            '  ${instance.templateName}: SKIPPED (snoozed until ${instance.snoozedUntil})');
+            '  ${instance.templateName}: SKIPPED from main processing (will be handled in Completed/Skipped section)');
         continue;
       }
 
@@ -303,11 +312,6 @@ class _QueuePageState extends State<QueuePage> {
         buckets['Today']!.add(instance);
         print('  ${instance.templateName}: TODAY (within window or due today)');
       }
-      // TOMORROW: Both habits and tasks for tomorrow
-      else if (_isSameDay(dateOnly, _tomorrowDate())) {
-        buckets['Tomorrow']!.add(instance);
-        print('  ${instance.templateName}: TOMORROW');
-      }
       // THIS WEEK: Both habits and tasks for this week
       else if (!dateOnly.isAfter(endOfWeek)) {
         buckets['This Week']!.add(instance);
@@ -319,33 +323,72 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
 
-    // Populate Recent Completions (completed today or yesterday)
+    // Populate Completed/Skipped (completed or skipped in the past week)
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
-    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    final weekAgoStart = todayStart.subtract(const Duration(days: 7));
     for (final instance in _instances) {
-      if (instance.status != 'completed') continue;
-      print(
-          'QueuePage: Processing completed instance ${instance.templateName}');
-      print('  - Status: ${instance.status}');
-      print('  - CompletedAt: ${instance.completedAt}');
-      if (instance.completedAt == null) {
-        print('  - SKIPPED: completedAt is null');
+      if (instance.status != 'completed' && instance.status != 'skipped')
         continue;
+      print(
+          'QueuePage: Processing ${instance.status} instance ${instance.templateName}');
+      print('  - Status: ${instance.status}');
+
+      // For completed items, check completion date
+      if (instance.status == 'completed') {
+        print('  - CompletedAt: ${instance.completedAt}');
+        if (instance.completedAt == null) {
+          print('  - SKIPPED: completedAt is null');
+          continue;
+        }
+        final completedAt = instance.completedAt!;
+        final completedDateOnly =
+            DateTime(completedAt.year, completedAt.month, completedAt.day);
+        final isRecent = completedDateOnly.isAfter(weekAgoStart) ||
+            completedDateOnly.isAtSameMomentAs(weekAgoStart);
+        print('  - Completed date only: $completedDateOnly');
+        print('  - Week ago start: $weekAgoStart');
+        print('  - Is recent: $isRecent');
+        if (isRecent) {
+          buckets['Completed/Skipped']!.add(instance);
+          print('  - ADDED to Completed/Skipped');
+        } else {
+          print('  - NOT recent enough');
+        }
       }
-      final completedDate = instance.completedAt!;
-      final completedDateOnly =
-          DateTime(completedDate.year, completedDate.month, completedDate.day);
-      final isRecent = completedDateOnly.isAfter(yesterdayStart) ||
-          completedDateOnly.isAtSameMomentAs(yesterdayStart);
-      print('  - Completed date only: $completedDateOnly');
-      print('  - Yesterday start: $yesterdayStart');
-      print('  - Is recent: $isRecent');
-      if (isRecent) {
-        buckets['Recent Completions']!.add(instance);
-        print('  - ADDED to Recent Completions');
-      } else {
-        print('  - NOT recent enough');
+      // For skipped items, check skipped date
+      else if (instance.status == 'skipped') {
+        print('  - SkippedAt: ${instance.skippedAt}');
+        if (instance.skippedAt == null) {
+          print('  - SKIPPED: skippedAt is null');
+          continue;
+        }
+        final skippedAt = instance.skippedAt!;
+        final skippedDateOnly =
+            DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
+        final isRecent = skippedDateOnly.isAfter(weekAgoStart) ||
+            skippedDateOnly.isAtSameMomentAs(weekAgoStart);
+        print('  - Skipped date only: $skippedDateOnly');
+        print('  - Week ago start: $weekAgoStart');
+        print('  - Is recent: $isRecent');
+        if (isRecent) {
+          buckets['Completed/Skipped']!.add(instance);
+          print('  - ADDED to Completed/Skipped');
+        } else {
+          print('  - NOT recent enough');
+        }
+      }
+    }
+
+    // Add snoozed instances to Completed/Skipped section
+    for (final instance in _instances) {
+      if (instance.snoozedUntil != null &&
+          DateTime.now().isBefore(instance.snoozedUntil!)) {
+        print(
+            'QueuePage: Processing snoozed instance ${instance.templateName}');
+        print('  - SnoozedUntil: ${instance.snoozedUntil}');
+        buckets['Completed/Skipped']!.add(instance);
+        print('  - ADDED to Completed/Skipped');
       }
     }
 
@@ -353,28 +396,33 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
-    if (bucketKey == 'Recent Completions') {
+    if (bucketKey == 'Completed/Skipped') {
       print(
-          'QueuePage: _getSubtitle for Recent Completions - ${item.templateName}');
-      print('  - CompletedAt: ${item.completedAt}');
+          'QueuePage: _getSubtitle for Completed/Skipped - ${item.templateName}');
       print('  - Status: ${item.status}');
-      if (item.completedAt == null) {
-        print('  - ERROR: completedAt is null!');
-        return 'Completed • ${item.templateCategoryName} • Error: No completion date';
+
+      String statusText;
+      // Check if item is snoozed first
+      if (item.snoozedUntil != null &&
+          DateTime.now().isBefore(item.snoozedUntil!)) {
+        statusText = 'Snoozed';
+      } else if (item.status == 'completed') {
+        statusText = 'Completed';
+      } else if (item.status == 'skipped') {
+        statusText = 'Skipped';
+      } else {
+        statusText = 'Unknown';
       }
-      final completedAt = item.completedAt!;
-      final completedStr =
-          _isSameDay(completedAt, DateTime.now()) ? 'Today' : 'Yesterday';
+
       final due = item.dueDate;
       final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
-      final icon = item.templateCategoryType == 'task' ? '📋' : '🔁';
       final subtitle =
-          'Completed $completedStr • ${item.templateCategoryName} • Due: $dueStr • $icon';
+          '$statusText • ${item.templateCategoryName} • Due: $dueStr';
       print('  - Generated subtitle: $subtitle');
       return subtitle;
     }
 
-    if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
+    if (bucketKey == 'Today') {
       // For habits, show window countdown
       if (item.templateCategoryType == 'habit' && item.windowEndDate != null) {
         final daysLeft = _getWindowDaysLeft(item);
@@ -400,26 +448,6 @@ class _QueuePageState extends State<QueuePage> {
     return DateService.todayStart;
   }
 
-  bool _isSameDay(DateTime a, DateTime b) =>
-      a.year == b.year && a.month == b.month && a.day == b.day;
-
-  DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
-
-  String _getDayEndCountdown() {
-    final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    final timeUntilMidnight = tomorrow.difference(now);
-
-    final hours = timeUntilMidnight.inHours;
-    final minutes = timeUntilMidnight.inMinutes % 60;
-
-    if (hours > 0) {
-      return 'Day ends in ${hours}h ${minutes}m';
-    } else {
-      return 'Day ends in ${minutes}m';
-    }
-  }
-
   /// Calculate days left in habit window
   int _getWindowDaysLeft(ActivityInstanceRecord item) {
     if (item.windowEndDate == null) return 0;
@@ -434,44 +462,77 @@ class _QueuePageState extends State<QueuePage> {
 
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Stack(
-        children: [
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : Column(
-                  children: [
-                    // Progress indicator
-                    Container(
-                      padding: const EdgeInsets.all(16),
-                      child: Column(
-                        children: [
-                          ProgressDonutChart(
-                            percentage: _dailyPercentage,
-                            totalTarget: _dailyTarget,
-                            pointsEarned: _pointsEarned,
-                          ),
-                          const SizedBox(height: 8),
-                          Text(
-                            'Daily Progress',
-                            style: FlutterFlowTheme.of(context).bodySmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    const Divider(height: 1),
-                    Expanded(
-                      child: _buildDailyView(),
-                    ),
-                  ],
+    return DefaultTabController(
+      length: 2,
+      child: SafeArea(
+        child: Column(
+          children: [
+            // Tab bar
+            TabBar(
+              tabs: [
+                Tab(
+                  text: 'Daily',
+                  icon: Icon(Icons.today),
                 ),
-          // FloatingTimer(
-          //   activeHabits: _activeFloatingHabits,
-          //   onRefresh: _loadData,
-          //   onHabitUpdated: (updated) => {},
-          // ),
-        ],
+                Tab(
+                  text: 'Weekly',
+                  icon: Icon(Icons.calendar_view_week),
+                ),
+              ],
+            ),
+            const Divider(height: 1),
+            // Tab content
+            Expanded(
+              child: TabBarView(
+                children: [
+                  _buildDailyTabContent(),
+                  const WeeklyView(),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+
+  Widget _buildDailyTabContent() {
+    return Stack(
+      children: [
+        _isLoading
+            ? const Center(child: CircularProgressIndicator())
+            : Column(
+                children: [
+                  // Progress indicator
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      children: [
+                        ProgressDonutChart(
+                          percentage: _dailyPercentage,
+                          totalTarget: _dailyTarget,
+                          pointsEarned: _pointsEarned,
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          'Daily Progress',
+                          style: FlutterFlowTheme.of(context).bodySmall,
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  Expanded(
+                    child: _buildDailyView(),
+                  ),
+                ],
+              ),
+        // FloatingTimer(
+        //   activeHabits: _activeFloatingHabits,
+        //   onRefresh: _loadData,
+        //   onHabitUpdated: (updated) => {},
+        // ),
+      ],
     );
   }
 
@@ -482,13 +543,7 @@ class _QueuePageState extends State<QueuePage> {
 
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
-    final order = [
-      'Overdue',
-      'Today',
-      'Tomorrow',
-      'This Week',
-      'Recent Completions'
-    ];
+    final order = ['Overdue', 'Today', 'This Week', 'Completed/Skipped'];
     final theme = FlutterFlowTheme.of(context);
 
     final visibleSections =
@@ -519,11 +574,17 @@ class _QueuePageState extends State<QueuePage> {
 
     for (final key in visibleSections) {
       final items = buckets[key]!;
-      final expanded = _timeSectionExpanded[key] ?? false;
+      final expanded = _expandedSection == key;
+
+      // Get or create GlobalKey for this section
+      if (!_sectionKeys.containsKey(key)) {
+        _sectionKeys[key] = GlobalKey();
+      }
 
       slivers.add(
         SliverToBoxAdapter(
           child: Container(
+            key: _sectionKeys[key],
             margin: EdgeInsets.fromLTRB(16, 8, 16, expanded ? 0 : 6),
             padding: EdgeInsets.fromLTRB(12, 8, 12, expanded ? 2 : 6),
             decoration: BoxDecoration(
@@ -559,8 +620,36 @@ class _QueuePageState extends State<QueuePage> {
                   onTap: () {
                     if (mounted) {
                       setState(() {
-                        _timeSectionExpanded[key] = !expanded;
+                        if (expanded) {
+                          // If trying to collapse "Today", keep it expanded
+                          if (key == 'Today') {
+                            return;
+                          }
+                          // Collapse current section
+                          _expandedSection = null;
+                        } else {
+                          // Expand this section (accordion behavior)
+                          _expandedSection = key;
+                        }
                       });
+                      // Save state persistently
+                      ExpansionStateManager()
+                          .setQueueExpandedSection(_expandedSection);
+
+                      // Scroll to make the newly expanded section visible
+                      if (_expandedSection == key) {
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          if (_sectionKeys[key]?.currentContext != null) {
+                            Scrollable.ensureVisible(
+                              _sectionKeys[key]!.currentContext!,
+                              duration: Duration.zero,
+                              alignment: 0.0,
+                              alignmentPolicy: ScrollPositionAlignmentPolicy
+                                  .keepVisibleAtEnd,
+                            );
+                          }
+                        });
+                      }
                     }
                   },
                   child: Icon(
@@ -594,7 +683,7 @@ class _QueuePageState extends State<QueuePage> {
                   isHabit: isHabit,
                   showTypeIcon: true,
                   showRecurringIcon: true,
-                  showCompleted: key == 'Recent Completions' ? true : null,
+                  showCompleted: key == 'Completed/Skipped' ? true : null,
                 );
               },
               childCount: items.length,

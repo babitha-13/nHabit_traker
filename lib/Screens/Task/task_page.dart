@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
@@ -11,6 +12,7 @@ import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -42,17 +44,8 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickUnitController = TextEditingController();
   bool quickIsRecurring = false;
   FrequencyConfig? _quickFrequencyConfig;
-  // Removed legacy Recent Completions expansion state; now uses standard sections
-  final Map<String, bool> _sectionExpanded = {
-    'Overdue': true,
-    'Today': true,
-    'Tomorrow': true,
-    'This Week': true,
-    'Later': true,
-    'No due date': true,
-    // Recent Completions should be collapsed by default
-    'Recent Completions': false,
-  };
+  String? _expandedSection;
+  final Map<String, GlobalKey> _sectionKeys = {};
 
   @override
   void initState() {
@@ -61,6 +54,7 @@ class _TaskPageState extends State<TaskPage> {
     _quickHoursController.text = _quickTargetDuration.inHours.toString();
     _quickMinutesController.text =
         (_quickTargetDuration.inMinutes % 60).toString();
+    _loadExpansionState();
     _loadData();
 
     // Listen for instance events
@@ -105,6 +99,16 @@ class _TaskPageState extends State<TaskPage> {
       }
     } else {
       _didInitialDependencies = true;
+    }
+  }
+
+  Future<void> _loadExpansionState() async {
+    final expandedSection =
+        await ExpansionStateManager().getTaskExpandedSection();
+    if (mounted) {
+      setState(() {
+        _expandedSection = expandedSection;
+      });
     }
   }
 
@@ -723,10 +727,17 @@ class _TaskPageState extends State<TaskPage> {
       }).toList();
       if (visibleItems.isEmpty) continue;
       _applySort(visibleItems);
-      final isExpanded = _sectionExpanded[key] ?? true;
+      final isExpanded = _expandedSection == key;
+
+      // Get or create GlobalKey for this section
+      if (!_sectionKeys.containsKey(key)) {
+        _sectionKeys[key] = GlobalKey();
+      }
+
       widgets.add(
         SliverToBoxAdapter(
-          child: _buildSectionHeader(key, visibleItems.length, isExpanded),
+          child: _buildSectionHeader(
+              key, visibleItems.length, isExpanded, _sectionKeys[key]!),
         ),
       );
       if (isExpanded) {
@@ -767,9 +778,11 @@ class _TaskPageState extends State<TaskPage> {
     return widgets;
   }
 
-  Widget _buildSectionHeader(String title, int count, bool isExpanded) {
+  Widget _buildSectionHeader(
+      String title, int count, bool isExpanded, GlobalKey headerKey) {
     final theme = FlutterFlowTheme.of(context);
     return Container(
+      key: headerKey,
       margin: EdgeInsets.fromLTRB(16, 8, 16, isExpanded ? 0 : 6),
       padding: EdgeInsets.fromLTRB(12, 8, 12, isExpanded ? 2 : 6),
       decoration: BoxDecoration(
@@ -789,8 +802,35 @@ class _TaskPageState extends State<TaskPage> {
       child: InkWell(
         onTap: () {
           setState(() {
-            _sectionExpanded[title] = !isExpanded;
+            if (isExpanded) {
+              // If trying to collapse "Today", keep it expanded
+              if (title == 'Today') {
+                return;
+              }
+              // Collapse current section
+              _expandedSection = null;
+            } else {
+              // Expand this section (accordion behavior)
+              _expandedSection = title;
+            }
           });
+          // Save state persistently
+          ExpansionStateManager().setTaskExpandedSection(_expandedSection);
+
+          // Scroll to make the newly expanded section visible
+          if (_expandedSection == title) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (headerKey.currentContext != null) {
+                Scrollable.ensureVisible(
+                  headerKey.currentContext!,
+                  duration: Duration.zero,
+                  alignment: 0.0,
+                  alignmentPolicy:
+                      ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+                );
+              }
+            });
+          }
         },
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -981,8 +1021,8 @@ class _TaskPageState extends State<TaskPage> {
 
     print(
         '_bucketedItems: Processing ${_activeTaskInstances.length} active task instances');
-    final today = _todayDate();
-    final tomorrow = _tomorrowDate();
+    final today = DateService.todayShiftedStart;
+    final tomorrow = DateService.tomorrowShiftedStart;
     // "This Week" covers the next 5 days after tomorrow
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
 
@@ -1029,9 +1069,7 @@ class _TaskPageState extends State<TaskPage> {
     }
 
     // Populate Recent Completions (completed today or yesterday)
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    final yesterdayStart = todayStart.subtract(const Duration(days: 1));
+    final yesterdayStart = DateService.yesterdayShiftedStart;
     for (final instance in _taskInstances) {
       if (instance.status != 'completed') continue;
       if (instance.completedAt == null) continue;
@@ -1068,15 +1106,8 @@ class _TaskPageState extends State<TaskPage> {
     return const SizedBox.shrink();
   }
 
-  DateTime _todayDate() {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day);
-  }
-
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
-
-  DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
 
   Widget _buildTaskTile(ActivityInstanceRecord instance, String bucketKey) {
     return ItemComponent(
@@ -1091,7 +1122,7 @@ class _TaskPageState extends State<TaskPage> {
       onInstanceUpdated: _updateInstanceInLocalState,
       onInstanceDeleted: _removeInstanceFromLocalState,
       showTypeIcon: false,
-      showRecurringIcon: true,
+      showRecurringIcon: instance.status != 'completed',
     );
   }
 

@@ -23,7 +23,7 @@ class EditHistoricalDayModal extends StatefulWidget {
 }
 
 class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
-  final Map<String, String> _completionStatusChanges = {};
+  final Map<String, String> _statusChanges = {};
   final Map<String, dynamic> _currentValueChanges = {};
   bool _isSaving = false;
 
@@ -32,8 +32,7 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
     super.initState();
     // Initialize changes with current values
     for (final instance in widget.habitInstances) {
-      _completionStatusChanges[instance.reference.id] =
-          instance.completionStatus;
+      _statusChanges[instance.reference.id] = instance.status;
       _currentValueChanges[instance.reference.id] = instance.currentValue;
     }
   }
@@ -162,8 +161,7 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
   Widget _buildHabitItem(
       ActivityInstanceRecord instance, FlutterFlowTheme theme) {
     final instanceId = instance.reference.id;
-    final currentStatus =
-        _completionStatusChanges[instanceId] ?? instance.completionStatus;
+    final currentStatus = _statusChanges[instanceId] ?? instance.status;
     final currentValue =
         _currentValueChanges[instanceId] ?? instance.currentValue;
 
@@ -293,7 +291,7 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
     return GestureDetector(
       onTap: () {
         setState(() {
-          _completionStatusChanges[instanceId] = status;
+          _statusChanges[instanceId] = status;
         });
       },
       child: Container(
@@ -484,7 +482,7 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
   bool _hasChanges() {
     for (final instance in widget.habitInstances) {
       final instanceId = instance.reference.id;
-      if (_completionStatusChanges[instanceId] != instance.completionStatus) {
+      if (_statusChanges[instanceId] != instance.status) {
         return true;
       }
       if (_currentValueChanges[instanceId] != instance.currentValue) {
@@ -500,8 +498,7 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
     int completedCount = 0;
     for (final instance in widget.habitInstances) {
       final instanceId = instance.reference.id;
-      final status =
-          _completionStatusChanges[instanceId] ?? instance.completionStatus;
+      final status = _statusChanges[instanceId] ?? instance.status;
       if (status == 'completed') {
         completedCount++;
       }
@@ -526,14 +523,14 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
 
       for (final instance in widget.habitInstances) {
         final instanceId = instance.reference.id;
-        final newStatus = _completionStatusChanges[instanceId];
+        final newStatus = _statusChanges[instanceId];
         final newValue = _currentValueChanges[instanceId];
 
-        if (newStatus != null && newStatus != instance.completionStatus) {
+        if (newStatus != null && newStatus != instance.status) {
           await HistoricalEditService.updateHabitInstance(
             instanceId: instance.reference.id,
             userId: userId,
-            newCompletionStatus: newStatus,
+            newStatus: newStatus,
           );
         }
 

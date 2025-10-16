@@ -767,6 +767,27 @@ class _ItemComponentState extends State<ItemComponent>
           );
         }
 
+        // Check if today is the last day of the window
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final isLastDay = widget.instance.windowEndDate != null &&
+            DateTime(
+                    widget.instance.windowEndDate!.year,
+                    widget.instance.windowEndDate!.month,
+                    widget.instance.windowEndDate!.day)
+                .isAtSameMomentAs(today);
+
+        // Add "Snooze for Today" option (only if not last day)
+        if (!isLastDay) {
+          menuItems.add(
+            const PopupMenuItem<String>(
+              value: 'snooze_today',
+              height: 32,
+              child: Text('Snooze for today', style: TextStyle(fontSize: 12)),
+            ),
+          );
+        }
+
         // Add snooze option
         menuItems.add(
           const PopupMenuItem<String>(
@@ -788,18 +809,37 @@ class _ItemComponentState extends State<ItemComponent>
           ),
         );
       } else {
+        // Calculate if "Skip all past occurrences" should be shown
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final missingInstancesCount =
+            ActivityInstanceService.calculateMissingInstancesFromInstance(
+          instance: widget.instance,
+          today: today,
+        );
+
         // Standard recurring task options
-        menuItems.addAll([
+        final recurringTaskOptions = <PopupMenuEntry<String>>[
           const PopupMenuItem<String>(
             value: 'skip',
             height: 32,
             child: Text('Skip this occurrence', style: TextStyle(fontSize: 12)),
           ),
-          const PopupMenuItem<String>(
-            value: 'skip_until_today',
-            height: 32,
-            child: Text('Skip until today', style: TextStyle(fontSize: 12)),
-          ),
+        ];
+
+        // Only show "Skip all past occurrences" if there are 2+ missing instances
+        if (missingInstancesCount >= 2) {
+          recurringTaskOptions.add(
+            const PopupMenuItem<String>(
+              value: 'skip_until_today',
+              height: 32,
+              child: Text('Skip all past occurrences',
+                  style: TextStyle(fontSize: 12)),
+            ),
+          );
+        }
+
+        recurringTaskOptions.addAll([
           const PopupMenuItem<String>(
             value: 'skip_until',
             height: 32,
@@ -811,12 +851,9 @@ class _ItemComponentState extends State<ItemComponent>
             height: 32,
             child: Text('Snooze until...', style: TextStyle(fontSize: 12)),
           ),
-          const PopupMenuItem<String>(
-            value: 'reschedule',
-            height: 32,
-            child: Text('Move this instance', style: TextStyle(fontSize: 12)),
-          ),
         ]);
+
+        menuItems.addAll(recurringTaskOptions);
       }
     } else {
       // One-time tasks menu - show contextual options
@@ -921,7 +958,7 @@ class _ItemComponentState extends State<ItemComponent>
             untilDate: today,
           );
           ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Skipped until today')),
+            const SnackBar(content: Text('Skipped all past occurrences')),
           );
           break;
 
@@ -940,25 +977,6 @@ class _ItemComponentState extends State<ItemComponent>
             final label = DateFormat('EEE, MMM d').format(picked);
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Skipped until $label')),
-            );
-          }
-          break;
-
-        case 'reschedule':
-          final picked = await showDatePicker(
-            context: context,
-            initialDate: widget.instance.dueDate ?? tomorrow,
-            firstDate: today,
-            lastDate: today.add(const Duration(days: 365 * 5)),
-          );
-          if (picked != null) {
-            await ActivityInstanceService.rescheduleInstance(
-              instanceId: widget.instance.reference.id,
-              newDueDate: picked,
-            );
-            final label = DateFormat('EEE, MMM d').format(picked);
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Moved to $label')),
             );
           }
           break;
@@ -1016,6 +1034,10 @@ class _ItemComponentState extends State<ItemComponent>
 
         case 'skip_rest':
           await _handleHabitSkipRest();
+          break;
+
+        case 'snooze_today':
+          await _handleSnoozeForToday();
           break;
 
         case 'snooze':
@@ -1621,13 +1643,12 @@ class _ItemComponentState extends State<ItemComponent>
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
-      // For habits, limit snooze date to window end date
+      // For both habits and recurring tasks, limit snooze date to window end date
       DateTime maxDate;
-      if (widget.instance.templateCategoryType == 'habit' &&
-          widget.instance.windowEndDate != null) {
+      if (widget.instance.windowEndDate != null) {
         maxDate = widget.instance.windowEndDate!;
       } else {
-        // For tasks, allow up to 1 year in the future
+        // For one-time tasks, allow up to 1 year in the future
         maxDate = today.add(const Duration(days: 365));
       }
 
@@ -1652,6 +1673,29 @@ class _ItemComponentState extends State<ItemComponent>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error snoozing: $e')),
+        );
+      }
+    }
+  }
+
+  /// Snooze instance for today only (until tomorrow)
+  Future<void> _handleSnoozeForToday() async {
+    try {
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+
+      await ActivityInstanceService.snoozeInstance(
+        instanceId: widget.instance.reference.id,
+        snoozeUntil: tomorrow,
+      );
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Snoozed until tomorrow')),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error snoozing for today: $e')),
         );
       }
     }

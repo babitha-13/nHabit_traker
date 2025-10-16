@@ -133,10 +133,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
   String get templatePeriodType => _templatePeriodType ?? '';
   bool hasTemplatePeriodType() => _templatePeriodType != null;
 
-  // Two-field system for habits (completionStatus + dayState)
-  String? _completionStatus; // 'pending', 'completed', 'skipped' (habits only)
-  String get completionStatus => _completionStatus ?? 'pending';
-  bool hasCompletionStatus() => _completionStatus != null;
+  // Habit-specific day state tracking
 
   String? _dayState; // 'open', 'closed' (habits only)
   String get dayState => _dayState ?? 'open';
@@ -196,7 +193,6 @@ class ActivityInstanceRecord extends FirestoreRecord {
         snapshotData['templateEveryXPeriodType'] as String?;
     _templateTimesPerPeriod = snapshotData['templateTimesPerPeriod'] as int?;
     _templatePeriodType = snapshotData['templatePeriodType'] as String?;
-    _completionStatus = snapshotData['completionStatus'] as String?;
     _dayState = snapshotData['dayState'] as String?;
     _belongsToDate = snapshotData['belongsToDate'] as DateTime?;
     _closedAt = snapshotData['closedAt'] as DateTime?;
@@ -282,7 +278,6 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateEveryXPeriodType,
   int? templateTimesPerPeriod,
   String? templatePeriodType,
-  String? completionStatus,
   String? dayState,
   DateTime? belongsToDate,
   DateTime? closedAt,
@@ -319,7 +314,6 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateEveryXPeriodType': templateEveryXPeriodType,
       'templateTimesPerPeriod': templateTimesPerPeriod,
       'templatePeriodType': templatePeriodType,
-      'completionStatus': completionStatus,
       'dayState': dayState,
       'belongsToDate': belongsToDate,
       'closedAt': closedAt,
@@ -368,7 +362,6 @@ class ActivityInstanceRecordDocumentEquality
         e1?.templateEveryXPeriodType == e2?.templateEveryXPeriodType &&
         e1?.templateTimesPerPeriod == e2?.templateTimesPerPeriod &&
         e1?.templatePeriodType == e2?.templatePeriodType &&
-        e1?.completionStatus == e2?.completionStatus &&
         e1?.dayState == e2?.dayState &&
         e1?.belongsToDate == e2?.belongsToDate &&
         e1?.closedAt == e2?.closedAt &&
@@ -405,7 +398,6 @@ class ActivityInstanceRecordDocumentEquality
         e?.templateEveryXPeriodType,
         e?.templateTimesPerPeriod,
         e?.templatePeriodType,
-        e?.completionStatus,
         e?.dayState,
         e?.belongsToDate,
         e?.closedAt,

@@ -295,25 +295,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
               ),
             const SizedBox(height: 4),
             Row(
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
-                  decoration: BoxDecoration(
-                    color:
-                        FlutterFlowTheme.of(context).primary.withOpacity(0.1),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Text(
-                    'Weight: ${category.weight.toStringAsFixed(1)}',
-                    style: TextStyle(
-                      color: FlutterFlowTheme.of(context).primary,
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                ),
-              ],
+              children: [],
             ),
           ],
         ),

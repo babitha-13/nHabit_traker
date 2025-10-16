@@ -28,24 +28,12 @@ class PointsService {
     ActivityInstanceRecord instance,
     CategoryRecord category,
   ) {
-    final categoryWeight = category.weight;
     final habitPriority = instance.templatePriority.toDouble();
-    final fullWeight = categoryWeight * habitPriority;
 
     // Calculate daily frequency based on template configuration
     final dailyFrequency = _calculateDailyFrequency(instance);
 
-    // DEBUG: Detailed logging for diagnosis
-    print('=== DAILY TARGET CALCULATION DEBUG ===');
-    print('Instance: ${instance.templateName}');
-    print('Category weight: $categoryWeight');
-    print('Template priority: $habitPriority');
-    print('Full weight (category × priority): $fullWeight');
-    print('Daily frequency: $dailyFrequency');
-    print('Final daily target: ${dailyFrequency * fullWeight}');
-    print('=====================================');
-
-    return dailyFrequency * fullWeight;
+    return dailyFrequency * habitPriority;
   }
 
   /// Calculate daily target with template data (enhanced version)
@@ -55,52 +43,23 @@ class PointsService {
     CategoryRecord category,
     ActivityRecord template,
   ) {
-    final categoryWeight = category.weight;
     final habitPriority = instance.templatePriority.toDouble();
-    final fullWeight = categoryWeight * habitPriority;
 
     // Calculate daily frequency from template data
     final dailyFrequency = calculateDailyFrequencyFromTemplate(template);
 
-    // DEBUG: Detailed logging for template-based calculation
-    print('=== TEMPLATE-BASED DAILY TARGET DEBUG ===');
-    print('Instance: ${instance.templateName}');
-    print('Category weight: $categoryWeight');
-    print('Template priority: $habitPriority');
-    print('Full weight (category × priority): $fullWeight');
-    print('Template frequency fields:');
-    print('  - everyXValue: ${template.everyXValue}');
-    print('  - everyXPeriodType: "${template.everyXPeriodType}"');
-    print('  - timesPerPeriod: ${template.timesPerPeriod}');
-    print('  - periodType: "${template.periodType}"');
-    print('Daily frequency from template: $dailyFrequency');
-    print('Final daily target: ${dailyFrequency * fullWeight}');
-    print('==========================================');
-
-    return dailyFrequency * fullWeight;
+    return dailyFrequency * habitPriority;
   }
 
   /// Calculate daily frequency for a habit instance
   /// Returns the expected daily frequency (e.g., 0.5 for every 2 days)
   static double _calculateDailyFrequency(ActivityInstanceRecord instance) {
-    // DEBUG: Log frequency field values
-    print('=== FREQUENCY CALCULATION DEBUG ===');
-    print('Instance: ${instance.templateName}');
-    print('templateEveryXValue: ${instance.templateEveryXValue}');
-    print('templateEveryXPeriodType: "${instance.templateEveryXPeriodType}"');
-    print('templateTimesPerPeriod: ${instance.templateTimesPerPeriod}');
-    print('templatePeriodType: "${instance.templatePeriodType}"');
-
     // Handle "every X days/weeks" pattern
     if (instance.templateEveryXValue > 1 &&
         instance.templateEveryXPeriodType.isNotEmpty) {
       final periodDays = periodTypeToDays(instance.templateEveryXPeriodType);
       final frequency = (1.0 / instance.templateEveryXValue) *
           (periodDays / periodTypeToDays('daily'));
-      print(
-          'Using "every X" pattern: everyXValue=${instance.templateEveryXValue}, periodType=${instance.templateEveryXPeriodType}, periodDays=$periodDays');
-      print('Calculated frequency: $frequency');
-      print('=====================================');
       return frequency;
     }
 
@@ -109,39 +68,21 @@ class PointsService {
         instance.templatePeriodType.isNotEmpty) {
       final periodDays = periodTypeToDays(instance.templatePeriodType);
       final frequency = (instance.templateTimesPerPeriod / periodDays);
-      print(
-          'Using "times per period" pattern: timesPerPeriod=${instance.templateTimesPerPeriod}, periodType=${instance.templatePeriodType}, periodDays=$periodDays');
-      print('Calculated frequency: $frequency');
-      print('=====================================');
       return frequency;
     }
 
     // Default: daily habit (1 time per day)
-    print('Using default frequency: 1.0 (daily habit)');
-    print('=====================================');
     return 1.0;
   }
 
   /// Calculate daily frequency from template data
   /// This method can be used when template data is available
   static double calculateDailyFrequencyFromTemplate(ActivityRecord template) {
-    // DEBUG: Log template frequency calculation
-    print('=== TEMPLATE FREQUENCY CALCULATION DEBUG ===');
-    print('Template: ${template.name}');
-    print('everyXValue: ${template.everyXValue}');
-    print('everyXPeriodType: "${template.everyXPeriodType}"');
-    print('timesPerPeriod: ${template.timesPerPeriod}');
-    print('periodType: "${template.periodType}"');
-
     // Handle "every X days" pattern
     if (template.everyXValue > 1 && template.everyXPeriodType.isNotEmpty) {
       final periodDays = periodTypeToDays(template.everyXPeriodType);
       final frequency = (1.0 / template.everyXValue) *
           (periodDays / periodTypeToDays('daily'));
-      print(
-          'Using template "every X" pattern: everyXValue=${template.everyXValue}, periodType=${template.everyXPeriodType}, periodDays=$periodDays');
-      print('Calculated frequency: $frequency');
-      print('==========================================');
       return frequency;
     }
 
@@ -149,16 +90,10 @@ class PointsService {
     if (template.timesPerPeriod > 0 && template.periodType.isNotEmpty) {
       final periodDays = periodTypeToDays(template.periodType);
       final frequency = (template.timesPerPeriod / periodDays);
-      print(
-          'Using template "times per period" pattern: timesPerPeriod=${template.timesPerPeriod}, periodType=${template.periodType}, periodDays=$periodDays');
-      print('Calculated frequency: $frequency');
-      print('==========================================');
       return frequency;
     }
 
     // Default: daily habit (1 time per day)
-    print('Using template default frequency: 1.0 (daily habit)');
-    print('==========================================');
     return 1.0;
   }
 
@@ -168,19 +103,17 @@ class PointsService {
     ActivityInstanceRecord instance,
     CategoryRecord category,
   ) {
-    final categoryWeight = category.weight;
     final habitPriority = instance.templatePriority.toDouble();
-    final fullWeight = categoryWeight * habitPriority;
 
     switch (instance.templateTrackingType) {
       case 'binary':
         // Binary habits: full points if completed, 0 if not
-        return instance.status == 'completed' ? fullWeight : 0.0;
+        return instance.status == 'completed' ? habitPriority : 0.0;
 
       case 'quantitative':
         // Quantitative habits: points based on progress percentage
         if (instance.status == 'completed') {
-          return fullWeight;
+          return habitPriority;
         }
 
         final currentValue = _getCurrentValue(instance);
@@ -199,17 +132,17 @@ class PointsService {
           if (target <= 0) return 0.0;
 
           final progressFraction = (todayContribution / target).clamp(0.0, 1.0);
-          return progressFraction * fullWeight;
+          return progressFraction * habitPriority;
         }
 
         // For non-windowed habits, use total progress
         final completionFraction = (currentValue / target).clamp(0.0, 1.0);
-        return completionFraction * fullWeight;
+        return completionFraction * habitPriority;
 
       case 'time':
         // Time-based habits: points based on accumulated time vs target
         if (instance.status == 'completed') {
-          return fullWeight;
+          return habitPriority;
         }
 
         final accumulatedTime = instance.accumulatedTime;
@@ -231,12 +164,12 @@ class PointsService {
 
           final progressFraction =
               (todayContribution / targetMs).clamp(0.0, 1.0);
-          return progressFraction * fullWeight;
+          return progressFraction * habitPriority;
         }
 
         // For non-windowed habits, use total progress
         final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
-        return completionFraction * fullWeight;
+        return completionFraction * habitPriority;
 
       default:
         return 0.0;
@@ -250,30 +183,18 @@ class PointsService {
   ) {
     double totalTarget = 0.0;
 
-    print(
-        'PointsService: Calculating daily target for ${instances.length} instances');
-    print(
-        'PointsService: Available categories: ${categories.map((c) => '${c.name}(${c.reference.id})').join(', ')}');
-
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
 
-      print(
-          'PointsService: Processing ${instance.templateName} with category ID: "${instance.templateCategoryId}"');
-
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) {
-        print(
-            'PointsService: No category found for ${instance.templateName} (ID: "${instance.templateCategoryId}")');
         continue;
       }
 
       final target = calculateDailyTarget(instance, category);
       totalTarget += target;
-      print('PointsService: ${instance.templateName} daily target: $target');
     }
 
-    print('PointsService: Total daily target: $totalTarget');
     return totalTarget;
   }
 
@@ -316,24 +237,18 @@ class PointsService {
   ) {
     double totalPoints = 0.0;
 
-    print(
-        'PointsService: Calculating total points for ${instances.length} instances');
-
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
 
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) {
-        print('PointsService: No category found for ${instance.templateName}');
         continue;
       }
 
       final points = calculatePointsEarned(instance, category);
       totalPoints += points;
-      print('PointsService: ${instance.templateName} earned $points points');
     }
 
-    print('PointsService: Total points earned: $totalPoints');
     return totalPoints;
   }
 
@@ -396,8 +311,6 @@ class PointsService {
 
       return null;
     } catch (e) {
-      print(
-          'PointsService: Error finding category for ${instance.templateName}: $e');
       return null;
     }
   }
@@ -408,12 +321,6 @@ class PointsService {
   /// For tasks: target = priority (no category weightage)
   static double calculateTaskDailyTarget(TaskInstanceRecord instance) {
     final priority = instance.templatePriority.toDouble();
-
-    print('=== TASK DAILY TARGET CALCULATION DEBUG ===');
-    print('Task: ${instance.templateName}');
-    print('Priority: $priority');
-    print('Final daily target: $priority');
-    print('==========================================');
 
     return priority;
   }
@@ -467,16 +374,11 @@ class PointsService {
   static double calculateTotalTaskTarget(List<TaskInstanceRecord> instances) {
     double totalTarget = 0.0;
 
-    print(
-        'PointsService: Calculating task daily target for ${instances.length} instances');
-
     for (final instance in instances) {
       final target = calculateTaskDailyTarget(instance);
       totalTarget += target;
-      print('PointsService: ${instance.templateName} daily target: $target');
     }
 
-    print('PointsService: Total task daily target: $totalTarget');
     return totalTarget;
   }
 
@@ -484,16 +386,11 @@ class PointsService {
   static double calculateTotalTaskPoints(List<TaskInstanceRecord> instances) {
     double totalPoints = 0.0;
 
-    print(
-        'PointsService: Calculating total task points for ${instances.length} instances');
-
     for (final instance in instances) {
       final points = calculateTaskPointsEarned(instance);
       totalPoints += points;
-      print('PointsService: ${instance.templateName} earned $points points');
     }
 
-    print('PointsService: Total task points earned: $totalPoints');
     return totalPoints;
   }
 
@@ -514,22 +411,19 @@ class PointsService {
   }
 }
 
-/// Example calculations for fractional point system:
+/// Example calculations for simplified point system:
 /// 
 /// Example 1: "Exercise" habit
 /// - Frequency: Every 2 days
-/// - Category weight: 2.0 (medium priority)
 /// - Habit priority: 3 (high priority)
-/// - Daily target = (1/2) * 2.0 * 3 = 3.0 points per day
+/// - Daily target = (1/2) * 3 = 1.5 points per day
 /// 
 /// Example 2: "Read" habit  
 /// - Frequency: 3 times per week
-/// - Category weight: 1.5 (low priority)
 /// - Habit priority: 2 (medium priority)
-/// - Daily target = (3/7) * 1.5 * 2 = 1.29 points per day
+/// - Daily target = (3/7) * 2 = 0.86 points per day
 /// 
 /// Example 3: "Meditate" habit
 /// - Frequency: Daily (1 time per day)
-/// - Category weight: 3.0 (high priority)
 /// - Habit priority: 1 (low priority)
-/// - Daily target = 1.0 * 3.0 * 1 = 3.0 points per day
+/// - Daily target = 1.0 * 1 = 1.0 points per day

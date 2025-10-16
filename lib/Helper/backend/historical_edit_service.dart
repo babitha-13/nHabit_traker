@@ -38,13 +38,13 @@ class HistoricalEditService {
   static Future<void> updateHabitInstance({
     required String instanceId,
     required String userId,
-    String? newCompletionStatus,
+    String? newStatus,
     dynamic newCurrentValue,
   }) async {
-    // Validate completion status
-    if (newCompletionStatus != null &&
-        !['pending', 'completed', 'skipped'].contains(newCompletionStatus)) {
-      throw ArgumentError('Invalid completion status: $newCompletionStatus');
+    // Validate status
+    if (newStatus != null &&
+        !['pending', 'completed', 'skipped'].contains(newStatus)) {
+      throw ArgumentError('Invalid status: $newStatus');
     }
 
     final instanceRef =
@@ -74,8 +74,8 @@ class HistoricalEditService {
       'lastUpdated': DateTime.now(),
     };
 
-    if (newCompletionStatus != null) {
-      updateData['completionStatus'] = newCompletionStatus;
+    if (newStatus != null) {
+      updateData['status'] = newStatus;
     }
 
     if (newCurrentValue != null) {
@@ -86,8 +86,7 @@ class HistoricalEditService {
     await instanceRef.update(updateData);
 
     print('HistoricalEditService: Updated instance $instanceId');
-    print(
-        '  - New status: ${newCompletionStatus ?? instance.completionStatus}');
+    print('  - New status: ${newStatus ?? instance.status}');
     print('  - New value: ${newCurrentValue ?? instance.currentValue}');
   }
 
@@ -130,16 +129,16 @@ class HistoricalEditService {
     // Recalculate habit statistics
     int totalHabits = instances.length;
     int completedHabits =
-        instances.where((i) => i.completionStatus == 'completed').length;
+        instances.where((i) => i.status == 'completed').length;
     int partialHabits = instances
         .where((i) =>
-            i.completionStatus == 'skipped' &&
+            i.status == 'skipped' &&
             i.currentValue != null &&
             (i.currentValue is num ? (i.currentValue as num) > 0 : false))
         .length;
     int skippedHabits = instances
         .where((i) =>
-            i.completionStatus == 'skipped' &&
+            i.status == 'skipped' &&
             (i.currentValue == null ||
                 (i.currentValue is num ? (i.currentValue as num) == 0 : true)))
         .length;
@@ -158,9 +157,8 @@ class HistoricalEditService {
         categoryBreakdown[category.reference.id] = {
           'target': categoryTarget,
           'earned': categoryEarned,
-          'completed': categoryInstances
-              .where((i) => i.completionStatus == 'completed')
-              .length,
+          'completed':
+              categoryInstances.where((i) => i.status == 'completed').length,
           'total': categoryInstances.length,
         };
       }

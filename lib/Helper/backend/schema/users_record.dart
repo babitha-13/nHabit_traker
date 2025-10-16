@@ -47,6 +47,16 @@ class UsersRecord extends FirestoreRecord {
   String get phoneNumber => _phoneNumber ?? '';
   bool hasPhoneNumber() => _phoneNumber != null;
 
+  // "current_goal_id" field.
+  String? _currentGoalId;
+  String get currentGoalId => _currentGoalId ?? '';
+  bool hasCurrentGoalId() => _currentGoalId != null;
+
+  // "last_goal_shown_date" field.
+  DateTime? _lastGoalShownDate;
+  DateTime? get lastGoalShownDate => _lastGoalShownDate;
+  bool hasLastGoalShownDate() => _lastGoalShownDate != null;
+
   void _initializeFields() {
     _email = snapshotData['email'] as String?;
     _uid = snapshotData['uid'] as String?;
@@ -55,6 +65,8 @@ class UsersRecord extends FirestoreRecord {
     _photoUrl = snapshotData['photo_url'] as String?;
     _createdTime = snapshotData['created_time'] as DateTime?;
     _phoneNumber = snapshotData['phone_number'] as String?;
+    _currentGoalId = snapshotData['current_goal_id'] as String?;
+    _lastGoalShownDate = snapshotData['last_goal_shown_date'] as DateTime?;
   }
 
   static CollectionReference get collection =>
@@ -98,6 +110,8 @@ Map<String, dynamic> createUsersRecordData({
   String? photoUrl,
   DateTime? createdTime,
   String? phoneNumber,
+  String? currentGoalId,
+  DateTime? lastGoalShownDate,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -108,6 +122,8 @@ Map<String, dynamic> createUsersRecordData({
       'photo_url': photoUrl,
       'created_time': createdTime,
       'phone_number': phoneNumber,
+      'current_goal_id': currentGoalId,
+      'last_goal_shown_date': lastGoalShownDate,
     }.withoutNulls,
   );
 
@@ -125,7 +141,9 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e1?.users == e2?.users &&
         e1?.photoUrl == e2?.photoUrl &&
         e1?.createdTime == e2?.createdTime &&
-        e1?.phoneNumber == e2?.phoneNumber;
+        e1?.phoneNumber == e2?.phoneNumber &&
+        e1?.currentGoalId == e2?.currentGoalId &&
+        e1?.lastGoalShownDate == e2?.lastGoalShownDate;
   }
 
   @override
@@ -136,7 +154,9 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e?.users,
         e?.photoUrl,
         e?.createdTime,
-        e?.phoneNumber
+        e?.phoneNumber,
+        e?.currentGoalId,
+        e?.lastGoalShownDate,
       ]);
 
   @override

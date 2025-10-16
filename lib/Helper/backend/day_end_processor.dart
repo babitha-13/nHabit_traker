@@ -4,24 +4,21 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 /// Service for processing day-end operations on habits
 /// Auto-closes pending habits and creates daily progress snapshots
 class DayEndProcessor {
-  static const int _gracePeriodMinutes = 5; // 5 minutes after midnight
+  static const int _gracePeriodMinutes = 0; // not used with shifted boundary
 
   /// Process day-end for a specific user
-  /// This should be called at midnight (user's local time) or on app start
+  /// This should be called at the shifted boundary (2 AM local) or on app start
   static Future<void> processDayEnd({
     required String userId,
     DateTime? targetDate,
   }) async {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final yesterday = today.subtract(const Duration(days: 1));
-
-    // Use targetDate if provided, otherwise use yesterday
-    final processDate = targetDate ?? yesterday;
+    // Use targetDate if provided, otherwise use latest processable shifted date
+    final processDate = targetDate ?? DateService.latestProcessableShiftedDate;
 
     print(
         'DayEndProcessor: Processing day-end for user $userId, date: $processDate');
@@ -123,7 +120,7 @@ class DayEndProcessor {
 
     final batch = FirebaseFirestore.instance.batch();
     // Use the targetDate being processed (normalizedDate) for skippedAt
-    // This ensures if we're processing Oct 15, habits are marked skipped on Oct 15
+    // With shifted boundary, Oct 15 window closes at Oct 16 2 AM
     final skippedAtDate = normalizedDate;
 
     for (final instance in instances) {
@@ -187,7 +184,6 @@ class DayEndProcessor {
         templateEveryXPeriodType: instance.templateEveryXPeriodType,
         templateTimesPerPeriod: instance.templateTimesPerPeriod,
         templatePeriodType: instance.templatePeriodType,
-        completionStatus: 'pending',
         dayState: 'open',
         belongsToDate: nextBelongsToDate,
         windowEndDate: nextWindowEndDate,
@@ -446,17 +442,12 @@ class DayEndProcessor {
 
   /// Get the next day-end processing time for a user
   static DateTime getNextDayEndTime() {
-    final now = DateTime.now();
-    final tomorrow = DateTime(now.year, now.month, now.day + 1);
-    return tomorrow.add(Duration(minutes: _gracePeriodMinutes));
+    return DateService.nextShiftedBoundary(DateTime.now());
   }
 
   /// Check if we're within the grace period after midnight
   static bool isWithinGracePeriod() {
-    final now = DateTime.now();
-    final midnight = DateTime(now.year, now.month, now.day);
-    final gracePeriodEnd = midnight.add(Duration(minutes: _gracePeriodMinutes));
-
-    return now.isBefore(gracePeriodEnd);
+    // With shifted boundary, grace handling is no longer needed
+    return false;
   }
 }

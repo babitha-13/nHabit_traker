@@ -344,8 +344,55 @@ class _EditTaskState extends State<EditTask> {
                 'lastUpdated': DateTime.now(),
               });
 
+              // Create updated instance record and broadcast event immediately
+              final updatedInstanceData = createActivityInstanceRecordData(
+                templateId: instance.templateId,
+                dueDate: instance.dueDate,
+                status: instance.status,
+                completedAt: instance.completedAt,
+                skippedAt: instance.skippedAt,
+                currentValue: instance.currentValue,
+                lastDayValue: instance.lastDayValue,
+                accumulatedTime: instance.accumulatedTime,
+                isTimerActive: instance.isTimerActive,
+                timerStartTime: instance.timerStartTime,
+                createdTime: instance.createdTime,
+                lastUpdated: DateTime.now(),
+                isActive: instance.isActive,
+                notes: instance.notes,
+                templateName: updateData['name'],
+                templateCategoryId: updateData['categoryId'],
+                templateCategoryName: updateData['categoryName'],
+                templateCategoryType: instance.templateCategoryType,
+                templatePriority: instance.templatePriority,
+                templateTrackingType: updateData['trackingType'],
+                templateTarget: updateData['target'],
+                templateUnit: updateData['unit'],
+                templateDescription: instance.templateDescription,
+                templateShowInFloatingTimer:
+                    instance.templateShowInFloatingTimer,
+                templateEveryXValue: instance.templateEveryXValue,
+                templateEveryXPeriodType: instance.templateEveryXPeriodType,
+                templateTimesPerPeriod: instance.templateTimesPerPeriod,
+                templatePeriodType: instance.templatePeriodType,
+                dayState: instance.dayState,
+                belongsToDate: instance.belongsToDate,
+                closedAt: instance.closedAt,
+                windowEndDate: instance.windowEndDate,
+                windowDuration: instance.windowDuration,
+              );
+
+              final updatedInstance =
+                  ActivityInstanceRecord.getDocumentFromData(
+                updatedInstanceData,
+                instance.reference,
+              );
+
+              // Broadcast the update event immediately
+              InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
               print(
-                  'DEBUG: Instance ${instance.reference.id} updated successfully');
+                  'DEBUG: Instance ${instance.reference.id} updated and event broadcasted successfully');
               return true;
             } catch (e) {
               print(
@@ -366,39 +413,7 @@ class _EditTaskState extends State<EditTask> {
 
         print(
             'DEBUG: Instance update summary: $successCount successful, $failureCount failed');
-
-        // Broadcast events for successfully updated instances
-        if (successCount > 0) {
-          try {
-            final verifyInstances =
-                await ActivityInstanceService.getInstancesForTemplate(
-                    templateId: widget.task.reference.id);
-            final sampleInstance = verifyInstances.firstWhere(
-              (i) => i.status != 'completed',
-              orElse: () => verifyInstances.first,
-            );
-            print(
-                'DEBUG: Verification - Sample instance category: ${sampleInstance.templateCategoryName} (${sampleInstance.templateCategoryId})');
-
-            // Broadcast update events for all pending instances that were updated
-            for (final instance in pendingInstances) {
-              try {
-                final updatedInstance =
-                    await ActivityInstanceService.getUpdatedInstance(
-                  instanceId: instance.reference.id,
-                );
-                InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-              } catch (e) {
-                print(
-                    'DEBUG: Failed to broadcast event for instance ${instance.reference.id}: $e');
-              }
-            }
-          } catch (e) {
-            print('DEBUG: Verification failed: $e');
-          }
-        }
-
-        print('DEBUG: All instance updates completed');
+        print('DEBUG: All instance updates and events completed');
       } catch (e) {
         print('Error updating instances: $e');
         // Don't fail the entire save operation if instance updates fail

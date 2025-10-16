@@ -4,14 +4,17 @@ import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/finalize_habit_data.dart';
 import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
 import 'package:habit_tracker/Screens/Splash/splash.dart';
+import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Helper/utils/app_state.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'Helper/utils/flutter_flow_theme.dart';
 import 'Helper/utils/constants.dart';
 
@@ -48,23 +51,60 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   ThemeMode themeMode = FlutterFlowTheme.themeMode;
   late Stream<BaseAuthUser> userStream;
+  Timer? _goalCheckTimer;
+  bool _goalShownThisSession = false;
 
   @override
   void initState() {
     super.initState();
     userStream = habitTrackerFirebaseUserStream();
+
     userStream.listen((user) {
       if (user.uid != null && user.uid!.isNotEmpty) {
         finalizeActivityData(user.uid!);
         // Migration removed - all leaks plugged at source
         // Categories now always created with proper categoryType
+
+        // Start goal checking timer for this user
+        _startGoalCheckTimer(user.uid!);
       }
     });
     jwtTokenStream.listen((_) {});
   }
 
+  void _startGoalCheckTimer(String userId) {
+    // Check every 5 minutes for goal display conditions
+    _goalCheckTimer = Timer.periodic(const Duration(minutes: 5), (timer) async {
+      if (!mounted || _goalShownThisSession) return;
+
+      try {
+        final shouldShow = await GoalService.shouldShowGoal(userId);
+        if (shouldShow && mounted) {
+          _showGoalDialog();
+          _goalShownThisSession = true;
+        }
+      } catch (e) {
+        print('Goal check timer error: $e');
+      }
+    });
+  }
+
+  void _showGoalDialog() {
+    // Show goal dialog with a slight delay to ensure UI is ready
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const GoalDialog(),
+        );
+      }
+    });
+  }
+
   @override
   void dispose() {
+    _goalCheckTimer?.cancel();
     super.dispose();
   }
 

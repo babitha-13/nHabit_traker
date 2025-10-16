@@ -121,17 +121,17 @@ class DaySimulator {
 
     switch (scenario.type) {
       case ScenarioType.complete:
-        updates['completionStatus'] = 'completed';
+        updates['status'] = 'completed';
         updates['currentValue'] = 1; // Simplified for testing
         break;
       case ScenarioType.partial:
         final target = 1; // Simplified for testing
         final partialValue = (target * scenario.partialPercentage).round();
-        updates['completionStatus'] = 'pending';
+        updates['status'] = 'pending';
         updates['currentValue'] = partialValue;
         break;
       case ScenarioType.skip:
-        updates['completionStatus'] = 'skipped';
+        updates['status'] = 'skipped';
         updates['currentValue'] = 0;
         break;
       case ScenarioType.noChange:

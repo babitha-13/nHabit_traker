@@ -82,25 +82,6 @@ class _CreateCategoryState extends State<CreateCategory> {
               maxLines: 2,
             ),
             const SizedBox(height: 16),
-            Row(
-              children: [
-                Expanded(child: Text('Weight: $weight')),
-                Expanded(
-                  child: Slider(
-                    value: weight.toDouble(),
-                    min: 1.0,
-                    max: 3.0,
-                    divisions: 2,
-                    onChanged: (value) {
-                      setState(() {
-                        weight = value.round();
-                      });
-                    },
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 16),
             const Text('Color'),
             const SizedBox(height: 8),
             Wrap(
@@ -199,7 +180,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                         description: descriptionController.text.isNotEmpty
                             ? descriptionController.text
                             : null,
-                        weight: weight.toDouble(),
+                        weight: 1.0,
                         color: selectedColor,
                         categoryType:
                             widget.categoryType, // Only update if provided
@@ -247,7 +228,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                         description: descriptionController.text.isNotEmpty
                             ? descriptionController.text
                             : null,
-                        weight: weight.toDouble(),
+                        weight: 1.0,
                         color: selectedColor,
                         categoryType: widget.categoryType ??
                             'habit', // Default to habit if not specified

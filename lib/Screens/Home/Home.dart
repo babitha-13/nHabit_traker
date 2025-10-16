@@ -14,6 +14,7 @@ import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
+import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
@@ -85,6 +86,17 @@ class _HomeState extends State<Home> {
                   ),
             ),
             actions: [
+              // Goals button - always visible
+              IconButton(
+                icon: const Icon(Icons.flag, color: Colors.white),
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => const GoalDialog(),
+                  );
+                },
+                tooltip: 'Goals',
+              ),
               Visibility(
                 visible: title == "Tasks",
                 child: PopupMenuButton<String>(

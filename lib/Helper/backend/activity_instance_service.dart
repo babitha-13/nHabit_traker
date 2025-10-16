@@ -43,11 +43,10 @@ class ActivityInstanceService {
         );
     print('ActivityInstanceService: Initial due date: $initialDueDate');
 
-    // For habits, set belongsToDate to the normalized date
+    // For habits, set belongsToDate using shifted boundary (2 AM)
     final normalizedDate = initialDueDate != null
-        ? DateTime(
-            initialDueDate.year, initialDueDate.month, initialDueDate.day)
-        : DateTime(now.year, now.month, now.day);
+        ? DateService.belongsToShiftedDate(initialDueDate)
+        : DateService.belongsToShiftedDate(now);
 
     // Calculate window fields for habits
     DateTime? windowEndDate;
@@ -81,7 +80,6 @@ class ActivityInstanceService {
       templateTimesPerPeriod: template.timesPerPeriod,
       templatePeriodType: template.periodType,
       // Set habit-specific fields
-      completionStatus: template.categoryType == 'habit' ? 'pending' : null,
       dayState: template.categoryType == 'habit' ? 'open' : null,
       belongsToDate: template.categoryType == 'habit' ? normalizedDate : null,
       windowEndDate: windowEndDate,
@@ -891,23 +889,39 @@ class ActivityInstanceService {
 
       await instanceRef.update(updateData);
 
-      // Check if target is reached and auto-complete
+      // Check if target is reached and auto-complete/uncomplete
       if (instance.templateTrackingType == 'quantitative' &&
           instance.templateTarget != null) {
         final target = instance.templateTarget as num;
         final progress = currentValue is num ? currentValue : 0;
 
         if (progress >= target) {
-          await completeInstance(
-            instanceId: instanceId,
-            finalValue: currentValue,
-            userId: uid,
-          );
+          // Auto-complete if not already completed
+          if (instance.status != 'completed') {
+            await completeInstance(
+              instanceId: instanceId,
+              finalValue: currentValue,
+              userId: uid,
+            );
+          } else {
+            // Already completed, just broadcast the progress update
+            final updatedInstance =
+                await getUpdatedInstance(instanceId: instanceId, userId: uid);
+            InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+          }
         } else {
-          // Broadcast the instance update event for progress changes
-          final updatedInstance =
-              await getUpdatedInstance(instanceId: instanceId, userId: uid);
-          InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+          // Auto-uncomplete if currently completed and progress dropped below target
+          if (instance.status == 'completed') {
+            await uncompleteInstance(
+              instanceId: instanceId,
+              userId: uid,
+            );
+          } else {
+            // Not completed, just broadcast progress update
+            final updatedInstance =
+                await getUpdatedInstance(instanceId: instanceId, userId: uid);
+            InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+          }
         }
       } else {
         // Broadcast the instance update event for progress changes
@@ -1204,25 +1218,95 @@ class ActivityInstanceService {
     final uid = userId ?? _currentUserId;
 
     try {
-      // Get all pending instances for this template before the until date
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateId', isEqualTo: templateId)
-          .where('status', isEqualTo: 'pending')
-          .where('dueDate', isLessThan: untilDate);
+      // Get the template to understand the recurrence pattern
+      final templateRef = ActivityRecord.collectionForUser(uid).doc(templateId);
+      final templateDoc = await templateRef.get();
 
-      final instances = await query.get();
-      final now = DateService.currentDate;
-
-      // Mark all instances before untilDate as skipped
-      for (final doc in instances.docs) {
-        await doc.reference.update({
-          'status': 'skipped',
-          'skippedAt': now,
-          'lastUpdated': now,
-        });
+      if (!templateDoc.exists) {
+        throw Exception('Template not found');
       }
 
-      // Ensure there's a pending instance at or after untilDate
+      final template = ActivityRecord.fromSnapshot(templateDoc);
+      final now = DateService.currentDate;
+
+      // Get the oldest pending instance to start from
+      final oldestQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateId', isEqualTo: templateId)
+          .where('status', isEqualTo: 'pending')
+          .orderBy('dueDate', descending: false)
+          .limit(1);
+
+      final oldestInstances = await oldestQuery.get();
+
+      if (oldestInstances.docs.isEmpty) {
+        print('No pending instances found for template $templateId');
+        return;
+      }
+
+      final oldestInstance =
+          ActivityInstanceRecord.fromSnapshot(oldestInstances.docs.first);
+      DateTime currentDueDate = oldestInstance.dueDate!;
+
+      // Step 1: Create and mark all interim instances as skipped
+      // This maintains the recurrence pattern by creating instances at the correct intervals
+      while (currentDueDate.isBefore(untilDate)) {
+        // Check if instance already exists
+        final existingQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateId', isEqualTo: templateId)
+            .where('dueDate', isEqualTo: currentDueDate)
+            .where('status', isEqualTo: 'pending');
+
+        final existingInstances = await existingQuery.get();
+
+        if (existingInstances.docs.isNotEmpty) {
+          // Instance already exists, just mark as skipped
+          final existingInstance = existingInstances.docs.first;
+          await existingInstance.reference.update({
+            'status': 'skipped',
+            'skippedAt': now,
+            'lastUpdated': now,
+          });
+        } else {
+          // Create new instance and mark as skipped
+          await createActivityInstance(
+            templateId: templateId,
+            dueDate: currentDueDate,
+            template: template,
+            userId: uid,
+          );
+
+          // Mark the newly created instance as skipped
+          final newInstanceQuery = ActivityInstanceRecord.collectionForUser(uid)
+              .where('templateId', isEqualTo: templateId)
+              .where('dueDate', isEqualTo: currentDueDate)
+              .where('status', isEqualTo: 'pending');
+
+          final newInstances = await newInstanceQuery.get();
+          if (newInstances.docs.isNotEmpty) {
+            await newInstances.docs.first.reference.update({
+              'status': 'skipped',
+              'skippedAt': now,
+              'lastUpdated': now,
+            });
+          }
+        }
+
+        // Calculate next due date based on recurrence pattern
+        final nextDueDate = _calculateNextDueDate(
+          currentDueDate: currentDueDate,
+          template: template,
+        );
+
+        if (nextDueDate == null) {
+          print('No more occurrences for template $templateId');
+          break;
+        }
+
+        currentDueDate = nextDueDate;
+      }
+
+      // Step 2: Ensure there's a properly-scheduled instance after untilDate
+      // This respects the original recurrence pattern, not the untilDate
       final futureQuery = ActivityInstanceRecord.collectionForUser(uid)
           .where('templateId', isEqualTo: templateId)
           .where('status', isEqualTo: 'pending')
@@ -1231,21 +1315,37 @@ class ActivityInstanceService {
       final futureInstances = await futureQuery.get();
 
       if (futureInstances.docs.isEmpty) {
-        // Create a new instance at untilDate
-        final templateRef =
-            ActivityRecord.collectionForUser(uid).doc(templateId);
-        final templateDoc = await templateRef.get();
-
-        if (templateDoc.exists) {
-          final template = ActivityRecord.fromSnapshot(templateDoc);
+        // Create the next properly-scheduled instance
+        // Use the last calculated due date (which respects the pattern)
+        if (currentDueDate.isAtSameMomentAs(untilDate) ||
+            currentDueDate.isAfter(untilDate)) {
+          // The last calculated date is already at or after untilDate, use it
           await createActivityInstance(
             templateId: templateId,
-            dueDate: untilDate,
+            dueDate: currentDueDate,
             template: template,
             userId: uid,
           );
+        } else {
+          // Need to calculate one more step to get past untilDate
+          final nextProperDate = _calculateNextDueDate(
+            currentDueDate: currentDueDate,
+            template: template,
+          );
+
+          if (nextProperDate != null) {
+            await createActivityInstance(
+              templateId: templateId,
+              dueDate: nextProperDate,
+              template: template,
+              userId: uid,
+            );
+          }
         }
       }
+
+      print(
+          'ActivityInstanceService: Skipped all instances until $untilDate for template $templateId');
     } catch (e) {
       print('Error skipping instances until date: $e');
       rethrow;
@@ -1515,7 +1615,6 @@ class ActivityInstanceService {
         templateEveryXPeriodType: template.everyXPeriodType,
         templateTimesPerPeriod: template.timesPerPeriod,
         templatePeriodType: template.periodType,
-        completionStatus: 'pending',
         dayState: 'open',
         belongsToDate: nextBelongsToDate,
         windowEndDate: nextWindowEndDate,
@@ -1533,5 +1632,79 @@ class ActivityInstanceService {
           'ActivityInstanceService: Error generating next habit instance: $e');
       // Don't rethrow - we don't want to fail the completion
     }
+  }
+
+  /// Calculate how many instances should exist between a due date and today
+  /// based on the recurrence pattern. Used to determine if "Skip all past occurrences"
+  /// option should be shown.
+  static int _calculateMissingInstancesCount({
+    required DateTime currentDueDate,
+    required DateTime today,
+    required ActivityRecord template,
+  }) {
+    if (!template.isRecurring) return 0;
+
+    int count = 0;
+    DateTime nextDueDate = currentDueDate;
+
+    // Keep calculating next due dates until we reach or pass today
+    while (nextDueDate.isBefore(today)) {
+      final nextDate = _calculateNextDueDate(
+        currentDueDate: nextDueDate,
+        template: template,
+      );
+
+      if (nextDate == null) break;
+
+      // Only count if the next date is before today
+      if (nextDate.isBefore(today)) {
+        count++;
+        nextDueDate = nextDate;
+      } else {
+        break;
+      }
+    }
+
+    return count;
+  }
+
+  /// Calculate missing instances count from instance data (for UI menu logic)
+  static int calculateMissingInstancesFromInstance({
+    required ActivityInstanceRecord instance,
+    required DateTime today,
+  }) {
+    if (instance.dueDate == null) return 0;
+
+    // Create a minimal template object from instance data
+    final template = ActivityRecord.getDocumentFromData(
+      {
+        'isRecurring': true,
+        'frequencyType': _getFrequencyTypeFromInstance(instance),
+        'everyXValue': instance.templateEveryXValue,
+        'everyXPeriodType': instance.templateEveryXPeriodType,
+        'timesPerPeriod': instance.templateTimesPerPeriod,
+        'periodType': instance.templatePeriodType,
+        'specificDays':
+            [], // Not cached in instance, would need to fetch template
+      },
+      instance.reference, // Use instance reference as placeholder
+    );
+
+    return _calculateMissingInstancesCount(
+      currentDueDate: instance.dueDate!,
+      today: today,
+      template: template,
+    );
+  }
+
+  /// Determine frequency type from instance data
+  static String _getFrequencyTypeFromInstance(ActivityInstanceRecord instance) {
+    // For now, assume 'everyXPeriod' if we have everyXValue and everyXPeriodType
+    if (instance.templateEveryXValue > 0 &&
+        instance.templateEveryXPeriodType.isNotEmpty) {
+      return 'everyXPeriod';
+    }
+    // Could add logic for other frequency types based on available fields
+    return 'everyXPeriod';
   }
 }
