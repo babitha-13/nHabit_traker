@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/utils/time_validation_helper.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -886,6 +887,160 @@ class TaskInstanceService {
           .toList();
     } catch (e) {
       print('Error getting timer task instances: $e');
+      return [];
+    }
+  }
+
+  // ==================== TIME LOGGING METHODS ====================
+
+  /// Start time logging on an existing task instance
+  static Future<void> startTimeLogging({
+    required DocumentReference taskInstanceRef,
+    String? userId,
+  }) async {
+    try {
+      // Validate: cannot start timer on completed tasks
+      final instance =
+          await TaskInstanceRecord.getDocumentOnce(taskInstanceRef);
+
+      final error = TimeValidationHelper.getStartTimerError(instance);
+      if (error != null) {
+        throw Exception(error);
+      }
+
+      await taskInstanceRef.update({
+        'isTimeLogging': true,
+        'currentSessionStartTime': DateTime.now(),
+        'lastUpdated': DateTime.now(),
+      });
+    } catch (e) {
+      print('Error starting time logging: $e');
+      rethrow;
+    }
+  }
+
+  /// Stop time logging and optionally mark task as complete
+  static Future<void> stopTimeLogging({
+    required DocumentReference taskInstanceRef,
+    required bool markComplete,
+    String? userId,
+  }) async {
+    try {
+      final instance =
+          await TaskInstanceRecord.getDocumentOnce(taskInstanceRef);
+
+      if (instance.currentSessionStartTime == null) {
+        throw Exception('No active session to stop');
+      }
+
+      final endTime = DateTime.now();
+      final duration = endTime.difference(instance.currentSessionStartTime!);
+
+      // Validate session duration
+      final validationError =
+          TimeValidationHelper.validateSessionDuration(duration);
+      if (validationError != null) {
+        throw Exception(validationError);
+      }
+
+      // Create new session
+      final newSession = {
+        'startTime': instance.currentSessionStartTime,
+        'endTime': endTime,
+        'durationMilliseconds': duration.inMilliseconds,
+      };
+
+      // Add to existing sessions
+      final sessions = List<Map<String, dynamic>>.from(instance.timeLogSessions)
+        ..add(newSession);
+
+      // Calculate total time across all sessions
+      final totalTime = sessions.fold<int>(
+          0, (sum, session) => sum + (session['durationMilliseconds'] as int));
+
+      final updateData = <String, dynamic>{
+        'timeLogSessions': sessions,
+        'totalTimeLogged': totalTime,
+        'isTimeLogging': false,
+        'currentSessionStartTime': null,
+        'lastUpdated': DateTime.now(),
+      };
+
+      if (markComplete) {
+        updateData['status'] = 'completed';
+        updateData['completedAt'] = DateTime.now();
+      }
+
+      await taskInstanceRef.update(updateData);
+    } catch (e) {
+      print('Error stopping time logging: $e');
+      rethrow;
+    }
+  }
+
+  /// Pause time logging (keeps task pending)
+  static Future<void> pauseTimeLogging({
+    required DocumentReference taskInstanceRef,
+    String? userId,
+  }) async {
+    // Same as stopTimeLogging but with markComplete = false
+    await stopTimeLogging(
+      taskInstanceRef: taskInstanceRef,
+      markComplete: false,
+      userId: userId,
+    );
+  }
+
+  /// Get current session duration (for displaying running time)
+  static Duration getCurrentSessionDuration(TaskInstanceRecord instance) {
+    if (!instance.isTimeLogging || instance.currentSessionStartTime == null) {
+      return Duration.zero;
+    }
+    return DateTime.now().difference(instance.currentSessionStartTime!);
+  }
+
+  /// Get aggregate time including current session
+  static Duration getAggregateDuration(TaskInstanceRecord instance) {
+    final totalLogged = Duration(milliseconds: instance.totalTimeLogged);
+    final currentSession = getCurrentSessionDuration(instance);
+    return totalLogged + currentSession;
+  }
+
+  /// Get all task instances with time logs for calendar display
+  static Future<List<TaskInstanceRecord>> getTimeLoggedTasks({
+    String? userId,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      final query = TaskInstanceRecord.collectionForUser(uid)
+          .where('totalTimeLogged', isGreaterThan: 0);
+
+      final result = await query.get();
+      final tasks = result.docs
+          .map((doc) => TaskInstanceRecord.fromSnapshot(doc))
+          .where((task) => task.isActive)
+          .toList();
+
+      // Filter by date range if provided
+      if (startDate != null || endDate != null) {
+        return tasks.where((task) {
+          final sessions = task.timeLogSessions;
+          return sessions.any((session) {
+            final sessionStart = session['startTime'] as DateTime;
+            if (startDate != null && sessionStart.isBefore(startDate))
+              return false;
+            if (endDate != null && sessionStart.isAfter(endDate)) return false;
+            return true;
+          });
+        }).toList();
+      }
+
+      return tasks;
+    } catch (e) {
+      print('Error getting time logged tasks: $e');
       return [];
     }
   }

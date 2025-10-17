@@ -20,41 +20,74 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Future<void> _loadEvents() async {
-    final taskInstances = await TaskInstanceService.getTimerTaskInstances();
-    final events = taskInstances
-        .map((instance) {
-          if (instance.timerStartTime == null ||
-              instance.accumulatedTime <= 0) {
-            return null;
-          }
+    // Get timer tasks (existing implementation)
+    final timerTasks = await TaskInstanceService.getTimerTaskInstances();
 
-          Color eventColor = Colors.blue; // Default color
-          if (instance.templateCategoryId.isNotEmpty) {
-            try {
-              // Try to get color from category - for now use default
-              // In future, we can query category details for color
-              eventColor = Colors.blue;
-            } catch (e) {
-              // Keep default color if parsing fails
-            }
-          }
+    // Get ALL time-logged tasks (NEW)
+    final timeLoggedTasks = await TaskInstanceService.getTimeLoggedTasks();
 
-          final startTime = instance.timerStartTime!;
-          final endTime =
-              startTime.add(Duration(milliseconds: instance.accumulatedTime));
+    final events = <CalendarEventData>[];
 
-          return CalendarEventData(
+    // Add timer task events (existing)
+    for (final task in timerTasks) {
+      if (task.timerStartTime != null && task.accumulatedTime > 0) {
+        events.add(CalendarEventData(
+          date: task.timerStartTime!,
+          startTime: task.timerStartTime!,
+          endTime: task.timerStartTime!
+              .add(Duration(milliseconds: task.accumulatedTime)),
+          title: task.templateName,
+          color: Colors.blue,
+        ));
+      }
+    }
+
+    // Add time-logged task sessions (NEW) - EACH SESSION AS SEPARATE BLOCK
+    for (final task in timeLoggedTasks) {
+      // Create event for EACH individual session
+      for (final session in task.timeLogSessions) {
+        final startTime = session['startTime'] as DateTime;
+        final endTime = session['endTime'] as DateTime?;
+
+        if (endTime != null) {
+          events.add(CalendarEventData(
             date: startTime,
             startTime: startTime,
             endTime: endTime,
-            title: instance.templateName,
-            color: eventColor,
-          );
-        })
-        .whereType<CalendarEventData>()
-        .toList();
+            title: task.templateName,
+            color: _getCategoryColor(task.templateCategoryId),
+            description:
+                'Session: ${_formatDuration(endTime.difference(startTime))}',
+          ));
+        }
+      }
+
+      // Add completion event as thin line (NEW)
+      if (task.status == 'completed' && task.completedAt != null) {
+        events.add(CalendarEventData(
+          date: task.completedAt!,
+          startTime: task.completedAt!,
+          endTime: task.completedAt!.add(Duration(minutes: 1)), // Thin line
+          title: '✓ ${task.templateName}',
+          color: Colors.green,
+          description: 'Completed',
+        ));
+      }
+    }
 
     _eventController.addAll(events);
+  }
+
+  Color _getCategoryColor(String categoryId) {
+    // Get category color from ID
+    // For now, return default
+    return Colors.blue;
+  }
+
+  String _formatDuration(Duration duration) {
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    return hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
   }
 
   @override

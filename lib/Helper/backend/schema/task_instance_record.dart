@@ -112,6 +112,33 @@ class TaskInstanceRecord extends FirestoreRecord {
   bool get isTimerTask => _isTimerTask ?? false;
   bool hasIsTimerTask() => _isTimerTask != null;
 
+  // Time logging fields - NEW
+  List<dynamic>? _timeLogSessions;
+  List<Map<String, dynamic>> get timeLogSessions {
+    if (_timeLogSessions == null) return [];
+    return _timeLogSessions!.map((session) {
+      return {
+        'startTime': session['startTime'] as DateTime,
+        'endTime': session['endTime'] as DateTime?,
+        'durationMilliseconds': session['durationMilliseconds'] as int,
+      };
+    }).toList();
+  }
+
+  bool hasTimeLogSessions() => _timeLogSessions != null;
+
+  DateTime? _currentSessionStartTime;
+  DateTime? get currentSessionStartTime => _currentSessionStartTime;
+  bool hasCurrentSessionStartTime() => _currentSessionStartTime != null;
+
+  bool? _isTimeLogging;
+  bool get isTimeLogging => _isTimeLogging ?? false;
+  bool hasIsTimeLogging() => _isTimeLogging != null;
+
+  int? _totalTimeLogged; // Sum of all sessions in milliseconds
+  int get totalTimeLogged => _totalTimeLogged ?? 0;
+  bool hasTotalTimeLogged() => _totalTimeLogged != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -137,6 +164,11 @@ class TaskInstanceRecord extends FirestoreRecord {
     _templateShowInFloatingTimer =
         snapshotData['templateShowInFloatingTimer'] as bool?;
     _isTimerTask = snapshotData['isTimerTask'] as bool?;
+    _timeLogSessions = snapshotData['timeLogSessions'] as List<dynamic>?;
+    _currentSessionStartTime =
+        snapshotData['currentSessionStartTime'] as DateTime?;
+    _isTimeLogging = snapshotData['isTimeLogging'] as bool?;
+    _totalTimeLogged = snapshotData['totalTimeLogged'] as int?;
   }
 
   static CollectionReference get collection =>
@@ -203,6 +235,10 @@ Map<String, dynamic> createTaskInstanceRecordData({
   String? templateDescription,
   bool? templateShowInFloatingTimer,
   bool? isTimerTask,
+  List<dynamic>? timeLogSessions,
+  DateTime? currentSessionStartTime,
+  bool? isTimeLogging,
+  int? totalTimeLogged,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -229,6 +265,10 @@ Map<String, dynamic> createTaskInstanceRecordData({
       'templateDescription': templateDescription,
       'templateShowInFloatingTimer': templateShowInFloatingTimer,
       'isTimerTask': isTimerTask,
+      'timeLogSessions': timeLogSessions,
+      'currentSessionStartTime': currentSessionStartTime,
+      'isTimeLogging': isTimeLogging,
+      'totalTimeLogged': totalTimeLogged,
     }.withoutNulls,
   );
 
@@ -266,7 +306,11 @@ class TaskInstanceRecordDocumentEquality
         e1?.templateUnit == e2?.templateUnit &&
         e1?.templateDescription == e2?.templateDescription &&
         e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer &&
-        e1?.isTimerTask == e2?.isTimerTask;
+        e1?.isTimerTask == e2?.isTimerTask &&
+        e1?.timeLogSessions == e2?.timeLogSessions &&
+        e1?.currentSessionStartTime == e2?.currentSessionStartTime &&
+        e1?.isTimeLogging == e2?.isTimeLogging &&
+        e1?.totalTimeLogged == e2?.totalTimeLogged;
   }
 
   @override
@@ -294,5 +338,9 @@ class TaskInstanceRecordDocumentEquality
         e?.templateDescription,
         e?.templateShowInFloatingTimer,
         e?.isTimerTask,
+        e?.timeLogSessions,
+        e?.currentSessionStartTime,
+        e?.isTimeLogging,
+        e?.totalTimeLogged,
       ]);
 }
