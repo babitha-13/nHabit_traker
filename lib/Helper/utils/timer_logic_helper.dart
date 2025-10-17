@@ -44,7 +44,7 @@ class TimerLogicHelper {
     return realTimeAccumulated >= targetMs;
   }
 
-  /// Format time display with hours:minutes:seconds
+  /// Format time display with context-dependent format
   static String formatTimeDisplay(ActivityInstanceRecord instance) {
     final totalMilliseconds = getRealTimeAccumulated(instance);
     final totalSeconds = totalMilliseconds ~/ 1000;
@@ -53,7 +53,12 @@ class TimerLogicHelper {
     final minutes = (totalSeconds % 3600) ~/ 60;
     final seconds = totalSeconds % 60;
 
-    return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    // Show MM:SS when under 1 hour, HH:MM:SS when 1+ hour
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    } else {
+      return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+    }
   }
 
   /// Format target time

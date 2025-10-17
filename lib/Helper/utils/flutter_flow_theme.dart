@@ -62,6 +62,7 @@ abstract class FlutterFlowTheme {
   late double buttonRadius;
   late double chipRadius;
   late Color surfaceBorderColor;
+  late Color cardBorderColor;
   late List<BoxShadow> neumorphicShadowsRaised;
 
   // Gradient helpers expected on all themes
@@ -185,6 +186,8 @@ class LightModeTheme extends FlutterFlowTheme {
   late double buttonRadius = 16.0;
   late double chipRadius = 12.0;
   late Color surfaceBorderColor = const Color(0x0A000000); // 4% black
+  late Color cardBorderColor =
+      const Color(0x15000000); // 8% black - slightly darker for cards
   late List<BoxShadow> neumorphicShadowsRaised = [
     BoxShadow(
       color: Colors.white.withOpacity(0.9),
@@ -434,6 +437,8 @@ class DarkModeTheme extends FlutterFlowTheme {
   late double buttonRadius = 16.0;
   late double chipRadius = 12.0;
   late Color surfaceBorderColor = const Color(0x0FFFFFFF); // 6% white
+  late Color cardBorderColor =
+      const Color(0x1AFFFFFF); // 10% white - slightly darker for cards
   late List<BoxShadow> neumorphicShadowsRaised = [
     BoxShadow(
       color: Colors.white.withOpacity(0.06),

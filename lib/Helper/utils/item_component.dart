@@ -317,11 +317,9 @@ class _ItemComponentState extends State<ItemComponent>
         decoration: BoxDecoration(
           gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
           borderRadius: BorderRadius.circular(12),
-          border: Border(
-            top: BorderSide(
-              color: FlutterFlowTheme.of(context).surfaceBorderColor,
-              width: 0.5,
-            ),
+          border: Border.all(
+            color: FlutterFlowTheme.of(context).cardBorderColor,
+            width: 1,
           ),
         ),
         child: Column(

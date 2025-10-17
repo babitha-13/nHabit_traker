@@ -8,6 +8,7 @@ import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -224,6 +225,8 @@ Future maybeCreateUser(User user) async {
       uid: user.uid,
       phoneNumber: user.phoneNumber,
       createdTime: getCurrentTimestamp,
+      goalPromptSkipped: false,
+      goalOnboardingCompleted: false,
     );
 
     print('maybeCreateUser: Setting user data in Firestore');
@@ -1246,6 +1249,12 @@ Future<void> updateCategoryNameCascade({
     print('DEBUG: Updated $instanceSuccessCount/${instances.length} instances');
     print('DEBUG: Failed: $instanceFailureCount');
     print('DEBUG: Category name cascade update completed');
+
+    // Notify all pages that categories have been updated
+    NotificationCenter.post('categoryUpdated', {
+      'categoryId': categoryId,
+      'newCategoryName': newCategoryName,
+    });
   } catch (e) {
     print('ERROR: Category name cascade update failed: $e');
     throw e;

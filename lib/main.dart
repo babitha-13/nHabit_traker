@@ -11,6 +11,7 @@ import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
 import 'package:habit_tracker/Screens/Splash/splash.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
+import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Helper/utils/app_state.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter/material.dart';
@@ -78,6 +79,16 @@ class _MyAppState extends State<MyApp> {
       if (!mounted || _goalShownThisSession) return;
 
       try {
+        // First check if onboarding should be shown
+        final shouldShowOnboarding =
+            await GoalService.shouldShowOnboardingGoal(userId);
+        if (shouldShowOnboarding && mounted) {
+          _showOnboardingDialog();
+          _goalShownThisSession = true;
+          return;
+        }
+
+        // If no onboarding needed, check for regular goal display
         final shouldShow = await GoalService.shouldShowGoal(userId);
         if (shouldShow && mounted) {
           _showGoalDialog();
@@ -97,6 +108,19 @@ class _MyAppState extends State<MyApp> {
           context: context,
           barrierDismissible: false,
           builder: (context) => const GoalDialog(),
+        );
+      }
+    });
+  }
+
+  void _showOnboardingDialog() {
+    // Show onboarding dialog with a slight delay to ensure UI is ready
+    Future.delayed(const Duration(seconds: 2), () {
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const GoalOnboardingDialog(),
         );
       }
     });

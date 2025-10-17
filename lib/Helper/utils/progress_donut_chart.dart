@@ -36,27 +36,13 @@ class ProgressDonutChart extends StatelessWidget {
           progressColor: _getProgressColor(percentage),
         ),
         child: Center(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              Text(
-                '${percentage.toStringAsFixed(0)}%',
-                style: theme.titleLarge.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.bold,
-                  fontSize: 18,
-                ),
-              ),
-              const SizedBox(height: 2),
-              Text(
-                '${pointsEarned.toStringAsFixed(1)} / ${totalTarget.toStringAsFixed(1)}',
-                style: theme.bodySmall.override(
-                  fontFamily: 'Readex Pro',
-                  fontSize: 10,
-                  color: theme.secondaryText,
-                ),
-              ),
-            ],
+          child: Text(
+            '${percentage.toStringAsFixed(0)}%',
+            style: theme.titleLarge.override(
+              fontFamily: 'Readex Pro',
+              fontWeight: FontWeight.bold,
+              fontSize: 18,
+            ),
           ),
         ),
       ),

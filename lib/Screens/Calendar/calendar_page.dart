@@ -1,6 +1,6 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/timer_service.dart';
+import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 class CalendarPage extends StatefulWidget {
@@ -20,28 +20,34 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Future<void> _loadEvents() async {
-    final logs = await TimerService.getTimerLogsForCurrentUser();
-    final events = logs
-        .map((log) {
-          if (log.startTime == null || log.durationSeconds == 0) {
+    final taskInstances = await TaskInstanceService.getTimerTaskInstances();
+    final events = taskInstances
+        .map((instance) {
+          if (instance.timerStartTime == null ||
+              instance.accumulatedTime <= 0) {
             return null;
           }
 
           Color eventColor = Colors.blue; // Default color
-          if (log.categoryColor.isNotEmpty) {
+          if (instance.templateCategoryId.isNotEmpty) {
             try {
-              eventColor =
-                  Color(int.parse(log.categoryColor.replaceFirst('#', '0xFF')));
+              // Try to get color from category - for now use default
+              // In future, we can query category details for color
+              eventColor = Colors.blue;
             } catch (e) {
               // Keep default color if parsing fails
             }
           }
 
+          final startTime = instance.timerStartTime!;
+          final endTime =
+              startTime.add(Duration(milliseconds: instance.accumulatedTime));
+
           return CalendarEventData(
-            date: log.startTime!,
-            startTime: log.startTime!,
-            endTime: log.startTime!.add(Duration(seconds: log.durationSeconds)),
-            title: log.taskTitle,
+            date: startTime,
+            startTime: startTime,
+            endTime: endTime,
+            title: instance.templateName,
             color: eventColor,
           );
         })

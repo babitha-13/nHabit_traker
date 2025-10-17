@@ -199,4 +199,66 @@ class GoalService {
       rethrow;
     }
   }
+
+  /// Check if onboarding goal should be shown to user
+  /// Returns true if: not skipped AND not completed AND no current goal
+  static Future<bool> shouldShowOnboardingGoal(String userId) async {
+    try {
+      final userDoc = await UsersRecord.collection.doc(userId).get();
+      if (!userDoc.exists) {
+        return false;
+      }
+
+      final userData = UsersRecord.fromSnapshot(userDoc);
+
+      // Check if user has skipped onboarding
+      if (userData.goalPromptSkipped) {
+        return false;
+      }
+
+      // Check if user has completed onboarding
+      if (userData.goalOnboardingCompleted) {
+        return false;
+      }
+
+      // Check if user already has a goal
+      if (userData.currentGoalId.isNotEmpty) {
+        return false;
+      }
+
+      print('GoalService: shouldShowOnboardingGoal for $userId: true');
+      return true;
+    } catch (e) {
+      print('GoalService: Error checking if should show onboarding goal: $e');
+      return false;
+    }
+  }
+
+  /// Mark onboarding as completed for user
+  static Future<void> markOnboardingCompleted(String userId) async {
+    try {
+      await UsersRecord.collection.doc(userId).update({
+        'goal_onboarding_completed': true,
+      });
+
+      print('GoalService: Marked onboarding as completed for user $userId');
+    } catch (e) {
+      print('GoalService: Error marking onboarding as completed: $e');
+      rethrow;
+    }
+  }
+
+  /// Mark onboarding as skipped for user
+  static Future<void> markOnboardingSkipped(String userId) async {
+    try {
+      await UsersRecord.collection.doc(userId).update({
+        'goal_prompt_skipped': true,
+      });
+
+      print('GoalService: Marked onboarding as skipped for user $userId');
+    } catch (e) {
+      print('GoalService: Error marking onboarding as skipped: $e');
+      rethrow;
+    }
+  }
 }

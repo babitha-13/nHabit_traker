@@ -274,6 +274,20 @@ class _HabitsPageState extends State<HabitsPage> {
       );
     }
 
+    // Auto-expand first category if no category is expanded (new app session)
+    if (_expandedCategory == null && groupedHabits.isNotEmpty) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          final firstCategory = groupedHabits.keys.first;
+          setState(() {
+            _expandedCategory = firstCategory;
+          });
+          // Save state persistently
+          ExpansionStateManager().setHabitsExpandedSection(_expandedCategory);
+        }
+      });
+    }
+
     final slivers = <Widget>[];
 
     for (final categoryName in groupedHabits.keys) {

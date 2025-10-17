@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 /// Service to manage task and habit instances
@@ -745,6 +746,147 @@ class TaskInstanceService {
     } catch (e) {
       print('Error deleting instances for template $templateId: $e');
       rethrow;
+    }
+  }
+
+  // ==================== TIMER TASK METHODS ====================
+
+  /// Create a new timer task instance when timer starts
+  static Future<DocumentReference> createTimerTaskInstance({
+    String? categoryId,
+    String? categoryName,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      // Get or create the Timer Task template
+      final templateData =
+          await TimerTaskTemplateService.getOrCreateTimerTaskTemplate();
+      final template = templateData['template'] as ActivityRecord;
+      final templateRef = templateData['templateRef'] as DocumentReference;
+
+      // Use provided category or default to Inbox
+      String finalCategoryId = categoryId ?? template.categoryId;
+      String finalCategoryName = categoryName ?? template.categoryName;
+
+      final instanceData = createTaskInstanceRecordData(
+        templateId: templateRef.id,
+        status: 'pending',
+        isTimerActive: true,
+        timerStartTime: DateTime.now(),
+        createdTime: DateTime.now(),
+        lastUpdated: DateTime.now(),
+        isActive: true,
+        isTimerTask: true,
+        // Cache template data for quick access
+        templateName: template.name,
+        templateCategoryId: finalCategoryId,
+        templateCategoryName: finalCategoryName,
+        templatePriority: template.priority,
+        templateTrackingType: template.trackingType,
+        templateTarget: template.target,
+        templateUnit: template.unit,
+        templateDescription: template.description,
+        templateShowInFloatingTimer: template.showInFloatingTimer,
+      );
+
+      return await TaskInstanceRecord.collectionForUser(uid).add(instanceData);
+    } catch (e) {
+      print('Error creating timer task instance: $e');
+      rethrow;
+    }
+  }
+
+  /// Update timer task instance when timer is stopped (completed)
+  static Future<void> updateTimerTaskOnStop({
+    required DocumentReference taskInstanceRef,
+    required Duration duration,
+    required String taskName,
+    String? categoryId,
+    String? categoryName,
+    String? userId,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'status': 'completed',
+        'completedAt': DateTime.now(),
+        'isTimerActive': false,
+        'accumulatedTime': duration.inMilliseconds,
+        'currentValue': duration.inMilliseconds,
+        'templateName': taskName,
+        'lastUpdated': DateTime.now(),
+      };
+
+      // Update category if provided
+      if (categoryId != null) {
+        updateData['templateCategoryId'] = categoryId;
+      }
+      if (categoryName != null) {
+        updateData['templateCategoryName'] = categoryName;
+      }
+
+      await taskInstanceRef.update(updateData);
+    } catch (e) {
+      print('Error updating timer task on stop: $e');
+      rethrow;
+    }
+  }
+
+  /// Update timer task instance when timer is paused (remains pending)
+  static Future<void> updateTimerTaskOnPause({
+    required DocumentReference taskInstanceRef,
+    required Duration duration,
+    required String taskName,
+    String? categoryId,
+    String? categoryName,
+    String? userId,
+  }) async {
+    try {
+      final updateData = <String, dynamic>{
+        'status': 'pending',
+        'isTimerActive': false,
+        'accumulatedTime': duration.inMilliseconds,
+        'currentValue': duration.inMilliseconds,
+        'templateName': taskName,
+        'lastUpdated': DateTime.now(),
+      };
+
+      // Update category if provided
+      if (categoryId != null) {
+        updateData['templateCategoryId'] = categoryId;
+      }
+      if (categoryName != null) {
+        updateData['templateCategoryName'] = categoryName;
+      }
+
+      await taskInstanceRef.update(updateData);
+    } catch (e) {
+      print('Error updating timer task on pause: $e');
+      rethrow;
+    }
+  }
+
+  /// Get timer task instances for calendar display
+  static Future<List<TaskInstanceRecord>> getTimerTaskInstances({
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      final query = TaskInstanceRecord.collectionForUser(uid)
+          .where('isTimerTask', isEqualTo: true)
+          .where('timerStartTime', isNull: false)
+          .where('accumulatedTime', isGreaterThan: 0);
+
+      final result = await query.get();
+      return result.docs
+          .map((doc) => TaskInstanceRecord.fromSnapshot(doc))
+          .where((instance) => instance.isActive)
+          .toList();
+    } catch (e) {
+      print('Error getting timer task instances: $e');
+      return [];
     }
   }
 }

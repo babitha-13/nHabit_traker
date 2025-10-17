@@ -18,7 +18,7 @@ class WeeklyView extends StatefulWidget {
   const WeeklyView({super.key});
 
   @override
-  _WeeklyViewState createState() => _WeeklyViewState();
+  State<WeeklyView> createState() => _WeeklyViewState();
 }
 
 class _WeeklyViewState extends State<WeeklyView> {
@@ -45,6 +45,14 @@ class _WeeklyViewState extends State<WeeklyView> {
         setState(() {
           _loadData();
         });
+      }
+    });
+
+    // Listen for category updates to refresh data
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        print('WeeklyView: Category updated, refreshing data...');
+        _loadData();
       }
     });
 

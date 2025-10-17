@@ -57,6 +57,16 @@ class UsersRecord extends FirestoreRecord {
   DateTime? get lastGoalShownDate => _lastGoalShownDate;
   bool hasLastGoalShownDate() => _lastGoalShownDate != null;
 
+  // "goal_prompt_skipped" field.
+  bool? _goalPromptSkipped;
+  bool get goalPromptSkipped => _goalPromptSkipped ?? false;
+  bool hasGoalPromptSkipped() => _goalPromptSkipped != null;
+
+  // "goal_onboarding_completed" field.
+  bool? _goalOnboardingCompleted;
+  bool get goalOnboardingCompleted => _goalOnboardingCompleted ?? false;
+  bool hasGoalOnboardingCompleted() => _goalOnboardingCompleted != null;
+
   void _initializeFields() {
     _email = snapshotData['email'] as String?;
     _uid = snapshotData['uid'] as String?;
@@ -67,6 +77,9 @@ class UsersRecord extends FirestoreRecord {
     _phoneNumber = snapshotData['phone_number'] as String?;
     _currentGoalId = snapshotData['current_goal_id'] as String?;
     _lastGoalShownDate = snapshotData['last_goal_shown_date'] as DateTime?;
+    _goalPromptSkipped = snapshotData['goal_prompt_skipped'] as bool?;
+    _goalOnboardingCompleted =
+        snapshotData['goal_onboarding_completed'] as bool?;
   }
 
   static CollectionReference get collection =>
@@ -112,6 +125,8 @@ Map<String, dynamic> createUsersRecordData({
   String? phoneNumber,
   String? currentGoalId,
   DateTime? lastGoalShownDate,
+  bool? goalPromptSkipped,
+  bool? goalOnboardingCompleted,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -124,6 +139,8 @@ Map<String, dynamic> createUsersRecordData({
       'phone_number': phoneNumber,
       'current_goal_id': currentGoalId,
       'last_goal_shown_date': lastGoalShownDate,
+      'goal_prompt_skipped': goalPromptSkipped,
+      'goal_onboarding_completed': goalOnboardingCompleted,
     }.withoutNulls,
   );
 
@@ -143,7 +160,9 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e1?.createdTime == e2?.createdTime &&
         e1?.phoneNumber == e2?.phoneNumber &&
         e1?.currentGoalId == e2?.currentGoalId &&
-        e1?.lastGoalShownDate == e2?.lastGoalShownDate;
+        e1?.lastGoalShownDate == e2?.lastGoalShownDate &&
+        e1?.goalPromptSkipped == e2?.goalPromptSkipped &&
+        e1?.goalOnboardingCompleted == e2?.goalOnboardingCompleted;
   }
 
   @override
@@ -157,6 +176,8 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e?.phoneNumber,
         e?.currentGoalId,
         e?.lastGoalShownDate,
+        e?.goalPromptSkipped,
+        e?.goalOnboardingCompleted,
       ]);
 
   @override

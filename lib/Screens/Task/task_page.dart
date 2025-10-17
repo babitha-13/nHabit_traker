@@ -1051,8 +1051,8 @@ class _TaskPageState extends State<TaskPage> {
 
     print(
         '_bucketedItems: Processing ${activeInstancesToProcess.length} active task instances (search: "$_searchQuery")');
-    final today = DateService.todayShiftedStart;
-    final tomorrow = DateService.tomorrowShiftedStart;
+    final today = DateService.todayStart;
+    final tomorrow = DateService.tomorrowStart;
     // "This Week" covers the next 5 days after tomorrow
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
 

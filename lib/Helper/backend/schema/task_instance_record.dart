@@ -107,6 +107,11 @@ class TaskInstanceRecord extends FirestoreRecord {
   bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
   bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
 
+  // "isTimerTask" field - identifies timer-generated tasks
+  bool? _isTimerTask;
+  bool get isTimerTask => _isTimerTask ?? false;
+  bool hasIsTimerTask() => _isTimerTask != null;
+
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -131,6 +136,7 @@ class TaskInstanceRecord extends FirestoreRecord {
     _templateDescription = snapshotData['templateDescription'] as String?;
     _templateShowInFloatingTimer =
         snapshotData['templateShowInFloatingTimer'] as bool?;
+    _isTimerTask = snapshotData['isTimerTask'] as bool?;
   }
 
   static CollectionReference get collection =>
@@ -196,6 +202,7 @@ Map<String, dynamic> createTaskInstanceRecordData({
   String? templateUnit,
   String? templateDescription,
   bool? templateShowInFloatingTimer,
+  bool? isTimerTask,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -221,6 +228,7 @@ Map<String, dynamic> createTaskInstanceRecordData({
       'templateUnit': templateUnit,
       'templateDescription': templateDescription,
       'templateShowInFloatingTimer': templateShowInFloatingTimer,
+      'isTimerTask': isTimerTask,
     }.withoutNulls,
   );
 
@@ -257,7 +265,8 @@ class TaskInstanceRecordDocumentEquality
         e1?.templateTarget == e2?.templateTarget &&
         e1?.templateUnit == e2?.templateUnit &&
         e1?.templateDescription == e2?.templateDescription &&
-        e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer;
+        e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer &&
+        e1?.isTimerTask == e2?.isTimerTask;
   }
 
   @override
@@ -284,5 +293,6 @@ class TaskInstanceRecordDocumentEquality
         e?.templateUnit,
         e?.templateDescription,
         e?.templateShowInFloatingTimer,
+        e?.isTimerTask,
       ]);
 }

@@ -59,6 +59,14 @@ class _QueuePageState extends State<QueuePage> {
       }
     });
 
+    // Listen for category updates to refresh data
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        print('QueuePage: Category updated, refreshing data...');
+        _silentRefreshInstances();
+      }
+    });
+
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
 
@@ -286,14 +294,11 @@ class _QueuePageState extends State<QueuePage> {
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
     final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
-      'Today': [],
-      'This Week': [],
+      'Pending': [],
       'Completed/Skipped': [],
     };
 
     final today = _todayDate();
-    final startOfWeek = today.subtract(Duration(days: today.weekday - 1));
-    final endOfWeek = startOfWeek.add(const Duration(days: 6));
 
     // Filter instances by search query if active
     final instancesToProcess = _instances.where((instance) {
@@ -334,19 +339,15 @@ class _QueuePageState extends State<QueuePage> {
         buckets['Overdue']!.add(instance);
         print('  ${instance.templateName}: OVERDUE (task)');
       }
-      // TODAY: Both habits and tasks for today
+      // PENDING: Both habits and tasks for today
       else if (_isTodayOrOverdue(instance)) {
-        buckets['Today']!.add(instance);
-        print('  ${instance.templateName}: TODAY (within window or due today)');
+        buckets['Pending']!.add(instance);
+        print(
+            '  ${instance.templateName}: PENDING (within window or due today)');
       }
-      // THIS WEEK: Both habits and tasks for this week
-      else if (!dateOnly.isAfter(endOfWeek)) {
-        buckets['This Week']!.add(instance);
-        print('  ${instance.templateName}: THIS WEEK');
-      }
-      // Skip anything beyond this week (no "Later" section)
+      // Skip anything beyond today (no "Later" section)
       else {
-        print('  ${instance.templateName}: SKIPPED (beyond this week)');
+        print('  ${instance.templateName}: SKIPPED (beyond today)');
       }
     }
 
@@ -471,7 +472,7 @@ class _QueuePageState extends State<QueuePage> {
       return subtitle;
     }
 
-    if (bucketKey == 'Today') {
+    if (bucketKey == 'Pending') {
       // For habits, show window countdown
       if (item.templateCategoryType == 'habit' && item.windowEndDate != null) {
         final daysLeft = _getWindowDaysLeft(item);
@@ -520,12 +521,10 @@ class _QueuePageState extends State<QueuePage> {
             TabBar(
               tabs: [
                 Tab(
-                  text: 'Daily',
-                  icon: Icon(Icons.today),
+                  text: 'Today',
                 ),
                 Tab(
-                  text: 'Weekly',
-                  icon: Icon(Icons.calendar_view_week),
+                  text: 'This Week',
                 ),
               ],
             ),
@@ -535,29 +534,7 @@ class _QueuePageState extends State<QueuePage> {
               child: TabBarView(
                 children: [
                   _buildDailyTabContent(),
-                  const WeeklyView(),lib/Screens/Queue/queue_page.dart:541:36: Error: Cannot invoke a non-'const' constructor where a const expression is expected.
-Try using a constructor or factory that is 'const'.
-                      return const WeeklyView();
-                                   ^^^^^^^^^^
-lib/Screens/Queue/weekly_view.dart:18:3: Error: A const constructor can't have a body.
-Try removing either the 'const' keyword or the body.
-  const WeeklyView({super.key}) {
-  ^^^^^
-Target kernel_snapshot_program failed: Exception
-
-
-FAILURE: Build failed with an exception.
-
-* What went wrong:
-Execution failed for task ':app:compileFlutterBuildDebug'.
-> Process 'command 'C:\flutter\bin\flutter.bat'' finished with non-zero exit value 1
-
-* Try:
-> Run with --stacktrace option to get the stack trace.
-> Run with --info or --debug option to get more log output.
-> Run with --scan to get full insights.
-> Get more help at https://help.gradle.org.
-
+                  const WeeklyView(),
                 ],
               ),
             ),
@@ -576,20 +553,47 @@ Execution failed for task ':app:compileFlutterBuildDebug'.
                 children: [
                   // Progress indicator
                   Container(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      children: [
-                        ProgressDonutChart(
-                          percentage: _dailyPercentage,
-                          totalTarget: _dailyTarget,
-                          pointsEarned: _pointsEarned,
-                        ),
-                        const SizedBox(height: 8),
-                        Text(
-                          'Daily Progress',
-                          style: FlutterFlowTheme.of(context).bodySmall,
-                        ),
-                      ],
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 16),
+                    child: Center(
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          ProgressDonutChart(
+                            percentage: _dailyPercentage,
+                            totalTarget: _dailyTarget,
+                            pointsEarned: _pointsEarned,
+                            size: 90,
+                          ),
+                          const SizedBox(width: 16),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Text(
+                                'Daily Progress',
+                                style: FlutterFlowTheme.of(context)
+                                    .titleMedium
+                                    .override(
+                                      fontFamily: 'Readex Pro',
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                '${_pointsEarned.toStringAsFixed(1)} / ${_dailyTarget.toStringAsFixed(1)} points',
+                                style: FlutterFlowTheme.of(context)
+                                    .bodySmall
+                                    .override(
+                                      fontFamily: 'Readex Pro',
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                    ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                   const Divider(height: 1),
@@ -614,7 +618,7 @@ Execution failed for task ':app:compileFlutterBuildDebug'.
 
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Today', 'This Week', 'Completed/Skipped'];
+    final order = ['Overdue', 'Pending', 'Completed/Skipped'];
     final theme = FlutterFlowTheme.of(context);
 
     final visibleSections =
@@ -692,10 +696,6 @@ Execution failed for task ':app:compileFlutterBuildDebug'.
                     if (mounted) {
                       setState(() {
                         if (expanded) {
-                          // If trying to collapse "Today", keep it expanded
-                          if (key == 'Today') {
-                            return;
-                          }
                           // Collapse current section
                           _expandedSection = null;
                         } else {

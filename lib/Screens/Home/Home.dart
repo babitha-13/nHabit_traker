@@ -5,6 +5,8 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/backend/goal_service.dart';
+import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
@@ -32,7 +34,7 @@ class _HomeState extends State<Home> {
   DateTime preBackPress = DateTime.now();
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  int currentIndex = 1;
+  int currentIndex = 0;
   late Widget cWidget;
 
   // Search functionality
@@ -54,6 +56,11 @@ class _HomeState extends State<Home> {
         systemNavigationBarDividerColor: Colors.transparent,
       ),
     );
+
+    // Check for goal onboarding after the frame is built
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkGoalOnboarding();
+    });
   }
 
   @override
@@ -206,7 +213,7 @@ class _HomeState extends State<Home> {
                                 label: 'Home',
                                 onTap: () {
                                   setState(() {
-                                    currentIndex = 1;
+                                    currentIndex = 0;
                                     loadPage("Queue");
                                     Navigator.pop(context);
                                   });
@@ -377,9 +384,9 @@ class _HomeState extends State<Home> {
                 setState(() {
                   currentIndex = i;
                   if (i == 0) {
-                    loadPage("Tasks");
-                  } else if (i == 1) {
                     loadPage("Queue");
+                  } else if (i == 1) {
+                    loadPage("Tasks");
                   } else if (i == 2) {
                     loadPage("Habits");
                   } else if (i == 3) {
@@ -393,14 +400,14 @@ class _HomeState extends State<Home> {
               unselectedItemColor: FlutterFlowTheme.of(context).secondaryText,
               selectedFontSize: 12,
               unselectedFontSize: 12,
-              items: const [
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.assignment),
-                  label: 'Tasks',
-                ),
+              items: [
                 BottomNavigationBarItem(
                   icon: Icon(Icons.queue),
                   label: 'Queue',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.assignment),
+                  label: 'Tasks',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(Icons.flag),
@@ -489,6 +496,26 @@ class _HomeState extends State<Home> {
           builder: (context, setLocalState) =>
               const CreateCategory(categoryType: 'habit')),
     );
+  }
+
+  Future<void> _checkGoalOnboarding() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+
+      final shouldShow = await GoalService.shouldShowOnboardingGoal(userId);
+      if (shouldShow && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const GoalOnboardingDialog(),
+        );
+      }
+    } catch (e) {
+      print('Home: Error checking goal onboarding: $e');
+    }
   }
 }
 
