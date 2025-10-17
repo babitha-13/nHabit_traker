@@ -116,6 +116,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
   bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
   bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
 
+  // Template recurring flag (cached from template)
+  bool? _templateIsRecurring;
+  bool get templateIsRecurring => _templateIsRecurring ?? true;
+  bool hasTemplateIsRecurring() => _templateIsRecurring != null;
+
   // Template frequency fields (cached from template)
   int? _templateEveryXValue;
   int get templateEveryXValue => _templateEveryXValue ?? 1;
@@ -201,6 +206,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _templateDescription = snapshotData['templateDescription'] as String?;
     _templateShowInFloatingTimer =
         snapshotData['templateShowInFloatingTimer'] as bool?;
+    _templateIsRecurring = snapshotData['templateIsRecurring'] as bool?;
     _templateEveryXValue = snapshotData['templateEveryXValue'] as int?;
     _templateEveryXPeriodType =
         snapshotData['templateEveryXPeriodType'] as String?;
@@ -290,6 +296,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateUnit,
   String? templateDescription,
   bool? templateShowInFloatingTimer,
+  bool? templateIsRecurring,
   int? templateEveryXValue,
   String? templateEveryXPeriodType,
   int? templateTimesPerPeriod,
@@ -329,6 +336,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateUnit': templateUnit,
       'templateDescription': templateDescription,
       'templateShowInFloatingTimer': templateShowInFloatingTimer,
+      'templateIsRecurring': templateIsRecurring,
       'templateEveryXValue': templateEveryXValue,
       'templateEveryXPeriodType': templateEveryXPeriodType,
       'templateTimesPerPeriod': templateTimesPerPeriod,

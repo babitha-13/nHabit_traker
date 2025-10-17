@@ -180,6 +180,7 @@ class DayEndProcessor {
         templateUnit: instance.templateUnit,
         templateDescription: instance.templateDescription,
         templateShowInFloatingTimer: instance.templateShowInFloatingTimer,
+        templateIsRecurring: instance.templateIsRecurring,
         templateEveryXValue: instance.templateEveryXValue,
         templateEveryXPeriodType: instance.templateEveryXPeriodType,
         templateTimesPerPeriod: instance.templateTimesPerPeriod,

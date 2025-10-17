@@ -319,7 +319,7 @@ class _HabitsPageState extends State<HabitsPage> {
           SliverReorderableList(
             itemBuilder: (context, index) {
               final instance = sortedHabits[index];
-              return ReorderableDragStartListener(
+              return ReorderableDelayedDragStartListener(
                 index: index,
                 key: Key('${instance.reference.id}_drag'),
                 child: ItemComponent(

@@ -535,7 +535,29 @@ class _QueuePageState extends State<QueuePage> {
               child: TabBarView(
                 children: [
                   _buildDailyTabContent(),
-                  const WeeklyView(),
+                  const WeeklyView(),lib/Screens/Queue/queue_page.dart:541:36: Error: Cannot invoke a non-'const' constructor where a const expression is expected.
+Try using a constructor or factory that is 'const'.
+                      return const WeeklyView();
+                                   ^^^^^^^^^^
+lib/Screens/Queue/weekly_view.dart:18:3: Error: A const constructor can't have a body.
+Try removing either the 'const' keyword or the body.
+  const WeeklyView({super.key}) {
+  ^^^^^
+Target kernel_snapshot_program failed: Exception
+
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:compileFlutterBuildDebug'.
+> Process 'command 'C:\flutter\bin\flutter.bat'' finished with non-zero exit value 1
+
+* Try:
+> Run with --stacktrace option to get the stack trace.
+> Run with --info or --debug option to get more log output.
+> Run with --scan to get full insights.
+> Get more help at https://help.gradle.org.
+
                 ],
               ),
             ),
@@ -718,7 +740,7 @@ class _QueuePageState extends State<QueuePage> {
             itemBuilder: (context, index) {
               final item = items[index];
               final isHabit = item.templateCategoryType == 'habit';
-              return ReorderableDragStartListener(
+              return ReorderableDelayedDragStartListener(
                 index: index,
                 key: Key('${item.reference.id}_drag'),
                 child: ItemComponent(

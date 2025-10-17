@@ -183,8 +183,14 @@ class WeeklyProgressCalculator {
       final instances = tasksByTemplate[templateId]!;
       final firstInstance = instances.first;
 
-      // Convert to weekly target
-      final weeklyTarget = _convertTaskToWeeklyTarget(firstInstance);
+      // Check if task is recurring using the cached template field
+      final isRecurring = firstInstance.templateIsRecurring;
+
+      // Convert to weekly target based on whether it's recurring
+      final weeklyTarget = isRecurring
+          ? _convertTaskToWeeklyTarget(firstInstance)
+          : _getTargetValue(
+              firstInstance); // For one-off tasks, use original target
 
       // Aggregate completion across the week
       final weeklyCompletion = _aggregateTaskCompletion(instances);
@@ -202,8 +208,8 @@ class WeeklyProgressCalculator {
 
       // Get next due date for recurring tasks
       String nextDueSubtitle = '';
-      // Check if task is recurring (has multiple instances in the week)
-      if (instances.length > 1) {
+      // Check if task is recurring using the template field
+      if (isRecurring) {
         final nextDue = instances
             .where((inst) => inst.dueDate != null)
             .map((inst) => inst.dueDate!)
@@ -219,14 +225,16 @@ class WeeklyProgressCalculator {
         }
       }
 
-      // For binary items, convert to quantitative for weekly view
-      final displayTrackingType = firstInstance.templateTrackingType == 'binary'
-          ? 'quantitative'
-          : firstInstance.templateTrackingType;
+      // For binary items, convert to quantitative for weekly view (only for recurring tasks)
+      final displayTrackingType =
+          (firstInstance.templateTrackingType == 'binary' && isRecurring)
+              ? 'quantitative'
+              : firstInstance.templateTrackingType;
 
-      final displayUnit = firstInstance.templateTrackingType == 'binary'
-          ? 'times'
-          : firstInstance.templateUnit;
+      final displayUnit =
+          (firstInstance.templateTrackingType == 'binary' && isRecurring)
+              ? 'times'
+              : firstInstance.templateUnit;
 
       processedTasks.add({
         'templateId': templateId,
@@ -237,7 +245,7 @@ class WeeklyProgressCalculator {
         'templateTrackingType': firstInstance.templateTrackingType,
         'templateTarget': firstInstance.templateTarget,
         'templateUnit': firstInstance.templateUnit,
-        'templateIsRecurring': instances.length > 1,
+        'templateIsRecurring': isRecurring,
         'displayTrackingType': displayTrackingType, // Use this in weekly view
         'displayUnit': displayUnit, // Use this in weekly view
         'weeklyTarget': weeklyTarget,

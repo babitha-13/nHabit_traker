@@ -100,11 +100,16 @@ class _WeeklyViewState extends State<WeeklyView> {
           setState(() {
             _instances = allInstances;
             _categories = allCategories;
-            _isLoading = false;
           });
 
-          // Calculate weekly progress
-          _calculateWeeklyProgress();
+          // Calculate weekly progress and wait for it to complete
+          await _calculateWeeklyProgress();
+
+          if (mounted) {
+            setState(() {
+              _isLoading = false;
+            });
+          }
         }
       } else {
         if (mounted) setState(() => _isLoading = false);
@@ -115,7 +120,7 @@ class _WeeklyViewState extends State<WeeklyView> {
     }
   }
 
-  void _calculateWeeklyProgress() async {
+  Future<void> _calculateWeeklyProgress() async {
     print('WeeklyView: _calculateWeeklyProgress() called');
     print('  - Total instances: ${_instances.length}');
 
@@ -129,20 +134,16 @@ class _WeeklyViewState extends State<WeeklyView> {
       categories: _categories,
     );
 
-    _tasks = List<Map<String, dynamic>>.from(progressData['tasks']);
-    _habits = List<Map<String, dynamic>>.from(progressData['habits']);
-    _weekStart = progressData['weekStart'] as DateTime;
-    _weekEnd = progressData['weekEnd'] as DateTime;
-
-    print('WeeklyView: Weekly progress calculation:');
-    print('  - Tasks: ${_tasks.length}');
-    print('  - Habits: ${_habits.length}');
-    print('  - Week: ${_weekStart} to ${_weekEnd}');
-
     if (mounted) {
-      setState(() {
-        // Progress values are already updated above
-      });
+      _tasks = List<Map<String, dynamic>>.from(progressData['tasks']);
+      _habits = List<Map<String, dynamic>>.from(progressData['habits']);
+      _weekStart = progressData['weekStart'] as DateTime;
+      _weekEnd = progressData['weekEnd'] as DateTime;
+
+      print('WeeklyView: Weekly progress calculation:');
+      print('  - Tasks: ${_tasks.length}');
+      print('  - Habits: ${_habits.length}');
+      print('  - Week: ${_weekStart} to ${_weekEnd}');
     }
   }
 
@@ -193,13 +194,17 @@ class _WeeklyViewState extends State<WeeklyView> {
     // Add Tasks section
     if (_tasks.isNotEmpty) {
       slivers.add(_buildSectionHeader('Tasks', _tasks.length, 'Tasks'));
-      slivers.add(_buildTasksList());
+      if (_expandedSection == 'Tasks') {
+        slivers.add(_buildTasksList());
+      }
     }
 
     // Add Habits section
     if (_habits.isNotEmpty) {
       slivers.add(_buildSectionHeader('Habits', _habits.length, 'Habits'));
-      slivers.add(_buildHabitsList());
+      if (_expandedSection == 'Habits') {
+        slivers.add(_buildHabitsList());
+      }
     }
 
     // Show empty state if no items
@@ -330,9 +335,6 @@ class _WeeklyViewState extends State<WeeklyView> {
   }
 
   Widget _buildTasksList() {
-    final expanded = _expandedSection == 'Tasks';
-    if (!expanded) return const SliverToBoxAdapter(child: SizedBox.shrink());
-
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
@@ -345,6 +347,7 @@ class _WeeklyViewState extends State<WeeklyView> {
           final displayUnit = task['displayUnit'] as String;
           final weeklyTarget = task['weeklyTarget'] as double;
           final weeklyCompletion = task['weeklyCompletion'] as double;
+          final isRecurring = task['templateIsRecurring'] as bool;
 
           if (currentInstance == null) {
             return const SizedBox.shrink();
@@ -362,24 +365,52 @@ class _WeeklyViewState extends State<WeeklyView> {
           // Create subtitle with category name and status information for weekly view
           String subtitle = currentInstance.templateCategoryName;
 
-          // Add status information for completed/skipped/snoozed items
-          final status = currentInstance.status;
-          if (status == 'completed' && currentInstance.completedAt != null) {
-            final completedDate = currentInstance.completedAt!;
-            subtitle +=
-                ' • Completed ${DateFormat.MMMd().format(completedDate)}';
-          } else if (status == 'skipped' && currentInstance.skippedAt != null) {
-            final skippedDate = currentInstance.skippedAt!;
-            subtitle += ' • Skipped ${DateFormat.MMMd().format(skippedDate)}';
-          } else if (currentInstance.snoozedUntil != null) {
-            final snoozedDate = currentInstance.snoozedUntil!;
-            subtitle +=
-                ' • Snoozed until ${DateFormat.MMMd().format(snoozedDate)}';
-          }
+          // Handle one-off vs recurring tasks differently
+          if (!isRecurring) {
+            // For one-off tasks, show completion status clearly
+            final status = currentInstance.status;
+            if (status == 'completed' && currentInstance.completedAt != null) {
+              final completedDate = currentInstance.completedAt!;
+              subtitle +=
+                  ' • ✓ Completed ${DateFormat.MMMd().format(completedDate)}';
+            } else if (status == 'skipped' &&
+                currentInstance.skippedAt != null) {
+              final skippedDate = currentInstance.skippedAt!;
+              subtitle +=
+                  ' • ✗ Skipped ${DateFormat.MMMd().format(skippedDate)}';
+            } else if (currentInstance.snoozedUntil != null) {
+              final snoozedDate = currentInstance.snoozedUntil!;
+              subtitle +=
+                  ' • ⏰ Snoozed until ${DateFormat.MMMd().format(snoozedDate)}';
+            } else {
+              // Show original target for pending one-off tasks
+              final target = currentInstance.templateTarget;
+              final unit = currentInstance.templateUnit;
+              if (target != null && unit.isNotEmpty) {
+                subtitle += ' • $target $unit';
+              }
+            }
+          } else {
+            // For recurring tasks, show weekly progress
+            final status = currentInstance.status;
+            if (status == 'completed' && currentInstance.completedAt != null) {
+              final completedDate = currentInstance.completedAt!;
+              subtitle +=
+                  ' • Completed ${DateFormat.MMMd().format(completedDate)}';
+            } else if (status == 'skipped' &&
+                currentInstance.skippedAt != null) {
+              final skippedDate = currentInstance.skippedAt!;
+              subtitle += ' • Skipped ${DateFormat.MMMd().format(skippedDate)}';
+            } else if (currentInstance.snoozedUntil != null) {
+              final snoozedDate = currentInstance.snoozedUntil!;
+              subtitle +=
+                  ' • Snoozed until ${DateFormat.MMMd().format(snoozedDate)}';
+            }
 
-          // Add next due date for recurring tasks
-          if (nextDueSubtitle.isNotEmpty) {
-            subtitle += ' • $nextDueSubtitle';
+            // Add next due date for recurring tasks
+            if (nextDueSubtitle.isNotEmpty) {
+              subtitle += ' • $nextDueSubtitle';
+            }
           }
 
           return Container(
@@ -406,7 +437,7 @@ class _WeeklyViewState extends State<WeeklyView> {
               isHabit: false,
               showTypeIcon: true,
               showRecurringIcon: true,
-              showCompleted: null,
+              showCompleted: true, // Show completed items in weekly view
             ),
           );
         },
@@ -416,9 +447,6 @@ class _WeeklyViewState extends State<WeeklyView> {
   }
 
   Widget _buildHabitsList() {
-    final expanded = _expandedSection == 'Habits';
-    if (!expanded) return const SliverToBoxAdapter(child: SizedBox.shrink());
-
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
@@ -473,7 +501,7 @@ class _WeeklyViewState extends State<WeeklyView> {
             isHabit: true,
             showTypeIcon: false,
             showRecurringIcon: false,
-            showCompleted: null,
+            showCompleted: true, // Show completed items in weekly view
           );
         },
         childCount: _habits.length,
@@ -502,8 +530,8 @@ class _WeeklyViewState extends State<WeeklyView> {
         ...originalInstance.snapshotData,
         'templateTrackingType': displayTrackingType,
         'templateUnit': displayUnit,
-        'templateTarget': weeklyTarget,
-        'currentValue': weeklyCompletion,
+        'templateTarget': weeklyTarget.toInt(), // Convert double to int
+        'currentValue': weeklyCompletion.toInt(), // Convert double to int
       },
       originalInstance.reference,
     );

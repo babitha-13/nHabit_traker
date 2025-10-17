@@ -763,7 +763,7 @@ class _TaskPageState extends State<TaskPage> {
           SliverReorderableList(
             itemBuilder: (context, index) {
               final item = visibleItems[index];
-              return ReorderableDragStartListener(
+              return ReorderableDelayedDragStartListener(
                 index: index,
                 key: Key('${item.reference.id}_drag'),
                 child: _buildItemTile(item, key),
