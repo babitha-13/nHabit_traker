@@ -57,6 +57,33 @@ class ActivityInstanceRecord extends FirestoreRecord {
   DateTime? get timerStartTime => _timerStartTime;
   bool hasTimerStartTime() => _timerStartTime != null;
 
+  // Time logging fields - NEW
+  List<dynamic>? _timeLogSessions;
+  List<Map<String, dynamic>> get timeLogSessions {
+    if (_timeLogSessions == null) return [];
+    return _timeLogSessions!.map((session) {
+      return {
+        'startTime': session['startTime'] as DateTime,
+        'endTime': session['endTime'] as DateTime?,
+        'durationMilliseconds': session['durationMilliseconds'] as int,
+      };
+    }).toList();
+  }
+
+  bool hasTimeLogSessions() => _timeLogSessions != null;
+
+  DateTime? _currentSessionStartTime;
+  DateTime? get currentSessionStartTime => _currentSessionStartTime;
+  bool hasCurrentSessionStartTime() => _currentSessionStartTime != null;
+
+  bool? _isTimeLogging;
+  bool get isTimeLogging => _isTimeLogging ?? false;
+  bool hasIsTimeLogging() => _isTimeLogging != null;
+
+  int? _totalTimeLogged; // Sum of all sessions in milliseconds
+  int get totalTimeLogged => _totalTimeLogged ?? 0;
+  bool hasTotalTimeLogged() => _totalTimeLogged != null;
+
   // Metadata
   DateTime? _createdTime;
   DateTime? get createdTime => _createdTime;
@@ -191,6 +218,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _accumulatedTime = snapshotData['accumulatedTime'] as int?;
     _isTimerActive = snapshotData['isTimerActive'] as bool?;
     _timerStartTime = snapshotData['timerStartTime'] as DateTime?;
+    _timeLogSessions = snapshotData['timeLogSessions'] as List<dynamic>?;
+    _currentSessionStartTime =
+        snapshotData['currentSessionStartTime'] as DateTime?;
+    _isTimeLogging = snapshotData['isTimeLogging'] as bool?;
+    _totalTimeLogged = snapshotData['totalTimeLogged'] as int?;
     _createdTime = snapshotData['createdTime'] as DateTime?;
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
     _isActive = snapshotData['isActive'] as bool?;
@@ -309,6 +341,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
   int? queueOrder,
   int? habitsOrder,
   int? tasksOrder,
+  List<dynamic>? timeLogSessions,
+  DateTime? currentSessionStartTime,
+  bool? isTimeLogging,
+  int? totalTimeLogged,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -349,6 +385,10 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'queueOrder': queueOrder,
       'habitsOrder': habitsOrder,
       'tasksOrder': tasksOrder,
+      'timeLogSessions': timeLogSessions,
+      'currentSessionStartTime': currentSessionStartTime,
+      'isTimeLogging': isTimeLogging,
+      'totalTimeLogged': totalTimeLogged,
     }.withoutNulls,
   );
 
@@ -399,7 +439,11 @@ class ActivityInstanceRecordDocumentEquality
         e1?.windowDuration == e2?.windowDuration &&
         e1?.queueOrder == e2?.queueOrder &&
         e1?.habitsOrder == e2?.habitsOrder &&
-        e1?.tasksOrder == e2?.tasksOrder;
+        e1?.tasksOrder == e2?.tasksOrder &&
+        e1?.timeLogSessions == e2?.timeLogSessions &&
+        e1?.currentSessionStartTime == e2?.currentSessionStartTime &&
+        e1?.isTimeLogging == e2?.isTimeLogging &&
+        e1?.totalTimeLogged == e2?.totalTimeLogged;
   }
 
   @override
@@ -439,5 +483,9 @@ class ActivityInstanceRecordDocumentEquality
         e?.queueOrder,
         e?.habitsOrder,
         e?.tasksOrder,
+        e?.timeLogSessions,
+        e?.currentSessionStartTime,
+        e?.isTimeLogging,
+        e?.totalTimeLogged,
       ]);
 }

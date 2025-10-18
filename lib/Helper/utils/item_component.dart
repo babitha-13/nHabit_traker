@@ -209,7 +209,8 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isCompleted {
-    return widget.instance.status == 'completed';
+    return widget.instance.status == 'completed' ||
+        widget.instance.status == 'skipped';
   }
 
   Color get _impactLevelColor {
@@ -282,7 +283,8 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isFullyCompleted {
-    return widget.instance.status == 'completed';
+    return widget.instance.status == 'completed' ||
+        widget.instance.status == 'skipped';
   }
 
   @override
@@ -733,7 +735,18 @@ class _ItemComponentState extends State<ItemComponent>
 
     if (isHabit) {
       // Habit-specific menu
-      if (isSnoozed) {
+      final isSkipped = widget.instance.status == 'skipped';
+
+      if (isSkipped) {
+        // Show unskip option for skipped habits
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'unskip',
+            height: 32,
+            child: Text('Unskip', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      } else if (isSnoozed) {
         // Show bring back option for snoozed habits
         menuItems.add(
           const PopupMenuItem<String>(
@@ -797,7 +810,18 @@ class _ItemComponentState extends State<ItemComponent>
       }
     } else if (isRecurringTask) {
       // Recurring task menu
-      if (isSnoozed) {
+      final isSkipped = widget.instance.status == 'skipped';
+
+      if (isSkipped) {
+        // Show unskip option for skipped tasks
+        menuItems.add(
+          const PopupMenuItem<String>(
+            value: 'unskip',
+            height: 32,
+            child: Text('Unskip', style: TextStyle(fontSize: 12)),
+          ),
+        );
+      } else if (isSnoozed) {
         // Show bring back option for snoozed tasks
         menuItems.add(
           const PopupMenuItem<String>(
@@ -855,58 +879,71 @@ class _ItemComponentState extends State<ItemComponent>
       }
     } else {
       // One-time tasks menu - show contextual options
-      final currentDueDate = widget.instance.dueDate;
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final tomorrow = today.add(const Duration(days: 1));
+      final isSkipped = widget.instance.status == 'skipped';
 
-      final isDueToday =
-          currentDueDate != null && _isSameDay(currentDueDate, today);
-      final isDueTomorrow =
-          currentDueDate != null && _isSameDay(currentDueDate, tomorrow);
-
-      // Only show "Schedule for today" if not already due today
-      if (!isDueToday) {
+      if (isSkipped) {
+        // Show unskip option for skipped one-time tasks
         menuItems.add(
           const PopupMenuItem<String>(
-            value: 'today',
+            value: 'unskip',
             height: 32,
-            child: Text('Schedule for today', style: TextStyle(fontSize: 12)),
+            child: Text('Unskip', style: TextStyle(fontSize: 12)),
           ),
         );
-      }
+      } else {
+        final currentDueDate = widget.instance.dueDate;
+        final now = DateTime.now();
+        final today = DateTime(now.year, now.month, now.day);
+        final tomorrow = today.add(const Duration(days: 1));
 
-      // Only show "Schedule for tomorrow" if not already due tomorrow
-      if (!isDueTomorrow) {
+        final isDueToday =
+            currentDueDate != null && _isSameDay(currentDueDate, today);
+        final isDueTomorrow =
+            currentDueDate != null && _isSameDay(currentDueDate, tomorrow);
+
+        // Only show "Schedule for today" if not already due today
+        if (!isDueToday) {
+          menuItems.add(
+            const PopupMenuItem<String>(
+              value: 'today',
+              height: 32,
+              child: Text('Schedule for today', style: TextStyle(fontSize: 12)),
+            ),
+          );
+        }
+
+        // Only show "Schedule for tomorrow" if not already due tomorrow
+        if (!isDueTomorrow) {
+          menuItems.add(
+            const PopupMenuItem<String>(
+              value: 'tomorrow',
+              height: 32,
+              child:
+                  Text('Schedule for tomorrow', style: TextStyle(fontSize: 12)),
+            ),
+          );
+        }
+
+        // Always show "Pick due date"
         menuItems.add(
           const PopupMenuItem<String>(
-            value: 'tomorrow',
+            value: 'pick_date',
             height: 32,
-            child:
-                Text('Schedule for tomorrow', style: TextStyle(fontSize: 12)),
+            child: Text('Pick due date...', style: TextStyle(fontSize: 12)),
           ),
         );
-      }
 
-      // Always show "Pick due date"
-      menuItems.add(
-        const PopupMenuItem<String>(
-          value: 'pick_date',
-          height: 32,
-          child: Text('Pick due date...', style: TextStyle(fontSize: 12)),
-        ),
-      );
-
-      // Only show "Clear due date" if task has a due date
-      if (currentDueDate != null) {
-        menuItems.addAll([
-          const PopupMenuDivider(height: 6),
-          const PopupMenuItem<String>(
-            value: 'clear_due_date',
-            height: 32,
-            child: Text('Clear due date', style: TextStyle(fontSize: 12)),
-          ),
-        ]);
+        // Only show "Clear due date" if task has a due date
+        if (currentDueDate != null) {
+          menuItems.addAll([
+            const PopupMenuDivider(height: 6),
+            const PopupMenuItem<String>(
+              value: 'clear_due_date',
+              height: 32,
+              child: Text('Clear due date', style: TextStyle(fontSize: 12)),
+            ),
+          ]);
+        }
       }
     }
 
@@ -937,6 +974,9 @@ class _ItemComponentState extends State<ItemComponent>
       final tomorrow = today.add(const Duration(days: 1));
 
       switch (action) {
+        case 'unskip':
+          await _handleUnskip();
+          break;
         case 'skip':
           // Handle both regular skip and habit skip
           await ActivityInstanceService.skipInstance(
@@ -1058,6 +1098,38 @@ class _ItemComponentState extends State<ItemComponent>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleUnskip() async {
+    try {
+      await ActivityInstanceService.uncompleteInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Get the updated instance
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Call the instance update callback
+      widget.onInstanceUpdated?.call(updatedInstance);
+
+      // Broadcast update
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+              content: Text('Item unskipped and returned to pending')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error unskipping: $e')),
         );
       }
     }
@@ -1524,16 +1596,30 @@ class _ItemComponentState extends State<ItemComponent>
     });
 
     try {
+      // Get current instance to check status
+      final instance = widget.instance;
+
       // Reset timer by updating the instance directly
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
               .doc(widget.instance.reference.id);
+
       await instanceRef.update({
         'accumulatedTime': 0,
         'isTimerActive': false,
         'timerStartTime': null,
         'lastUpdated': DateTime.now(),
       });
+
+      // If the item was completed or skipped based on timer, uncomplete it
+      if (instance.status == 'completed' || instance.status == 'skipped') {
+        // Check if timer was the only progress (for time-based tracking)
+        if (instance.templateTrackingType == 'time') {
+          await ActivityInstanceService.uncompleteInstance(
+            instanceId: widget.instance.reference.id,
+          );
+        }
+      }
 
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
@@ -1542,6 +1628,9 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
+
+      // Broadcast update
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

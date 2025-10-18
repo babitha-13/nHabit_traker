@@ -411,6 +411,19 @@ Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
   }
 }
 
+/// Query to get all habit instances for Habits page (all dates and statuses)
+/// Shows complete view of all habits regardless of window or status
+Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
+  required String userId,
+}) async {
+  try {
+    return await ActivityInstanceService.getAllHabitInstances(userId: userId);
+  } catch (e) {
+    print('Error querying all habit instances: $e');
+    return []; // Return empty list on error
+  }
+}
+
 /// Query to get all today's instances (current and overdue tasks and habits)
 Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,

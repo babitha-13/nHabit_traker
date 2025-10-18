@@ -1,4 +1,4 @@
-import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 
 /// Helper class for time logging validation
 class TimeValidationHelper {
@@ -19,12 +19,12 @@ class TimeValidationHelper {
   }
 
   /// Check if can start timer on task
-  static bool canStartTimer(TaskInstanceRecord instance) {
+  static bool canStartTimer(ActivityInstanceRecord instance) {
     return instance.status != 'completed' && !instance.isTimeLogging;
   }
 
   /// Get validation message for starting timer
-  static String? getStartTimerError(TaskInstanceRecord instance) {
+  static String? getStartTimerError(ActivityInstanceRecord instance) {
     if (instance.status == 'completed') {
       return 'Cannot start timer on completed task';
     }

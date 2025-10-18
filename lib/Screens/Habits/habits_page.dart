@@ -12,6 +12,7 @@ import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -34,6 +35,11 @@ class _HabitsPageState extends State<HabitsPage> {
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
+  bool _hasAutoExpandedOnLoad = false;
+
+  // Cached grouped habits to prevent re-sorting on every rebuild
+  Map<String, List<ActivityInstanceRecord>> _cachedGroupedHabits = {};
+  bool _needsRegrouping = true;
 
   // Search functionality
   String _searchQuery = '';
@@ -53,6 +59,7 @@ class _HabitsPageState extends State<HabitsPage> {
       if (param is bool && mounted) {
         setState(() {
           _showCompleted = param;
+          _needsRegrouping = true; // Add this
         });
       }
     });
@@ -127,11 +134,48 @@ class _HabitsPageState extends State<HabitsPage> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
+        _needsRegrouping = true; // Add this
+
+        // Auto-expand first category with results when searching
+        if (_searchQuery.isNotEmpty) {
+          final grouped = <String, List<ActivityInstanceRecord>>{};
+          final instancesToProcess = _habitInstances.where((instance) {
+            return instance.templateName
+                .toLowerCase()
+                .contains(_searchQuery.toLowerCase());
+          }).toList();
+
+          for (final instance in instancesToProcess) {
+            if (!_showCompleted && instance.status == 'completed') continue;
+            final categoryName = instance.templateCategoryName.isNotEmpty
+                ? instance.templateCategoryName
+                : 'Uncategorized';
+            (grouped[categoryName] ??= []).add(instance);
+          }
+
+          // Expand first category with results
+          for (final key in grouped.keys) {
+            if (grouped[key]!.isNotEmpty) {
+              _expandedCategory = key;
+              break;
+            }
+          }
+        }
       });
     }
   }
 
   String _getDueDateSubtitle(ActivityInstanceRecord instance) {
+    // For habits with completion windows, show window information
+    if (WindowDisplayHelper.hasCompletionWindow(instance)) {
+      if (instance.status == 'completed' || instance.status == 'skipped') {
+        return WindowDisplayHelper.getNextWindowStartSubtitle(instance);
+      } else {
+        return WindowDisplayHelper.getWindowEndSubtitle(instance);
+      }
+    }
+
+    // Fall back to original logic for habits without windows
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
     final tomorrow = today.add(const Duration(days: 1));
@@ -157,14 +201,35 @@ class _HabitsPageState extends State<HabitsPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final instances = await queryCurrentHabitInstances(userId: userId);
+        final instances = await queryAllHabitInstances(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
         if (mounted) {
           setState(() {
             _habitInstances = instances;
             _categories = categories;
             _isLoading = false;
+            _needsRegrouping = true; // Add this
           });
+
+          // Auto-expand first category only on initial load
+          if (!_hasAutoExpandedOnLoad && _habitInstances.isNotEmpty) {
+            _hasAutoExpandedOnLoad = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _expandedCategory == null) {
+                if (_needsRegrouping) {
+                  _updateGroupedHabits();
+                }
+                final grouped = _cachedGroupedHabits;
+                if (grouped.isNotEmpty) {
+                  setState(() {
+                    _expandedCategory = grouped.keys.first;
+                  });
+                  ExpansionStateManager()
+                      .setHabitsExpandedSection(_expandedCategory);
+                }
+              }
+            });
+          }
         }
       } else {
         if (mounted) {
@@ -179,7 +244,7 @@ class _HabitsPageState extends State<HabitsPage> {
     }
   }
 
-  Map<String, List<ActivityInstanceRecord>> get _groupedHabits {
+  void _updateGroupedHabits() {
     final grouped = <String, List<ActivityInstanceRecord>>{};
 
     // Filter instances by search query if active
@@ -198,29 +263,22 @@ class _HabitsPageState extends State<HabitsPage> {
       (grouped[categoryName] ??= []).add(instance);
     }
 
-    // Sort items within each category by habits order
-    for (final key in grouped.keys) {
-      final items = grouped[key]!;
-      if (items.isNotEmpty) {
-        // Initialize order values for items that don't have them
-        InstanceOrderService.initializeOrderValues(items, 'habits');
-        // Sort by habits order
-        grouped[key] =
-            InstanceOrderService.sortInstancesByOrder(items, 'habits');
-      }
-    }
-
-    // Auto-expand categories with search results
-    if (_searchQuery.isNotEmpty) {
+    // Sort items within each category by habits order (only if regrouping needed)
+    if (_needsRegrouping) {
       for (final key in grouped.keys) {
-        if (grouped[key]!.isNotEmpty) {
-          _expandedCategory = key;
-          break; // Expand the first category with results
+        final items = grouped[key]!;
+        if (items.isNotEmpty) {
+          // Initialize order values for items that don't have them
+          InstanceOrderService.initializeOrderValues(items, 'habits');
+          // Sort by habits order
+          grouped[key] =
+              InstanceOrderService.sortInstancesByOrder(items, 'habits');
         }
       }
+      _needsRegrouping = false;
     }
 
-    return grouped;
+    _cachedGroupedHabits = grouped;
   }
 
   @override
@@ -247,7 +305,10 @@ class _HabitsPageState extends State<HabitsPage> {
   // }
 
   Widget _buildAllHabitsView() {
-    final groupedHabits = _groupedHabits;
+    if (_needsRegrouping) {
+      _updateGroupedHabits();
+    }
+    final groupedHabits = _cachedGroupedHabits;
 
     if (groupedHabits.isEmpty) {
       return Center(
@@ -272,20 +333,6 @@ class _HabitsPageState extends State<HabitsPage> {
           ],
         ),
       );
-    }
-
-    // Auto-expand first category if no category is expanded (new app session)
-    if (_expandedCategory == null && groupedHabits.isNotEmpty) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted) {
-          final firstCategory = groupedHabits.keys.first;
-          setState(() {
-            _expandedCategory = firstCategory;
-          });
-          // Save state persistently
-          ExpansionStateManager().setHabitsExpandedSection(_expandedCategory);
-        }
-      });
     }
 
     final slivers = <Widget>[];
@@ -542,7 +589,9 @@ class _HabitsPageState extends State<HabitsPage> {
       if (!_showCompleted && updatedInstance.status == 'completed') {
         _habitInstances.removeWhere(
             (inst) => inst.reference.id == updatedInstance.reference.id);
+        _needsRegrouping = true; // Only regroup if item removed
       }
+      // Don't trigger regrouping for normal updates!
     });
     // Background refresh to sync with server
     _loadHabitsSilently();
@@ -648,7 +697,9 @@ class _HabitsPageState extends State<HabitsPage> {
             .removeWhere((inst) => inst.reference.id == instance.reference.id);
         print(
             'HabitsPage: Removed completed habit instance ${instance.templateName}');
+        _needsRegrouping = true; // Only regroup if item removed
       }
+      // Don't set _needsRegrouping = true for normal updates!
     });
   }
 
@@ -666,13 +717,14 @@ class _HabitsPageState extends State<HabitsPage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      final instances = await queryCurrentHabitInstances(userId: userId);
+      final instances = await queryAllHabitInstances(userId: userId);
       final categories = await queryHabitCategoriesOnce(userId: userId);
 
       if (mounted) {
         setState(() {
           _habitInstances = instances;
           _categories = categories;
+          _needsRegrouping = true; // Add this
           // Don't touch _isLoading
         });
       }
@@ -685,7 +737,10 @@ class _HabitsPageState extends State<HabitsPage> {
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String categoryName) async {
     try {
-      final groupedHabits = _groupedHabits;
+      if (_needsRegrouping) {
+        _updateGroupedHabits();
+      }
+      final groupedHabits = _cachedGroupedHabits;
       final items = groupedHabits[categoryName]!;
 
       if (oldIndex >= items.length || newIndex >= items.length) return;

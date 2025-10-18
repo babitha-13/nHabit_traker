@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
+import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 
 class createActivityPage extends StatefulWidget {
@@ -35,6 +36,7 @@ class _createActivityPageState extends State<createActivityPage> {
   // Date range fields
   DateTime _startDate = DateTime.now();
   DateTime? _endDate; // null means perpetual (will be set to 2099 in backend)
+  DateTime? _originalStartDate; // Track original start date for comparison
 
   @override
   void initState() {
@@ -59,6 +61,8 @@ class _createActivityPageState extends State<createActivityPage> {
 
       // Load date fields if editing existing habit
       _startDate = habit.startDate ?? DateTime.now();
+      _originalStartDate =
+          habit.startDate; // Store original start date for comparison
       _endDate = habit.endDate;
       // If endDate is 2099 or later, treat as perpetual (set to null)
       if (_endDate != null && _endDate!.year >= 2099) {
@@ -262,6 +266,46 @@ class _createActivityPageState extends State<createActivityPage> {
       print('DEBUG: Saving ActivityRecord data: $recordData');
 
       if (widget.habitToEdit != null) {
+        // Check if start date has changed for existing habits
+        final newStartDate = _frequencyConfig.startDate;
+        if (_originalStartDate != newStartDate) {
+          print(
+              'DEBUG: Start date changed from $_originalStartDate to $newStartDate');
+
+          // Show confirmation dialog
+          final shouldProceed = await StartDateChangeDialog.show(
+            context: context,
+            oldStartDate: _originalStartDate ?? DateTime.now(),
+            newStartDate: newStartDate,
+            activityName: _nameController.text.trim(),
+          );
+
+          if (!shouldProceed) {
+            print('DEBUG: User cancelled start date change');
+            setState(() => _isSaving = false);
+            return; // Abort save operation
+          }
+
+          // Regenerate instances with new start date
+          try {
+            await ActivityInstanceService.regenerateInstancesFromStartDate(
+              templateId: widget.habitToEdit!.reference.id,
+              template: widget.habitToEdit!,
+              newStartDate: newStartDate,
+            );
+            print('DEBUG: Instances regenerated successfully');
+          } catch (e) {
+            print('ERROR: Failed to regenerate instances: $e');
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error updating instances: $e')),
+              );
+            }
+            setState(() => _isSaving = false);
+            return;
+          }
+        }
+
         // Update the template
         await widget.habitToEdit!.reference.update(recordData);
 

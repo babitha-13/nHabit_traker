@@ -1,8 +1,9 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart'
+    as habit_schema;
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
@@ -26,20 +27,20 @@ class TaskInstanceService {
 
   // ==================== TASK INSTANCES ====================
 
-  /// Get all active task instances for today and overdue
-  static Future<List<TaskInstanceRecord>> getTodaysTaskInstances({
+  /// Get all active activity instances for today and overdue
+  static Future<List<ActivityInstanceRecord>> getTodaysTaskInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
 
     try {
-      final query = TaskInstanceRecord.collectionForUser(uid)
+      final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('status', isEqualTo: 'pending');
 
       final result = await query.get();
 
       final instances = result.docs
-          .map((doc) => TaskInstanceRecord.fromSnapshot(doc))
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) => instance.isActive) // Filter isActive in Dart
           .toList();
 
@@ -71,7 +72,7 @@ class TaskInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
 
-    final instanceData = createTaskInstanceRecordData(
+    final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: dueDate,
       status: 'pending',
@@ -90,7 +91,8 @@ class TaskInstanceService {
       templateShowInFloatingTimer: template.showInFloatingTimer,
     );
 
-    return await TaskInstanceRecord.collectionForUser(uid).add(instanceData);
+    return await ActivityInstanceRecord.collectionForUser(uid)
+        .add(instanceData);
   }
 
   /// Complete a task instance and generate next occurrence if recurring
@@ -105,14 +107,14 @@ class TaskInstanceService {
 
     try {
       final instanceRef =
-          TaskInstanceRecord.collectionForUser(uid).doc(instanceId);
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
       final instanceDoc = await instanceRef.get();
 
       if (!instanceDoc.exists) {
         throw Exception('Task instance not found');
       }
 
-      final instance = TaskInstanceRecord.fromSnapshot(instanceDoc);
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
 
       // Update current instance as completed
@@ -185,14 +187,14 @@ class TaskInstanceService {
 
     try {
       final instanceRef =
-          TaskInstanceRecord.collectionForUser(uid).doc(instanceId);
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
       final instanceDoc = await instanceRef.get();
 
       if (!instanceDoc.exists) {
         throw Exception('Task instance not found');
       }
 
-      final instance = TaskInstanceRecord.fromSnapshot(instanceDoc);
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
 
       // Update current instance as skipped
@@ -255,7 +257,8 @@ class TaskInstanceService {
   // ==================== HABIT INSTANCES ====================
 
   /// Get all active habit instances for today and overdue
-  static Future<List<HabitInstanceRecord>> getTodaysHabitInstances({
+  static Future<List<habit_schema.HabitInstanceRecord>>
+      getTodaysHabitInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
@@ -263,13 +266,13 @@ class TaskInstanceService {
 
     try {
       // Remove server-side date filter to allow client-side date filtering with test dates
-      final query = HabitInstanceRecord.collectionForUser(uid)
+      final query = habit_schema.HabitInstanceRecord.collectionForUser(uid)
           .where('isActive', isEqualTo: true)
           .where('status', isEqualTo: 'pending');
 
       final result = await query.get();
       final allInstances = result.docs
-          .map((doc) => HabitInstanceRecord.fromSnapshot(doc))
+          .map((doc) => habit_schema.HabitInstanceRecord.fromSnapshot(doc))
           .toList();
 
       // Filter by date on client side using DateService
@@ -284,7 +287,7 @@ class TaskInstanceService {
       }).toList();
 
       // Filter instances based on template date boundaries
-      final activeInstances = <HabitInstanceRecord>[];
+      final activeInstances = <habit_schema.HabitInstanceRecord>[];
 
       for (final instance in instances) {
         try {
@@ -334,7 +337,7 @@ class TaskInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
 
-    final instanceData = createActivityInstanceRecordData(
+    final instanceData = habit_schema.createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: dueDate,
       status: 'pending',
@@ -358,7 +361,8 @@ class TaskInstanceService {
       templatePeriodType: template.periodType,
     );
 
-    return await HabitInstanceRecord.collectionForUser(uid).add(instanceData);
+    return await habit_schema.HabitInstanceRecord.collectionForUser(uid)
+        .add(instanceData);
   }
 
   /// Complete a habit instance and generate next occurrence
@@ -373,14 +377,16 @@ class TaskInstanceService {
 
     try {
       final instanceRef =
-          HabitInstanceRecord.collectionForUser(uid).doc(instanceId);
+          habit_schema.HabitInstanceRecord.collectionForUser(uid)
+              .doc(instanceId);
       final instanceDoc = await instanceRef.get();
 
       if (!instanceDoc.exists) {
         throw Exception('Habit instance not found');
       }
 
-      final instance = HabitInstanceRecord.fromSnapshot(instanceDoc);
+      final instance =
+          habit_schema.HabitInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
 
       // Update current instance as completed
@@ -438,14 +444,16 @@ class TaskInstanceService {
 
     try {
       final instanceRef =
-          HabitInstanceRecord.collectionForUser(uid).doc(instanceId);
+          habit_schema.HabitInstanceRecord.collectionForUser(uid)
+              .doc(instanceId);
       final instanceDoc = await instanceRef.get();
 
       if (!instanceDoc.exists) {
         throw Exception('Habit instance not found');
       }
 
-      final instance = HabitInstanceRecord.fromSnapshot(instanceDoc);
+      final instance =
+          habit_schema.HabitInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
 
       // Update current instance as skipped
@@ -702,11 +710,11 @@ class TaskInstanceService {
     if (timerStartTime != null) updateData['timerStartTime'] = timerStartTime;
 
     if (instanceType == 'task') {
-      await TaskInstanceRecord.collectionForUser(uid)
+      await ActivityInstanceRecord.collectionForUser(uid)
           .doc(instanceId)
           .update(updateData);
     } else {
-      await HabitInstanceRecord.collectionForUser(uid)
+      await habit_schema.HabitInstanceRecord.collectionForUser(uid)
           .doc(instanceId)
           .update(updateData);
     }
@@ -722,7 +730,7 @@ class TaskInstanceService {
 
     try {
       if (templateType == 'task') {
-        final query = TaskInstanceRecord.collectionForUser(uid)
+        final query = ActivityInstanceRecord.collectionForUser(uid)
             .where('templateId', isEqualTo: templateId);
         final instances = await query.get();
 
@@ -733,7 +741,7 @@ class TaskInstanceService {
           });
         }
       } else {
-        final query = HabitInstanceRecord.collectionForUser(uid)
+        final query = habit_schema.HabitInstanceRecord.collectionForUser(uid)
             .where('templateId', isEqualTo: templateId);
         final instances = await query.get();
 
@@ -771,7 +779,7 @@ class TaskInstanceService {
       String finalCategoryId = categoryId ?? template.categoryId;
       String finalCategoryName = categoryName ?? template.categoryName;
 
-      final instanceData = createTaskInstanceRecordData(
+      final instanceData = createActivityInstanceRecordData(
         templateId: templateRef.id,
         status: 'pending',
         isTimerActive: true,
@@ -779,7 +787,6 @@ class TaskInstanceService {
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
         isActive: true,
-        isTimerTask: true,
         // Cache template data for quick access
         templateName: template.name,
         templateCategoryId: finalCategoryId,
@@ -792,7 +799,8 @@ class TaskInstanceService {
         templateShowInFloatingTimer: template.showInFloatingTimer,
       );
 
-      return await TaskInstanceRecord.collectionForUser(uid).add(instanceData);
+      return await ActivityInstanceRecord.collectionForUser(uid)
+          .add(instanceData);
     } catch (e) {
       print('Error creating timer task instance: $e');
       rethrow;
@@ -869,20 +877,19 @@ class TaskInstanceService {
   }
 
   /// Get timer task instances for calendar display
-  static Future<List<TaskInstanceRecord>> getTimerTaskInstances({
+  static Future<List<ActivityInstanceRecord>> getTimerTaskInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
 
     try {
-      final query = TaskInstanceRecord.collectionForUser(uid)
-          .where('isTimerTask', isEqualTo: true)
+      final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('timerStartTime', isNull: false)
           .where('accumulatedTime', isGreaterThan: 0);
 
       final result = await query.get();
       return result.docs
-          .map((doc) => TaskInstanceRecord.fromSnapshot(doc))
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) => instance.isActive)
           .toList();
     } catch (e) {
@@ -893,22 +900,22 @@ class TaskInstanceService {
 
   // ==================== TIME LOGGING METHODS ====================
 
-  /// Start time logging on an existing task instance
+  /// Start time logging on an existing activity instance
   static Future<void> startTimeLogging({
-    required DocumentReference taskInstanceRef,
+    required DocumentReference activityInstanceRef,
     String? userId,
   }) async {
     try {
       // Validate: cannot start timer on completed tasks
       final instance =
-          await TaskInstanceRecord.getDocumentOnce(taskInstanceRef);
+          await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
 
       final error = TimeValidationHelper.getStartTimerError(instance);
       if (error != null) {
         throw Exception(error);
       }
 
-      await taskInstanceRef.update({
+      await activityInstanceRef.update({
         'isTimeLogging': true,
         'currentSessionStartTime': DateTime.now(),
         'lastUpdated': DateTime.now(),
@@ -921,13 +928,13 @@ class TaskInstanceService {
 
   /// Stop time logging and optionally mark task as complete
   static Future<void> stopTimeLogging({
-    required DocumentReference taskInstanceRef,
+    required DocumentReference activityInstanceRef,
     required bool markComplete,
     String? userId,
   }) async {
     try {
       final instance =
-          await TaskInstanceRecord.getDocumentOnce(taskInstanceRef);
+          await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
 
       if (instance.currentSessionStartTime == null) {
         throw Exception('No active session to stop');
@@ -971,7 +978,7 @@ class TaskInstanceService {
         updateData['completedAt'] = DateTime.now();
       }
 
-      await taskInstanceRef.update(updateData);
+      await activityInstanceRef.update(updateData);
     } catch (e) {
       print('Error stopping time logging: $e');
       rethrow;
@@ -980,19 +987,19 @@ class TaskInstanceService {
 
   /// Pause time logging (keeps task pending)
   static Future<void> pauseTimeLogging({
-    required DocumentReference taskInstanceRef,
+    required DocumentReference activityInstanceRef,
     String? userId,
   }) async {
     // Same as stopTimeLogging but with markComplete = false
     await stopTimeLogging(
-      taskInstanceRef: taskInstanceRef,
+      activityInstanceRef: activityInstanceRef,
       markComplete: false,
       userId: userId,
     );
   }
 
   /// Get current session duration (for displaying running time)
-  static Duration getCurrentSessionDuration(TaskInstanceRecord instance) {
+  static Duration getCurrentSessionDuration(ActivityInstanceRecord instance) {
     if (!instance.isTimeLogging || instance.currentSessionStartTime == null) {
       return Duration.zero;
     }
@@ -1000,14 +1007,14 @@ class TaskInstanceService {
   }
 
   /// Get aggregate time including current session
-  static Duration getAggregateDuration(TaskInstanceRecord instance) {
+  static Duration getAggregateDuration(ActivityInstanceRecord instance) {
     final totalLogged = Duration(milliseconds: instance.totalTimeLogged);
     final currentSession = getCurrentSessionDuration(instance);
     return totalLogged + currentSession;
   }
 
-  /// Get all task instances with time logs for calendar display
-  static Future<List<TaskInstanceRecord>> getTimeLoggedTasks({
+  /// Get all activity instances with time logs for calendar display
+  static Future<List<ActivityInstanceRecord>> getTimeLoggedTasks({
     String? userId,
     DateTime? startDate,
     DateTime? endDate,
@@ -1015,12 +1022,12 @@ class TaskInstanceService {
     final uid = userId ?? _currentUserId;
 
     try {
-      final query = TaskInstanceRecord.collectionForUser(uid)
+      final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('totalTimeLogged', isGreaterThan: 0);
 
       final result = await query.get();
       final tasks = result.docs
-          .map((doc) => TaskInstanceRecord.fromSnapshot(doc))
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((task) => task.isActive)
           .toList();
 

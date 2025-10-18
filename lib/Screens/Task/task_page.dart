@@ -1184,6 +1184,7 @@ class _TaskPageState extends State<TaskPage> {
       onInstanceDeleted: _removeInstanceFromLocalState,
       showTypeIcon: false,
       showRecurringIcon: instance.status != 'completed',
+      showCompleted: bucketKey == 'Recent Completions' ? true : null,
     );
   }
 

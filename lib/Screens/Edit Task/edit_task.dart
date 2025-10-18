@@ -5,6 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 
 class EditTask extends StatefulWidget {
   final ActivityRecord task;
@@ -38,6 +39,7 @@ class _EditTaskState extends State<EditTask> {
   bool quickIsTaskRecurring = false;
   FrequencyConfig? _frequencyConfig;
   bool _isStartDateReadOnly = false;
+  DateTime? _originalStartDate; // Track original start date for comparison
 
   @override
   void initState() {
@@ -85,6 +87,9 @@ class _EditTaskState extends State<EditTask> {
     if (quickIsTaskRecurring) {
       _frequencyConfig = _convertTaskFrequencyToConfig(t);
     }
+
+    // Store original start date for comparison
+    _originalStartDate = t.startDate;
 
     // Check if start date should be read-only
     _checkStartDateReadOnly();
@@ -301,6 +306,46 @@ class _EditTaskState extends State<EditTask> {
     );
 
     print('DEBUG: About to update template with data: $updateData');
+
+    // Check if start date has changed for recurring tasks
+    if (quickIsTaskRecurring && _frequencyConfig != null) {
+      final newStartDate = _frequencyConfig!.startDate;
+      if (_originalStartDate != newStartDate) {
+        print(
+            'DEBUG: Start date changed from $_originalStartDate to $newStartDate');
+
+        // Show confirmation dialog
+        final shouldProceed = await StartDateChangeDialog.show(
+          context: context,
+          oldStartDate: _originalStartDate ?? DateTime.now(),
+          newStartDate: newStartDate,
+          activityName: _titleController.text.trim(),
+        );
+
+        if (!shouldProceed) {
+          print('DEBUG: User cancelled start date change');
+          return; // Abort save operation
+        }
+
+        // Regenerate instances with new start date
+        try {
+          await ActivityInstanceService.regenerateInstancesFromStartDate(
+            templateId: widget.task.reference.id,
+            template: widget.task,
+            newStartDate: newStartDate,
+          );
+          print('DEBUG: Instances regenerated successfully');
+        } catch (e) {
+          print('ERROR: Failed to regenerate instances: $e');
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating instances: $e')),
+          );
+          return;
+        }
+      }
+    }
+
     try {
       await docRef.update(updateData);
       print('DEBUG: Template updated successfully');

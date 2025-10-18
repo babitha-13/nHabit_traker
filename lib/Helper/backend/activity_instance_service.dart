@@ -350,6 +350,42 @@ class ActivityInstanceService {
     }
   }
 
+  /// Get all habit instances for the Habits page (no date/status filtering)
+  /// Shows all instances regardless of window dates or status
+  static Future<List<ActivityInstanceRecord>> getAllHabitInstances({
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      print(
+          'ActivityInstanceService: Getting all habit instances for user $uid');
+
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'habit');
+
+      final result = await query.get();
+      final allHabitInstances = result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      print(
+          'ActivityInstanceService: Found ${allHabitInstances.length} total habit instances.');
+
+      // Sort by due date (earliest first, nulls last)
+      allHabitInstances.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+
+      return allHabitInstances;
+    } catch (e) {
+      print('Error getting all habit instances: $e');
+      return [];
+    }
+  }
+
   /// Get active habit instances for the user (Queue page - includes future instances)
   static Future<List<ActivityInstanceRecord>> getActiveHabitInstances({
     String? userId,
@@ -844,6 +880,7 @@ class ActivityInstanceService {
       await instanceRef.update({
         'status': 'pending',
         'completedAt': null,
+        'skippedAt': null, // Add this to also clear skippedAt
         'lastUpdated': DateService.currentDate,
       });
 
@@ -911,8 +948,8 @@ class ActivityInstanceService {
             InstanceEvents.broadcastInstanceUpdated(updatedInstance);
           }
         } else {
-          // Auto-uncomplete if currently completed and progress dropped below target
-          if (instance.status == 'completed') {
+          // Auto-uncomplete if currently completed OR skipped and progress dropped below target
+          if (instance.status == 'completed' || instance.status == 'skipped') {
             await uncompleteInstance(
               instanceId: instanceId,
               userId: uid,
@@ -1708,5 +1745,79 @@ class ActivityInstanceService {
     }
     // Could add logic for other frequency types based on available fields
     return 'everyXPeriod';
+  }
+
+  /// Regenerate instances from a new start date
+  /// Deletes all pending instances and creates new ones based on the updated start date
+  /// Preserves all completed instances
+  static Future<void> regenerateInstancesFromStartDate({
+    required String templateId,
+    required ActivityRecord template,
+    required DateTime newStartDate,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      print(
+          'ActivityInstanceService: Regenerating instances for template $templateId from new start date $newStartDate');
+
+      // Get all instances for this template
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateId', isEqualTo: templateId);
+      final instances = await query.get();
+
+      // Delete all pending instances (preserve completed ones)
+      int deletedCount = 0;
+      for (final doc in instances.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.status == 'pending') {
+          await doc.reference.delete();
+          deletedCount++;
+        }
+      }
+
+      print('ActivityInstanceService: Deleted $deletedCount pending instances');
+
+      // Create new first instance based on the new start date
+      if (template.categoryType == 'habit') {
+        // For habits, create instance using the window system
+        await createActivityInstance(
+          templateId: templateId,
+          dueDate: newStartDate,
+          template: template,
+          userId: uid,
+        );
+        print(
+            'ActivityInstanceService: Created new habit instance from start date $newStartDate');
+      } else if (template.isRecurring) {
+        // For recurring tasks, create the first instance
+        await createActivityInstance(
+          templateId: templateId,
+          dueDate: newStartDate,
+          template: template,
+          userId: uid,
+        );
+        print(
+            'ActivityInstanceService: Created new recurring task instance from start date $newStartDate');
+      } else {
+        // For one-time tasks, create instance if due date is set
+        if (template.dueDate != null) {
+          await createActivityInstance(
+            templateId: templateId,
+            dueDate: template.dueDate!,
+            template: template,
+            userId: uid,
+          );
+          print('ActivityInstanceService: Created new one-time task instance');
+        }
+      }
+
+      print(
+          'ActivityInstanceService: Instance regeneration completed successfully');
+    } catch (e) {
+      print('ActivityInstanceService: Error regenerating instances: $e');
+      rethrow;
+    }
   }
 }

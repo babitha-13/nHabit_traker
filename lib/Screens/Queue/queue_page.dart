@@ -15,6 +15,7 @@ import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -451,6 +452,12 @@ class _QueuePageState extends State<QueuePage> {
           'QueuePage: _getSubtitle for Completed/Skipped - ${item.templateName}');
       print('  - Status: ${item.status}');
 
+      // For completed/skipped habits with completion windows, show next window info
+      if (item.templateCategoryType == 'habit' &&
+          WindowDisplayHelper.hasCompletionWindow(item)) {
+        return WindowDisplayHelper.getNextWindowStartSubtitle(item);
+      }
+
       String statusText;
       // Check if item is snoozed first
       if (item.snoozedUntil != null &&
@@ -473,14 +480,10 @@ class _QueuePageState extends State<QueuePage> {
     }
 
     if (bucketKey == 'Pending') {
-      // For habits, show window countdown
-      if (item.templateCategoryType == 'habit' && item.windowEndDate != null) {
-        final daysLeft = _getWindowDaysLeft(item);
-        if (daysLeft > 0) {
-          return '${item.templateCategoryName} • $daysLeft days left';
-        } else {
-          return item.templateCategoryName;
-        }
+      // For habits with completion windows, show when window ends
+      if (item.templateCategoryType == 'habit' &&
+          WindowDisplayHelper.hasCompletionWindow(item)) {
+        return WindowDisplayHelper.getWindowEndSubtitle(item);
       }
       return item.templateCategoryName;
     }
@@ -496,18 +499,6 @@ class _QueuePageState extends State<QueuePage> {
 
   DateTime _todayDate() {
     return DateService.todayStart;
-  }
-
-  /// Calculate days left in habit window
-  int _getWindowDaysLeft(ActivityInstanceRecord item) {
-    if (item.windowEndDate == null) return 0;
-
-    final today = _todayDate();
-    final windowEnd = DateTime(item.windowEndDate!.year,
-        item.windowEndDate!.month, item.windowEndDate!.day);
-
-    final daysLeft = windowEnd.difference(today).inDays;
-    return daysLeft >= 0 ? daysLeft : 0;
   }
 
   @override
