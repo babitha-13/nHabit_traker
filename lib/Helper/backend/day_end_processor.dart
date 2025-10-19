@@ -166,6 +166,7 @@ class DayEndProcessor {
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,
         dueDate: nextBelongsToDate, // dueDate = start of window
+        dueTime: instance.templateDueTime,
         status: 'pending',
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),

@@ -5,6 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
@@ -24,6 +25,7 @@ class ActivityInstanceService {
   static Future<DocumentReference> createActivityInstance({
     required String templateId,
     DateTime? dueDate,
+    String? dueTime,
     required ActivityRecord template,
     String? userId,
   }) async {
@@ -59,6 +61,7 @@ class ActivityInstanceService {
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: initialDueDate,
+      dueTime: dueTime ?? template.dueTime,
       status: 'pending',
       createdTime: now,
       lastUpdated: now,
@@ -80,6 +83,7 @@ class ActivityInstanceService {
       templateEveryXPeriodType: template.everyXPeriodType,
       templateTimesPerPeriod: template.timesPerPeriod,
       templatePeriodType: template.periodType,
+      templateDueTime: template.dueTime,
       // Set habit-specific fields
       dayState: template.categoryType == 'habit' ? 'open' : null,
       belongsToDate: template.categoryType == 'habit' ? normalizedDate : null,
@@ -92,6 +96,17 @@ class ActivityInstanceService {
     final result =
         await ActivityInstanceRecord.collectionForUser(uid).add(instanceData);
     print('ActivityInstanceService: Instance created with ID: ${result.id}');
+
+    // Schedule reminder if instance has due time
+    try {
+      final createdInstance = ActivityInstanceRecord.fromSnapshot(
+        await result.get(),
+      );
+      await ReminderScheduler.scheduleReminderForInstance(createdInstance);
+    } catch (e) {
+      print(
+          'ActivityInstanceService: Error scheduling reminder for new instance: $e');
+    }
 
     return result;
   }
@@ -382,6 +397,102 @@ class ActivityInstanceService {
       return allHabitInstances;
     } catch (e) {
       print('Error getting all habit instances: $e');
+      return [];
+    }
+  }
+
+  /// Get latest habit instance per template for the Habits page
+  /// Returns one instance per habit template - the next upcoming/actionable instance
+  /// No date filtering - shows even future instances
+  static Future<List<ActivityInstanceRecord>>
+      getLatestHabitInstancePerTemplate({
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      print(
+          'ActivityInstanceService: Getting latest habit instance per template for user $uid');
+
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'habit');
+
+      final result = await query.get();
+      final allHabitInstances = result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      print(
+          'ActivityInstanceService: Found ${allHabitInstances.length} total habit instances.');
+
+      // Group instances by templateId
+      final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
+      for (final instance in allHabitInstances) {
+        final templateId = instance.templateId;
+        (instancesByTemplate[templateId] ??= []).add(instance);
+      }
+
+      final List<ActivityInstanceRecord> latestInstances = [];
+
+      for (final templateId in instancesByTemplate.keys) {
+        final instances = instancesByTemplate[templateId]!;
+
+        // Sort instances by due date (earliest first, nulls last)
+        instances.sort((a, b) {
+          if (a.dueDate == null && b.dueDate == null) return 0;
+          if (a.dueDate == null) return 1;
+          if (b.dueDate == null) return -1;
+          return a.dueDate!.compareTo(b.dueDate!);
+        });
+
+        // Find the latest instance for this template
+        ActivityInstanceRecord? latestInstance;
+
+        // First, try to find the earliest pending instance (next upcoming)
+        for (final instance in instances) {
+          if (instance.status == 'pending') {
+            latestInstance = instance;
+            break;
+          }
+        }
+
+        // If no pending instance found, use the latest completed instance
+        if (latestInstance == null) {
+          // Find the most recent completed/skipped instance
+          for (final instance in instances.reversed) {
+            if (instance.status == 'completed' ||
+                instance.status == 'skipped') {
+              latestInstance = instance;
+              break;
+            }
+          }
+        }
+
+        // If still no instance found, use the first one (fallback)
+        if (latestInstance == null && instances.isNotEmpty) {
+          latestInstance = instances.first;
+        }
+
+        if (latestInstance != null) {
+          latestInstances.add(latestInstance);
+          print(
+              'ActivityInstanceService: Selected latest instance for ${latestInstance.templateName}: ${latestInstance.status} (due: ${latestInstance.dueDate})');
+        }
+      }
+
+      // Sort final list by due date (earliest first, nulls last)
+      latestInstances.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+
+      print(
+          'ActivityInstanceService: Returning ${latestInstances.length} latest habit instances (one per template).');
+
+      return latestInstances;
+    } catch (e) {
+      print('Error getting latest habit instances per template: $e');
       return [];
     }
   }
@@ -835,6 +946,7 @@ class ActivityInstanceService {
               final newInstanceRef = await createActivityInstance(
                 templateId: instance.templateId,
                 dueDate: nextDueDate,
+                dueTime: template.dueTime,
                 template: template,
                 userId: uid,
               );
@@ -854,6 +966,16 @@ class ActivityInstanceService {
             }
           }
         }
+      }
+
+      // Cancel reminder for completed instance
+      try {
+        await ReminderScheduler.cancelReminderForInstance(instanceId);
+        print(
+            'ActivityInstanceService: Cancelled reminder for completed instance $instanceId');
+      } catch (e) {
+        print(
+            'ActivityInstanceService: Error cancelling reminder for completed instance: $e');
       }
     } catch (e) {
       print('Error completing activity instance: $e');
@@ -1006,6 +1128,16 @@ class ActivityInstanceService {
       print(
           'ActivityInstanceService: Snoozed instance ${instance.templateName} until $snoozeUntil');
 
+      // Cancel reminder for snoozed instance
+      try {
+        await ReminderScheduler.cancelReminderForInstance(instanceId);
+        print(
+            'ActivityInstanceService: Cancelled reminder for snoozed instance $instanceId');
+      } catch (e) {
+        print(
+            'ActivityInstanceService: Error cancelling reminder for snoozed instance: $e');
+      }
+
       // Broadcast the instance update event
       final updatedInstance =
           await getUpdatedInstance(instanceId: instanceId, userId: uid);
@@ -1038,6 +1170,18 @@ class ActivityInstanceService {
       });
 
       print('ActivityInstanceService: Unsnoozed instance $instanceId');
+
+      // Reschedule reminder for unsnoozed instance
+      try {
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        await ReminderScheduler.rescheduleReminderForInstance(updatedInstance);
+        print(
+            'ActivityInstanceService: Rescheduled reminder for unsnoozed instance $instanceId');
+      } catch (e) {
+        print(
+            'ActivityInstanceService: Error rescheduling reminder for unsnoozed instance: $e');
+      }
 
       // Broadcast the instance update event
       final updatedInstance =
@@ -1154,6 +1298,7 @@ class ActivityInstanceService {
               final newInstanceRef = await createActivityInstance(
                 templateId: instance.templateId,
                 dueDate: nextDueDate,
+                dueTime: template.dueTime,
                 template: template,
                 userId: uid,
               );
@@ -1173,6 +1318,16 @@ class ActivityInstanceService {
             }
           }
         }
+      }
+
+      // Cancel reminder for skipped instance
+      try {
+        await ReminderScheduler.cancelReminderForInstance(instanceId);
+        print(
+            'ActivityInstanceService: Cancelled reminder for skipped instance $instanceId');
+      } catch (e) {
+        print(
+            'ActivityInstanceService: Error cancelling reminder for skipped instance: $e');
       }
     } catch (e) {
       print('Error skipping activity instance: $e');
@@ -1201,6 +1356,18 @@ class ActivityInstanceService {
         'dueDate': newDueDate,
         'lastUpdated': DateService.currentDate,
       });
+
+      // Reschedule reminder for rescheduled instance
+      try {
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        await ReminderScheduler.rescheduleReminderForInstance(updatedInstance);
+        print(
+            'ActivityInstanceService: Rescheduled reminder for rescheduled instance $instanceId');
+      } catch (e) {
+        print(
+            'ActivityInstanceService: Error rescheduling reminder for rescheduled instance: $e');
+      }
 
       // Broadcast the instance update event
       final updatedInstance =
@@ -1309,6 +1476,7 @@ class ActivityInstanceService {
           await createActivityInstance(
             templateId: templateId,
             dueDate: currentDueDate,
+            dueTime: template.dueTime,
             template: template,
             userId: uid,
           );
@@ -1361,6 +1529,7 @@ class ActivityInstanceService {
           await createActivityInstance(
             templateId: templateId,
             dueDate: currentDueDate,
+            dueTime: template.dueTime,
             template: template,
             userId: uid,
           );
@@ -1375,6 +1544,7 @@ class ActivityInstanceService {
             await createActivityInstance(
               templateId: templateId,
               dueDate: nextProperDate,
+              dueTime: template.dueTime,
               template: template,
               userId: uid,
             );
@@ -1634,6 +1804,7 @@ class ActivityInstanceService {
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,
         dueDate: nextBelongsToDate, // dueDate = start of window
+        dueTime: instance.templateDueTime,
         status: 'pending',
         createdTime: DateService.currentDate,
         lastUpdated: DateService.currentDate,
@@ -1747,6 +1918,47 @@ class ActivityInstanceService {
     return 'everyXPeriod';
   }
 
+  /// Clean up instances beyond a shortened end date
+  /// Deletes pending instances that are beyond the new end date
+  static Future<void> cleanupInstancesBeyondEndDate({
+    required String templateId,
+    required DateTime newEndDate,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    try {
+      print(
+          'ActivityInstanceService: Cleaning up instances beyond end date $newEndDate for template $templateId');
+
+      // Get all instances for this template
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateId', isEqualTo: templateId);
+      final instances = await query.get();
+
+      // Delete pending instances beyond the end date
+      int deletedCount = 0;
+      for (final doc in instances.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.status == 'pending' &&
+            instance.dueDate != null &&
+            instance.dueDate!.isAfter(newEndDate)) {
+          await doc.reference.delete();
+          deletedCount++;
+          print(
+              'ActivityInstanceService: Deleted instance beyond end date: ${instance.dueDate}');
+        }
+      }
+
+      print(
+          'ActivityInstanceService: Deleted $deletedCount instances beyond end date');
+    } catch (e) {
+      print(
+          'ActivityInstanceService: Error cleaning up instances beyond end date: $e');
+      rethrow;
+    }
+  }
+
   /// Regenerate instances from a new start date
   /// Deletes all pending instances and creates new ones based on the updated start date
   /// Preserves all completed instances
@@ -1772,8 +1984,20 @@ class ActivityInstanceService {
       for (final doc in instances.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
         if (instance.status == 'pending') {
-          await doc.reference.delete();
-          deletedCount++;
+          // Also check if instance is beyond the new end date
+          bool shouldDelete = true;
+          if (template.endDate != null && instance.dueDate != null) {
+            // If template has an end date and instance is beyond it, delete it
+            if (instance.dueDate!.isAfter(template.endDate!)) {
+              print(
+                  'ActivityInstanceService: Deleting instance beyond end date: ${instance.dueDate} > ${template.endDate}');
+            }
+          }
+
+          if (shouldDelete) {
+            await doc.reference.delete();
+            deletedCount++;
+          }
         }
       }
 
@@ -1785,6 +2009,7 @@ class ActivityInstanceService {
         await createActivityInstance(
           templateId: templateId,
           dueDate: newStartDate,
+          dueTime: template.dueTime,
           template: template,
           userId: uid,
         );
@@ -1795,6 +2020,7 @@ class ActivityInstanceService {
         await createActivityInstance(
           templateId: templateId,
           dueDate: newStartDate,
+          dueTime: template.dueTime,
           template: template,
           userId: uid,
         );
@@ -1806,6 +2032,7 @@ class ActivityInstanceService {
           await createActivityInstance(
             templateId: templateId,
             dueDate: template.dueDate!,
+            dueTime: template.dueTime,
             template: template,
             userId: uid,
           );

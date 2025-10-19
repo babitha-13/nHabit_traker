@@ -16,6 +16,7 @@ import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -352,10 +353,9 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
 
-    // Populate Completed/Skipped (completed or skipped in the past week)
+    // Populate Completed/Skipped (completed or skipped TODAY only)
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
-    final weekAgoStart = todayStart.subtract(const Duration(days: 7));
     for (final instance in instancesToProcess) {
       if (instance.status != 'completed' && instance.status != 'skipped')
         continue;
@@ -373,16 +373,15 @@ class _QueuePageState extends State<QueuePage> {
         final completedAt = instance.completedAt!;
         final completedDateOnly =
             DateTime(completedAt.year, completedAt.month, completedAt.day);
-        final isRecent = completedDateOnly.isAfter(weekAgoStart) ||
-            completedDateOnly.isAtSameMomentAs(weekAgoStart);
+        final isToday = completedDateOnly.isAtSameMomentAs(todayStart);
         print('  - Completed date only: $completedDateOnly');
-        print('  - Week ago start: $weekAgoStart');
-        print('  - Is recent: $isRecent');
-        if (isRecent) {
+        print('  - Today start: $todayStart');
+        print('  - Is today: $isToday');
+        if (isToday) {
           buckets['Completed/Skipped']!.add(instance);
           print('  - ADDED to Completed/Skipped');
         } else {
-          print('  - NOT recent enough');
+          print('  - NOT completed today');
         }
       }
       // For skipped items, check skipped date
@@ -395,29 +394,43 @@ class _QueuePageState extends State<QueuePage> {
         final skippedAt = instance.skippedAt!;
         final skippedDateOnly =
             DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
-        final isRecent = skippedDateOnly.isAfter(weekAgoStart) ||
-            skippedDateOnly.isAtSameMomentAs(weekAgoStart);
+        final isToday = skippedDateOnly.isAtSameMomentAs(todayStart);
         print('  - Skipped date only: $skippedDateOnly');
-        print('  - Week ago start: $weekAgoStart');
-        print('  - Is recent: $isRecent');
-        if (isRecent) {
+        print('  - Today start: $todayStart');
+        print('  - Is today: $isToday');
+        if (isToday) {
           buckets['Completed/Skipped']!.add(instance);
           print('  - ADDED to Completed/Skipped');
         } else {
-          print('  - NOT recent enough');
+          print('  - NOT skipped today');
         }
       }
     }
 
-    // Add snoozed instances to Completed/Skipped section
+    // Add snoozed instances to Completed/Skipped section (only if due today)
     for (final instance in instancesToProcess) {
       if (instance.snoozedUntil != null &&
           DateTime.now().isBefore(instance.snoozedUntil!)) {
-        print(
-            'QueuePage: Processing snoozed instance ${instance.templateName}');
-        print('  - SnoozedUntil: ${instance.snoozedUntil}');
-        buckets['Completed/Skipped']!.add(instance);
-        print('  - ADDED to Completed/Skipped');
+        // Only show snoozed items if their original due date was today
+        final dueDate = instance.dueDate;
+        if (dueDate != null) {
+          final dueDateOnly =
+              DateTime(dueDate.year, dueDate.month, dueDate.day);
+          if (dueDateOnly.isAtSameMomentAs(todayStart)) {
+            print(
+                'QueuePage: Processing snoozed instance ${instance.templateName}');
+            print('  - SnoozedUntil: ${instance.snoozedUntil}');
+            print('  - Due date: $dueDateOnly');
+            print('  - Today start: $todayStart');
+            buckets['Completed/Skipped']!.add(instance);
+            print('  - ADDED to Completed/Skipped');
+          } else {
+            print(
+                'QueuePage: Skipping snoozed instance ${instance.templateName} (not due today)');
+            print('  - Due date: $dueDateOnly');
+            print('  - Today start: $todayStart');
+          }
+        }
       }
     }
 
@@ -473,8 +486,11 @@ class _QueuePageState extends State<QueuePage> {
 
       final due = item.dueDate;
       final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
+      final timeStr = item.hasDueTime()
+          ? ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}'
+          : '';
       final subtitle =
-          '$statusText • ${item.templateCategoryName} • Due: $dueStr';
+          '$statusText • ${item.templateCategoryName} • Due: $dueStr$timeStr';
       print('  - Generated subtitle: $subtitle');
       return subtitle;
     }
@@ -485,13 +501,21 @@ class _QueuePageState extends State<QueuePage> {
           WindowDisplayHelper.hasCompletionWindow(item)) {
         return WindowDisplayHelper.getWindowEndSubtitle(item);
       }
-      return item.templateCategoryName;
+      // Show category name + due time if available
+      String subtitle = item.templateCategoryName;
+      if (item.hasDueTime()) {
+        subtitle += ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}';
+      }
+      return subtitle;
     }
 
     final dueDate = item.dueDate;
     if (dueDate != null) {
       final formattedDate = DateFormat.MMMd().format(dueDate);
-      return '$formattedDate • ${item.templateCategoryName}';
+      final timeStr = item.hasDueTime()
+          ? ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}'
+          : '';
+      return '$formattedDate$timeStr • ${item.templateCategoryName}';
     }
 
     return item.templateCategoryName;

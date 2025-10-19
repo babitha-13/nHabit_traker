@@ -8,6 +8,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 
 class createActivityPage extends StatefulWidget {
@@ -37,6 +38,11 @@ class _createActivityPageState extends State<createActivityPage> {
   DateTime _startDate = DateTime.now();
   DateTime? _endDate; // null means perpetual (will be set to 2099 in backend)
   DateTime? _originalStartDate; // Track original start date for comparison
+
+  // Due time field
+  TimeOfDay? _selectedDueTime;
+  FrequencyConfig?
+      _originalFrequencyConfig; // Track original frequency config for comparison
 
   @override
   void initState() {
@@ -69,9 +75,17 @@ class _createActivityPageState extends State<createActivityPage> {
         _endDate = null;
       }
 
+      // Load due time if editing existing habit
+      if (habit.hasDueTime()) {
+        _selectedDueTime = TimeUtils.stringToTimeOfDay(habit.dueTime);
+      }
+
       // Convert legacy schedule to FrequencyConfig
       _frequencyConfig =
           _convertLegacyScheduleToFrequencyConfig(habit, _startDate, _endDate);
+
+      // Store original frequency config for comparison
+      _originalFrequencyConfig = _frequencyConfig;
     }
   }
 
@@ -201,6 +215,46 @@ class _createActivityPageState extends State<createActivityPage> {
     return true;
   }
 
+  Future<void> _selectDueTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedDueTime ?? TimeUtils.getCurrentTime(),
+    );
+    if (picked != null && picked != _selectedDueTime) {
+      setState(() {
+        _selectedDueTime = picked;
+      });
+    }
+  }
+
+  /// Check if frequency configuration has changed
+  bool _hasFrequencyChanged() {
+    if (_originalFrequencyConfig == null) return false;
+
+    final original = _originalFrequencyConfig!;
+    final current = _frequencyConfig;
+
+    // Compare all frequency-related fields
+    return original.type != current.type ||
+        original.startDate != current.startDate ||
+        original.endDate != current.endDate ||
+        original.everyXValue != current.everyXValue ||
+        original.everyXPeriodType != current.everyXPeriodType ||
+        original.timesPerPeriod != current.timesPerPeriod ||
+        original.periodType != current.periodType ||
+        !_listEquals(original.selectedDays, current.selectedDays);
+  }
+
+  /// Helper method to compare lists
+  bool _listEquals<T>(List<T>? a, List<T>? b) {
+    if (a == null) return b == null;
+    if (b == null || a.length != b.length) return false;
+    for (int index = 0; index < a.length; index += 1) {
+      if (a[index] != b[index]) return false;
+    }
+    return true;
+  }
+
   Future<void> _saveHabit() async {
     if (!_formKey.currentState!.validate() || !_canSave()) return;
 
@@ -244,6 +298,9 @@ class _createActivityPageState extends State<createActivityPage> {
         categoryType: 'habit',
         startDate: _frequencyConfig.startDate,
         endDate: _frequencyConfig.endDate,
+        dueTime: _selectedDueTime != null
+            ? TimeUtils.timeOfDayToString(_selectedDueTime!)
+            : null,
 
         // New frequency fields - only store relevant fields based on frequency type
         frequencyType: _frequencyConfig.type.toString().split('.').last,
@@ -266,32 +323,32 @@ class _createActivityPageState extends State<createActivityPage> {
       print('DEBUG: Saving ActivityRecord data: $recordData');
 
       if (widget.habitToEdit != null) {
-        // Check if start date has changed for existing habits
-        final newStartDate = _frequencyConfig.startDate;
-        if (_originalStartDate != newStartDate) {
-          print(
-              'DEBUG: Start date changed from $_originalStartDate to $newStartDate');
+        // Check if frequency configuration has changed for existing habits
+        if (_hasFrequencyChanged()) {
+          print('DEBUG: Frequency configuration changed');
+          print('DEBUG: Original: $_originalFrequencyConfig');
+          print('DEBUG: Current: $_frequencyConfig');
 
           // Show confirmation dialog
           final shouldProceed = await StartDateChangeDialog.show(
             context: context,
             oldStartDate: _originalStartDate ?? DateTime.now(),
-            newStartDate: newStartDate,
+            newStartDate: _frequencyConfig.startDate,
             activityName: _nameController.text.trim(),
           );
 
           if (!shouldProceed) {
-            print('DEBUG: User cancelled start date change');
+            print('DEBUG: User cancelled frequency change');
             setState(() => _isSaving = false);
             return; // Abort save operation
           }
 
-          // Regenerate instances with new start date
+          // Regenerate instances with new frequency configuration
           try {
             await ActivityInstanceService.regenerateInstancesFromStartDate(
               templateId: widget.habitToEdit!.reference.id,
               template: widget.habitToEdit!,
-              newStartDate: newStartDate,
+              newStartDate: _frequencyConfig.startDate,
             );
             print('DEBUG: Instances regenerated successfully');
           } catch (e) {
@@ -303,6 +360,29 @@ class _createActivityPageState extends State<createActivityPage> {
             }
             setState(() => _isSaving = false);
             return;
+          }
+        } else {
+          // Check if only end date has changed (without frequency changes)
+          final originalEndDate = _originalFrequencyConfig?.endDate;
+          final newEndDate = _frequencyConfig.endDate;
+          if (originalEndDate != newEndDate && newEndDate != null) {
+            print(
+                'DEBUG: End date changed from $originalEndDate to $newEndDate');
+
+            // If end date was shortened, clean up instances beyond the new end date
+            if (originalEndDate == null ||
+                newEndDate.isBefore(originalEndDate)) {
+              try {
+                await ActivityInstanceService.cleanupInstancesBeyondEndDate(
+                  templateId: widget.habitToEdit!.reference.id,
+                  newEndDate: newEndDate,
+                );
+                print('DEBUG: Cleaned up instances beyond shortened end date');
+              } catch (e) {
+                print('ERROR: Failed to cleanup instances beyond end date: $e');
+                // Don't fail the save operation for this
+              }
+            }
           }
         }
 
@@ -346,6 +426,8 @@ class _createActivityPageState extends State<createActivityPage> {
                   'templateTrackingType': recordData['trackingType'],
                   'templateTarget': recordData['target'],
                   'templateUnit': recordData['unit'],
+                  'templatePriority': recordData['priority'],
+                  'templateDescription': recordData['description'],
                   'lastUpdated': DateTime.now(),
                 });
 
@@ -419,6 +501,9 @@ class _createActivityPageState extends State<createActivityPage> {
           priority: weight,
           unit: _unitController.text.trim(),
           categoryType: 'habit',
+          dueTime: _selectedDueTime != null
+              ? TimeUtils.timeOfDayToString(_selectedDueTime!)
+              : null,
           // Pass new frequency fields
           frequencyType: _frequencyConfig.type.toString().split('.').last,
           everyXValue: _frequencyConfig.type == FrequencyType.everyXPeriod
@@ -659,6 +744,59 @@ class _createActivityPageState extends State<createActivityPage> {
                             _frequencyConfig = newConfig;
                           });
                         },
+                      ),
+                      const SizedBox(height: 24),
+                      _buildSectionHeader('Due Time'),
+                      const SizedBox(height: 8),
+                      InkWell(
+                        onTap: _selectDueTime,
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 16),
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.access_time,
+                                color: _selectedDueTime != null
+                                    ? Colors.blue.shade700
+                                    : Colors.grey.shade600,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Text(
+                                  _selectedDueTime != null
+                                      ? TimeUtils.formatTimeOfDayForDisplay(
+                                          _selectedDueTime!)
+                                      : 'Select due time (optional)',
+                                  style: TextStyle(
+                                    color: _selectedDueTime != null
+                                        ? Colors.black87
+                                        : Colors.grey.shade600,
+                                    fontSize: 16,
+                                  ),
+                                ),
+                              ),
+                              if (_selectedDueTime != null)
+                                InkWell(
+                                  onTap: () {
+                                    setState(() {
+                                      _selectedDueTime = null;
+                                    });
+                                  },
+                                  child: Icon(
+                                    Icons.close,
+                                    color: Colors.grey.shade600,
+                                    size: 20,
+                                  ),
+                                ),
+                            ],
+                          ),
+                        ),
                       ),
                       const SizedBox(height: 24),
                       _buildSectionHeader('Weight'),

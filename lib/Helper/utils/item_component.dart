@@ -636,7 +636,7 @@ class _ItemComponentState extends State<ItemComponent>
 
     if (selected == 'edit') {
       final template = await ActivityRecord.getDocumentOnce(templateRef);
-      if (widget.showTaskEdit) {
+      if (widget.instance.templateCategoryType == 'task') {
         showDialog(
           context: context,
           builder: (_) => EditTask(

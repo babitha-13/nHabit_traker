@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:collection/collection.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
@@ -379,13 +380,19 @@ class _WeeklyViewState extends State<WeeklyView> {
             final status = currentInstance.status;
             if (status == 'completed' && currentInstance.completedAt != null) {
               final completedDate = currentInstance.completedAt!;
+              final timeStr = currentInstance.hasDueTime()
+                  ? ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}'
+                  : '';
               subtitle +=
-                  ' • ✓ Completed ${DateFormat.MMMd().format(completedDate)}';
+                  ' • ✓ Completed ${DateFormat.MMMd().format(completedDate)}$timeStr';
             } else if (status == 'skipped' &&
                 currentInstance.skippedAt != null) {
               final skippedDate = currentInstance.skippedAt!;
+              final timeStr = currentInstance.hasDueTime()
+                  ? ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}'
+                  : '';
               subtitle +=
-                  ' • ✗ Skipped ${DateFormat.MMMd().format(skippedDate)}';
+                  ' • ✗ Skipped ${DateFormat.MMMd().format(skippedDate)}$timeStr';
             } else if (currentInstance.snoozedUntil != null) {
               final snoozedDate = currentInstance.snoozedUntil!;
               subtitle +=
@@ -396,6 +403,11 @@ class _WeeklyViewState extends State<WeeklyView> {
               final unit = currentInstance.templateUnit;
               if (target != null && unit.isNotEmpty) {
                 subtitle += ' • $target $unit';
+              }
+              // Add due time for pending tasks
+              if (currentInstance.hasDueTime()) {
+                subtitle +=
+                    ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}';
               }
             }
           } else {
@@ -484,16 +496,26 @@ class _WeeklyViewState extends State<WeeklyView> {
           final status = currentInstance.status;
           if (status == 'completed' && currentInstance.completedAt != null) {
             final completedDate = currentInstance.completedAt!;
+            final timeStr = currentInstance.hasDueTime()
+                ? ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}'
+                : '';
             enhancedSubtitle +=
-                ' • Completed ${DateFormat.MMMd().format(completedDate)}';
+                ' • Completed ${DateFormat.MMMd().format(completedDate)}$timeStr';
           } else if (status == 'skipped' && currentInstance.skippedAt != null) {
             final skippedDate = currentInstance.skippedAt!;
+            final timeStr = currentInstance.hasDueTime()
+                ? ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}'
+                : '';
             enhancedSubtitle +=
-                ' • Skipped ${DateFormat.MMMd().format(skippedDate)}';
+                ' • Skipped ${DateFormat.MMMd().format(skippedDate)}$timeStr';
           } else if (currentInstance.snoozedUntil != null) {
             final snoozedDate = currentInstance.snoozedUntil!;
             enhancedSubtitle +=
                 ' • Snoozed until ${DateFormat.MMMd().format(snoozedDate)}';
+          } else if (currentInstance.hasDueTime()) {
+            // Add due time for pending habits
+            enhancedSubtitle +=
+                ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}';
           }
 
           return ItemComponent(

@@ -5,6 +5,8 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/finalize_habit_data.dart';
 import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
+import 'package:habit_tracker/Helper/utils/notification_service.dart';
+import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
@@ -32,6 +34,43 @@ void main() async {
 
   // Initialize background scheduler for day-end processing
   BackgroundScheduler.initialize();
+
+  // Initialize notification service
+  print('DEBUG: Starting notification service initialization...');
+  await NotificationService.initialize();
+  print('DEBUG: Notification service initialized');
+
+  // Check permissions status first
+  print('DEBUG: Checking permissions status...');
+  final hasPermissions = await NotificationService.checkPermissions();
+  print('DEBUG: Current permissions status: $hasPermissions');
+
+  // Request notification permissions if not granted
+  if (!hasPermissions) {
+    print('DEBUG: Requesting notification permissions...');
+    final permissionGranted = await NotificationService.requestPermissions();
+    print('DEBUG: Permission request result: $permissionGranted');
+
+    if (!permissionGranted) {
+      print(
+          'WARNING: Notification permissions not granted. Notifications may not work properly.');
+    }
+  } else {
+    print('DEBUG: Notification permissions already granted');
+  }
+
+  // Schedule all pending reminders
+  await ReminderScheduler.scheduleAllPendingReminders();
+
+  // Check for expired snoozes and reschedule
+  await ReminderScheduler.checkExpiredSnoozes();
+
+  // Test notification (for debugging)
+  await NotificationService.scheduleTestNotification();
+
+  // Also test immediate notification
+  await NotificationService.scheduleImmediateTest();
+
   runApp(ChangeNotifierProvider(
     create: (context) => appState,
     child: const MyApp(),

@@ -155,6 +155,11 @@ class ActivityRecord extends FirestoreRecord {
   DateTime? get dueDate => _dueDate;
   bool hasDueDate() => _dueDate != null;
 
+  // "dueTime" field for tasks/habits (stored as "HH:mm" in 24-hour format).
+  String? _dueTime;
+  String? get dueTime => _dueTime;
+  bool hasDueTime() => _dueTime != null;
+
   // "status" field for completion status ('incomplete' | 'complete').
   String? _status;
   String get status => _status ?? 'incomplete';
@@ -217,6 +222,7 @@ class ActivityRecord extends FirestoreRecord {
     _snoozedUntil = snapshotData['snoozedUntil'] as DateTime?;
     _isRecurring = snapshotData['isRecurring'] as bool?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
+    _dueTime = snapshotData['dueTime'] as String?;
     _status = snapshotData['status'] as String?;
     _startDate = snapshotData['startDate'] as DateTime?;
     _endDate = snapshotData['endDate'] as DateTime?;
@@ -307,6 +313,7 @@ Map<String, dynamic> createActivityRecordData({
   DateTime? snoozedUntil,
   bool? isRecurring,
   DateTime? dueDate,
+  String? dueTime,
   String? status,
   DateTime? startDate,
   DateTime? endDate,
@@ -346,6 +353,7 @@ Map<String, dynamic> createActivityRecordData({
       'snoozedUntil': snoozedUntil,
       'isRecurring': isRecurring,
       'dueDate': dueDate,
+      'dueTime': dueTime,
       'status': status,
       'startDate': startDate,
       'endDate': endDate,
@@ -389,6 +397,7 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e1?.snoozedUntil == e2?.snoozedUntil &&
         e1?.isRecurring == e2?.isRecurring &&
         e1?.dueDate == e2?.dueDate &&
+        e1?.dueTime == e2?.dueTime &&
         e1?.status == e2?.status &&
         e1?.startDate == e2?.startDate &&
         e1?.endDate == e2?.endDate &&
@@ -426,6 +435,7 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e?.snoozedUntil,
         e?.isRecurring,
         e?.dueDate,
+        e?.dueTime,
         e?.status,
         e?.startDate,
         e?.endDate,

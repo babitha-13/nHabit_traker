@@ -424,6 +424,20 @@ Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
   }
 }
 
+/// Query to get latest habit instance per template for Habits page
+/// Returns one instance per habit template - the next upcoming/actionable instance
+Future<List<ActivityInstanceRecord>> queryLatestHabitInstances({
+  required String userId,
+}) async {
+  try {
+    return await ActivityInstanceService.getLatestHabitInstancePerTemplate(
+        userId: userId);
+  } catch (e) {
+    print('Error querying latest habit instances: $e');
+    return []; // Return empty list on error
+  }
+}
+
 /// Query to get all today's instances (current and overdue tasks and habits)
 Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,
@@ -460,6 +474,7 @@ Future<DocumentReference> createActivity({
 
   // Task-specific parameters
   DateTime? dueDate,
+  String? dueTime,
   bool isRecurring = false,
   String? unit,
   int priority = 1,
@@ -491,6 +506,7 @@ Future<DocumentReference> createActivity({
 
     // Task-specific fields
     dueDate: dueDate,
+    dueTime: dueTime,
     isRecurring: effectiveIsRecurring,
     unit: unit,
     priority: priority,
@@ -522,6 +538,7 @@ Future<DocumentReference> createActivity({
         template: activity,
         explicitDueDate: dueDate,
       ),
+      dueTime: dueTime,
       template: activity,
       userId: uid,
     );

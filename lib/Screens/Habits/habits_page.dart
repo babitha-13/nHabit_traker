@@ -13,6 +13,7 @@ import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -181,19 +182,31 @@ class _HabitsPageState extends State<HabitsPage> {
     final tomorrow = today.add(const Duration(days: 1));
 
     if (instance.dueDate == null) {
+      // Even if no due date, show time if available
+      if (instance.hasDueTime()) {
+        return '@ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}';
+      }
       return 'No due date';
     }
 
     final dueDate = DateTime(
         instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
 
+    String dateStr;
     if (dueDate.isAtSameMomentAs(today)) {
-      return 'Today';
+      dateStr = 'Today';
     } else if (dueDate.isAtSameMomentAs(tomorrow)) {
-      return 'Tomorrow';
+      dateStr = 'Tomorrow';
     } else {
-      return DateFormat.yMMMd().format(instance.dueDate!);
+      dateStr = DateFormat.yMMMd().format(instance.dueDate!);
     }
+
+    // Add due time if available
+    final timeStr = instance.hasDueTime()
+        ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
+        : '';
+
+    return '$dateStr$timeStr';
   }
 
   Future<void> _loadHabits() async {
@@ -201,7 +214,7 @@ class _HabitsPageState extends State<HabitsPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final instances = await queryAllHabitInstances(userId: userId);
+        final instances = await queryLatestHabitInstances(userId: userId);
         final categories = await queryHabitCategoriesOnce(userId: userId);
         if (mounted) {
           setState(() {

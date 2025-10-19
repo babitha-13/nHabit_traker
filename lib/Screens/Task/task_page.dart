@@ -15,6 +15,7 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -41,6 +42,7 @@ class _TaskPageState extends State<TaskPage> {
   String? _selectedQuickCategoryId;
   String? _selectedQuickTrackingType = 'binary';
   DateTime? _selectedQuickDueDate;
+  TimeOfDay? _selectedQuickDueTime;
   int _quickTargetNumber = 1;
   Duration _quickTargetDuration = const Duration(hours: 1);
   final TextEditingController _quickUnitController = TextEditingController();
@@ -48,6 +50,7 @@ class _TaskPageState extends State<TaskPage> {
   FrequencyConfig? _quickFrequencyConfig;
   String? _expandedSection;
   final Map<String, GlobalKey> _sectionKeys = {};
+  bool _showOlderCompletions = false;
 
   // Search functionality
   String _searchQuery = '';
@@ -310,7 +313,8 @@ class _TaskPageState extends State<TaskPage> {
                         tooltip: 'Select task type',
                       ),
                       const SizedBox(width: 12),
-                      // Show due date button only when no date is selected
+
+                      // Date icon or chip
                       if (_selectedQuickDueDate == null)
                         IconButton(
                           icon: Icon(
@@ -322,144 +326,224 @@ class _TaskPageState extends State<TaskPage> {
                           padding: const EdgeInsets.all(4),
                           constraints:
                               const BoxConstraints(minWidth: 32, minHeight: 32),
-                        ),
-                      // Show due date description when date is selected
-                      if (_selectedQuickDueDate != null)
-                        InkWell(
-                          onTap: _selectQuickDueDate,
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.green.shade200),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.calendar_today,
-                                    size: 14, color: Colors.green.shade700),
-                                const SizedBox(width: 6),
-                                Text(
-                                  quickIsRecurring
-                                      ? 'From ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
-                                      : DateFormat('MMM dd')
-                                          .format(_selectedQuickDueDate!),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.green.shade700,
-                                    fontWeight: FontWeight.w500,
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(left: 0),
+                          child: InkWell(
+                            onTap: _selectQuickDueDate,
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.green.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border:
+                                    Border.all(color: Colors.green.shade200),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.calendar_today,
+                                      size: 14, color: Colors.green.shade700),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    quickIsRecurring
+                                        ? 'From ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
+                                        : DateFormat('MMM dd')
+                                            .format(_selectedQuickDueDate!),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.green.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
-                                ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () {
-                                    // Clear due date without opening picker
-                                    setState(() {
-                                      _selectedQuickDueDate = null;
-                                    });
-                                  },
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: Colors.green.shade700,
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () {
+                                      // Clear due date without opening picker
+                                      setState(() {
+                                        _selectedQuickDueDate = null;
+                                      });
+                                    },
+                                    child: Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.green.shade700,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                ],
+                              ),
                             ),
                           ),
                         ),
+
                       const SizedBox(width: 12),
-                      // Show recurring button only when no frequency is configured
-                      if (!quickIsRecurring || _quickFrequencyConfig == null)
+
+                      // Time icon or chip
+                      if (_selectedQuickDueTime == null)
                         IconButton(
                           icon: Icon(
-                            Icons.repeat_outlined,
+                            Icons.access_time,
                             color: FlutterFlowTheme.of(context).secondaryText,
                           ),
-                          onPressed: () async {
-                            // Opening recurring - show frequency config
-                            final config = await showFrequencyConfigDialog(
-                              context: context,
-                              initialConfig: _quickFrequencyConfig ??
-                                  FrequencyConfig(
-                                    type: FrequencyType.everyXPeriod,
-                                    startDate:
-                                        _selectedQuickDueDate ?? DateTime.now(),
-                                  ),
-                            );
-                            if (config != null) {
-                              setState(() {
-                                _quickFrequencyConfig = config;
-                                quickIsRecurring = true;
-                                // Sync start date to due date
-                                _selectedQuickDueDate = config.startDate;
-                              });
-                            }
-                          },
-                          tooltip: 'Make recurring',
+                          onPressed: _selectQuickDueTime,
+                          tooltip: 'Set due time',
                           padding: const EdgeInsets.all(4),
                           constraints:
                               const BoxConstraints(minWidth: 32, minHeight: 32),
-                        ),
-                      // Show frequency description when configured
-                      if (quickIsRecurring && _quickFrequencyConfig != null)
-                        InkWell(
-                          onTap: () async {
-                            // Reopen frequency config dialog to edit
-                            final config = await showFrequencyConfigDialog(
-                              context: context,
-                              initialConfig: _quickFrequencyConfig,
-                            );
-                            if (config != null) {
-                              setState(() {
-                                _quickFrequencyConfig = config;
-                                // Sync start date to due date
-                                _selectedQuickDueDate = config.startDate;
-                              });
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.blue.shade200),
+                        )
+                      else
+                        Padding(
+                          padding: const EdgeInsets.only(left: 0),
+                          child: InkWell(
+                            onTap: _selectQuickDueTime,
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.access_time,
+                                      size: 14, color: Colors.blue.shade700),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    TimeUtils.formatTimeOfDayForDisplay(
+                                        _selectedQuickDueTime!),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.blue.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () {
+                                      // Clear due time without opening picker
+                                      setState(() {
+                                        _selectedQuickDueTime = null;
+                                      });
+                                    },
+                                    child: Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.repeat,
-                                    size: 14, color: Colors.blue.shade700),
-                                const SizedBox(width: 6),
-                                Text(
-                                  _getQuickFrequencyDescription(),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.blue.shade700,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                          ),
+                        ),
+
+                      const SizedBox(width: 12),
+
+                      // Fixed-width container for recurring icon
+                      SizedBox(
+                        width: 32,
+                        child: (!quickIsRecurring ||
+                                _quickFrequencyConfig == null)
+                            ? IconButton(
+                                icon: Icon(
+                                  Icons.repeat_outlined,
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryText,
                                 ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () {
-                                    // Clear recurrence without opening dialog
+                                onPressed: () async {
+                                  // Opening recurring - show frequency config
+                                  final config =
+                                      await showFrequencyConfigDialog(
+                                    context: context,
+                                    initialConfig: _quickFrequencyConfig ??
+                                        FrequencyConfig(
+                                          type: FrequencyType.everyXPeriod,
+                                          startDate: _selectedQuickDueDate ??
+                                              DateTime.now(),
+                                        ),
+                                  );
+                                  if (config != null) {
                                     setState(() {
-                                      quickIsRecurring = false;
-                                      _quickFrequencyConfig = null;
+                                      _quickFrequencyConfig = config;
+                                      quickIsRecurring = true;
+                                      // Sync start date to due date
+                                      _selectedQuickDueDate = config.startDate;
                                     });
-                                  },
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: Colors.blue.shade700,
+                                  }
+                                },
+                                tooltip: 'Make recurring',
+                                padding: const EdgeInsets.all(4),
+                                constraints: const BoxConstraints(
+                                    minWidth: 32, minHeight: 32),
+                              )
+                            : const SizedBox.shrink(),
+                      ),
+
+                      // Recurring chip in separate fixed space
+                      if (quickIsRecurring && _quickFrequencyConfig != null)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: InkWell(
+                            onTap: () async {
+                              // Reopen frequency config dialog to edit
+                              final config = await showFrequencyConfigDialog(
+                                context: context,
+                                initialConfig: _quickFrequencyConfig,
+                              );
+                              if (config != null) {
+                                setState(() {
+                                  _quickFrequencyConfig = config;
+                                  // Sync start date to due date
+                                  _selectedQuickDueDate = config.startDate;
+                                });
+                              }
+                            },
+                            borderRadius: BorderRadius.circular(6),
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                  horizontal: 8, vertical: 6),
+                              decoration: BoxDecoration(
+                                color: Colors.blue.shade50,
+                                borderRadius: BorderRadius.circular(6),
+                                border: Border.all(color: Colors.blue.shade200),
+                              ),
+                              child: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Icon(Icons.repeat,
+                                      size: 14, color: Colors.blue.shade700),
+                                  const SizedBox(width: 6),
+                                  Text(
+                                    _getQuickFrequencyDescription(),
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      color: Colors.blue.shade700,
+                                      fontWeight: FontWeight.w500,
+                                    ),
                                   ),
-                                ),
-                              ],
+                                  const SizedBox(width: 6),
+                                  InkWell(
+                                    onTap: () {
+                                      // Clear recurrence without opening dialog
+                                      setState(() {
+                                        quickIsRecurring = false;
+                                        _quickFrequencyConfig = null;
+                                      });
+                                    },
+                                    child: Icon(
+                                      Icons.close,
+                                      size: 14,
+                                      color: Colors.blue.shade700,
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
                           ),
                         ),
@@ -857,12 +941,61 @@ class _TaskPageState extends State<TaskPage> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Text(
-              '$title ($count)',
-              style: theme.titleMedium.override(
-                fontFamily: 'Readex Pro',
-                fontWeight: FontWeight.w600,
-              ),
+            Row(
+              children: [
+                Text(
+                  '$title ($count)',
+                  style: theme.titleMedium.override(
+                    fontFamily: 'Readex Pro',
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                // Add "Show older" button for Recent Completions when collapsed
+                if (title == 'Recent Completions' &&
+                    !isExpanded &&
+                    !_showOlderCompletions) ...[
+                  const SizedBox(width: 8),
+                  GestureDetector(
+                    onTap: () {
+                      setState(() {
+                        _showOlderCompletions = true;
+                        _expandedSection = title; // Also expand the section
+                      });
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: theme.primary.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: theme.primary.withOpacity(0.3),
+                          width: 1,
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.history,
+                            size: 14,
+                            color: theme.primary,
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            'Show older',
+                            style: TextStyle(
+                              fontSize: 12,
+                              color: theme.primary,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ],
+              ],
             ),
             Icon(
               isExpanded ? Icons.expand_less : Icons.expand_more,
@@ -881,19 +1014,33 @@ class _TaskPageState extends State<TaskPage> {
           _isSameDay(completedAt, DateTime.now()) ? 'Today' : 'Yesterday';
       final due = instance.dueDate;
       final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
-      return 'Completed $completedStr • Due: $dueStr';
+      final timeStr = instance.hasDueTime()
+          ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
+          : '';
+      return 'Completed $completedStr • Due: $dueStr$timeStr';
     }
 
-    // For Today and Tomorrow, dates are obvious, so don't show anything
+    // For Today and Tomorrow, dates are obvious, show only time if available
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
+      if (instance.hasDueTime()) {
+        return '@ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}';
+      }
       return '';
     }
 
-    // For Overdue, This Week, Later, show only the date
+    // For Overdue, This Week, Later, show date + time
     final dueDate = instance.dueDate;
     if (dueDate != null) {
       final formattedDate = DateFormat.MMMd().format(dueDate);
-      return formattedDate;
+      final timeStr = instance.hasDueTime()
+          ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
+          : '';
+      return '$formattedDate$timeStr';
+    }
+
+    // For No due date section, show just time if available
+    if (instance.hasDueTime()) {
+      return '@ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}';
     }
 
     return '';
@@ -950,6 +1097,9 @@ class _TaskPageState extends State<TaskPage> {
         isRecurring: quickIsRecurring,
         userId: currentUserUid,
         dueDate: _selectedQuickDueDate,
+        dueTime: _selectedQuickDueTime != null
+            ? TimeUtils.timeOfDayToString(_selectedQuickDueTime!)
+            : null,
         priority: 1,
         unit: _quickUnitController.text,
         specificDays: _quickFrequencyConfig != null &&
@@ -1002,6 +1152,7 @@ class _TaskPageState extends State<TaskPage> {
       _quickTargetNumber = 1;
       _quickTargetDuration = const Duration(hours: 1);
       _selectedQuickDueDate = null;
+      _selectedQuickDueTime = null;
       _quickFrequencyConfig = null;
       quickIsRecurring = false;
       _quickUnitController.clear();
@@ -1026,6 +1177,18 @@ class _TaskPageState extends State<TaskPage> {
           _quickFrequencyConfig =
               _quickFrequencyConfig!.copyWith(startDate: picked);
         }
+      });
+    }
+  }
+
+  Future<void> _selectQuickDueTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedQuickDueTime ?? TimeUtils.getCurrentTime(),
+    );
+    if (picked != null && picked != _selectedQuickDueTime) {
+      setState(() {
+        _selectedQuickDueTime = picked;
       });
     }
   }
@@ -1056,6 +1219,11 @@ class _TaskPageState extends State<TaskPage> {
     // "This Week" covers the next 5 days after tomorrow
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
 
+    // Group recurring tasks by templateId to show only earliest pending instance
+    final Map<String, List<ActivityInstanceRecord>> recurringTasksByTemplate =
+        {};
+    final List<ActivityInstanceRecord> oneOffTasks = [];
+
     for (final instance in activeInstancesToProcess) {
       print('  Bucketing instance: ${instance.templateName}');
       print('    - isActive: ${instance.isActive}');
@@ -1069,6 +1237,18 @@ class _TaskPageState extends State<TaskPage> {
         continue;
       }
 
+      if (instance.templateIsRecurring) {
+        // Group recurring tasks by template
+        final templateId = instance.templateId;
+        (recurringTasksByTemplate[templateId] ??= []).add(instance);
+      } else {
+        // One-off tasks go directly to processing
+        oneOffTasks.add(instance);
+      }
+    }
+
+    // Process one-off tasks normally
+    for (final instance in oneOffTasks) {
       final dueDate = instance.dueDate;
       if (dueDate == null) {
         print('    - ADDED TO: No due date');
@@ -1098,14 +1278,71 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
 
-    // Populate Recent Completions (completed today or yesterday)
-    final yesterdayStart = DateService.yesterdayShiftedStart;
+    // Process recurring tasks - show only earliest pending instance per template
+    for (final templateId in recurringTasksByTemplate.keys) {
+      final instances = recurringTasksByTemplate[templateId]!;
+
+      // Sort by due date (earliest first)
+      instances.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+
+      // Take the earliest pending instance
+      final earliestInstance = instances.first;
+      print(
+          '  Processing recurring task: ${earliestInstance.templateName} (earliest of ${instances.length} instances)');
+
+      final dueDate = earliestInstance.dueDate;
+      if (dueDate == null) {
+        print('    - ADDED TO: No due date');
+        buckets['No due date']!.add(earliestInstance);
+        continue;
+      }
+      final instanceDueDate =
+          DateTime(dueDate.year, dueDate.month, dueDate.day);
+      print('    - Due date: $instanceDueDate, Today: $today');
+
+      if (instanceDueDate.isBefore(today)) {
+        print('    - ADDED TO: Overdue');
+        buckets['Overdue']!.add(earliestInstance);
+      } else if (_isSameDay(instanceDueDate, today)) {
+        print('    - ADDED TO: Today');
+        buckets['Today']!.add(earliestInstance);
+      } else if (_isSameDay(instanceDueDate, tomorrow)) {
+        print('    - ADDED TO: Tomorrow');
+        buckets['Tomorrow']!.add(earliestInstance);
+      } else if (instanceDueDate.isAfter(tomorrow) &&
+          !instanceDueDate.isAfter(thisWeekEnd)) {
+        print('    - ADDED TO: This Week');
+        buckets['This Week']!.add(earliestInstance);
+      } else {
+        print('    - ADDED TO: Later');
+        buckets['Later']!.add(earliestInstance);
+      }
+    }
+
+    // Populate Recent Completions with time window logic
+    final completionCutoff = _showOlderCompletions
+        ? DateService.todayStart.subtract(const Duration(days: 7))
+        : DateService.yesterdayShiftedStart;
+
+    final oneOffTaskCutoff =
+        DateService.todayStart.subtract(const Duration(days: 30));
+
     final allInstancesToProcess = _taskInstances.where((instance) {
       if (_searchQuery.isEmpty) return true;
       return instance.templateName
           .toLowerCase()
           .contains(_searchQuery.toLowerCase());
     }).toList();
+
+    // Group completed instances by template for recurring tasks
+    final Map<String, List<ActivityInstanceRecord>>
+        completedRecurringByTemplate = {};
+    final List<ActivityInstanceRecord> completedOneOffTasks = [];
 
     for (final instance in allInstancesToProcess) {
       if (instance.status != 'completed') continue;
@@ -1114,14 +1351,45 @@ class _TaskPageState extends State<TaskPage> {
           instance.templateCategoryName != widget.categoryName) {
         continue;
       }
+
       final completedDate = instance.completedAt!;
       final completedDateOnly =
           DateTime(completedDate.year, completedDate.month, completedDate.day);
-      final isRecent = completedDateOnly.isAfter(yesterdayStart) ||
-          completedDateOnly.isAtSameMomentAs(yesterdayStart);
-      if (isRecent) {
-        buckets['Recent Completions']!.add(instance);
+
+      if (instance.templateIsRecurring) {
+        // For recurring tasks, check if within display window
+        if (completedDateOnly.isAfter(completionCutoff) ||
+            completedDateOnly.isAtSameMomentAs(completionCutoff)) {
+          final templateId = instance.templateId;
+          (completedRecurringByTemplate[templateId] ??= []).add(instance);
+        }
+      } else {
+        // For one-off tasks, check if within 30 days
+        if (completedDateOnly.isAfter(oneOffTaskCutoff) ||
+            completedDateOnly.isAtSameMomentAs(oneOffTaskCutoff)) {
+          completedOneOffTasks.add(instance);
+        }
       }
+    }
+
+    // Add latest completed instance per recurring template
+    for (final templateId in completedRecurringByTemplate.keys) {
+      final instances = completedRecurringByTemplate[templateId]!;
+
+      // Sort by completion date (latest first)
+      instances.sort((a, b) => b.completedAt!.compareTo(a.completedAt!));
+
+      // Take the latest completed instance
+      final latestCompleted = instances.first;
+      buckets['Recent Completions']!.add(latestCompleted);
+      print(
+          '  Added latest completed recurring task: ${latestCompleted.templateName}');
+    }
+
+    // Add all completed one-off tasks within time window
+    for (final instance in completedOneOffTasks) {
+      buckets['Recent Completions']!.add(instance);
+      print('  Added completed one-off task: ${instance.templateName}');
     }
 
     // Sort items within each bucket by tasks order

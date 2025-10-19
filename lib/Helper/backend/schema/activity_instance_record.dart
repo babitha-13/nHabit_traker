@@ -23,6 +23,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
   DateTime? get dueDate => _dueDate;
   bool hasDueDate() => _dueDate != null;
 
+  // Instance-specific due time (stored as "HH:mm" in 24-hour format)
+  String? _dueTime;
+  String? get dueTime => _dueTime;
+  bool hasDueTime() => _dueTime != null;
+
   String? _status; // 'pending', 'completed', 'skipped'
   String get status => _status ?? 'pending';
   bool hasStatus() => _status != null;
@@ -139,6 +144,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
   String get templateDescription => _templateDescription ?? '';
   bool hasTemplateDescription() => _templateDescription != null;
 
+  // Template due time (denormalized from template)
+  String? _templateDueTime;
+  String? get templateDueTime => _templateDueTime;
+  bool hasTemplateDueTime() => _templateDueTime != null;
+
   bool? _templateShowInFloatingTimer;
   bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
   bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
@@ -210,6 +220,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
+    _dueTime = snapshotData['dueTime'] as String?;
     _status = snapshotData['status'] as String?;
     _completedAt = snapshotData['completedAt'] as DateTime?;
     _skippedAt = snapshotData['skippedAt'] as DateTime?;
@@ -244,6 +255,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
         snapshotData['templateEveryXPeriodType'] as String?;
     _templateTimesPerPeriod = snapshotData['templateTimesPerPeriod'] as int?;
     _templatePeriodType = snapshotData['templatePeriodType'] as String?;
+    _templateDueTime = snapshotData['templateDueTime'] as String?;
     _dayState = snapshotData['dayState'] as String?;
     _belongsToDate = snapshotData['belongsToDate'] as DateTime?;
     _closedAt = snapshotData['closedAt'] as DateTime?;
@@ -306,6 +318,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
 Map<String, dynamic> createActivityInstanceRecordData({
   String? templateId,
   DateTime? dueDate,
+  String? dueTime,
   String? status,
   DateTime? completedAt,
   DateTime? skippedAt,
@@ -333,6 +346,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateEveryXPeriodType,
   int? templateTimesPerPeriod,
   String? templatePeriodType,
+  String? templateDueTime,
   String? dayState,
   DateTime? belongsToDate,
   DateTime? closedAt,
@@ -350,6 +364,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
     <String, dynamic>{
       'templateId': templateId,
       'dueDate': dueDate,
+      'dueTime': dueTime,
       'status': status,
       'completedAt': completedAt,
       'skippedAt': skippedAt,
@@ -377,6 +392,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateEveryXPeriodType': templateEveryXPeriodType,
       'templateTimesPerPeriod': templateTimesPerPeriod,
       'templatePeriodType': templatePeriodType,
+      'templateDueTime': templateDueTime,
       'dayState': dayState,
       'belongsToDate': belongsToDate,
       'closedAt': closedAt,

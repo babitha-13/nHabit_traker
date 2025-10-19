@@ -6,6 +6,8 @@ import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 
 class EditTask extends StatefulWidget {
   final ActivityRecord task;
@@ -36,10 +38,14 @@ class _EditTaskState extends State<EditTask> {
   DateTime? _dueDate;
   DateTime? _instanceDueDate;
   DateTime? _endDate;
+  TimeOfDay? _selectedDueTime;
+  TimeOfDay? _instanceDueTime;
   bool quickIsTaskRecurring = false;
   FrequencyConfig? _frequencyConfig;
   bool _isStartDateReadOnly = false;
   DateTime? _originalStartDate; // Track original start date for comparison
+  FrequencyConfig?
+      _originalFrequencyConfig; // Track original frequency config for comparison
 
   @override
   void initState() {
@@ -77,15 +83,26 @@ class _EditTaskState extends State<EditTask> {
     _dueDate = t.dueDate;
     _endDate = t.endDate;
 
+    // Load due time from template
+    if (t.hasDueTime()) {
+      _selectedDueTime = TimeUtils.stringToTimeOfDay(t.dueTime);
+    }
+
     // Load instance data if provided
     if (widget.instance != null) {
       _instanceDueDate = widget.instance!.dueDate;
+      if (widget.instance!.hasDueTime()) {
+        _instanceDueTime =
+            TimeUtils.stringToTimeOfDay(widget.instance!.dueTime);
+      }
     }
 
     // Load existing frequency configuration
     quickIsTaskRecurring = t.isRecurring;
     if (quickIsTaskRecurring) {
       _frequencyConfig = _convertTaskFrequencyToConfig(t);
+      // Store original frequency config for comparison
+      _originalFrequencyConfig = _frequencyConfig;
     }
 
     // Store original start date for comparison
@@ -194,6 +211,35 @@ class _EditTaskState extends State<EditTask> {
     );
   }
 
+  /// Check if frequency configuration has changed
+  bool _hasFrequencyChanged() {
+    if (_originalFrequencyConfig == null || _frequencyConfig == null)
+      return false;
+
+    final original = _originalFrequencyConfig!;
+    final current = _frequencyConfig!;
+
+    // Compare all frequency-related fields
+    return original.type != current.type ||
+        original.startDate != current.startDate ||
+        original.endDate != current.endDate ||
+        original.everyXValue != current.everyXValue ||
+        original.everyXPeriodType != current.everyXPeriodType ||
+        original.timesPerPeriod != current.timesPerPeriod ||
+        original.periodType != current.periodType ||
+        !_listEquals(original.selectedDays, current.selectedDays);
+  }
+
+  /// Helper method to compare lists
+  bool _listEquals<T>(List<T>? a, List<T>? b) {
+    if (a == null) return b == null;
+    if (b == null || a.length != b.length) return false;
+    for (int index = 0; index < a.length; index += 1) {
+      if (a[index] != b[index]) return false;
+    }
+    return true;
+  }
+
   void _save() async {
     // Validate required fields
     if (_selectedCategoryId == null) {
@@ -263,6 +309,9 @@ class _EditTaskState extends State<EditTask> {
               ? _targetDuration.inMinutes
               : null,
       dueDate: _dueDate,
+      dueTime: _selectedDueTime != null
+          ? TimeUtils.timeOfDayToString(_selectedDueTime!)
+          : null,
       specificDays: quickIsTaskRecurring &&
               _frequencyConfig != null &&
               _frequencyConfig!.type == FrequencyType.specificDays
@@ -307,41 +356,62 @@ class _EditTaskState extends State<EditTask> {
 
     print('DEBUG: About to update template with data: $updateData');
 
-    // Check if start date has changed for recurring tasks
-    if (quickIsTaskRecurring && _frequencyConfig != null) {
-      final newStartDate = _frequencyConfig!.startDate;
-      if (_originalStartDate != newStartDate) {
-        print(
-            'DEBUG: Start date changed from $_originalStartDate to $newStartDate');
+    // Check if frequency configuration has changed for recurring tasks
+    if (quickIsTaskRecurring &&
+        _frequencyConfig != null &&
+        _hasFrequencyChanged()) {
+      print('DEBUG: Frequency configuration changed');
+      print('DEBUG: Original: $_originalFrequencyConfig');
+      print('DEBUG: Current: $_frequencyConfig');
 
-        // Show confirmation dialog
-        final shouldProceed = await StartDateChangeDialog.show(
-          context: context,
-          oldStartDate: _originalStartDate ?? DateTime.now(),
-          newStartDate: newStartDate,
-          activityName: _titleController.text.trim(),
+      // Show confirmation dialog
+      final shouldProceed = await StartDateChangeDialog.show(
+        context: context,
+        oldStartDate: _originalStartDate ?? DateTime.now(),
+        newStartDate: _frequencyConfig!.startDate,
+        activityName: _titleController.text.trim(),
+      );
+
+      if (!shouldProceed) {
+        print('DEBUG: User cancelled frequency change');
+        return; // Abort save operation
+      }
+
+      // Regenerate instances with new frequency configuration
+      try {
+        await ActivityInstanceService.regenerateInstancesFromStartDate(
+          templateId: widget.task.reference.id,
+          template: widget.task,
+          newStartDate: _frequencyConfig!.startDate,
         );
+        print('DEBUG: Instances regenerated successfully');
+      } catch (e) {
+        print('ERROR: Failed to regenerate instances: $e');
+        if (!mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error updating instances: $e')),
+        );
+        return;
+      }
+    } else if (quickIsTaskRecurring && _frequencyConfig != null) {
+      // Check if only end date has changed (without frequency changes)
+      final originalEndDate = _originalFrequencyConfig?.endDate;
+      final newEndDate = _frequencyConfig!.endDate;
+      if (originalEndDate != newEndDate && newEndDate != null) {
+        print('DEBUG: End date changed from $originalEndDate to $newEndDate');
 
-        if (!shouldProceed) {
-          print('DEBUG: User cancelled start date change');
-          return; // Abort save operation
-        }
-
-        // Regenerate instances with new start date
-        try {
-          await ActivityInstanceService.regenerateInstancesFromStartDate(
-            templateId: widget.task.reference.id,
-            template: widget.task,
-            newStartDate: newStartDate,
-          );
-          print('DEBUG: Instances regenerated successfully');
-        } catch (e) {
-          print('ERROR: Failed to regenerate instances: $e');
-          if (!mounted) return;
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error updating instances: $e')),
-          );
-          return;
+        // If end date was shortened, clean up instances beyond the new end date
+        if (originalEndDate == null || newEndDate.isBefore(originalEndDate)) {
+          try {
+            await ActivityInstanceService.cleanupInstancesBeyondEndDate(
+              templateId: widget.task.reference.id,
+              newEndDate: newEndDate,
+            );
+            print('DEBUG: Cleaned up instances beyond shortened end date');
+          } catch (e) {
+            print('ERROR: Failed to cleanup instances beyond end date: $e');
+            // Don't fail the save operation for this
+          }
         }
       }
     }
@@ -386,6 +456,9 @@ class _EditTaskState extends State<EditTask> {
                 'templateTrackingType': updateData['trackingType'],
                 'templateTarget': updateData['target'],
                 'templateUnit': updateData['unit'],
+                'templatePriority': updateData['priority'],
+                'templateDescription': updateData['description'],
+                'templateDueTime': updateData['dueTime'],
                 'lastUpdated': DateTime.now(),
               });
 
@@ -393,6 +466,8 @@ class _EditTaskState extends State<EditTask> {
               final updatedInstanceData = createActivityInstanceRecordData(
                 templateId: instance.templateId,
                 dueDate: instance.dueDate,
+                dueTime: instance.dueTime,
+                templateDueTime: updateData['dueTime'],
                 status: instance.status,
                 completedAt: instance.completedAt,
                 skippedAt: instance.skippedAt,
@@ -435,6 +510,17 @@ class _EditTaskState extends State<EditTask> {
 
               // Broadcast the update event immediately
               InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+              // Reschedule reminder if due time changed
+              try {
+                await ReminderScheduler.rescheduleReminderForInstance(
+                    updatedInstance);
+                print(
+                    'DEBUG: Rescheduled reminder for instance ${instance.reference.id}');
+              } catch (e) {
+                print(
+                    'DEBUG: Error rescheduling reminder for instance ${instance.reference.id}: $e');
+              }
 
               print(
                   'DEBUG: Instance ${instance.reference.id} updated and event broadcasted successfully');
@@ -541,6 +627,26 @@ class _EditTaskState extends State<EditTask> {
       if (_frequencyConfig != null) {
         _frequencyConfig = _frequencyConfig!.copyWith(endDate: picked);
       }
+    }
+  }
+
+  Future<void> _pickDueTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedDueTime ?? TimeUtils.getCurrentTime(),
+    );
+    if (picked != null && picked != _selectedDueTime) {
+      setState(() => _selectedDueTime = picked);
+    }
+  }
+
+  Future<void> _pickInstanceDueTime() async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _instanceDueTime ?? TimeUtils.getCurrentTime(),
+    );
+    if (picked != null && picked != _instanceDueTime) {
+      setState(() => _instanceDueTime = picked);
     }
   }
 
@@ -828,6 +934,21 @@ class _EditTaskState extends State<EditTask> {
                     ],
                   ),
                 ],
+                const SizedBox(height: 12),
+                // Due Time field
+                Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Due Time: ${_selectedDueTime != null ? TimeUtils.formatTimeOfDayForDisplay(_selectedDueTime!) : "None"}',
+                      ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.access_time),
+                      onPressed: _pickDueTime,
+                    ),
+                  ],
+                ),
                 const SizedBox(height: 12),
                 Row(
                   children: [
