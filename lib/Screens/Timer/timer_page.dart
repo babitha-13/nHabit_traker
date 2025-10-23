@@ -10,11 +10,13 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;
   final String? taskTitle;
+  final bool fromSwipe;
 
   const TimerPage({
     super.key,
     this.initialTimerLogRef,
     this.taskTitle,
+    this.fromSwipe = false,
   });
 
   @override
@@ -36,8 +38,12 @@ class _TimerPageState extends State<TimerPage> {
     super.initState();
     _loadCategories();
     if (widget.initialTimerLogRef != null) {
-      // Legacy support - this will be removed in future
-      _startTimer(fromTask: true);
+      // Set the task instance reference from swipe action
+      _taskInstanceRef = widget.initialTimerLogRef;
+      // Auto-start timer when coming from swipe
+      if (widget.fromSwipe) {
+        _startTimer(fromTask: true);
+      }
     }
   }
 
@@ -70,6 +76,18 @@ class _TimerPageState extends State<TimerPage> {
         );
         return;
       }
+    } else if (_taskInstanceRef != null) {
+      // Resume existing task - start new session
+      try {
+        await TaskInstanceService.startTimeLogging(
+          activityInstanceRef: _taskInstanceRef!,
+        );
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error: Could not resume timer. $e')),
+        );
+        return;
+      }
     }
 
     setState(() {
@@ -96,7 +114,7 @@ class _TimerPageState extends State<TimerPage> {
     });
   }
 
-  void _pauseTimer() {
+  void _pauseTimer() async {
     final duration =
         _isStopwatch ? _stopwatch.elapsed : _countdownDuration - _remainingTime;
 
@@ -108,11 +126,24 @@ class _TimerPageState extends State<TimerPage> {
     }
     _timer.cancel();
 
-    // Show dialog to get task name and category
-    _showTaskNameDialog(isStop: false, duration: duration);
+    // Stop time logging session if we have an existing task
+    if (_taskInstanceRef != null) {
+      try {
+        await TaskInstanceService.pauseTimeLogging(
+          activityInstanceRef: _taskInstanceRef!,
+        );
+      } catch (e) {
+        print('Error pausing time logging: $e');
+      }
+    }
+
+    // Show dialog to get task name and category (skip if from swipe)
+    if (!widget.fromSwipe) {
+      _showTaskNameDialog(isStop: false, duration: duration);
+    }
   }
 
-  void _stopTimer() {
+  void _stopTimer() async {
     final duration =
         _isStopwatch ? _stopwatch.elapsed : _countdownDuration - _remainingTime;
 
@@ -124,8 +155,25 @@ class _TimerPageState extends State<TimerPage> {
     }
     _timer.cancel();
 
-    // Show dialog to get task name and category
-    _showTaskNameDialog(isStop: true, duration: duration);
+    // Stop time logging session and mark complete if we have an existing task
+    if (_taskInstanceRef != null) {
+      try {
+        await TaskInstanceService.stopTimeLogging(
+          activityInstanceRef: _taskInstanceRef!,
+          markComplete: true,
+        );
+      } catch (e) {
+        print('Error stopping time logging: $e');
+      }
+    }
+
+    // Show dialog to get task name and category (skip if from swipe)
+    if (!widget.fromSwipe) {
+      _showTaskNameDialog(isStop: true, duration: duration);
+    } else {
+      // Auto-return to previous page when coming from swipe
+      Navigator.of(context).pop();
+    }
   }
 
   void _toggleTimerMode(bool value) {
@@ -166,6 +214,16 @@ class _TimerPageState extends State<TimerPage> {
     final taskNameController = TextEditingController();
     String? selectedCategoryId;
     String? selectedCategoryName;
+
+    // Pre-populate with Inbox category if available
+    if (_categories.isNotEmpty) {
+      final inboxCategory = _categories.firstWhere(
+        (c) => c.name == 'Inbox',
+        orElse: () => _categories.first,
+      );
+      selectedCategoryId = inboxCategory.reference.id;
+      selectedCategoryName = inboxCategory.name;
+    }
 
     showDialog(
       context: context,
@@ -305,6 +363,31 @@ class _TimerPageState extends State<TimerPage> {
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
+            // Prominent task name display
+            if (widget.taskTitle != null) ...[
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                margin: const EdgeInsets.only(bottom: 20),
+                decoration: BoxDecoration(
+                  color: Theme.of(context).primaryColor.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: Theme.of(context).primaryColor.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Text(
+                  widget.taskTitle!,
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                    color: Theme.of(context).primaryColor,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
+              ),
+            ],
             Text(
               _formatTime(displayTime),
               style: const TextStyle(fontSize: 72),
@@ -331,7 +414,7 @@ class _TimerPageState extends State<TimerPage> {
                 const SizedBox(width: 20),
                 ElevatedButton(
                   onPressed: !_isRunning ? null : _stopTimer,
-                  child: const Text('Stop'),
+                  child: const Text('Stop and Complete'),
                 ),
               ],
             ),

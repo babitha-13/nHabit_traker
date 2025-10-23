@@ -1,8 +1,11 @@
 import 'dart:async';
 import 'dart:io';
 import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
+import 'package:habit_tracker/Helper/backend/day_end_scheduler.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 /// Background scheduler for automatic day-end processing
 /// Handles running DayEndProcessor at appropriate times
@@ -14,37 +17,24 @@ class BackgroundScheduler {
 
   /// Initialize the background scheduler
   /// Should be called when the app starts
-  static void initialize() {
+  static void initialize() async {
     print('BackgroundScheduler: Initializing background scheduler...');
 
     // Cancel any existing timers
     _dayEndTimer?.cancel();
     _checkTimer?.cancel();
 
-    // Set up the day-end timer (runs at midnight)
-    _scheduleDayEndTimer();
+    // Initialize the day-end scheduler (handles snooze and notifications)
+    await DayEndScheduler.initialize();
+
+    // Load last processed date from SharedPreferences
+    await _loadLastProcessedDate();
 
     // Set up a periodic check timer (runs every 30 minutes)
     _scheduleCheckTimer();
 
     // Check if we need to process any missed days on startup
     _checkForMissedProcessing();
-  }
-
-  /// Schedule the day-end timer to run at the next 2:00 AM boundary
-  static void _scheduleDayEndTimer() {
-    final now = DateTime.now();
-    final nextBoundary = DateService.nextShiftedBoundary(now);
-    final timeUntilBoundary = nextBoundary.difference(now);
-
-    print(
-        'BackgroundScheduler: Scheduling day-end timer for ${timeUntilBoundary.inHours}h ${timeUntilBoundary.inMinutes % 60}m (next 2 AM)');
-
-    _dayEndTimer = Timer(timeUntilBoundary, () {
-      _processDayEnd();
-      // Reschedule for the next day
-      _scheduleDayEndTimer();
-    });
   }
 
   /// Schedule a periodic check timer (every 30 minutes)
@@ -68,12 +58,28 @@ class BackgroundScheduler {
         return;
       }
 
-      final now = DateTime.now();
       final latestProcessable = DateService.latestProcessableShiftedDate;
 
-      // If we haven't processed any day yet, start from latestProcessable
+      // If we haven't processed any day yet, look back for oldest expired instance
       if (_lastProcessedDate == null) {
-        await _processMultipleDays(currentUser, [latestProcessable]);
+        final oldestExpiredDate = await _findOldestExpiredInstance(currentUser);
+        if (oldestExpiredDate != null) {
+          // Process all dates from oldest expired up to latestProcessable
+          final daysToProcess = <DateTime>[];
+          var cursor = oldestExpiredDate;
+          while (!_isSameDay(cursor, latestProcessable)) {
+            daysToProcess.add(cursor);
+            cursor = cursor.add(const Duration(days: 1));
+          }
+          daysToProcess.add(latestProcessable);
+
+          print(
+              'BackgroundScheduler: Found ${daysToProcess.length} days to process from oldest expired ($oldestExpiredDate) to latest ($latestProcessable)');
+          await _processMultipleDays(currentUser, daysToProcess);
+        } else {
+          // No expired instances found, just process latest
+          await _processMultipleDays(currentUser, [latestProcessable]);
+        }
         return;
       }
 
@@ -103,29 +109,6 @@ class BackgroundScheduler {
     }
   }
 
-  /// Process day-end for a specific date
-  static Future<void> _processDayEnd() async {
-    if (_isProcessing) {
-      print('BackgroundScheduler: Already processing, skipping day-end');
-      return;
-    }
-
-    try {
-      final currentUser = currentUserUid;
-      if (currentUser.isEmpty) {
-        print(
-            'BackgroundScheduler: No authenticated user for day-end processing');
-        return;
-      }
-
-      // Always process the latest processable shifted date
-      final date = DateService.latestProcessableShiftedDate;
-      await _processDayEndForUser(currentUser, date);
-    } catch (e) {
-      print('BackgroundScheduler: Error in day-end processing: $e');
-    }
-  }
-
   /// Process multiple days for a user
   static Future<void> _processMultipleDays(
       String userId, List<DateTime> dates) async {
@@ -152,6 +135,7 @@ class BackgroundScheduler {
       await DayEndProcessor.processDayEnd(userId: userId, targetDate: date);
 
       _lastProcessedDate = DateTime(date.year, date.month, date.day);
+      await _saveLastProcessedDate();
       print(
           'BackgroundScheduler: Successfully processed day-end for ${date.toIso8601String()}');
     } catch (e) {
@@ -183,7 +167,77 @@ class BackgroundScheduler {
     _checkTimer?.cancel();
     _dayEndTimer = null;
     _checkTimer = null;
+
+    // Also cancel day-end scheduler
+    DayEndScheduler.cancel();
+
     print('BackgroundScheduler: All timers cancelled');
+  }
+
+  /// Find the oldest expired habit instance to determine how far back to process
+  static Future<DateTime?> _findOldestExpiredInstance(String userId) async {
+    try {
+      // Query for pending habit instances with expired windows
+      final query = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('status', isEqualTo: 'pending')
+          .where('windowEndDate', isLessThan: DateTime.now())
+          .orderBy('windowEndDate', descending: false)
+          .limit(1);
+
+      final snapshot = await query.get();
+      if (snapshot.docs.isNotEmpty) {
+        final instance =
+            ActivityInstanceRecord.fromSnapshot(snapshot.docs.first);
+        final oldestExpiredDate = DateTime(
+          instance.windowEndDate!.year,
+          instance.windowEndDate!.month,
+          instance.windowEndDate!.day,
+        );
+        print(
+            'BackgroundScheduler: Found oldest expired instance with windowEndDate: $oldestExpiredDate');
+        return oldestExpiredDate;
+      }
+
+      print('BackgroundScheduler: No expired instances found');
+      return null;
+    } catch (e) {
+      print('BackgroundScheduler: Error finding oldest expired instance: $e');
+      return null;
+    }
+  }
+
+  /// Load last processed date from SharedPreferences
+  static Future<void> _loadLastProcessedDate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final dateString =
+          prefs.getString('background_scheduler_last_processed_date');
+      if (dateString != null) {
+        _lastProcessedDate = DateTime.parse(dateString);
+        print(
+            'BackgroundScheduler: Loaded last processed date: $_lastProcessedDate');
+      } else {
+        print('BackgroundScheduler: No saved last processed date found');
+      }
+    } catch (e) {
+      print('BackgroundScheduler: Error loading last processed date: $e');
+    }
+  }
+
+  /// Save last processed date to SharedPreferences
+  static Future<void> _saveLastProcessedDate() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (_lastProcessedDate != null) {
+        await prefs.setString('background_scheduler_last_processed_date',
+            _lastProcessedDate!.toIso8601String());
+        print(
+            'BackgroundScheduler: Saved last processed date: $_lastProcessedDate');
+      }
+    } catch (e) {
+      print('BackgroundScheduler: Error saving last processed date: $e');
+    }
   }
 
   /// Helper method to check if two dates are the same day

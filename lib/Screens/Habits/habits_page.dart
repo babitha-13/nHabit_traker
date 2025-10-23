@@ -38,10 +38,6 @@ class _HabitsPageState extends State<HabitsPage> {
   late bool _showCompleted;
   bool _hasAutoExpandedOnLoad = false;
 
-  // Cached grouped habits to prevent re-sorting on every rebuild
-  Map<String, List<ActivityInstanceRecord>> _cachedGroupedHabits = {};
-  bool _needsRegrouping = true;
-
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
@@ -60,7 +56,6 @@ class _HabitsPageState extends State<HabitsPage> {
       if (param is bool && mounted) {
         setState(() {
           _showCompleted = param;
-          _needsRegrouping = true; // Add this
         });
       }
     });
@@ -135,24 +130,10 @@ class _HabitsPageState extends State<HabitsPage> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
-        _needsRegrouping = true; // Add this
 
         // Auto-expand first category with results when searching
         if (_searchQuery.isNotEmpty) {
-          final grouped = <String, List<ActivityInstanceRecord>>{};
-          final instancesToProcess = _habitInstances.where((instance) {
-            return instance.templateName
-                .toLowerCase()
-                .contains(_searchQuery.toLowerCase());
-          }).toList();
-
-          for (final instance in instancesToProcess) {
-            if (!_showCompleted && instance.status == 'completed') continue;
-            final categoryName = instance.templateCategoryName.isNotEmpty
-                ? instance.templateCategoryName
-                : 'Uncategorized';
-            (grouped[categoryName] ??= []).add(instance);
-          }
+          final grouped = groupedByCategory;
 
           // Expand first category with results
           for (final key in grouped.keys) {
@@ -164,6 +145,40 @@ class _HabitsPageState extends State<HabitsPage> {
         }
       });
     }
+  }
+
+  Map<String, List<ActivityInstanceRecord>> get groupedByCategory {
+    final grouped = <String, List<ActivityInstanceRecord>>{};
+
+    // Filter instances by search query if active
+    final instancesToProcess = _habitInstances.where((instance) {
+      if (_searchQuery.isEmpty) return true;
+      return instance.templateName
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+    }).toList();
+
+    for (final instance in instancesToProcess) {
+      if (!_showCompleted && instance.status == 'completed') continue;
+      final categoryName = instance.templateCategoryName.isNotEmpty
+          ? instance.templateCategoryName
+          : 'Uncategorized';
+      (grouped[categoryName] ??= []).add(instance);
+    }
+
+    // Sort items within each category by habits order
+    for (final key in grouped.keys) {
+      final items = grouped[key]!;
+      if (items.isNotEmpty) {
+        // Initialize order values for items that don't have them
+        InstanceOrderService.initializeOrderValues(items, 'habits');
+        // Sort by habits order
+        grouped[key] =
+            InstanceOrderService.sortInstancesByOrder(items, 'habits');
+      }
+    }
+
+    return grouped;
   }
 
   String _getDueDateSubtitle(ActivityInstanceRecord instance) {
@@ -221,7 +236,6 @@ class _HabitsPageState extends State<HabitsPage> {
             _habitInstances = instances;
             _categories = categories;
             _isLoading = false;
-            _needsRegrouping = true; // Add this
           });
 
           // Auto-expand first category only on initial load
@@ -229,10 +243,7 @@ class _HabitsPageState extends State<HabitsPage> {
             _hasAutoExpandedOnLoad = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (mounted && _expandedCategory == null) {
-                if (_needsRegrouping) {
-                  _updateGroupedHabits();
-                }
-                final grouped = _cachedGroupedHabits;
+                final grouped = groupedByCategory;
                 if (grouped.isNotEmpty) {
                   setState(() {
                     _expandedCategory = grouped.keys.first;
@@ -255,43 +266,6 @@ class _HabitsPageState extends State<HabitsPage> {
         setState(() => _isLoading = false);
       }
     }
-  }
-
-  void _updateGroupedHabits() {
-    final grouped = <String, List<ActivityInstanceRecord>>{};
-
-    // Filter instances by search query if active
-    final instancesToProcess = _habitInstances.where((instance) {
-      if (_searchQuery.isEmpty) return true;
-      return instance.templateName
-          .toLowerCase()
-          .contains(_searchQuery.toLowerCase());
-    }).toList();
-
-    for (final instance in instancesToProcess) {
-      if (!_showCompleted && instance.status == 'completed') continue;
-      final categoryName = instance.templateCategoryName.isNotEmpty
-          ? instance.templateCategoryName
-          : 'Uncategorized';
-      (grouped[categoryName] ??= []).add(instance);
-    }
-
-    // Sort items within each category by habits order (only if regrouping needed)
-    if (_needsRegrouping) {
-      for (final key in grouped.keys) {
-        final items = grouped[key]!;
-        if (items.isNotEmpty) {
-          // Initialize order values for items that don't have them
-          InstanceOrderService.initializeOrderValues(items, 'habits');
-          // Sort by habits order
-          grouped[key] =
-              InstanceOrderService.sortInstancesByOrder(items, 'habits');
-        }
-      }
-      _needsRegrouping = false;
-    }
-
-    _cachedGroupedHabits = grouped;
   }
 
   @override
@@ -318,10 +292,7 @@ class _HabitsPageState extends State<HabitsPage> {
   // }
 
   Widget _buildAllHabitsView() {
-    if (_needsRegrouping) {
-      _updateGroupedHabits();
-    }
-    final groupedHabits = _cachedGroupedHabits;
+    final groupedHabits = groupedByCategory;
 
     if (groupedHabits.isEmpty) {
       return Center(
@@ -602,9 +573,7 @@ class _HabitsPageState extends State<HabitsPage> {
       if (!_showCompleted && updatedInstance.status == 'completed') {
         _habitInstances.removeWhere(
             (inst) => inst.reference.id == updatedInstance.reference.id);
-        _needsRegrouping = true; // Only regroup if item removed
       }
-      // Don't trigger regrouping for normal updates!
     });
     // Background refresh to sync with server
     _loadHabitsSilently();
@@ -710,9 +679,7 @@ class _HabitsPageState extends State<HabitsPage> {
             .removeWhere((inst) => inst.reference.id == instance.reference.id);
         print(
             'HabitsPage: Removed completed habit instance ${instance.templateName}');
-        _needsRegrouping = true; // Only regroup if item removed
       }
-      // Don't set _needsRegrouping = true for normal updates!
     });
   }
 
@@ -724,36 +691,11 @@ class _HabitsPageState extends State<HabitsPage> {
     print('HabitsPage: Removed habit instance ${instance.templateName}');
   }
 
-  /// Silent refresh habits without loading indicator
-  Future<void> _silentRefreshHabits() async {
-    try {
-      final userId = currentUserUid;
-      if (userId.isEmpty) return;
-
-      final instances = await queryAllHabitInstances(userId: userId);
-      final categories = await queryHabitCategoriesOnce(userId: userId);
-
-      if (mounted) {
-        setState(() {
-          _habitInstances = instances;
-          _categories = categories;
-          _needsRegrouping = true; // Add this
-          // Don't touch _isLoading
-        });
-      }
-    } catch (e) {
-      print('Error silently refreshing habits: $e');
-    }
-  }
-
   /// Handle reordering of items within a category
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String categoryName) async {
     try {
-      if (_needsRegrouping) {
-        _updateGroupedHabits();
-      }
-      final groupedHabits = _cachedGroupedHabits;
+      final groupedHabits = groupedByCategory;
       final items = groupedHabits[categoryName]!;
 
       if (oldIndex >= items.length || newIndex >= items.length) return;
@@ -761,17 +703,51 @@ class _HabitsPageState extends State<HabitsPage> {
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
 
-      // Don't call setState before database update
-      // Let ReorderableList handle the drag animation
+      // Adjust newIndex for the case where we're moving down
+      int adjustedNewIndex = newIndex;
+      if (oldIndex < newIndex) {
+        adjustedNewIndex -= 1;
+      }
+
+      // Get the item being moved
+      final movedItem = reorderedItems.removeAt(oldIndex);
+      reorderedItems.insert(adjustedNewIndex, movedItem);
+
+      // OPTIMISTIC UI UPDATE: Update local state immediately
+      // Update order values in the local _habitInstances list
+      for (int i = 0; i < reorderedItems.length; i++) {
+        final instance = reorderedItems[i];
+
+        // Create updated instance with new habits order
+        final updatedData = Map<String, dynamic>.from(instance.snapshotData);
+        updatedData['habitsOrder'] = i;
+        final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
+          updatedData,
+          instance.reference,
+        );
+
+        // Update in _habitInstances
+        final habitIndex = _habitInstances
+            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+        if (habitIndex != -1) {
+          _habitInstances[habitIndex] = updatedInstance;
+        }
+      }
+
+      // Trigger setState to update UI immediately (eliminates twitch)
+      if (mounted) {
+        setState(() {
+          // State is already updated above
+        });
+      }
+
+      // Perform database update in background
       await InstanceOrderService.reorderInstancesInSection(
         reorderedItems,
         'habits',
         oldIndex,
         newIndex,
       );
-
-      // Silent refresh - no loading indicator
-      await _silentRefreshHabits();
 
       print('HabitsPage: Reordered items in category $categoryName');
     } catch (e) {

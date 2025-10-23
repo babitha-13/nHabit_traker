@@ -791,12 +791,17 @@ class TaskInstanceService {
         templateName: template.name,
         templateCategoryId: finalCategoryId,
         templateCategoryName: finalCategoryName,
+        templateCategoryType:
+            'task', // CRITICAL: Required for task page filtering
         templatePriority: template.priority,
-        templateTrackingType: template.trackingType,
+        templateTrackingType: 'time', // Force time tracking for timer tasks
         templateTarget: template.target,
         templateUnit: template.unit,
         templateDescription: template.description,
         templateShowInFloatingTimer: template.showInFloatingTimer,
+        // Session tracking fields
+        currentSessionStartTime: DateTime.now(),
+        isTimeLogging: true,
       );
 
       return await ActivityInstanceRecord.collectionForUser(uid)
@@ -817,13 +822,38 @@ class TaskInstanceService {
     String? userId,
   }) async {
     try {
+      // Get current instance to check for existing sessions
+      final currentInstance =
+          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+
+      // Create new session
+      final newSession = {
+        'startTime': currentInstance.currentSessionStartTime ??
+            DateTime.now().subtract(duration),
+        'endTime': DateTime.now(),
+        'durationMilliseconds': duration.inMilliseconds,
+      };
+
+      // Get existing sessions and add new one
+      final existingSessions =
+          List<Map<String, dynamic>>.from(currentInstance.timeLogSessions);
+      existingSessions.add(newSession);
+
+      // Calculate total cumulative time
+      final totalTime = existingSessions.fold<int>(
+          0, (sum, session) => sum + (session['durationMilliseconds'] as int));
+
       final updateData = <String, dynamic>{
         'status': 'completed',
         'completedAt': DateTime.now(),
         'isTimerActive': false,
-        'accumulatedTime': duration.inMilliseconds,
-        'currentValue': duration.inMilliseconds,
+        'timeLogSessions': existingSessions,
+        'totalTimeLogged': totalTime,
+        'accumulatedTime': totalTime,
+        'currentValue': totalTime,
+        'templateTarget': totalTime, // Set target = cumulative time
         'templateName': taskName,
+        'currentSessionStartTime': null,
         'lastUpdated': DateTime.now(),
       };
 
@@ -852,12 +882,37 @@ class TaskInstanceService {
     String? userId,
   }) async {
     try {
+      // Get current instance to check for existing sessions
+      final currentInstance =
+          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+
+      // Create new session
+      final newSession = {
+        'startTime': currentInstance.currentSessionStartTime ??
+            DateTime.now().subtract(duration),
+        'endTime': DateTime.now(),
+        'durationMilliseconds': duration.inMilliseconds,
+      };
+
+      // Get existing sessions and add new one
+      final existingSessions =
+          List<Map<String, dynamic>>.from(currentInstance.timeLogSessions);
+      existingSessions.add(newSession);
+
+      // Calculate total cumulative time
+      final totalTime = existingSessions.fold<int>(
+          0, (sum, session) => sum + (session['durationMilliseconds'] as int));
+
       final updateData = <String, dynamic>{
         'status': 'pending',
         'isTimerActive': false,
-        'accumulatedTime': duration.inMilliseconds,
-        'currentValue': duration.inMilliseconds,
+        'isTimeLogging': false, // Stop time logging session
+        'timeLogSessions': existingSessions,
+        'totalTimeLogged': totalTime,
+        'accumulatedTime': totalTime,
+        'currentValue': totalTime,
         'templateName': taskName,
+        'currentSessionStartTime': null,
         'lastUpdated': DateTime.now(),
       };
 
@@ -883,15 +938,36 @@ class TaskInstanceService {
     final uid = userId ?? _currentUserId;
 
     try {
-      final query = ActivityInstanceRecord.collectionForUser(uid)
+      // Get tasks with traditional timer fields
+      final timerQuery = ActivityInstanceRecord.collectionForUser(uid)
           .where('timerStartTime', isNull: false)
           .where('accumulatedTime', isGreaterThan: 0);
 
-      final result = await query.get();
-      return result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((instance) => instance.isActive)
-          .toList();
+      // Get tasks with timeLogSessions
+      final sessionQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('timeLogSessions', isNull: false);
+
+      final timerResult = await timerQuery.get();
+      final sessionResult = await sessionQuery.get();
+
+      // Combine and deduplicate results
+      final allInstances = <String, ActivityInstanceRecord>{};
+
+      for (final doc in timerResult.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.isActive) {
+          allInstances[instance.reference.id] = instance;
+        }
+      }
+
+      for (final doc in sessionResult.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.isActive && instance.timeLogSessions.isNotEmpty) {
+          allInstances[instance.reference.id] = instance;
+        }
+      }
+
+      return allInstances.values.toList();
     } catch (e) {
       print('Error getting timer task instances: $e');
       return [];

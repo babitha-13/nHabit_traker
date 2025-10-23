@@ -3,9 +3,20 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 class TimerLogicHelper {
   /// Calculate real-time progress including elapsed time
   static int getRealTimeAccumulated(ActivityInstanceRecord instance) {
-    int totalMilliseconds = instance.accumulatedTime;
+    // For session-based tasks, use totalTimeLogged as base
+    int totalMilliseconds = instance.totalTimeLogged > 0
+        ? instance.totalTimeLogged
+        : instance.accumulatedTime;
 
-    if (instance.isTimerActive && instance.timerStartTime != null) {
+    // Add current session time if actively logging
+    if (instance.isTimeLogging && instance.currentSessionStartTime != null) {
+      final elapsed = DateTime.now()
+          .difference(instance.currentSessionStartTime!)
+          .inMilliseconds;
+      totalMilliseconds += elapsed;
+    }
+    // Fallback to legacy timer logic for non-session tasks
+    else if (instance.isTimerActive && instance.timerStartTime != null) {
       final elapsed =
           DateTime.now().difference(instance.timerStartTime!).inMilliseconds;
       totalMilliseconds += elapsed;

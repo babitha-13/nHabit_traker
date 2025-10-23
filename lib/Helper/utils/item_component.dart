@@ -12,6 +12,7 @@ import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Edit%20Task/edit_task.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
+import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
@@ -236,6 +237,10 @@ class _ItemComponentState extends State<ItemComponent>
         _timerStateOverride != null) {
       return _timerStateOverride!;
     }
+    // For session-based tasks, check both isTimerActive and isTimeLogging
+    if (widget.instance.templateTrackingType == 'time') {
+      return widget.instance.isTimerActive || widget.instance.isTimeLogging;
+    }
     return widget.instance.isTimerActive;
   }
 
@@ -244,6 +249,11 @@ class _ItemComponentState extends State<ItemComponent>
     if (widget.instance.templateTrackingType == 'quantitative' &&
         _quantProgressOverride != null) {
       return _quantProgressOverride!;
+    }
+
+    // For time-based tasks, use real-time accumulated time
+    if (widget.instance.templateTrackingType == 'time') {
+      return TimerLogicHelper.getRealTimeAccumulated(widget.instance);
     }
 
     final val = widget.instance.currentValue;
@@ -305,7 +315,7 @@ class _ItemComponentState extends State<ItemComponent>
         ),
         children: [
           SlidableAction(
-            onPressed: (context) {},
+            onPressed: (context) => _startTimerFromSwipe(context),
             backgroundColor: FlutterFlowTheme.of(context).primary,
             foregroundColor: Colors.white,
             icon: Icons.timer,
@@ -1155,8 +1165,21 @@ class _ItemComponentState extends State<ItemComponent>
         return '$progress/$target ${widget.instance.templateUnit}';
       case 'time':
         final target = widget.instance.templateTarget ?? 0;
+        final currentTime = _getTimerDisplayWithSeconds();
+
+        // For completed tasks, show target = completion time
+        if (widget.instance.status == 'completed') {
+          return '$currentTime / $currentTime';
+        }
+
+        // For incomplete tasks, show current time / - (undefined target)
+        if (target == 0) {
+          return '$currentTime / -';
+        }
+
+        // For tasks with defined target, show normal format
         final targetFormatted = TimerLogicHelper.formatTargetTime(target);
-        return '${_getTimerDisplayWithSeconds()} / $targetFormatted';
+        return '$currentTime / $targetFormatted';
       default:
         return '';
     }
@@ -1808,6 +1831,29 @@ class _ItemComponentState extends State<ItemComponent>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error bringing back: $e')),
+        );
+      }
+    }
+  }
+
+  /// Start timer from swipe action - navigate to timer page with pre-filled data
+  Future<void> _startTimerFromSwipe(BuildContext context) async {
+    try {
+      // Navigate to timer page with task data pre-filled
+      await Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TimerPage(
+            initialTimerLogRef: widget.instance.reference,
+            taskTitle: widget.instance.templateName,
+            fromSwipe: true,
+          ),
+        ),
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error starting timer: $e')),
         );
       }
     }

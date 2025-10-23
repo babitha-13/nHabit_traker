@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/day_end_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -297,6 +299,7 @@ class _QueuePageState extends State<QueuePage> {
     final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
       'Pending': [],
+      'Needs Processing': [],
       'Completed/Skipped': [],
     };
 
@@ -335,6 +338,23 @@ class _QueuePageState extends State<QueuePage> {
         continue;
       }
       final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+      // Check for expired habit instances that need processing
+      if (instance.templateCategoryType == 'habit' &&
+          instance.windowEndDate != null &&
+          instance.status == 'pending') {
+        final windowEndDate = DateTime(
+          instance.windowEndDate!.year,
+          instance.windowEndDate!.month,
+          instance.windowEndDate!.day,
+        );
+        if (windowEndDate.isBefore(today)) {
+          buckets['Needs Processing']!.add(instance);
+          print(
+              '  ${instance.templateName}: NEEDS PROCESSING (expired window)');
+          continue;
+        }
+      }
 
       // OVERDUE: Only tasks that are overdue
       if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
@@ -633,7 +653,12 @@ class _QueuePageState extends State<QueuePage> {
 
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
-    final order = ['Overdue', 'Pending', 'Completed/Skipped'];
+    final order = [
+      'Overdue',
+      'Pending',
+      'Needs Processing',
+      'Completed/Skipped'
+    ];
     final theme = FlutterFlowTheme.of(context);
 
     final visibleSections =
@@ -704,6 +729,14 @@ class _QueuePageState extends State<QueuePage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
+                    if (key == 'Needs Processing')
+                      Text(
+                        'These habits have expired windows and need processing',
+                        style: theme.bodySmall.override(
+                          fontFamily: 'Readex Pro',
+                          color: theme.error,
+                        ),
+                      ),
                   ],
                 ),
                 GestureDetector(
@@ -750,6 +783,27 @@ class _QueuePageState extends State<QueuePage> {
       );
 
       if (expanded) {
+        // Add Process Expired button for Needs Processing section
+        if (key == 'Needs Processing') {
+          slivers.add(
+            SliverToBoxAdapter(
+              child: Container(
+                margin: EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: ElevatedButton.icon(
+                  onPressed: _processExpiredInstances,
+                  icon: Icon(Icons.refresh),
+                  label: Text('Process Expired Instances'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: theme.error,
+                    foregroundColor: theme.primaryBackground,
+                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
         slivers.add(
           SliverReorderableList(
             itemBuilder: (context, index) {
@@ -900,6 +954,67 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
+  /// Process expired instances by triggering day-end processing
+  Future<void> _processExpiredInstances() async {
+    try {
+      // Show loading indicator
+      setState(() => _isLoading = true);
+
+      // Find the oldest expired instance to determine the date to process
+      final buckets = _bucketedItems;
+      final expiredInstances = buckets['Needs Processing'] ?? [];
+
+      if (expiredInstances.isEmpty) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // Find the oldest window end date among expired instances
+      DateTime? oldestWindowEnd;
+      for (final instance in expiredInstances) {
+        if (instance.windowEndDate != null) {
+          final windowEndDate = DateTime(
+            instance.windowEndDate!.year,
+            instance.windowEndDate!.month,
+            instance.windowEndDate!.day,
+          );
+          if (oldestWindowEnd == null ||
+              windowEndDate.isBefore(oldestWindowEnd)) {
+            oldestWindowEnd = windowEndDate;
+          }
+        }
+      }
+
+      if (oldestWindowEnd != null) {
+        print(
+            'QueuePage: Processing expired instances for date: $oldestWindowEnd');
+        await BackgroundScheduler.triggerDayEndProcessing(
+            targetDate: oldestWindowEnd);
+
+        // Refresh the data
+        await _loadData();
+
+        // Show success message
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Successfully processed expired instances'),
+            backgroundColor: FlutterFlowTheme.of(context).success,
+          ),
+        );
+      }
+    } catch (e) {
+      print('QueuePage: Error processing expired instances: $e');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error processing expired instances: $e'),
+          backgroundColor: FlutterFlowTheme.of(context).error,
+        ),
+      );
+    } finally {
+      setState(() => _isLoading = false);
+    }
+  }
+
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
@@ -912,17 +1027,48 @@ class _QueuePageState extends State<QueuePage> {
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
 
-      // Don't call setState before database update
-      // Let ReorderableList handle the drag animation
+      // Adjust newIndex for the case where we're moving down
+      int adjustedNewIndex = newIndex;
+      if (oldIndex < newIndex) {
+        adjustedNewIndex -= 1;
+      }
+
+      // Get the item being moved
+      final movedItem = reorderedItems.removeAt(oldIndex);
+      reorderedItems.insert(adjustedNewIndex, movedItem);
+
+      // OPTIMISTIC UI UPDATE: Update local state immediately
+      // Update order values in the local _instances list
+      for (int i = 0; i < reorderedItems.length; i++) {
+        final instance = reorderedItems[i];
+        final index = _instances
+            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+        if (index != -1) {
+          // Create updated instance with new queue order by creating new data map
+          final updatedData = Map<String, dynamic>.from(instance.snapshotData);
+          updatedData['queueOrder'] = i;
+          final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
+            updatedData,
+            instance.reference,
+          );
+          _instances[index] = updatedInstance;
+        }
+      }
+
+      // Trigger setState to update UI immediately (eliminates twitch)
+      if (mounted) {
+        setState(() {
+          // State is already updated above
+        });
+      }
+
+      // Perform database update in background
       await InstanceOrderService.reorderInstancesInSection(
         reorderedItems,
         'queue',
         oldIndex,
         newIndex,
       );
-
-      // Silent refresh - no loading indicator
-      await _silentRefreshInstances();
 
       print('QueuePage: Reordered items in section $sectionKey');
     } catch (e) {
@@ -936,5 +1082,280 @@ class _QueuePageState extends State<QueuePage> {
         );
       }
     }
+  }
+
+  /// Show snooze bottom sheet for day-end processing
+  void showSnoozeBottomSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => _SnoozeBottomSheet(),
+    );
+  }
+}
+
+/// Snooze bottom sheet widget
+class _SnoozeBottomSheet extends StatefulWidget {
+  @override
+  _SnoozeBottomSheetState createState() => _SnoozeBottomSheetState();
+}
+
+class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
+  bool _isLoading = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
+    final snoozeStatus = DayEndScheduler.getSnoozeStatus();
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.primaryBackground,
+        borderRadius: const BorderRadius.only(
+          topLeft: Radius.circular(20),
+          topRight: Radius.circular(20),
+        ),
+      ),
+      padding: const EdgeInsets.all(24),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Handle bar
+          Center(
+            child: Container(
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.secondaryText,
+                borderRadius: BorderRadius.circular(2),
+              ),
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Title
+          Text(
+            'Day Ending Soon',
+            style: theme.headlineSmall.override(
+              fontFamily: 'Outfit',
+              fontSize: 24,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+
+          // Description
+          Text(
+            'You have ${snoozeStatus['remainingSnooze']} minutes of snooze time remaining. Extend your day to finish more tasks!',
+            style: theme.bodyMedium.override(
+              fontFamily: 'Readex Pro',
+              color: theme.secondaryText,
+            ),
+          ),
+          const SizedBox(height: 24),
+
+          // Current processing time
+          if (snoozeStatus['scheduledTime'] != null) ...[
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: theme.secondaryBackground,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.alternate),
+              ),
+              child: Row(
+                children: [
+                  Icon(
+                    Icons.schedule,
+                    color: theme.primary,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Current Processing Time',
+                          style: theme.bodySmall.override(
+                            fontFamily: 'Readex Pro',
+                            color: theme.secondaryText,
+                          ),
+                        ),
+                        Text(
+                          _formatTime(
+                              DateTime.parse(snoozeStatus['scheduledTime'])),
+                          style: theme.bodyMedium.override(
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+          ],
+
+          // Snooze buttons
+          Text(
+            'Snooze Options',
+            style: theme.titleMedium.override(
+              fontFamily: 'Readex Pro',
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 12),
+
+          Row(
+            children: [
+              Expanded(
+                child: _SnoozeButton(
+                  minutes: 15,
+                  label: '15 min',
+                  enabled: snoozeStatus['canSnooze15'],
+                  onPressed: () => _handleSnooze(15),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SnoozeButton(
+                  minutes: 30,
+                  label: '30 min',
+                  enabled: snoozeStatus['canSnooze30'],
+                  onPressed: () => _handleSnooze(30),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: _SnoozeButton(
+                  minutes: 60,
+                  label: '1 hr',
+                  enabled: snoozeStatus['canSnooze60'],
+                  onPressed: () => _handleSnooze(60),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          // View Tasks button
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: () => Navigator.pop(context),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.primary,
+                foregroundColor: theme.primaryText,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+              ),
+              child: Text(
+                'View Tasks',
+                style: theme.titleMedium.override(
+                  fontFamily: 'Readex Pro',
+                  color: theme.primaryText,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  String _formatTime(DateTime dateTime) {
+    return DateFormat('h:mm a').format(dateTime);
+  }
+
+  Future<void> _handleSnooze(int minutes) async {
+    if (_isLoading) return;
+
+    setState(() => _isLoading = true);
+
+    try {
+      final success = await DayEndScheduler.snooze(minutes);
+
+      if (success) {
+        if (mounted) {
+          Navigator.pop(context);
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Day-end processing snoozed for $minutes minutes'),
+              backgroundColor: FlutterFlowTheme.of(context).success,
+            ),
+          );
+        }
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Cannot snooze - maximum time limit reached'),
+              backgroundColor: FlutterFlowTheme.of(context).error,
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error snoozing: $e'),
+            backgroundColor: FlutterFlowTheme.of(context).error,
+          ),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+}
+
+/// Snooze button widget
+class _SnoozeButton extends StatelessWidget {
+  final int minutes;
+  final String label;
+  final bool enabled;
+  final VoidCallback onPressed;
+
+  const _SnoozeButton({
+    required this.minutes,
+    required this.label,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
+
+    return ElevatedButton(
+      onPressed: enabled ? onPressed : null,
+      style: ElevatedButton.styleFrom(
+        backgroundColor: enabled ? theme.primary : theme.secondaryBackground,
+        foregroundColor: enabled ? theme.primaryText : theme.secondaryText,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(8),
+        ),
+        elevation: enabled ? 2 : 0,
+      ),
+      child: Text(
+        label,
+        style: theme.bodyMedium.override(
+          fontFamily: 'Readex Pro',
+          fontWeight: FontWeight.w500,
+        ),
+      ),
+    );
   }
 }

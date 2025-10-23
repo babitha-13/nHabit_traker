@@ -162,6 +162,20 @@ class DayEndProcessor {
       final nextWindowEndDate =
           nextBelongsToDate.add(Duration(days: instance.windowDuration - 1));
 
+      // Check if instance already exists for this template and date
+      final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateId', isEqualTo: instance.templateId)
+          .where('belongsToDate', isEqualTo: nextBelongsToDate)
+          .where('status', isEqualTo: 'pending');
+
+      final existingInstances = await existingQuery.get();
+
+      if (existingInstances.docs.isNotEmpty) {
+        print(
+            'DayEndProcessor: Instance already exists for ${instance.templateName} on $nextBelongsToDate, skipping creation');
+        return;
+      }
+
       // Create next instance data
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,

@@ -23,6 +23,9 @@ import 'Helper/utils/constants.dart';
 
 SharedPref sharedPref = SharedPref();
 LoginResponse users = LoginResponse();
+
+// Global navigator key for notification navigation
+final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp(
@@ -64,12 +67,6 @@ void main() async {
 
   // Check for expired snoozes and reschedule
   await ReminderScheduler.checkExpiredSnoozes();
-
-  // Test notification (for debugging)
-  await NotificationService.scheduleTestNotification();
-
-  // Also test immediate notification
-  await NotificationService.scheduleImmediateTest();
 
   runApp(ChangeNotifierProvider(
     create: (context) => appState,
@@ -181,6 +178,7 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       title: 'Habit Tracker',
       debugShowCheckedModeBanner: false,
+      navigatorKey: navigatorKey,
       theme: ThemeData(
         colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
       ),

@@ -2,6 +2,7 @@ import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+import 'package:intl/intl.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -12,11 +13,29 @@ class CalendarPage extends StatefulWidget {
 
 class _CalendarPageState extends State<CalendarPage> {
   final EventController _eventController = EventController();
+  final TransformationController _transformationController =
+      TransformationController();
+
+  // Zoom constraints
+  static const double _minZoom = 0.5;
+  static const double _maxZoom = 3.0;
+  static const double _zoomStep = 0.2;
+  double _currentZoom = 1.0;
 
   @override
   void initState() {
     super.initState();
     _loadEvents();
+
+    // Listen to transformation changes for pinch gestures
+    _transformationController.addListener(() {
+      final scale = _transformationController.value.getMaxScaleOnAxis();
+      if (scale != _currentZoom) {
+        setState(() {
+          _currentZoom = scale.clamp(_minZoom, _maxZoom);
+        });
+      }
+    });
   }
 
   Future<void> _loadEvents() async {
@@ -28,9 +47,28 @@ class _CalendarPageState extends State<CalendarPage> {
 
     final events = <CalendarEventData>[];
 
-    // Add timer task events (existing)
+    // Add timer task events - display sessions if available, otherwise legacy format
     for (final task in timerTasks) {
-      if (task.timerStartTime != null && task.accumulatedTime > 0) {
+      // If task has timeLogSessions, display each session separately
+      if (task.timeLogSessions.isNotEmpty) {
+        for (final session in task.timeLogSessions) {
+          final startTime = session['startTime'] as DateTime;
+          final endTime = session['endTime'] as DateTime?;
+
+          if (endTime != null) {
+            events.add(CalendarEventData(
+              date: startTime,
+              startTime: startTime,
+              endTime: endTime,
+              title: task.templateName,
+              color: _getCategoryColor(task.templateCategoryId),
+              description:
+                  'Session: ${_formatDuration(endTime.difference(startTime))}',
+            ));
+          }
+        }
+      } else if (task.timerStartTime != null && task.accumulatedTime > 0) {
+        // Legacy format for old timer tasks
         events.add(CalendarEventData(
           date: task.timerStartTime!,
           startTime: task.timerStartTime!,
@@ -90,9 +128,30 @@ class _CalendarPageState extends State<CalendarPage> {
     return hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
   }
 
+  void _zoomIn() {
+    final newScale = (_currentZoom + _zoomStep).clamp(_minZoom, _maxZoom);
+    _currentZoom = newScale;
+    _transformationController.value = Matrix4.identity()..scale(newScale);
+    setState(() {});
+  }
+
+  void _zoomOut() {
+    final newScale = (_currentZoom - _zoomStep).clamp(_minZoom, _maxZoom);
+    _currentZoom = newScale;
+    _transformationController.value = Matrix4.identity()..scale(newScale);
+    setState(() {});
+  }
+
+  void _resetZoom() {
+    _currentZoom = 1.0;
+    _transformationController.value = Matrix4.identity();
+    setState(() {});
+  }
+
   @override
   void dispose() {
     _eventController.dispose();
+    _transformationController.dispose();
     super.dispose();
   }
 
@@ -101,45 +160,118 @@ class _CalendarPageState extends State<CalendarPage> {
     return Scaffold(
       appBar: AppBar(
         title: const Text('Calendar View'),
+        actions: [
+          // Zoom controls in app bar
+          IconButton(
+            icon: const Icon(Icons.zoom_out),
+            onPressed: _zoomOut,
+            tooltip: 'Zoom Out',
+          ),
+          IconButton(
+            icon: const Icon(Icons.zoom_in),
+            onPressed: _zoomIn,
+            tooltip: 'Zoom In',
+          ),
+          IconButton(
+            icon: const Icon(Icons.refresh),
+            onPressed: _resetZoom,
+            tooltip: 'Reset Zoom',
+          ),
+        ],
       ),
-      body: DayView(
-        controller: _eventController,
-        eventTileBuilder: (date, events, a, b, c) {
-          // The calendar_view package's builder is a bit unusual. We only need the events.
-          return Container(
-            padding: const EdgeInsets.all(4.0),
-            decoration: BoxDecoration(
-              color: events.first.color.withOpacity(0.8),
-              borderRadius: BorderRadius.circular(4.0),
+      body: Stack(
+        children: [
+          // Zoomable calendar
+          InteractiveViewer(
+            transformationController: _transformationController,
+            minScale: _minZoom,
+            maxScale: _maxZoom,
+            child: DayView(
+              controller: _eventController,
+              eventTileBuilder: (date, events, a, b, c) {
+                // Enhanced event tile for better visibility when zoomed
+                return Container(
+                  padding: const EdgeInsets.all(4.0),
+                  decoration: BoxDecoration(
+                    color: events.first.color.withOpacity(0.8),
+                    borderRadius: BorderRadius.circular(4.0),
+                    border: Border.all(
+                      color: events.first.color,
+                      width: 1.0,
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        events.first.title,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 2,
+                      ),
+                      if (events.first.description != null)
+                        Text(
+                          events.first.description!,
+                          style: const TextStyle(
+                            color: Colors.white70,
+                            fontSize: 10,
+                          ),
+                          overflow: TextOverflow.ellipsis,
+                          maxLines: 1,
+                        ),
+                    ],
+                  ),
+                );
+              },
+              dayTitleBuilder: (date) {
+                return Container(
+                  padding: const EdgeInsets.symmetric(vertical: 8.0),
+                  decoration: const BoxDecoration(
+                    color: Colors.grey,
+                    border: Border(
+                      bottom: BorderSide(color: Colors.grey, width: 0.5),
+                    ),
+                  ),
+                  child: Center(
+                    child: Text(
+                      DateFormat.yMMMMd().format(date),
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                );
+              },
             ),
-            child: Text(
-              events.first.title,
-              style: const TextStyle(color: Colors.white, fontSize: 12),
-              overflow: TextOverflow.ellipsis,
-              maxLines: 2,
-            ),
-          );
-        },
-        dayTitleBuilder: (date) {
-          return Container(
-            padding: const EdgeInsets.symmetric(vertical: 8.0),
-            decoration: const BoxDecoration(
-              color: Colors.grey,
-              border:
-                  Border(bottom: BorderSide(color: Colors.grey, width: 0.5)),
-            ),
-            child: Center(
+          ),
+          // Zoom level indicator
+          Positioned(
+            top: 16,
+            right: 16,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+              decoration: BoxDecoration(
+                color: Colors.black54,
+                borderRadius: BorderRadius.circular(20),
+              ),
               child: Text(
-                DateFormat.yMMMMd().format(date),
+                '${(_currentZoom * 100).toInt()}%',
                 style: const TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
                   color: Colors.white,
+                  fontSize: 12,
+                  fontWeight: FontWeight.bold,
                 ),
               ),
             ),
-          );
-        },
+          ),
+        ],
       ),
     );
   }

@@ -45,44 +45,125 @@ class InstanceOrderService {
     int oldIndex,
     int newIndex,
   ) async {
+    const maxRetries = 3;
+    const retryDelay = Duration(milliseconds: 500);
+
+    for (int attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        print(
+            'InstanceOrderService: Attempt $attempt/$maxRetries for reordering instances');
+
+        // Adjust newIndex for the case where we're moving down
+        if (oldIndex < newIndex) {
+          newIndex -= 1;
+        }
+
+        // Get the item being moved
+        final movedItem = instances.removeAt(oldIndex);
+        instances.insert(newIndex, movedItem);
+
+        // Update orders for all affected instances
+        final batch = FirebaseFirestore.instance.batch();
+        final userId = currentUserUid;
+        final List<String> instanceIds = [];
+
+        for (int i = 0; i < instances.length; i++) {
+          final instance = instances[i];
+          final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
+              .doc(instance.reference.id);
+          instanceIds.add(instance.reference.id);
+
+          Map<String, dynamic> updateData = {};
+          switch (pageType) {
+            case 'queue':
+              updateData['queueOrder'] = i;
+              break;
+            case 'habits':
+              updateData['habitsOrder'] = i;
+              break;
+            case 'tasks':
+              updateData['tasksOrder'] = i;
+              break;
+          }
+
+          batch.update(instanceRef, updateData);
+        }
+
+        // Commit the batch
+        await batch.commit();
+        print(
+            'InstanceOrderService: Batch committed successfully for ${instanceIds.length} instances');
+
+        // Validate that the updates were actually saved
+        await _validateOrderUpdates(instanceIds, pageType, instances);
+
+        print('InstanceOrderService: Order validation successful');
+        return; // Success, exit retry loop
+      } catch (e) {
+        print('InstanceOrderService: Attempt $attempt failed: $e');
+
+        if (attempt == maxRetries) {
+          print('InstanceOrderService: All retry attempts failed');
+          rethrow;
+        }
+
+        // Wait before retrying
+        await Future.delayed(retryDelay);
+      }
+    }
+  }
+
+  /// Validate that order updates were actually saved to the database
+  static Future<void> _validateOrderUpdates(
+    List<String> instanceIds,
+    String pageType,
+    List<ActivityInstanceRecord> expectedInstances,
+  ) async {
     try {
-      // Adjust newIndex for the case where we're moving down
-      if (oldIndex < newIndex) {
-        newIndex -= 1;
+      final userId = currentUserUid;
+      final List<Future<DocumentSnapshot>> futures = [];
+
+      // Fetch all instances to validate their order values
+      for (final instanceId in instanceIds) {
+        final instanceRef =
+            ActivityInstanceRecord.collectionForUser(userId).doc(instanceId);
+        futures.add(instanceRef.get());
       }
 
-      // Get the item being moved
-      final movedItem = instances.removeAt(oldIndex);
-      instances.insert(newIndex, movedItem);
+      final snapshots = await Future.wait(futures);
 
-      // Update orders for all affected instances
-      final batch = FirebaseFirestore.instance.batch();
-      final userId = currentUserUid;
+      // Validate each instance's order value
+      for (int i = 0; i < snapshots.length; i++) {
+        final snapshot = snapshots[i];
+        if (!snapshot.exists) {
+          throw Exception('Instance ${instanceIds[i]} not found after update');
+        }
 
-      for (int i = 0; i < instances.length; i++) {
-        final instance = instances[i];
-        final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
-            .doc(instance.reference.id);
+        final data = snapshot.data() as Map<String, dynamic>;
+        int? actualOrder;
 
-        Map<String, dynamic> updateData = {};
         switch (pageType) {
           case 'queue':
-            updateData['queueOrder'] = i;
+            actualOrder = data['queueOrder'] as int?;
             break;
           case 'habits':
-            updateData['habitsOrder'] = i;
+            actualOrder = data['habitsOrder'] as int?;
             break;
           case 'tasks':
-            updateData['tasksOrder'] = i;
+            actualOrder = data['tasksOrder'] as int?;
             break;
         }
 
-        batch.update(instanceRef, updateData);
+        final expectedOrder = i;
+        if (actualOrder != expectedOrder) {
+          throw Exception(
+              'Order validation failed for ${instanceIds[i]}: expected $expectedOrder, got $actualOrder');
+        }
       }
 
-      await batch.commit();
+      print('InstanceOrderService: All order values validated successfully');
     } catch (e) {
-      print('Error reordering instances: $e');
+      print('InstanceOrderService: Order validation failed: $e');
       rethrow;
     }
   }

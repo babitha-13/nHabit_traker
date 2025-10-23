@@ -34,7 +34,6 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickHoursController = TextEditingController();
   final TextEditingController _quickMinutesController = TextEditingController();
   List<ActivityInstanceRecord> _taskInstances = [];
-  List<ActivityInstanceRecord> _activeTaskInstances = [];
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _didInitialDependencies = false;
@@ -50,7 +49,7 @@ class _TaskPageState extends State<TaskPage> {
   FrequencyConfig? _quickFrequencyConfig;
   String? _expandedSection;
   final Map<String, GlobalKey> _sectionKeys = {};
-  bool _showOlderCompletions = false;
+  int _completionTimeFrame = 2; // 2 = 2 days, 7 = 7 days, 30 = 30 days
 
   // Search functionality
   String _searchQuery = '';
@@ -213,13 +212,8 @@ class _TaskPageState extends State<TaskPage> {
             return matches;
           }).toList();
 
-          // Store all instances (for Recent Completions)
+          // Store all instances
           _taskInstances = categoryFiltered;
-
-          // Filter active instances for main sections
-          _activeTaskInstances = categoryFiltered
-              .where((inst) => inst.status == 'pending')
-              .toList();
 
           print(
               'TaskPage: After filtering: ${_taskInstances.length} instances');
@@ -296,7 +290,10 @@ class _TaskPageState extends State<TaskPage> {
               padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
               child: Column(
                 children: [
-                  Row(
+                  Wrap(
+                    spacing: 12,
+                    runSpacing: 8,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       IconTaskTypeDropdown(
                         selectedValue: _selectedQuickTrackingType ?? 'binary',
@@ -312,7 +309,6 @@ class _TaskPageState extends State<TaskPage> {
                         },
                         tooltip: 'Select task type',
                       ),
-                      const SizedBox(width: 12),
 
                       // Date icon or chip
                       if (_selectedQuickDueDate == null)
@@ -328,58 +324,52 @@ class _TaskPageState extends State<TaskPage> {
                               const BoxConstraints(minWidth: 32, minHeight: 32),
                         )
                       else
-                        Padding(
-                          padding: const EdgeInsets.only(left: 0),
-                          child: InkWell(
-                            onTap: _selectQuickDueDate,
-                            borderRadius: BorderRadius.circular(6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.green.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                                border:
-                                    Border.all(color: Colors.green.shade200),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.calendar_today,
-                                      size: 14, color: Colors.green.shade700),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    quickIsRecurring
-                                        ? 'From ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
-                                        : DateFormat('MMM dd')
-                                            .format(_selectedQuickDueDate!),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.green.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                        InkWell(
+                          onTap: _selectQuickDueDate,
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.green.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.green.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.calendar_today,
+                                    size: 14, color: Colors.green.shade700),
+                                const SizedBox(width: 6),
+                                Text(
+                                  quickIsRecurring
+                                      ? 'From ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
+                                      : DateFormat('MMM dd')
+                                          .format(_selectedQuickDueDate!),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.green.shade700,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  const SizedBox(width: 6),
-                                  InkWell(
-                                    onTap: () {
-                                      // Clear due date without opening picker
-                                      setState(() {
-                                        _selectedQuickDueDate = null;
-                                      });
-                                    },
-                                    child: Icon(
-                                      Icons.close,
-                                      size: 14,
-                                      color: Colors.green.shade700,
-                                    ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () {
+                                    // Clear due date without opening picker
+                                    setState(() {
+                                      _selectedQuickDueDate = null;
+                                    });
+                                  },
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.green.shade700,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
-
-                      const SizedBox(width: 12),
 
                       // Time icon or chip
                       if (_selectedQuickDueTime == null)
@@ -395,155 +385,141 @@ class _TaskPageState extends State<TaskPage> {
                               const BoxConstraints(minWidth: 32, minHeight: 32),
                         )
                       else
-                        Padding(
-                          padding: const EdgeInsets.only(left: 0),
-                          child: InkWell(
-                            onTap: _selectQuickDueTime,
-                            borderRadius: BorderRadius.circular(6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.blue.shade200),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.access_time,
-                                      size: 14, color: Colors.blue.shade700),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    TimeUtils.formatTimeOfDayForDisplay(
-                                        _selectedQuickDueTime!),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.blue.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                        InkWell(
+                          onTap: _selectQuickDueTime,
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.access_time,
+                                    size: 14, color: Colors.blue.shade700),
+                                const SizedBox(width: 6),
+                                Text(
+                                  TimeUtils.formatTimeOfDayForDisplay(
+                                      _selectedQuickDueTime!),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue.shade700,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  const SizedBox(width: 6),
-                                  InkWell(
-                                    onTap: () {
-                                      // Clear due time without opening picker
-                                      setState(() {
-                                        _selectedQuickDueTime = null;
-                                      });
-                                    },
-                                    child: Icon(
-                                      Icons.close,
-                                      size: 14,
-                                      color: Colors.blue.shade700,
-                                    ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () {
+                                    // Clear due time without opening picker
+                                    setState(() {
+                                      _selectedQuickDueTime = null;
+                                    });
+                                  },
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.blue.shade700,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
 
-                      const SizedBox(width: 12),
-
-                      // Fixed-width container for recurring icon
-                      SizedBox(
-                        width: 32,
-                        child: (!quickIsRecurring ||
-                                _quickFrequencyConfig == null)
-                            ? IconButton(
-                                icon: Icon(
-                                  Icons.repeat_outlined,
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryText,
-                                ),
-                                onPressed: () async {
-                                  // Opening recurring - show frequency config
-                                  final config =
-                                      await showFrequencyConfigDialog(
-                                    context: context,
-                                    initialConfig: _quickFrequencyConfig ??
-                                        FrequencyConfig(
-                                          type: FrequencyType.everyXPeriod,
-                                          startDate: _selectedQuickDueDate ??
-                                              DateTime.now(),
-                                        ),
-                                  );
-                                  if (config != null) {
-                                    setState(() {
-                                      _quickFrequencyConfig = config;
-                                      quickIsRecurring = true;
-                                      // Sync start date to due date
-                                      _selectedQuickDueDate = config.startDate;
-                                    });
-                                  }
-                                },
-                                tooltip: 'Make recurring',
-                                padding: const EdgeInsets.all(4),
-                                constraints: const BoxConstraints(
-                                    minWidth: 32, minHeight: 32),
-                              )
-                            : const SizedBox.shrink(),
-                      ),
-
-                      // Recurring chip in separate fixed space
-                      if (quickIsRecurring && _quickFrequencyConfig != null)
-                        Padding(
-                          padding: const EdgeInsets.only(left: 4),
-                          child: InkWell(
-                            onTap: () async {
-                              // Reopen frequency config dialog to edit
+                      // Recurring icon or chip
+                      if (!quickIsRecurring || _quickFrequencyConfig == null)
+                        SizedBox(
+                          width: 32,
+                          child: IconButton(
+                            icon: Icon(
+                              Icons.repeat_outlined,
+                              color: FlutterFlowTheme.of(context).secondaryText,
+                            ),
+                            onPressed: () async {
+                              // Opening recurring - show frequency config
                               final config = await showFrequencyConfigDialog(
                                 context: context,
-                                initialConfig: _quickFrequencyConfig,
+                                initialConfig: _quickFrequencyConfig ??
+                                    FrequencyConfig(
+                                      type: FrequencyType.everyXPeriod,
+                                      startDate: _selectedQuickDueDate ??
+                                          DateTime.now(),
+                                    ),
                               );
                               if (config != null) {
                                 setState(() {
                                   _quickFrequencyConfig = config;
+                                  quickIsRecurring = true;
                                   // Sync start date to due date
                                   _selectedQuickDueDate = config.startDate;
                                 });
                               }
                             },
-                            borderRadius: BorderRadius.circular(6),
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 6),
-                              decoration: BoxDecoration(
-                                color: Colors.blue.shade50,
-                                borderRadius: BorderRadius.circular(6),
-                                border: Border.all(color: Colors.blue.shade200),
-                              ),
-                              child: Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Icon(Icons.repeat,
-                                      size: 14, color: Colors.blue.shade700),
-                                  const SizedBox(width: 6),
-                                  Text(
-                                    _getQuickFrequencyDescription(),
-                                    style: TextStyle(
-                                      fontSize: 11,
-                                      color: Colors.blue.shade700,
-                                      fontWeight: FontWeight.w500,
-                                    ),
+                            tooltip: 'Make recurring',
+                            padding: const EdgeInsets.all(4),
+                            constraints: const BoxConstraints(
+                                minWidth: 32, minHeight: 32),
+                          ),
+                        )
+                      else
+                        InkWell(
+                          onTap: () async {
+                            // Reopen frequency config dialog to edit
+                            final config = await showFrequencyConfigDialog(
+                              context: context,
+                              initialConfig: _quickFrequencyConfig,
+                            );
+                            if (config != null) {
+                              setState(() {
+                                _quickFrequencyConfig = config;
+                                // Sync start date to due date
+                                _selectedQuickDueDate = config.startDate;
+                              });
+                            }
+                          },
+                          borderRadius: BorderRadius.circular(6),
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 8, vertical: 6),
+                            decoration: BoxDecoration(
+                              color: Colors.blue.shade50,
+                              borderRadius: BorderRadius.circular(6),
+                              border: Border.all(color: Colors.blue.shade200),
+                            ),
+                            child: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(Icons.repeat,
+                                    size: 14, color: Colors.blue.shade700),
+                                const SizedBox(width: 6),
+                                Text(
+                                  _getQuickFrequencyDescription(),
+                                  style: TextStyle(
+                                    fontSize: 11,
+                                    color: Colors.blue.shade700,
+                                    fontWeight: FontWeight.w500,
                                   ),
-                                  const SizedBox(width: 6),
-                                  InkWell(
-                                    onTap: () {
-                                      // Clear recurrence without opening dialog
-                                      setState(() {
-                                        quickIsRecurring = false;
-                                        _quickFrequencyConfig = null;
-                                      });
-                                    },
-                                    child: Icon(
-                                      Icons.close,
-                                      size: 14,
-                                      color: Colors.blue.shade700,
-                                    ),
+                                ),
+                                const SizedBox(width: 6),
+                                InkWell(
+                                  onTap: () {
+                                    // Clear recurrence without opening dialog
+                                    setState(() {
+                                      quickIsRecurring = false;
+                                      _quickFrequencyConfig = null;
+                                    });
+                                  },
+                                  child: Icon(
+                                    Icons.close,
+                                    size: 14,
+                                    color: Colors.blue.shade700,
                                   ),
-                                ],
-                              ),
+                                ),
+                              ],
                             ),
                           ),
                         ),
@@ -823,6 +799,10 @@ class _TaskPageState extends State<TaskPage> {
       final items = List<dynamic>.from(buckets[key]!);
       final visibleItems = items.where((item) {
         if (item is ActivityInstanceRecord) {
+          // Allow completed tasks in Recent Completions section
+          if (key == 'Recent Completions') {
+            return true;
+          }
           return !_isTaskCompleted(item);
         }
         return true;
@@ -858,6 +838,14 @@ class _TaskPageState extends State<TaskPage> {
                 _handleReorder(oldIndex, newIndex, key),
           ),
         );
+        // Add "Show older" buttons for Recent Completions section
+        if (key == 'Recent Completions') {
+          widgets.add(
+            SliverToBoxAdapter(
+              child: _buildShowOlderButtons(theme),
+            ),
+          );
+        }
         widgets.add(
           const SliverToBoxAdapter(
             child: SizedBox(height: 8),
@@ -944,57 +932,14 @@ class _TaskPageState extends State<TaskPage> {
             Row(
               children: [
                 Text(
-                  '$title ($count)',
+                  title == 'Recent Completions'
+                      ? 'Recent Completions (${_completionTimeFrame == 2 ? '2 days' : _completionTimeFrame == 7 ? '7 days' : '30 days'}) ($count)'
+                      : '$title ($count)',
                   style: theme.titleMedium.override(
                     fontFamily: 'Readex Pro',
                     fontWeight: FontWeight.w600,
                   ),
                 ),
-                // Add "Show older" button for Recent Completions when collapsed
-                if (title == 'Recent Completions' &&
-                    !isExpanded &&
-                    !_showOlderCompletions) ...[
-                  const SizedBox(width: 8),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _showOlderCompletions = true;
-                        _expandedSection = title; // Also expand the section
-                      });
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: theme.primary.withOpacity(0.1),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: theme.primary.withOpacity(0.3),
-                          width: 1,
-                        ),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.history,
-                            size: 14,
-                            color: theme.primary,
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            'Show older',
-                            style: TextStyle(
-                              fontSize: 12,
-                              color: theme.primary,
-                              fontWeight: FontWeight.w500,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ),
-                ],
               ],
             ),
             Icon(
@@ -1205,7 +1150,9 @@ class _TaskPageState extends State<TaskPage> {
     };
 
     // Filter instances by search query if active
-    final activeInstancesToProcess = _activeTaskInstances.where((instance) {
+    final activeInstancesToProcess = _taskInstances
+        .where((inst) => inst.status == 'pending') // Filter for pending tasks
+        .where((instance) {
       if (_searchQuery.isEmpty) return true;
       return instance.templateName
           .toLowerCase()
@@ -1324,13 +1271,9 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
 
-    // Populate Recent Completions with time window logic
-    final completionCutoff = _showOlderCompletions
-        ? DateService.todayStart.subtract(const Duration(days: 7))
-        : DateService.yesterdayShiftedStart;
-
-    final oneOffTaskCutoff =
-        DateService.todayStart.subtract(const Duration(days: 30));
+    // Populate Recent Completions with unified time window logic
+    final completionCutoff =
+        DateService.todayStart.subtract(Duration(days: _completionTimeFrame));
 
     final allInstancesToProcess = _taskInstances.where((instance) {
       if (_searchQuery.isEmpty) return true;
@@ -1356,34 +1299,33 @@ class _TaskPageState extends State<TaskPage> {
       final completedDateOnly =
           DateTime(completedDate.year, completedDate.month, completedDate.day);
 
-      if (instance.templateIsRecurring) {
-        // For recurring tasks, check if within display window
-        if (completedDateOnly.isAfter(completionCutoff) ||
-            completedDateOnly.isAtSameMomentAs(completionCutoff)) {
+      // Unified time window for both recurring and one-off tasks
+      if (completedDateOnly.isAfter(completionCutoff) ||
+          completedDateOnly.isAtSameMomentAs(completionCutoff)) {
+        if (instance.templateIsRecurring) {
+          // Group recurring tasks by template
           final templateId = instance.templateId;
           (completedRecurringByTemplate[templateId] ??= []).add(instance);
-        }
-      } else {
-        // For one-off tasks, check if within 30 days
-        if (completedDateOnly.isAfter(oneOffTaskCutoff) ||
-            completedDateOnly.isAtSameMomentAs(oneOffTaskCutoff)) {
+        } else {
+          // Add one-off tasks directly
           completedOneOffTasks.add(instance);
         }
       }
     }
 
-    // Add latest completed instance per recurring template
+    // Add all completed instances of recurring tasks within time window
     for (final templateId in completedRecurringByTemplate.keys) {
       final instances = completedRecurringByTemplate[templateId]!;
 
       // Sort by completion date (latest first)
       instances.sort((a, b) => b.completedAt!.compareTo(a.completedAt!));
 
-      // Take the latest completed instance
-      final latestCompleted = instances.first;
-      buckets['Recent Completions']!.add(latestCompleted);
-      print(
-          '  Added latest completed recurring task: ${latestCompleted.templateName}');
+      // Add ALL instances within the time window
+      for (final instance in instances) {
+        buckets['Recent Completions']!.add(instance);
+        print(
+            '  Added completed recurring task: ${instance.templateName} (completed: ${instance.completedAt})');
+      }
     }
 
     // Add all completed one-off tasks within time window
@@ -1453,6 +1395,100 @@ class _TaskPageState extends State<TaskPage> {
       showTypeIcon: false,
       showRecurringIcon: instance.status != 'completed',
       showCompleted: bucketKey == 'Recent Completions' ? true : null,
+    );
+  }
+
+  Widget _buildShowOlderButtons(FlutterFlowTheme theme) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          // Show fewer button (when not at minimum)
+          if (_completionTimeFrame > 2) ...[
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _completionTimeFrame = _completionTimeFrame == 30 ? 7 : 2;
+                });
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.secondaryBackground,
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.alternate,
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.visibility_off,
+                      size: 16,
+                      color: theme.secondaryText,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Show fewer (${_completionTimeFrame == 30 ? '7 days' : '2 days'})',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: theme.secondaryText,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+          ],
+          // Show older button (when not at maximum)
+          if (_completionTimeFrame < 30) ...[
+            GestureDetector(
+              onTap: () {
+                setState(() {
+                  _completionTimeFrame = _completionTimeFrame == 2 ? 7 : 30;
+                });
+              },
+              child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: theme.primary.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                    color: theme.primary.withOpacity(0.3),
+                    width: 1,
+                  ),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.history,
+                      size: 16,
+                      color: theme.primary,
+                    ),
+                    const SizedBox(width: 6),
+                    Text(
+                      'Show older (${_completionTimeFrame == 2 ? '7 days' : '30 days'})',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: theme.primary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
@@ -1542,10 +1578,6 @@ class _TaskPageState extends State<TaskPage> {
       if (matchesCategory) {
         setState(() {
           _taskInstances.add(instance);
-          // Also add to active list if pending
-          if (instance.status == 'pending') {
-            _activeTaskInstances.add(instance);
-          }
         });
         print('TaskPage: Added new task instance ${instance.templateName}');
       }
@@ -1565,23 +1597,6 @@ class _TaskPageState extends State<TaskPage> {
               .indexWhere((inst) => inst.reference.id == instance.reference.id);
           if (index != -1) {
             _taskInstances[index] = instance;
-
-            // Also update _activeTaskInstances
-            final activeIndex = _activeTaskInstances.indexWhere(
-                (inst) => inst.reference.id == instance.reference.id);
-            if (activeIndex != -1) {
-              _activeTaskInstances[activeIndex] = instance;
-            } else if (instance.status == 'pending') {
-              // If instance is now pending and not in active list, add it
-              _activeTaskInstances.add(instance);
-            }
-
-            // Remove from active list if no longer pending
-            if (instance.status != 'pending') {
-              _activeTaskInstances.removeWhere(
-                  (inst) => inst.reference.id == instance.reference.id);
-            }
-
             print('TaskPage: Updated task instance ${instance.templateName}');
           }
         });
@@ -1600,40 +1615,9 @@ class _TaskPageState extends State<TaskPage> {
         setState(() {
           _taskInstances.removeWhere(
               (inst) => inst.reference.id == instance.reference.id);
-          _activeTaskInstances.removeWhere(
-              (inst) => inst.reference.id == instance.reference.id);
           print('TaskPage: Removed task instance ${instance.templateName}');
         });
       }
-    }
-  }
-
-  /// Silent refresh instances without loading indicator
-  Future<void> _silentRefreshInstances() async {
-    try {
-      final uid = currentUserUid;
-      if (uid.isEmpty) return;
-
-      final instances = await queryAllTaskInstances(userId: uid);
-      final categories = await queryTaskCategoriesOnce(userId: uid);
-
-      if (mounted) {
-        setState(() {
-          _categories = categories;
-          final categoryFiltered = instances.where((inst) {
-            return widget.categoryName == null ||
-                inst.templateCategoryName == widget.categoryName;
-          }).toList();
-
-          _taskInstances = categoryFiltered;
-          _activeTaskInstances = categoryFiltered
-              .where((inst) => inst.status == 'pending')
-              .toList();
-          // Don't touch _isLoading
-        });
-      }
-    } catch (e) {
-      print('Error silently refreshing instances: $e');
     }
   }
 
@@ -1649,17 +1633,51 @@ class _TaskPageState extends State<TaskPage> {
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
 
-      // Don't call setState before database update
-      // Let ReorderableList handle the drag animation
+      // Adjust newIndex for the case where we're moving down
+      int adjustedNewIndex = newIndex;
+      if (oldIndex < newIndex) {
+        adjustedNewIndex -= 1;
+      }
+
+      // Get the item being moved
+      final movedItem = reorderedItems.removeAt(oldIndex);
+      reorderedItems.insert(adjustedNewIndex, movedItem);
+
+      // OPTIMISTIC UI UPDATE: Update local state immediately
+      // Update order values in _taskInstances
+      for (int i = 0; i < reorderedItems.length; i++) {
+        final instance = reorderedItems[i];
+
+        // Create updated instance with new tasks order
+        final updatedData = Map<String, dynamic>.from(instance.snapshotData);
+        updatedData['tasksOrder'] = i;
+        final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
+          updatedData,
+          instance.reference,
+        );
+
+        // Update in _taskInstances
+        final taskIndex = _taskInstances
+            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+        if (taskIndex != -1) {
+          _taskInstances[taskIndex] = updatedInstance;
+        }
+      }
+
+      // Trigger setState to update UI immediately (eliminates twitch)
+      if (mounted) {
+        setState(() {
+          // State is already updated above
+        });
+      }
+
+      // Perform database update in background
       await InstanceOrderService.reorderInstancesInSection(
         reorderedItems,
         'tasks',
         oldIndex,
         newIndex,
       );
-
-      // Silent refresh - no loading indicator
-      await _silentRefreshInstances();
 
       print('TaskPage: Reordered items in section $sectionKey');
     } catch (e) {

@@ -203,52 +203,18 @@ class ActivityInstanceService {
       print(
           'ActivityInstanceService: Found ${allInstances.length} total task instances (all statuses)');
 
-      // Group instances by templateId, prioritizing pending over completed
-      final Map<String, ActivityInstanceRecord> earliestInstances = {};
-      for (final instance in allInstances) {
-        final templateId = instance.templateId;
-        if (!earliestInstances.containsKey(templateId)) {
-          earliestInstances[templateId] = instance;
-        } else {
-          final existing = earliestInstances[templateId]!;
-
-          // Prioritize pending instances over completed/skipped
-          if (existing.status != 'pending' && instance.status == 'pending') {
-            earliestInstances[templateId] = instance;
-          } else if (existing.status == 'pending' &&
-              instance.status != 'pending') {
-            continue; // Keep pending, skip completed/skipped
-          } else if (existing.status == instance.status) {
-            // Same status: compare by due date (keep earliest)
-            if (instance.dueDate == null && existing.dueDate == null) {
-              continue;
-            } else if (instance.dueDate == null) {
-              continue;
-            } else if (existing.dueDate == null) {
-              earliestInstances[templateId] = instance;
-            } else {
-              if (instance.dueDate!.isBefore(existing.dueDate!)) {
-                earliestInstances[templateId] = instance;
-              }
-            }
-          }
-        }
-      }
-
-      final finalInstanceList = earliestInstances.values.toList();
-
-      // Sort: instances with due dates first (oldest first), then nulls last
-      finalInstanceList.sort((a, b) {
+      // Sort by due date (oldest first, nulls last)
+      allInstances.sort((a, b) {
         if (a.dueDate == null && b.dueDate == null) return 0;
-        if (a.dueDate == null) return 1; // a goes after b
-        if (b.dueDate == null) return -1; // a goes before b
+        if (a.dueDate == null) return 1;
+        if (b.dueDate == null) return -1;
         return a.dueDate!.compareTo(b.dueDate!);
       });
 
       print(
-          'ActivityInstanceService: Returning ${finalInstanceList.length} unique task instances (all statuses)');
+          'ActivityInstanceService: Returning ${allInstances.length} task instances (all statuses)');
 
-      return finalInstanceList;
+      return allInstances;
     } catch (e) {
       print('Error getting all task instances: $e');
       return [];
@@ -1193,7 +1159,7 @@ class ActivityInstanceService {
     }
   }
 
-  /// Toggle timer for time tracking
+  /// Toggle timer for time tracking using session-based logic
   static Future<void> toggleInstanceTimer({
     required String instanceId,
     String? userId,
@@ -1212,30 +1178,53 @@ class ActivityInstanceService {
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
 
-      if (instance.isTimerActive && instance.timerStartTime != null) {
-        // Stop timer - calculate elapsed time and add to accumulated
-        final elapsed = now.difference(instance.timerStartTime!).inMilliseconds;
-        final newAccumulated = instance.accumulatedTime + elapsed;
+      if (instance.isTimeLogging && instance.currentSessionStartTime != null) {
+        // Stop timer - create session and add to timeLogSessions
+        final elapsed =
+            now.difference(instance.currentSessionStartTime!).inMilliseconds;
+
+        // Create new session
+        final newSession = {
+          'startTime': instance.currentSessionStartTime!,
+          'endTime': now,
+          'durationMilliseconds': elapsed,
+        };
+
+        // Get existing sessions and add new one
+        final existingSessions =
+            List<Map<String, dynamic>>.from(instance.timeLogSessions);
+        existingSessions.add(newSession);
+
+        // Calculate total cumulative time
+        final totalTime = existingSessions.fold<int>(0,
+            (sum, session) => sum + (session['durationMilliseconds'] as int));
 
         final updateData = <String, dynamic>{
-          'isTimerActive': false,
-          'timerStartTime': null,
-          'accumulatedTime': newAccumulated,
+          'isTimerActive': false, // Legacy field
+          'timerStartTime': null, // Legacy field
+          'isTimeLogging': false, // Session field
+          'currentSessionStartTime': null, // Session field
+          'timeLogSessions': existingSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime, // Keep legacy field updated
+          'currentValue': totalTime,
           'lastUpdated': now,
         };
 
         // For windowed habits, update lastDayValue to track differential progress
         if (instance.templateCategoryType == 'habit' &&
             instance.windowDuration > 1) {
-          updateData['lastDayValue'] = newAccumulated;
+          updateData['lastDayValue'] = totalTime;
         }
 
         await instanceRef.update(updateData);
       } else {
-        // Start timer
+        // Start timer - set session tracking fields
         await instanceRef.update({
-          'isTimerActive': true,
-          'timerStartTime': now,
+          'isTimerActive': true, // Legacy field
+          'timerStartTime': now, // Legacy field
+          'isTimeLogging': true, // Session field
+          'currentSessionStartTime': now, // Session field
           'lastUpdated': now,
         });
       }
