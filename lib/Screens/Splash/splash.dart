@@ -4,18 +4,14 @@ import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/main.dart';
-
 class Splash extends StatefulWidget {
   const Splash({super.key});
-
   @override
   State<StatefulWidget> createState() => _SplashState();
 }
-
 class _SplashState extends State<Splash> {
   final SharedPref sharedPref = SharedPref();
   String appVersion = "";
-
   @override
   void initState() {
     super.initState();
@@ -30,12 +26,10 @@ class _SplashState extends State<Splash> {
       }
     });
   }
-
   startTime() async {
     var duration = const Duration(seconds: 3);
     return Timer(duration, navigationPage);
   }
-
   Future<void> navigationPage() async {
     sharedPref.read(SharedPreference.name.sUserDetails).then((value1) {
       if (mounted) {
@@ -48,7 +42,6 @@ class _SplashState extends State<Splash> {
       }
     });
   }
-
   @override
   Widget build(BuildContext context) {
     return Container(

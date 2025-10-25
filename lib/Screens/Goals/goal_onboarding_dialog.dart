@@ -3,29 +3,23 @@ import 'package:habit_tracker/Helper/backend/schema/goal_record.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
-
 /// Onboarding goal dialog for new users to set their first goal
 /// Provides three options: Fill & Save, Do It Later, or Skip
 class GoalOnboardingDialog extends StatefulWidget {
   const GoalOnboardingDialog({super.key});
-
   @override
   State<GoalOnboardingDialog> createState() => _GoalOnboardingDialogState();
 }
-
 class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
   bool _isSaving = false;
-
   // Form controllers
   final _whatController = TextEditingController();
   final _byWhenController = TextEditingController();
   final _whyController = TextEditingController();
   final _howController = TextEditingController();
   final _avoidController = TextEditingController();
-
   // Form key for validation
   final _formKey = GlobalKey<FormState>();
-
   @override
   void dispose() {
     _whatController.dispose();
@@ -35,16 +29,13 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
     _avoidController.dispose();
     super.dispose();
   }
-
   Future<void> _saveGoal() async {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-
     setState(() {
       _isSaving = true;
     });
-
     try {
       final goalData = createGoalRecordData(
         whatToAchieve: _whatController.text.trim(),
@@ -57,19 +48,15 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
         lastUpdated: DateTime.now(),
         isActive: true,
       );
-
       final goal = GoalRecord.getDocumentFromData(
         goalData,
         GoalRecord.collectionForUser(users.uid ?? '').doc(),
       );
-
       await GoalService.saveGoal(users.uid ?? '', goal);
       await GoalService.markOnboardingCompleted(users.uid ?? '');
-
       setState(() {
         _isSaving = false;
       });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -80,11 +67,9 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
         Navigator.of(context).pop();
       }
     } catch (e) {
-      print('GoalOnboardingDialog: Error saving goal: $e');
       setState(() {
         _isSaving = false;
       });
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -95,21 +80,17 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
       }
     }
   }
-
   Future<void> _doItLater() async {
     Navigator.of(context).pop();
   }
-
   Future<void> _skip() async {
     try {
       await GoalService.markOnboardingSkipped(users.uid ?? '');
       Navigator.of(context).pop();
     } catch (e) {
-      print('GoalOnboardingDialog: Error marking as skipped: $e');
       Navigator.of(context).pop();
     }
   }
-
   Widget _buildFormField({
     required String label,
     required String helperText,
@@ -118,7 +99,6 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
     int maxLines = 1,
   }) {
     final theme = FlutterFlowTheme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -145,11 +125,9 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
       ],
     );
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(
@@ -193,7 +171,6 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
               ],
             ),
             const SizedBox(height: 24),
-
             // Form
             Expanded(
               child: Container(
@@ -272,9 +249,7 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
                 ),
               ),
             ),
-
             const SizedBox(height: 24),
-
             // Action buttons
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceEvenly,

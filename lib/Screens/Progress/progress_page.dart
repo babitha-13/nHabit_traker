@@ -6,30 +6,28 @@ import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Screens/Progress/progress_breakdown_dialog.dart';
+import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:flutter/foundation.dart';
-
 class ProgressPage extends StatefulWidget {
   const ProgressPage({Key? key}) : super(key: key);
-
   @override
   State<ProgressPage> createState() => _ProgressPageState();
 }
-
 class _ProgressPageState extends State<ProgressPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   List<DailyProgressRecord> _progressHistory = [];
   bool _isLoading = true;
-
   // Live today's progress data
   double _todayTarget = 0.0;
   double _todayEarned = 0.0;
   double _todayPercentage = 0.0;
-
   @override
   void initState() {
     super.initState();
     _loadProgressHistory();
-
     // Listen for today's progress updates from Queue page
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
       if (mounted) {
@@ -41,28 +39,164 @@ class _ProgressPageState extends State<ProgressPage> {
         });
       }
     });
-
     // Load initial today's progress
     _loadInitialTodayProgress();
   }
-
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
     super.dispose();
   }
-
+  void _showProgressBreakdown(BuildContext context, DateTime date) {
+    // Check if it's today
+    final today = DateService.currentDate;
+    if (_isSameDay(date, today)) {
+      // Use live data from shared state
+      _showTodayBreakdown(context);
+    } else {
+      // Use historical data
+      _showHistoricalBreakdown(context, date);
+    }
+  }
+  void _showTodayBreakdown(BuildContext context) {
+    // For today, we need to calculate the breakdown using the current data
+    // This would require calling the daily progress calculator
+    // For now, show a placeholder
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Today\'s Progress'),
+        content: const Text('Today\'s breakdown feature coming soon!'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('OK'),
+          ),
+        ],
+      ),
+    );
+  }
+  void _showHistoricalBreakdown(BuildContext context, DateTime date) {
+    final dayData = _getProgressForDate(date);
+    if (dayData == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('No data available for this date')),
+      );
+      return;
+    }
+    // Debug logging
+    print('ProgressPage: Showing breakdown for ${date.toIso8601String()}');
+    if (dayData.habitBreakdown.isNotEmpty) {
+    }
+    if (dayData.taskBreakdown.isNotEmpty) {
+    }
+    // If no breakdown data exists, calculate it on-demand
+    if (dayData.habitBreakdown.isEmpty && dayData.taskBreakdown.isEmpty) {
+      _showCalculatedBreakdown(context, date, dayData);
+    } else {
+      showDialog(
+        context: context,
+        builder: (context) => ProgressBreakdownDialog(
+          date: date,
+          totalEarned: dayData.earnedPoints,
+          totalTarget: dayData.targetPoints,
+          percentage: dayData.completionPercentage,
+          habitBreakdown: dayData.habitBreakdown,
+          taskBreakdown: dayData.taskBreakdown,
+        ),
+      );
+    }
+  }
+  void _showCalculatedBreakdown(
+      BuildContext context, DateTime date, DailyProgressRecord dayData) {
+    // Show loading dialog while calculating
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Calculating breakdown...'),
+          ],
+        ),
+      ),
+    );
+    // Calculate breakdown on-demand
+    _calculateBreakdownForDate(date).then((breakdown) {
+      Navigator.of(context).pop(); // Close loading dialog
+      showDialog(
+        context: context,
+        builder: (context) => ProgressBreakdownDialog(
+          date: date,
+          totalEarned: dayData.earnedPoints,
+          totalTarget: dayData.targetPoints,
+          percentage: dayData.completionPercentage,
+          habitBreakdown: breakdown['habitBreakdown'] ?? [],
+          taskBreakdown: breakdown['taskBreakdown'] ?? [],
+        ),
+      );
+    }).catchError((error) {
+      Navigator.of(context).pop(); // Close loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error calculating breakdown: $error')),
+      );
+    });
+  }
+  Future<Map<String, dynamic>> _calculateBreakdownForDate(DateTime date) async {
+    try {
+      final userId = currentUserUid;
+      // Get all habit instances for the date
+      final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit');
+      final habitSnapshot = await habitQuery.get();
+      final allHabits = habitSnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      // Get all task instances for the date
+      final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'task');
+      final taskSnapshot = await taskQuery.get();
+      final allTasks = taskSnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      // Get categories
+      final categoryQuery = CategoryRecord.collectionForUser(userId)
+          .where('categoryType', isEqualTo: 'habit');
+      final categorySnapshot = await categoryQuery.get();
+      final categories = categorySnapshot.docs
+          .map((doc) => CategoryRecord.fromSnapshot(doc))
+          .toList();
+      // Calculate breakdown using the daily progress calculator
+      final result = await DailyProgressCalculator.calculateDailyProgress(
+        userId: userId,
+        targetDate: date,
+        allInstances: allHabits,
+        categories: categories,
+        taskInstances: allTasks,
+      );
+      return {
+        'habitBreakdown':
+            result['habitBreakdown'] as List<Map<String, dynamic>>? ?? [],
+        'taskBreakdown':
+            result['taskBreakdown'] as List<Map<String, dynamic>>? ?? [],
+      };
+    } catch (e) {
+      return {
+        'habitBreakdown': <Map<String, dynamic>>[],
+        'taskBreakdown': <Map<String, dynamic>>[],
+      };
+    }
+  }
   Future<void> _loadProgressHistory() async {
     if (!mounted) return;
-
     setState(() {
       _isLoading = true;
     });
-
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
-        print('ProgressPage: No authenticated user');
         if (mounted) {
           setState(() {
             _isLoading = false;
@@ -70,31 +204,24 @@ class _ProgressPageState extends State<ProgressPage> {
         }
         return;
       }
-
       // Load last 90 days of progress data to match heat map range
       final endDate = DateService.currentDate;
       final startDate = endDate.subtract(const Duration(days: 90));
-
       final query = await DailyProgressRecord.collectionForUser(userId)
           .where('date', isGreaterThanOrEqualTo: startDate)
           .where('date', isLessThanOrEqualTo: endDate)
           .orderBy('date', descending: true)
           .get();
-
       final progressData = query.docs
           .map((doc) => DailyProgressRecord.fromSnapshot(doc))
           .toList();
-
       if (mounted) {
         setState(() {
           _progressHistory = progressData;
           _isLoading = false;
         });
       }
-
-      print('ProgressPage: Loaded ${_progressHistory.length} progress records');
     } catch (e) {
-      print('ProgressPage: Error loading progress history: $e');
       if (mounted) {
         setState(() {
           _isLoading = false;
@@ -102,7 +229,6 @@ class _ProgressPageState extends State<ProgressPage> {
       }
     }
   }
-
   void _loadInitialTodayProgress() {
     final data = TodayProgressState().getProgressData();
     setState(() {
@@ -111,9 +237,7 @@ class _ProgressPageState extends State<ProgressPage> {
       _todayPercentage = data['percentage']!;
     });
   }
-
   // Removed manual progress generation to avoid unintended side effects.
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -161,7 +285,6 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
-
   Widget _buildProgressContent() {
     // Show content even if no historical data - we have today's live progress
     return SingleChildScrollView(
@@ -176,20 +299,16 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
-
   // Removed _buildEmptyState - we always show progress (at least today's live data)
-
   Widget _buildSummaryCards() {
     final last7Days = _getLastNDays(7);
     final last30Days = _getLastNDays(30);
-
     final avg7Day = _calculateAveragePercentage(last7Days);
     final avg30Day = _calculateAveragePercentage(last30Days);
     final avg7DayTarget = _calculateAverageTarget(last7Days);
     final avg7DayEarned = _calculateAverageEarned(last7Days);
     final avg30DayTarget = _calculateAverageTarget(last30Days);
     final avg30DayEarned = _calculateAverageEarned(last30Days);
-
     return Row(
       children: [
         Expanded(
@@ -214,7 +333,6 @@ class _ProgressPageState extends State<ProgressPage> {
       ],
     );
   }
-
   Widget _buildSummaryCard(
       String title, String value, String subtitle, IconData icon, Color color) {
     return Container(
@@ -261,11 +379,9 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
-
   Widget _buildTrendChart() {
     // Get last 7 days of progress data
     final last7Days = _getLastNDays(7);
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -295,19 +411,16 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
-
   // Helper methods
   List<DailyProgressRecord> _getLastNDays(int n) {
     final endDate = DateService.currentDate;
     final startDate = endDate.subtract(Duration(days: n));
-
     return _progressHistory.where((record) {
       if (record.date == null) return false;
       return record.date!.isAfter(startDate) &&
           record.date!.isBefore(endDate.add(const Duration(days: 1)));
     }).toList();
   }
-
   double _calculateAveragePercentage(List<DailyProgressRecord> records) {
     if (records.isEmpty) {
       // If no historical data, return today's percentage
@@ -320,7 +433,6 @@ class _ProgressPageState extends State<ProgressPage> {
     final count = records.length + 1; // +1 for today
     return total / count;
   }
-
   double _calculateAverageTarget(List<DailyProgressRecord> records) {
     if (records.isEmpty) {
       // If no historical data, return today's target
@@ -333,7 +445,6 @@ class _ProgressPageState extends State<ProgressPage> {
     final count = records.length + 1; // +1 for today
     return total / count;
   }
-
   double _calculateAverageEarned(List<DailyProgressRecord> records) {
     if (records.isEmpty) {
       // If no historical data, return today's earned
@@ -346,17 +457,14 @@ class _ProgressPageState extends State<ProgressPage> {
     final count = records.length + 1; // +1 for today
     return total / count;
   }
-
   Color _getPerformanceColor(double percentage) {
     if (percentage < 30) return Colors.red;
     if (percentage < 70) return Colors.orange;
     return Colors.green;
   }
-
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
-
   // Get progress data for a specific date
   DailyProgressRecord? _getProgressForDate(DateTime date) {
     final normalizedDate = DateTime(date.year, date.month, date.day);
@@ -369,18 +477,15 @@ class _ProgressPageState extends State<ProgressPage> {
       return null;
     }
   }
-
   // Build 7-day column chart
   Widget _build7DayColumnChart(List<DailyProgressRecord> data) {
     // Don't show empty state - we always have today's live data
     // Create data for last 7 days (including today)
     final List<Map<String, dynamic>> chartData = [];
     final today = DateService.currentDate;
-
     for (int i = 6; i >= 0; i--) {
       final date = today.subtract(Duration(days: i));
       final isToday = _isSameDay(date, today);
-
       if (isToday) {
         // Use live data from shared state
         chartData.add({
@@ -402,14 +507,12 @@ class _ProgressPageState extends State<ProgressPage> {
         });
       }
     }
-
     // Find max target for scaling
     final maxTarget = chartData
         .map((d) => d['target'] as double)
         .reduce((a, b) => a > b ? a : b);
     final maxHeight =
         maxTarget > 0 ? maxTarget : 100.0; // Fallback to 100 if no data
-
     return Column(
       children: [
         // Chart area
@@ -422,12 +525,10 @@ class _ProgressPageState extends State<ProgressPage> {
               final earned = dayData['earned'] as double;
               final percentage = dayData['percentage'] as double;
               final dayName = dayData['dayName'] as String;
-
               // Calculate heights
               final targetHeight = (target / maxHeight) * 100;
               final earnedHeight =
                   target > 0 ? (earned / target) * targetHeight : 0.0;
-
               return Expanded(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 2),
@@ -435,29 +536,33 @@ class _ProgressPageState extends State<ProgressPage> {
                     children: [
                       // Column
                       Expanded(
-                        child: Stack(
-                          alignment: Alignment.bottomCenter,
-                          children: [
-                            // Target bar (background)
-                            Container(
-                              width: 20,
-                              height: targetHeight,
-                              decoration: BoxDecoration(
-                                color: FlutterFlowTheme.of(context).alternate,
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                            ),
-                            // Earned bar (foreground)
-                            if (earnedHeight > 0)
+                        child: GestureDetector(
+                          onTap: () => _showProgressBreakdown(
+                              context, dayData['date'] as DateTime),
+                          child: Stack(
+                            alignment: Alignment.bottomCenter,
+                            children: [
+                              // Target bar (background)
                               Container(
                                 width: 20,
-                                height: earnedHeight,
+                                height: targetHeight,
                                 decoration: BoxDecoration(
-                                  color: _getPerformanceColor(percentage),
+                                  color: FlutterFlowTheme.of(context).alternate,
                                   borderRadius: BorderRadius.circular(10),
                                 ),
                               ),
-                          ],
+                              // Earned bar (foreground)
+                              if (earnedHeight > 0)
+                                Container(
+                                  width: 20,
+                                  height: earnedHeight,
+                                  decoration: BoxDecoration(
+                                    color: _getPerformanceColor(percentage),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 8),
@@ -532,7 +637,6 @@ class _ProgressPageState extends State<ProgressPage> {
       ],
     );
   }
-
   String _getDayName(DateTime date) {
     final now = DateService.currentDate;
     if (_isSameDay(date, now)) {
@@ -545,26 +649,20 @@ class _ProgressPageState extends State<ProgressPage> {
     }
   }
 }
-
 /// Custom painter for simple line chart
 class LineChartPainter extends CustomPainter {
   final List<DailyProgressRecord> data;
-
   LineChartPainter(this.data);
-
   @override
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
-
     final paint = Paint()
       ..color = Colors.blue
       ..strokeWidth = 2.0
       ..style = PaintingStyle.stroke;
-
     final points = <Offset>[];
     final maxValue = 100.0; // Percentage max
     final minValue = 0.0;
-
     for (int i = 0; i < data.length; i++) {
       final x = (i / (data.length - 1)) * size.width;
       final y = size.height -
@@ -572,22 +670,18 @@ class LineChartPainter extends CustomPainter {
               size.height;
       points.add(Offset(x, y));
     }
-
     // Draw line
     for (int i = 0; i < points.length - 1; i++) {
       canvas.drawLine(points[i], points[i + 1], paint);
     }
-
     // Draw points
     final pointPaint = Paint()
       ..color = Colors.blue
       ..style = PaintingStyle.fill;
-
     for (final point in points) {
       canvas.drawCircle(point, 3, pointPaint);
     }
   }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

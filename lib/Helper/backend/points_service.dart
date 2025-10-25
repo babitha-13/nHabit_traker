@@ -2,7 +2,6 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/task_instance_record.dart';
-
 /// Service for calculating fractional points and daily targets for habit tracking
 class PointsService {
   /// Convert period type to number of days
@@ -21,7 +20,6 @@ class PointsService {
         return 7; // Default to weekly
     }
   }
-
   /// Calculate the daily target points for a single habit instance
   /// Returns the expected daily points based on frequency and importance
   static double calculateDailyTarget(
@@ -29,13 +27,10 @@ class PointsService {
     CategoryRecord category,
   ) {
     final habitPriority = instance.templatePriority.toDouble();
-
     // Calculate daily frequency based on template configuration
     final dailyFrequency = _calculateDailyFrequency(instance);
-
     return dailyFrequency * habitPriority;
   }
-
   /// Calculate daily target with template data (enhanced version)
   /// Use this when you have access to the template data
   static double calculateDailyTargetWithTemplate(
@@ -44,13 +39,10 @@ class PointsService {
     ActivityRecord template,
   ) {
     final habitPriority = instance.templatePriority.toDouble();
-
     // Calculate daily frequency from template data
     final dailyFrequency = calculateDailyFrequencyFromTemplate(template);
-
     return dailyFrequency * habitPriority;
   }
-
   /// Calculate daily frequency for a habit instance
   /// Returns the expected daily frequency (e.g., 0.5 for every 2 days)
   static double _calculateDailyFrequency(ActivityInstanceRecord instance) {
@@ -62,7 +54,6 @@ class PointsService {
           (periodDays / periodTypeToDays('daily'));
       return frequency;
     }
-
     // Handle "times per period" pattern
     if (instance.templateTimesPerPeriod > 0 &&
         instance.templatePeriodType.isNotEmpty) {
@@ -70,11 +61,9 @@ class PointsService {
       final frequency = (instance.templateTimesPerPeriod / periodDays);
       return frequency;
     }
-
     // Default: daily habit (1 time per day)
     return 1.0;
   }
-
   /// Calculate daily frequency from template data
   /// This method can be used when template data is available
   static double calculateDailyFrequencyFromTemplate(ActivityRecord template) {
@@ -85,18 +74,15 @@ class PointsService {
           (periodDays / periodTypeToDays('daily'));
       return frequency;
     }
-
     // Handle "times per period" pattern
     if (template.timesPerPeriod > 0 && template.periodType.isNotEmpty) {
       final periodDays = periodTypeToDays(template.periodType);
       final frequency = (template.timesPerPeriod / periodDays);
       return frequency;
     }
-
     // Default: daily habit (1 time per day)
     return 1.0;
   }
-
   /// Calculate points earned for a single habit instance
   /// Returns fractional points based on completion percentage
   static double calculatePointsEarned(
@@ -104,41 +90,43 @@ class PointsService {
     CategoryRecord category,
   ) {
     final habitPriority = instance.templatePriority.toDouble();
-
     switch (instance.templateTrackingType) {
       case 'binary':
-        // Binary habits: full points if completed, 0 if not
-        return instance.status == 'completed' ? habitPriority : 0.0;
-
+        // Binary habits: use counter if available, otherwise status
+        final count = instance.currentValue ?? 0;
+        final countValue = (count is num ? count.toDouble() : 0.0);
+        if (countValue > 0) {
+          // Has counter: calculate proportional points (counter / target)
+          final target = instance.templateTarget ?? 1;
+          return (countValue / target).clamp(0.0, 1.0) * habitPriority;
+        } else if (instance.status == 'completed') {
+          // No counter but completed: full points (backward compatibility)
+          return habitPriority;
+        } else {
+          return 0.0;
+        }
       case 'quantitative':
         // Quantitative habits: points based on progress percentage
         if (instance.status == 'completed') {
           return habitPriority;
         }
-
         final currentValue = _getCurrentValue(instance);
         final target = _getTargetValue(instance);
-
         if (target <= 0) return 0.0;
-
         // For windowed habits, use differential progress (today's contribution)
         if (instance.templateCategoryType == 'habit' &&
             instance.windowDuration > 1) {
           final lastDayValue = _getLastDayValue(instance);
           final todayContribution = currentValue - lastDayValue;
-
           // For windowed habits, calculate progress as fraction of total target
           // Each increment should contribute proportionally to the total target
           if (target <= 0) return 0.0;
-
           final progressFraction = (todayContribution / target).clamp(0.0, 1.0);
           return progressFraction * habitPriority;
         }
-
         // For non-windowed habits, use total progress
         final completionFraction = (currentValue / target).clamp(0.0, 1.0);
         return completionFraction * habitPriority;
-
       case 'time':
         // Time-based habits: points based on accumulated time vs target
         if (instance.status == 'completed') {
@@ -147,63 +135,50 @@ class PointsService {
               _calculateDurationMultiplier(targetMinutes);
           return habitPriority * durationMultiplier;
         }
-
         final accumulatedTime = instance.accumulatedTime;
         final targetMinutes = _getTargetValue(instance);
         final targetMs =
             targetMinutes * 60000; // Convert minutes to milliseconds
-
         if (targetMs <= 0) return 0.0;
-
         // For windowed habits, use differential progress (today's contribution)
         if (instance.templateCategoryType == 'habit' &&
             instance.windowDuration > 1) {
           final lastDayValue = _getLastDayValue(instance);
           final todayContribution = accumulatedTime - lastDayValue;
-
           // For windowed habits, calculate progress as fraction of total target
           // Each increment should contribute proportionally to the total target
           if (targetMs <= 0) return 0.0;
-
           final progressFraction =
               (todayContribution / targetMs).clamp(0.0, 1.0);
           final durationMultiplier =
               _calculateDurationMultiplier(targetMinutes);
           return progressFraction * habitPriority * durationMultiplier;
         }
-
         // For non-windowed habits, use total progress
         final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
         final durationMultiplier = _calculateDurationMultiplier(targetMinutes);
         return completionFraction * habitPriority * durationMultiplier;
-
       default:
         return 0.0;
     }
   }
-
   /// Calculate total daily target for all habit instances
   static double calculateTotalDailyTarget(
     List<ActivityInstanceRecord> instances,
     List<CategoryRecord> categories,
   ) {
     double totalTarget = 0.0;
-
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
-
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) {
         continue;
       }
-
       final target = calculateDailyTarget(instance, category);
       totalTarget += target;
     }
-
     return totalTarget;
   }
-
   /// Calculate total daily target with template data (enhanced version)
   /// Use this when you have access to template data for accurate frequency calculation
   static Future<double> calculateTotalDailyTargetWithTemplates(
@@ -212,19 +187,15 @@ class PointsService {
     String userId,
   ) async {
     double totalTarget = 0.0;
-
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
-
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) continue;
-
       try {
         // Fetch template data for accurate frequency calculation
         final templateRef =
             ActivityRecord.collectionForUser(userId).doc(instance.templateId);
         final template = await ActivityRecord.getDocumentOnce(templateRef);
-
         totalTarget +=
             calculateDailyTargetWithTemplate(instance, category, template);
       } catch (e) {
@@ -232,32 +203,25 @@ class PointsService {
         totalTarget += calculateDailyTarget(instance, category);
       }
     }
-
     return totalTarget;
   }
-
   /// Calculate total points earned for all habit instances
   static double calculateTotalPointsEarned(
     List<ActivityInstanceRecord> instances,
     List<CategoryRecord> categories,
   ) {
     double totalPoints = 0.0;
-
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
-
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) {
         continue;
       }
-
       final points = calculatePointsEarned(instance, category);
       totalPoints += points;
     }
-
     return totalPoints;
   }
-
   /// Calculate daily performance percentage
   /// Returns percentage (0-100+) of daily target achieved
   static double calculateDailyPerformancePercent(
@@ -265,12 +229,10 @@ class PointsService {
     double totalTarget,
   ) {
     if (totalTarget <= 0) return 0.0;
-
     final percentage = (pointsEarned / totalTarget) * 100.0;
     return percentage.clamp(
         0.0, double.infinity); // Allow >100% for overachievement
   }
-
   /// Helper method to get current value from instance
   static double _getCurrentValue(ActivityInstanceRecord instance) {
     final value = instance.currentValue;
@@ -278,7 +240,6 @@ class PointsService {
     if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
   }
-
   /// Helper method to get target value from instance
   static double _getTargetValue(ActivityInstanceRecord instance) {
     final target = instance.templateTarget;
@@ -286,7 +247,6 @@ class PointsService {
     if (target is String) return double.tryParse(target) ?? 0.0;
     return 0.0;
   }
-
   /// Helper method to get last day value from instance (for differential progress)
   static double _getLastDayValue(ActivityInstanceRecord instance) {
     final value = instance.lastDayValue;
@@ -294,7 +254,6 @@ class PointsService {
     if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
   }
-
   /// Helper method to find category for an instance
   static CategoryRecord? _findCategoryForInstance(
     ActivityInstanceRecord instance,
@@ -307,62 +266,49 @@ class PointsService {
           (cat) => cat.reference.id == instance.templateCategoryId,
         );
       }
-
       // Fallback: try to find by category name
       if (instance.templateCategoryName.isNotEmpty) {
         return categories.firstWhere(
           (cat) => cat.name == instance.templateCategoryName,
         );
       }
-
       return null;
     } catch (e) {
       return null;
     }
   }
-
   // ==================== TASK POINT CALCULATIONS ====================
-
   /// Calculate the daily target points for a single task instance
   /// For tasks: target = priority (no category weightage)
   /// For time-based tasks: target = priority × duration multiplier
   static double calculateTaskDailyTarget(TaskInstanceRecord instance) {
     final priority = instance.templatePriority.toDouble();
-
     // For time-based tasks, multiply by duration blocks
     if (instance.templateTrackingType == 'time') {
       final targetMinutes = _getTaskTargetValue(instance);
       final durationMultiplier = _calculateDurationMultiplier(targetMinutes);
       return priority * durationMultiplier;
     }
-
     return priority;
   }
-
   /// Calculate points earned for a single task instance
   /// Returns fractional points based on completion percentage
   static double calculateTaskPointsEarned(TaskInstanceRecord instance) {
     final priority = instance.templatePriority.toDouble();
-
     switch (instance.templateTrackingType) {
       case 'binary':
         // Binary tasks: full points if completed, 0 if not
         return instance.status == 'completed' ? priority : 0.0;
-
       case 'quantitative':
         // Quantitative tasks: points based on progress percentage
         if (instance.status == 'completed') {
           return priority;
         }
-
         final currentValue = _getTaskCurrentValue(instance);
         final target = _getTaskTargetValue(instance);
-
         if (target <= 0) return 0.0;
-
         final completionFraction = (currentValue / target).clamp(0.0, 1.0);
         return completionFraction * priority;
-
       case 'time':
         // Time-based tasks: points based on accumulated time vs target
         if (instance.status == 'completed') {
@@ -371,47 +317,36 @@ class PointsService {
               _calculateDurationMultiplier(targetMinutes);
           return priority * durationMultiplier;
         }
-
         final accumulatedTime = instance.accumulatedTime;
         final targetMinutes = _getTaskTargetValue(instance);
         final targetMs =
             targetMinutes * 60000; // Convert minutes to milliseconds
-
         if (targetMs <= 0) return 0.0;
-
         final completionFraction = (accumulatedTime / targetMs).clamp(0.0, 1.0);
         final durationMultiplier = _calculateDurationMultiplier(targetMinutes);
         return completionFraction * priority * durationMultiplier;
-
       default:
         return 0.0;
     }
   }
-
   /// Calculate total daily target for all task instances
   static double calculateTotalTaskTarget(List<TaskInstanceRecord> instances) {
     double totalTarget = 0.0;
-
     for (final instance in instances) {
       final target = calculateTaskDailyTarget(instance);
       totalTarget += target;
     }
-
     return totalTarget;
   }
-
   /// Calculate total points earned for all task instances
   static double calculateTotalTaskPoints(List<TaskInstanceRecord> instances) {
     double totalPoints = 0.0;
-
     for (final instance in instances) {
       final points = calculateTaskPointsEarned(instance);
       totalPoints += points;
     }
-
     return totalPoints;
   }
-
   /// Helper method to get current value from task instance
   static double _getTaskCurrentValue(TaskInstanceRecord instance) {
     final value = instance.currentValue;
@@ -419,7 +354,6 @@ class PointsService {
     if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
   }
-
   /// Helper method to get target value from task instance
   static double _getTaskTargetValue(TaskInstanceRecord instance) {
     final target = instance.templateTarget;
@@ -427,7 +361,6 @@ class PointsService {
     if (target is String) return double.tryParse(target) ?? 0.0;
     return 0.0;
   }
-
   /// Calculate duration multiplier based on target minutes
   /// Returns the number of 15-minute blocks, minimum 1
   static int _calculateDurationMultiplier(double targetMinutes) {
@@ -435,7 +368,6 @@ class PointsService {
     return (targetMinutes / 15).round().clamp(1, double.infinity).toInt();
   }
 }
-
 /// Example calculations for simplified point system:
 /// 
 /// Example 1: "Exercise" habit

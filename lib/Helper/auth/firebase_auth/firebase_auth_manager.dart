@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -12,7 +11,6 @@ import 'firebase_user_provider.dart';
 import 'google_auth.dart';
 import 'jwt_token_auth.dart';
 import 'github_auth.dart';
-
 export '../base_auth_user_provider.dart';
 
 class FirebasePhoneAuthManager extends ChangeNotifier {
@@ -24,14 +22,11 @@ class FirebasePhoneAuthManager extends ChangeNotifier {
   ConfirmationResult? webPhoneAuthConfirmationResult;
   // Used for handling verification codes for phone sign in.
   void Function(BuildContext)? _onCodeSent;
-
   bool get triggerOnCodeSent => _triggerOnCodeSent ?? false;
   set triggerOnCodeSent(bool val) => _triggerOnCodeSent = val;
-
   void Function(BuildContext) get onCodeSent =>
       _onCodeSent == null ? (_) {} : _onCodeSent!;
   set onCodeSent(void Function(BuildContext) func) => _onCodeSent = func;
-
   void update(VoidCallback callback) {
     callback();
     notifyListeners();
@@ -48,7 +43,6 @@ class FirebaseAuthManager extends AuthManager
         GithubSignInManager,
         PhoneSignInManager {
   FirebasePhoneAuthManager phoneAuthManager = FirebasePhoneAuthManager();
-
   @override
   Future signOut() {
     return FirebaseAuth.instance.signOut();
@@ -58,7 +52,6 @@ class FirebaseAuthManager extends AuthManager
   Future deleteUser(BuildContext context) async {
     try {
       if (!loggedIn) {
-        print('Error: delete user attempted with no logged in user!');
         return;
       }
       await currentUser?.delete();
@@ -81,7 +74,6 @@ class FirebaseAuthManager extends AuthManager
   }) async {
     try {
       if (!loggedIn) {
-        print('Error: update email attempted with no logged in user!');
         return;
       }
       await currentUser?.updateEmail(email);
@@ -98,14 +90,12 @@ class FirebaseAuthManager extends AuthManager
     }
   }
 
-  @override
   Future updatePassword({
     required String newPassword,
     required BuildContext context,
   }) async {
     try {
       if (!loggedIn) {
-        print('Error: update password attempted with no logged in user!');
         return;
       }
       await currentUser?.updatePassword(newPassword);
@@ -149,7 +139,6 @@ class FirebaseAuthManager extends AuthManager
         () => emailSignInFunc(email, password),
         'EMAIL',
       );
-
   @override
   Future<BaseAuthUser?> createAccountWithEmail(
     BuildContext context,
@@ -161,38 +150,31 @@ class FirebaseAuthManager extends AuthManager
         () => emailCreateAccountFunc(email, password),
         'EMAIL',
       );
-
   @override
   Future<BaseAuthUser?> signInAnonymously(
     BuildContext context,
   ) =>
       _signInOrCreateAccount(context, anonymousSignInFunc, 'ANONYMOUS');
-
   @override
   Future<BaseAuthUser?> signInWithApple(BuildContext context) =>
       _signInOrCreateAccount(context, appleSignIn, 'APPLE');
-
   @override
   Future<BaseAuthUser?> signInWithGoogle(BuildContext context) =>
       _signInOrCreateAccount(context, googleSignInFunc, 'GOOGLE');
-
   @override
   Future<BaseAuthUser?> signInWithGithub(BuildContext context) =>
       _signInOrCreateAccount(context, githubSignInFunc, 'GITHUB');
-
   @override
   Future<BaseAuthUser?> signInWithJwtToken(
     BuildContext context,
     String jwtToken,
   ) =>
       _signInOrCreateAccount(context, () => jwtTokenSignIn(jwtToken), 'JWT');
-
   void handlePhoneAuthStateChanges(BuildContext context) {
     phoneAuthManager.addListener(() {
       if (!context.mounted) {
         return;
       }
-
       if (phoneAuthManager.triggerOnCodeSent) {
         phoneAuthManager.onCodeSent(context);
         phoneAuthManager
@@ -261,7 +243,6 @@ class FirebaseAuthManager extends AuthManager
       },
       codeAutoRetrievalTimeout: (_) {},
     );
-
     return completer.future;
   }
 
@@ -297,36 +278,20 @@ class FirebaseAuthManager extends AuthManager
     String authProvider,
   ) async {
     try {
-      print('_signInOrCreateAccount: Starting with provider: $authProvider');
       final userCredential = await signInFunc();
-      print(
-          '_signInOrCreateAccount: UserCredential received: ${userCredential?.user?.uid}');
-
       if (userCredential?.user == null) {
-        print('_signInOrCreateAccount: No user in UserCredential');
         return null;
       }
-
       final user = userCredential!.user!;
-      print('_signInOrCreateAccount: User UID: ${user.uid}');
-      print('_signInOrCreateAccount: User email: ${user.email}');
-      print(
-          '_signInOrCreateAccount: User emailVerified: ${user.emailVerified}');
-
       await maybeCreateUser(user);
-      print('_signInOrCreateAccount: maybeCreateUser completed');
-
       return HabitTrackerFirebaseUser(user);
     } on FirebaseAuthException catch (e) {
-      print(
-          '_signInOrCreateAccount: FirebaseAuthException: ${e.code} - ${e.message}');
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: ${e.message!}')),
       );
       return null;
     } catch (e) {
-      print('_signInOrCreateAccount: General exception: $e');
       ScaffoldMessenger.of(context).hideCurrentSnackBar();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error: $e')),

@@ -9,8 +9,6 @@ import 'package:habit_tracker/Helper/utils/date_service.dart';
 /// Service for processing day-end operations on habits
 /// Auto-closes pending habits and creates daily progress snapshots
 class DayEndProcessor {
-  static const int _gracePeriodMinutes = 0; // not used with shifted boundary
-
   /// Process day-end for a specific user
   /// This should be called at the shifted boundary (2 AM local) or on app start
   static Future<void> processDayEnd({
@@ -19,24 +17,15 @@ class DayEndProcessor {
   }) async {
     // Use targetDate if provided, otherwise use latest processable shifted date
     final processDate = targetDate ?? DateService.latestProcessableShiftedDate;
-
-    print(
-        'DayEndProcessor: Processing day-end for user $userId, date: $processDate');
-
     try {
       // Step 1: Update lastDayValue for active windowed habits
       await _updateLastDayValues(userId, processDate);
-
       // Step 2: Create daily progress record BEFORE closing instances
       // This preserves the exact values shown in Queue page
       await _createDailyProgressRecord(userId, processDate);
-
       // Step 3: Close all open habit instances for the target date
       await _closeOpenHabitInstances(userId, processDate);
-
-      print('DayEndProcessor: Successfully processed day-end for $processDate');
     } catch (e) {
-      print('DayEndProcessor: Error processing day-end: $e');
       rethrow;
     }
   }
@@ -48,26 +37,18 @@ class DayEndProcessor {
   ) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     // Query active habit instances with windows that are still open
     final query = ActivityInstanceRecord.collectionForUser(userId)
         .where('templateCategoryType', isEqualTo: 'habit')
         .where('status', isEqualTo: 'pending')
         .where('windowEndDate', isGreaterThan: normalizedDate);
-
     final querySnapshot = await query.get();
     final instances = querySnapshot.docs
         .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
         .toList();
-
-    print(
-        'DayEndProcessor: Found ${instances.length} active windowed habits to update lastDayValue');
-
     if (instances.isEmpty) return;
-
     final batch = FirebaseFirestore.instance.batch();
     final now = DateTime.now();
-
     for (final instance in instances) {
       // Update lastDayValue to current value for next day's differential calculation
       final instanceRef = instance.reference;
@@ -75,14 +56,8 @@ class DayEndProcessor {
         'lastDayValue': instance.currentValue,
         'lastUpdated': now,
       });
-
-      print(
-          'DayEndProcessor: Updated lastDayValue for ${instance.templateName} to ${instance.currentValue}');
     }
-
     await batch.commit();
-    print(
-        'DayEndProcessor: Updated lastDayValue for ${instances.length} active windowed habits');
   }
 
   /// Close habit instances whose windows have expired
@@ -92,37 +67,22 @@ class DayEndProcessor {
   ) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     // Query habit instances where window has expired (windowEndDate <= targetDate) AND status is pending
     // For a daily habit: windowEndDate = 15th, should be closed when processing day-end on 15th (going into 16th)
     final query = ActivityInstanceRecord.collectionForUser(userId)
         .where('templateCategoryType', isEqualTo: 'habit')
         .where('status', isEqualTo: 'pending')
         .where('windowEndDate', isLessThanOrEqualTo: normalizedDate);
-
     final querySnapshot = await query.get();
     final instances = querySnapshot.docs
         .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
         .toList();
-
-    print(
-        'DayEndProcessor: Found ${instances.length} habit instances with expired windows for $normalizedDate');
-
     // Debug: Log each instance being processed
-    for (final instance in instances) {
-      print('DayEndProcessor: Processing instance ${instance.templateName}');
-      print('  - Instance ID: ${instance.reference.id}');
-      print('  - Due Date: ${instance.dueDate}');
-      print('  - Window End Date: ${instance.windowEndDate}');
-      print('  - Current Value: ${instance.currentValue}');
-      print('  - Status: ${instance.status}');
-    }
-
+    for (final instance in instances) {}
     final batch = FirebaseFirestore.instance.batch();
     // Use the targetDate being processed (normalizedDate) for skippedAt
     // With shifted boundary, Oct 15 window closes at Oct 16 2 AM
     final skippedAtDate = normalizedDate;
-
     for (final instance in instances) {
       // Mark as skipped (preserve currentValue for partial completions)
       final instanceRef = instance.reference;
@@ -131,21 +91,11 @@ class DayEndProcessor {
         'skippedAt': skippedAtDate, // Use the date being processed
         'lastUpdated': DateTime.now(), // Real time for audit trail
       });
-
-      print(
-          'DayEndProcessor: Marking instance ${instance.templateName} as skipped (window expired)');
-      print('  - Final currentValue: ${instance.currentValue}');
-      print('  - skippedAt will be set to: $skippedAtDate');
-      print('  - Will be marked as skipped with preserved value');
-
       // Generate next instance for this habit
       await _generateNextInstance(instance, userId, batch);
     }
-
     if (instances.isNotEmpty) {
       await batch.commit();
-      print(
-          'DayEndProcessor: Processed ${instances.length} expired habit instances');
     }
   }
 
@@ -161,21 +111,15 @@ class DayEndProcessor {
           instance.windowEndDate!.add(const Duration(days: 1));
       final nextWindowEndDate =
           nextBelongsToDate.add(Duration(days: instance.windowDuration - 1));
-
       // Check if instance already exists for this template and date
       final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateId', isEqualTo: instance.templateId)
           .where('belongsToDate', isEqualTo: nextBelongsToDate)
           .where('status', isEqualTo: 'pending');
-
       final existingInstances = await existingQuery.get();
-
       if (existingInstances.docs.isNotEmpty) {
-        print(
-            'DayEndProcessor: Instance already exists for ${instance.templateName} on $nextBelongsToDate, skipping creation');
         return;
       }
-
       // Create next instance data
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,
@@ -205,21 +149,11 @@ class DayEndProcessor {
         windowEndDate: nextWindowEndDate,
         windowDuration: instance.windowDuration,
       );
-
       // Add to batch
       final nextInstanceRef =
           ActivityInstanceRecord.collectionForUser(userId).doc();
       batch.set(nextInstanceRef, nextInstanceData);
-
-      print(
-          'DayEndProcessor: Generated next instance for ${instance.templateName} (${nextBelongsToDate} - ${nextWindowEndDate})');
-      print('  - New instance dueDate: $nextBelongsToDate');
-      print('  - New instance windowEndDate: $nextWindowEndDate');
-      print('  - New instance status: pending');
-      print('  - New instance currentValue: null (fresh start)');
     } catch (e) {
-      print(
-          'DayEndProcessor: Error generating next instance for ${instance.templateName}: $e');
       // Don't rethrow - we don't want to fail the entire batch
     }
   }
@@ -231,46 +165,35 @@ class DayEndProcessor {
   ) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     // Check if record already exists
     final existingQuery = DailyProgressRecord.collectionForUser(userId)
         .where('date', isEqualTo: normalizedDate);
-
     final existingSnapshot = await existingQuery.get();
     if (existingSnapshot.docs.isNotEmpty) {
-      print(
-          'DayEndProcessor: Daily progress record already exists for $normalizedDate');
       return;
     }
-
     // Get all habit instances (we'll filter them using the shared calculator)
     final allInstancesQuery = ActivityInstanceRecord.collectionForUser(userId)
         .where('templateCategoryType', isEqualTo: 'habit');
-
     final allInstancesSnapshot = await allInstancesQuery.get();
     final allInstances = allInstancesSnapshot.docs
         .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
         .toList();
-
     // Get all task instances for the target date (using ActivityInstanceRecord)
     final allTaskInstancesQuery =
         ActivityInstanceRecord.collectionForUser(userId)
             .where('templateCategoryType', isEqualTo: 'task');
-
     final allTaskInstancesSnapshot = await allTaskInstancesQuery.get();
     final allTaskInstances = allTaskInstancesSnapshot.docs
         .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
         .toList();
-
     // Get categories for calculation
     final categoriesQuery = CategoryRecord.collectionForUser(userId)
         .where('categoryType', isEqualTo: 'habit');
-
     final categoriesSnapshot = await categoriesQuery.get();
     final categories = categoriesSnapshot.docs
         .map((doc) => CategoryRecord.fromSnapshot(doc))
         .toList();
-
     // Use the SAME calculation as Queue page via shared DailyProgressCalculator
     // No need for includeSkippedForComputation since instances are still pending
     final calculationResult =
@@ -281,7 +204,6 @@ class DayEndProcessor {
       categories: categories,
       taskInstances: allTaskInstances,
     );
-
     final targetPoints = calculationResult['target'] as double;
     final earnedPoints = calculationResult['earned'] as double;
     final completionPercentage = calculationResult['percentage'] as double;
@@ -294,20 +216,13 @@ class DayEndProcessor {
         calculationResult['allForMath'] as List<ActivityInstanceRecord>;
     final allTasksForMath =
         calculationResult['allTasksForMath'] as List<ActivityInstanceRecord>;
-
     // Extract separate breakdowns for analytics
     final habitTarget = calculationResult['habitTarget'] as double;
     final habitEarned = calculationResult['habitEarned'] as double;
     final taskTarget = calculationResult['taskTarget'] as double;
     final taskEarned = calculationResult['taskEarned'] as double;
-
-    print(
-        'DayEndProcessor: Found ${instances.length} habit instances and ${taskInstances.length} task instances for $normalizedDate');
-
     if (instances.isEmpty && taskInstances.isEmpty) {
       // Still create a progress record with 0 values for tracking
-      print(
-          'DayEndProcessor: No habits or tasks for this day, creating empty progress record');
       final emptyProgressData = createDailyProgressRecordData(
         userId: userId,
         date: normalizedDate,
@@ -329,11 +244,8 @@ class DayEndProcessor {
       );
       await DailyProgressRecord.collectionForUser(userId)
           .add(emptyProgressData);
-      print(
-          'DayEndProcessor: Created empty progress record for $normalizedDate');
       return;
     }
-
     // Count habit statistics using allForMath and completion-on-date rule
     int totalHabits = allForMath.length;
     final completedOnDate = allForMath.where((i) {
@@ -349,7 +261,6 @@ class DayEndProcessor {
             (i.currentValue is num ? (i.currentValue as num) > 0 : false))
         .length;
     int skippedHabits = allForMath.where((i) => i.status == 'skipped').length;
-
     // Count task statistics using allTasksForMath and completion-on-date rule
     int totalTasks = allTasksForMath.length;
     final completedTasksOnDate = allTasksForMath.where((task) {
@@ -366,7 +277,6 @@ class DayEndProcessor {
         .length;
     int skippedTasks =
         allTasksForMath.where((task) => task.status == 'skipped').length;
-
     // Create category breakdown
     final categoryBreakdown = <String, Map<String, dynamic>>{};
     for (final category in categories) {
@@ -381,7 +291,6 @@ class DayEndProcessor {
             PointsService.calculateTotalDailyTarget(categoryAll, [category]);
         final categoryEarned = PointsService.calculateTotalPointsEarned(
             categoryCompleted, [category]);
-
         categoryBreakdown[category.reference.id] = {
           'target': categoryTarget,
           'earned': categoryEarned,
@@ -390,7 +299,12 @@ class DayEndProcessor {
         };
       }
     }
-
+    // Extract breakdown data from calculation result
+    final habitBreakdown =
+        calculationResult['habitBreakdown'] as List<Map<String, dynamic>>? ??
+            [];
+    final taskBreakdown =
+        calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
     // Create the daily progress record
     final progressData = createDailyProgressRecordData(
       userId: userId,
@@ -409,21 +323,11 @@ class DayEndProcessor {
       taskTargetPoints: taskTarget,
       taskEarnedPoints: taskEarned,
       categoryBreakdown: categoryBreakdown,
+      habitBreakdown: habitBreakdown,
+      taskBreakdown: taskBreakdown,
       createdAt: DateTime.now(),
     );
-
     await DailyProgressRecord.collectionForUser(userId).add(progressData);
-
-    print('DayEndProcessor: Created daily progress record for $normalizedDate');
-    print(
-        '  - Total Target: $targetPoints points (Habits: $habitTarget, Tasks: $taskTarget)');
-    print(
-        '  - Total Earned: $earnedPoints points (Habits: $habitEarned, Tasks: $taskEarned)');
-    print('  - Percentage: ${completionPercentage.toStringAsFixed(1)}%');
-    print(
-        '  - Habit Counts -> total: $totalHabits, completed: $completedHabits, partial: $partialHabits, skipped: $skippedHabits');
-    print(
-        '  - Task Counts -> total: $totalTasks, completed: $completedTasks, partial: $partialTasks, skipped: $skippedTasks');
   }
 
   /// Check if day-end processing is needed
@@ -434,16 +338,13 @@ class DayEndProcessor {
       final yesterday = DateTime.now().subtract(const Duration(days: 1));
       final normalizedYesterday =
           DateTime(yesterday.year, yesterday.month, yesterday.day);
-
       final query = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'habit')
           .where('dayState', isEqualTo: 'open')
           .where('belongsToDate', isLessThan: normalizedYesterday);
-
       final snapshot = await query.limit(1).get();
       return snapshot.docs.isNotEmpty;
     } catch (e) {
-      print('DayEndProcessor: Error checking if processing needed: $e');
       return false;
     }
   }
@@ -452,8 +353,6 @@ class DayEndProcessor {
   static Future<void> processDayEndForAllUsers() async {
     // This would require a different approach since we can't query all users
     // In a real implementation, this might use Cloud Functions or a scheduled job
-    print(
-        'DayEndProcessor: processDayEndForAllUsers not implemented - requires Cloud Functions');
   }
 
   /// Get the next day-end processing time for a user

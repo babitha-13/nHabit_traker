@@ -14,14 +14,9 @@ class WeeklyProgressCalculator {
     required List<CategoryRecord> categories,
   }) async {
     final weekEnd = weekStart.add(const Duration(days: 6));
-
-    print(
-        'WeeklyProgressCalculator: Calculating for week ${weekStart} to ${weekEnd}');
-
     // Filter instances that fall within the week range
     final weekInstances =
         _filterInstancesForWeek(allInstances, weekStart, weekEnd);
-
     // Separate tasks and habits
     final taskInstances = weekInstances
         .where((inst) => inst.templateCategoryType == 'task')
@@ -29,24 +24,17 @@ class WeeklyProgressCalculator {
     final habitInstances = weekInstances
         .where((inst) => inst.templateCategoryType == 'habit')
         .toList();
-
-    print(
-        'WeeklyProgressCalculator: Found ${taskInstances.length} task instances, ${habitInstances.length} habit instances');
-
     // Process tasks - group by template and calculate weekly progress
     final processedTasks =
         _processTaskTemplates(taskInstances, weekStart, weekEnd);
-
     // Process habits - group by template and calculate weekly progress
     final processedHabits =
         _processHabitTemplates(habitInstances, weekStart, weekEnd);
-
     // Sort by completion percentage (lowest first)
     processedTasks.sort((a, b) =>
         a['completionPercentage'].compareTo(b['completionPercentage']));
     processedHabits.sort((a, b) =>
         a['completionPercentage'].compareTo(b['completionPercentage']));
-
     return {
       'tasks': processedTasks,
       'habits': processedHabits,
@@ -64,12 +52,10 @@ class WeeklyProgressCalculator {
     DateTime weekEnd,
   ) {
     final weekInstances = <ActivityInstanceRecord>[];
-
     for (final instance in allInstances) {
       // For tasks: include if due date is within the week OR if it was completed/skipped during the week
       if (instance.templateCategoryType == 'task') {
         bool shouldInclude = false;
-
         // Include if due date is within the week
         if (instance.dueDate != null) {
           final dueDate = DateTime(instance.dueDate!.year,
@@ -78,7 +64,6 @@ class WeeklyProgressCalculator {
             shouldInclude = true;
           }
         }
-
         // Also include if it was completed or skipped during the week
         if (!shouldInclude &&
             instance.status == 'completed' &&
@@ -90,7 +75,6 @@ class WeeklyProgressCalculator {
             shouldInclude = true;
           }
         }
-
         if (!shouldInclude &&
             instance.status == 'skipped' &&
             instance.skippedAt != null) {
@@ -101,7 +85,6 @@ class WeeklyProgressCalculator {
             shouldInclude = true;
           }
         }
-
         if (shouldInclude) {
           weekInstances.add(instance);
         }
@@ -109,20 +92,17 @@ class WeeklyProgressCalculator {
       // For habits: include if the week overlaps with the instance window OR if it was completed/skipped during the week
       else if (instance.templateCategoryType == 'habit') {
         bool shouldInclude = false;
-
         // Include if the week overlaps with the instance window
         if (instance.dueDate != null && instance.windowEndDate != null) {
           final dueDate = DateTime(instance.dueDate!.year,
               instance.dueDate!.month, instance.dueDate!.day);
           final windowEnd = DateTime(instance.windowEndDate!.year,
               instance.windowEndDate!.month, instance.windowEndDate!.day);
-
           // Check if week overlaps with instance window
           if (!dueDate.isAfter(weekEnd) && !windowEnd.isBefore(weekStart)) {
             shouldInclude = true;
           }
         }
-
         // Also include if it was completed or skipped during the week
         if (!shouldInclude &&
             instance.status == 'completed' &&
@@ -134,7 +114,6 @@ class WeeklyProgressCalculator {
             shouldInclude = true;
           }
         }
-
         if (!shouldInclude &&
             instance.status == 'skipped' &&
             instance.skippedAt != null) {
@@ -145,7 +124,6 @@ class WeeklyProgressCalculator {
             shouldInclude = true;
           }
         }
-
         // Include snoozed items if they were snoozed during the week
         if (!shouldInclude && instance.snoozedUntil != null) {
           final snoozedDate = DateTime(instance.snoozedUntil!.year,
@@ -155,13 +133,11 @@ class WeeklyProgressCalculator {
             shouldInclude = true;
           }
         }
-
         if (shouldInclude) {
           weekInstances.add(instance);
         }
       }
     }
-
     return weekInstances;
   }
 
@@ -176,36 +152,28 @@ class WeeklyProgressCalculator {
     for (final instance in taskInstances) {
       (tasksByTemplate[instance.templateId] ??= []).add(instance);
     }
-
     final processedTasks = <Map<String, dynamic>>[];
-
     for (final templateId in tasksByTemplate.keys) {
       final instances = tasksByTemplate[templateId]!;
       final firstInstance = instances.first;
-
       // Check if task is recurring using the cached template field
       final isRecurring = firstInstance.templateIsRecurring;
-
       // Convert to weekly target based on whether it's recurring
       final weeklyTarget = isRecurring
           ? _convertTaskToWeeklyTarget(firstInstance)
           : _getTargetValue(
               firstInstance); // For one-off tasks, use original target
-
       // Aggregate completion across the week
       final weeklyCompletion = _aggregateTaskCompletion(instances);
-
       // Calculate completion percentage
       final completionPercentage = weeklyTarget > 0
           ? (weeklyCompletion / weeklyTarget).clamp(0.0, 1.0)
           : 0.0;
-
       // Check if any task is overdue
       final isOverdue = instances.any((inst) =>
           inst.dueDate != null &&
           DateTime(inst.dueDate!.year, inst.dueDate!.month, inst.dueDate!.day)
               .isBefore(DateTime.now()));
-
       // Get next due date for recurring tasks
       String nextDueSubtitle = '';
       // Check if task is recurring using the template field
@@ -219,23 +187,19 @@ class WeeklyProgressCalculator {
                 (earliest, date) => earliest == null || date.isBefore(earliest)
                     ? date
                     : earliest);
-
         if (nextDue != null) {
           nextDueSubtitle = 'Next due: ${nextDue.day}/${nextDue.month}';
         }
       }
-
       // For binary items, convert to quantitative for weekly view (only for recurring tasks)
       final displayTrackingType =
           (firstInstance.templateTrackingType == 'binary' && isRecurring)
               ? 'quantitative'
               : firstInstance.templateTrackingType;
-
       final displayUnit =
           (firstInstance.templateTrackingType == 'binary' && isRecurring)
               ? 'times'
               : firstInstance.templateUnit;
-
       processedTasks.add({
         'templateId': templateId,
         'templateName': firstInstance.templateName,
@@ -257,7 +221,6 @@ class WeeklyProgressCalculator {
         'currentInstance': _getRepresentativeInstance(instances),
       });
     }
-
     return processedTasks;
   }
 
@@ -272,24 +235,18 @@ class WeeklyProgressCalculator {
     for (final instance in habitInstances) {
       (habitsByTemplate[instance.templateId] ??= []).add(instance);
     }
-
     final processedHabits = <Map<String, dynamic>>[];
-
     for (final templateId in habitsByTemplate.keys) {
       final instances = habitsByTemplate[templateId]!;
       final firstInstance = instances.first;
-
       // Convert to weekly target
       final weeklyTarget = _convertHabitToWeeklyTarget(firstInstance);
-
       // Aggregate completion across the week
       final weeklyCompletion = _aggregateHabitCompletion(instances);
-
       // Calculate completion percentage
       final completionPercentage = weeklyTarget > 0
           ? (weeklyCompletion / weeklyTarget).clamp(0.0, 1.0)
           : 0.0;
-
       // Create subtitle showing weekly target/progress
       String weeklySubtitle = '';
       if (firstInstance.templateTrackingType == 'quantitative') {
@@ -304,16 +261,13 @@ class WeeklyProgressCalculator {
         weeklySubtitle =
             '${weeklyCompletion.toInt()}/${weeklyTarget.toInt()} times';
       }
-
       // For binary items, convert to quantitative for weekly view
       final displayTrackingType = firstInstance.templateTrackingType == 'binary'
           ? 'quantitative'
           : firstInstance.templateTrackingType;
-
       final displayUnit = firstInstance.templateTrackingType == 'binary'
           ? 'times'
           : firstInstance.templateUnit;
-
       processedHabits.add({
         'templateId': templateId,
         'templateName': firstInstance.templateName,
@@ -333,7 +287,6 @@ class WeeklyProgressCalculator {
         'currentInstance': _getRepresentativeInstance(instances),
       });
     }
-
     return processedHabits;
   }
 
@@ -341,23 +294,18 @@ class WeeklyProgressCalculator {
   static double _convertTaskToWeeklyTarget(ActivityInstanceRecord instance) {
     final trackingType = instance.templateTrackingType;
     final target = _getTargetValue(instance);
-
     // Calculate weekly frequency based on period type
     double weeklyFrequency = _calculateWeeklyFrequency(instance);
-
     switch (trackingType) {
       case 'binary':
         // Binary tasks: convert to quantity based on weekly frequency
         return weeklyFrequency;
-
       case 'quantitative':
         // Quantitative tasks: multiply target by weekly frequency
         return target * weeklyFrequency;
-
       case 'time':
         // Time-based tasks: multiply target by weekly frequency
         return target * weeklyFrequency;
-
       default:
         return target;
     }
@@ -367,23 +315,18 @@ class WeeklyProgressCalculator {
   static double _convertHabitToWeeklyTarget(ActivityInstanceRecord instance) {
     final trackingType = instance.templateTrackingType;
     final target = _getTargetValue(instance);
-
     // Calculate weekly frequency based on period type
     double weeklyFrequency = _calculateWeeklyFrequency(instance);
-
     switch (trackingType) {
       case 'binary':
         // Binary habits: convert to quantity based on weekly frequency
         return weeklyFrequency;
-
       case 'quantitative':
         // Quantitative habits: multiply target by weekly frequency
         return target * weeklyFrequency;
-
       case 'time':
         // Time-based habits: multiply target by weekly frequency
         return target * weeklyFrequency;
-
       default:
         return target;
     }
@@ -393,12 +336,16 @@ class WeeklyProgressCalculator {
   static double _aggregateTaskCompletion(
       List<ActivityInstanceRecord> instances) {
     double totalCompletion = 0.0;
-
     for (final instance in instances) {
-      // For binary tracking, count number of completed instances
       if (instance.templateTrackingType == 'binary') {
-        if (instance.status == 'completed') {
-          totalCompletion += 1.0; // Each completion counts as 1
+        // NEW: Use currentValue as counter for binary habits
+        final count = instance.currentValue ?? 0;
+        final countValue = (count is num ? count.toDouble() : 0.0);
+        if (countValue > 0) {
+          totalCompletion += countValue;
+        } else if (instance.status == 'completed') {
+          // Backward compatibility: count as 1 if completed but no counter
+          totalCompletion += 1.0;
         }
       } else {
         // For quantitative/time tracking, use existing logic
@@ -411,7 +358,6 @@ class WeeklyProgressCalculator {
         }
       }
     }
-
     return totalCompletion;
   }
 
@@ -419,12 +365,16 @@ class WeeklyProgressCalculator {
   static double _aggregateHabitCompletion(
       List<ActivityInstanceRecord> instances) {
     double totalCompletion = 0.0;
-
     for (final instance in instances) {
-      // For binary tracking, count number of completed instances
       if (instance.templateTrackingType == 'binary') {
-        if (instance.status == 'completed') {
-          totalCompletion += 1.0; // Each completion counts as 1
+        // NEW: Use currentValue as counter for binary habits
+        final count = instance.currentValue ?? 0;
+        final countValue = (count is num ? count.toDouble() : 0.0);
+        if (countValue > 0) {
+          totalCompletion += countValue;
+        } else if (instance.status == 'completed') {
+          // Backward compatibility: count as 1 if completed but no counter
+          totalCompletion += 1.0;
         }
       } else {
         // For quantitative/time tracking, use existing logic
@@ -437,7 +387,6 @@ class WeeklyProgressCalculator {
         }
       }
     }
-
     return totalCompletion;
   }
 
@@ -447,11 +396,8 @@ class WeeklyProgressCalculator {
   static ActivityInstanceRecord? _getRepresentativeInstance(
       List<ActivityInstanceRecord> instances) {
     if (instances.isEmpty) return null;
-
     final today = DateService.currentDate;
-
     // Prioritize: 1) today's instance, 2) pending instance, 3) any instance
-
     // First, try to find today's instance
     for (final instance in instances) {
       if (instance.dueDate != null && instance.windowEndDate != null) {
@@ -459,19 +405,16 @@ class WeeklyProgressCalculator {
             instance.dueDate!.month, instance.dueDate!.day);
         final windowEnd = DateTime(instance.windowEndDate!.year,
             instance.windowEndDate!.month, instance.windowEndDate!.day);
-
         if (!today.isBefore(dueDate) && !today.isAfter(windowEnd)) {
           return instance;
         }
       }
     }
-
     // If no instance for today, find any pending instance
     final pendingInstance = instances.firstWhere(
       (inst) => inst.status == 'pending',
       orElse: () => instances.first,
     );
-
     return pendingInstance;
   }
 
@@ -486,6 +429,16 @@ class WeeklyProgressCalculator {
   /// Helper to get current value from instance
   static double _getCurrentValue(ActivityInstanceRecord instance) {
     final currentValue = instance.currentValue;
+
+    // For time-based tracking, currentValue is in milliseconds but target is in minutes
+    // Convert milliseconds to minutes for consistency
+    if (instance.templateTrackingType == 'time') {
+      if (currentValue is int) return (currentValue / 60000.0);
+      if (currentValue is double) return (currentValue / 60000.0);
+      return 0.0;
+    }
+
+    // For other tracking types, use value as-is
     if (currentValue is int) return currentValue.toDouble();
     if (currentValue is double) return currentValue;
     return 0.0;
@@ -500,7 +453,6 @@ class WeeklyProgressCalculator {
           instance
               .templateEveryXValue; // e.g., every 2 days = 7/2 = 3.5 times/week
     }
-
     // Handle "every X weeks" pattern: calculate weekly frequency as 1/X
     if (instance.templateEveryXPeriodType == 'weeks' &&
         instance.templateEveryXValue > 0) {
@@ -508,7 +460,6 @@ class WeeklyProgressCalculator {
           instance
               .templateEveryXValue; // e.g., every 2 weeks = 1/2 = 0.5 times/week
     }
-
     // Handle "times per period" pattern
     if (instance.templateTimesPerPeriod > 0 &&
         instance.templatePeriodType.isNotEmpty) {
@@ -528,7 +479,6 @@ class WeeklyProgressCalculator {
           return instance.templateTimesPerPeriod.toDouble();
       }
     }
-
     // Default: daily habit (1 time per day = 7 times per week)
     return 7.0;
   }

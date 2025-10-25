@@ -1,24 +1,24 @@
 import 'package:flutter/material.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
+import 'package:habit_tracker/Screens/Sequence/sequence_detail_page.dart';
 
 class Sequences extends StatefulWidget {
   const Sequences({super.key});
-
   @override
   _SequencesState createState() => _SequencesState();
 }
 
 class _SequencesState extends State<Sequences> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
-
   List<SequenceRecord> _sequences = [];
   List<ActivityRecord> _habits = [];
   bool _isLoading = true;
-
   @override
   void initState() {
     super.initState();
@@ -29,21 +29,24 @@ class _SequencesState extends State<Sequences> {
     setState(() {
       _isLoading = true;
     });
-
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final sequences = await querySequenceRecordOnce(userId: userId);
+        // Debug each sequence
+        for (int i = 0; i < sequences.length; i++) {
+          final seq = sequences[i];
+          print('🔍 DEBUG: Sequence $i: ${seq.name} (ID: ${seq.reference.id})');
+        }
         final habits = await queryActivitiesRecordOnce(userId: userId);
-
         setState(() {
           _sequences = sequences;
           _habits = habits;
           _isLoading = false;
         });
-      }
+      } else {}
     } catch (e) {
-      print('Error loading sequences: $e');
+      if (e is FirebaseException) {}
       setState(() {
         _isLoading = false;
       });
@@ -54,7 +57,6 @@ class _SequencesState extends State<Sequences> {
     try {
       await deleteSequence(sequence.reference.id, userId: currentUserUid);
       await _loadData(); // Reload the list
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -64,7 +66,6 @@ class _SequencesState extends State<Sequences> {
         );
       }
     } catch (e) {
-      print('Error deleting sequence: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -76,244 +77,51 @@ class _SequencesState extends State<Sequences> {
     }
   }
 
-  void _showAddSequenceDialog() {
-    final nameController = TextEditingController();
-    final descriptionController = TextEditingController();
-    List<String> selectedHabitIds = [];
+  void _navigateToCreateSequence() {
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (context) => const CreateSequencePage(),
+      ),
+    )
+        .then((_) {
+      // Reload the list after creating a sequence
+      _loadData();
+    });
+  }
 
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Add Sequence'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Sequence Name *',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (Optional)',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Select Habits:',
-                  style: FlutterFlowTheme.of(context).titleSmall,
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  height: 200,
-                  child: ListView.builder(
-                    itemCount: _habits.length,
-                    itemBuilder: (context, index) {
-                      final habit = _habits[index];
-                      return CheckboxListTile(
-                        title: Text(habit.name),
-                        subtitle: Text(habit.categoryName),
-                        value: selectedHabitIds.contains(habit.reference.id),
-                        onChanged: (bool? value) {
-                          setDialogState(() {
-                            if (value == true) {
-                              selectedHabitIds.add(habit.reference.id);
-                            } else {
-                              selectedHabitIds.remove(habit.reference.id);
-                            }
-                          });
-                        },
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (nameController.text.isNotEmpty &&
-                    selectedHabitIds.isNotEmpty) {
-                  try {
-                    await createSequence(
-                      name: nameController.text,
-                      description: descriptionController.text.isNotEmpty
-                          ? descriptionController.text
-                          : null,
-                      habitIds: selectedHabitIds,
-                    );
+  void _navigateToEditSequence(SequenceRecord sequence) {
+    Navigator.of(context)
+        .push(
+      MaterialPageRoute(
+        builder: (context) => CreateSequencePage(
+          existingSequence: sequence,
+        ),
+      ),
+    )
+        .then((_) {
+      // Reload the list after editing a sequence
+      _loadData();
+    });
+  }
 
-                    Navigator.of(context).pop();
-                    await _loadData(); // Reload the list
-
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                              'Sequence "${nameController.text}" created successfully!'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    print('Error creating sequence: $e');
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Error creating sequence: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                }
-              },
-              child: const Text('Create'),
-            ),
-          ],
+  void _navigateToSequenceDetail(SequenceRecord sequence) {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => SequenceDetailPage(
+          sequence: sequence,
         ),
       ),
     );
   }
 
-  void _showEditSequenceDialog(SequenceRecord sequence) {
-    final nameController = TextEditingController(text: sequence.name);
-    final descriptionController =
-        TextEditingController(text: sequence.description);
-    List<String> selectedHabitIds = List.from(sequence.habitIds);
-
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: const Text('Edit Sequence'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextField(
-                  controller: nameController,
-                  decoration: const InputDecoration(
-                    labelText: 'Sequence Name *',
-                    border: OutlineInputBorder(),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                TextField(
-                  controller: descriptionController,
-                  decoration: const InputDecoration(
-                    labelText: 'Description (Optional)',
-                    border: OutlineInputBorder(),
-                  ),
-                  maxLines: 2,
-                ),
-                const SizedBox(height: 16),
-                Text(
-                  'Select Habits:',
-                  style: FlutterFlowTheme.of(context).titleSmall,
-                ),
-                const SizedBox(height: 8),
-                Container(
-                  height: 200,
-                  child: ListView.builder(
-                    itemCount: _habits.length,
-                    itemBuilder: (context, index) {
-                      final habit = _habits[index];
-                      return CheckboxListTile(
-                        title: Text(habit.name),
-                        subtitle: Text(habit.categoryName),
-                        value: selectedHabitIds.contains(habit.reference.id),
-                        onChanged: (bool? value) {
-                          setDialogState(() {
-                            if (value == true) {
-                              selectedHabitIds.add(habit.reference.id);
-                            } else {
-                              selectedHabitIds.remove(habit.reference.id);
-                            }
-                          });
-                        },
-                      );
-                    },
-                  ),
-                ),
-                const SizedBox(height: 16),
-              ],
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(),
-              child: const Text('Cancel'),
-            ),
-            ElevatedButton(
-              onPressed: () async {
-                if (nameController.text.isNotEmpty &&
-                    selectedHabitIds.isNotEmpty) {
-                  try {
-                    await updateSequence(
-                      sequenceId: sequence.reference.id,
-                      name: nameController.text,
-                      description: descriptionController.text.isNotEmpty
-                          ? descriptionController.text
-                          : null,
-                      habitIds: selectedHabitIds,
-                      userId: currentUserUid,
-                    );
-
-                    Navigator.of(context).pop();
-                    await _loadData(); // Reload the list
-
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(
-                              'Sequence "${nameController.text}" updated successfully!'),
-                          backgroundColor: Colors.green,
-                        ),
-                      );
-                    }
-                  } catch (e) {
-                    print('Error updating sequence: $e');
-                    if (mounted) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text('Error updating sequence: $e'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                    }
-                  }
-                }
-              },
-              child: const Text('Update'),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  List<String> _getHabitNames(List<String> habitIds) {
-    return habitIds.map((id) {
+  List<String> _getItemNames(List<String> itemIds) {
+    return itemIds.map((id) {
       try {
-        final habit = _habits.firstWhere((h) => h.reference.id == id);
-        return habit.name;
+        final activity = _habits.firstWhere((h) => h.reference.id == id);
+        return activity.name;
       } catch (e) {
-        return 'Unknown Habit';
+        return 'Unknown Item';
       }
     }).toList();
   }
@@ -350,14 +158,14 @@ class _SequencesState extends State<Sequences> {
                                 ),
                                 const SizedBox(height: 8),
                                 Text(
-                                  'Create sequences to group related habits!',
+                                  'Create sequences to group related habits and tasks!',
                                   style:
                                       FlutterFlowTheme.of(context).bodyMedium,
                                 ),
                                 const SizedBox(height: 16),
                                 ElevatedButton(
-                                  onPressed: _showAddSequenceDialog,
-                                  child: const Text('Add Sequence'),
+                                  onPressed: _navigateToCreateSequence,
+                                  child: const Text('Create Sequence'),
                                 ),
                               ],
                             ),
@@ -366,9 +174,9 @@ class _SequencesState extends State<Sequences> {
                             itemCount: _sequences.length,
                             itemBuilder: (context, index) {
                               final sequence = _sequences[index];
-                              final habitNames =
-                                  _getHabitNames(sequence.habitIds);
-
+                              final itemNames = sequence.itemNames.isNotEmpty
+                                  ? sequence.itemNames
+                                  : _getItemNames(sequence.itemIds);
                               return Container(
                                 margin: const EdgeInsets.symmetric(
                                     horizontal: 16, vertical: 4),
@@ -383,6 +191,8 @@ class _SequencesState extends State<Sequences> {
                                   ),
                                 ),
                                 child: ListTile(
+                                  onTap: () =>
+                                      _navigateToSequenceDetail(sequence),
                                   leading: Container(
                                     width: 40,
                                     height: 40,
@@ -414,14 +224,14 @@ class _SequencesState extends State<Sequences> {
                                         ),
                                       const SizedBox(height: 4),
                                       Text(
-                                        '${habitNames.length} habits',
+                                        '${itemNames.length} items',
                                         style: FlutterFlowTheme.of(context)
                                             .bodySmall,
                                       ),
                                       const SizedBox(height: 4),
                                       Wrap(
                                         spacing: 4,
-                                        children: habitNames
+                                        children: itemNames
                                             .take(3)
                                             .map(
                                               (name) => Container(
@@ -450,9 +260,9 @@ class _SequencesState extends State<Sequences> {
                                             )
                                             .toList(),
                                       ),
-                                      if (habitNames.length > 3)
+                                      if (itemNames.length > 3)
                                         Text(
-                                          '+${habitNames.length - 3} more',
+                                          '+${itemNames.length - 3} more',
                                           style: FlutterFlowTheme.of(context)
                                               .bodySmall
                                               .override(
@@ -464,38 +274,15 @@ class _SequencesState extends State<Sequences> {
                                         ),
                                     ],
                                   ),
-                                  trailing: Row(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      IconButton(
-                                        icon: const Icon(Icons.play_arrow),
-                                        onPressed: () {
-                                          // TODO: Start sequence
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                  'Starting sequence "${sequence.name}"...'),
-                                            ),
-                                          );
-                                        },
-                                        color: FlutterFlowTheme.of(context)
-                                            .primary,
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.edit),
-                                        onPressed: () =>
-                                            _showEditSequenceDialog(sequence),
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
-                                      ),
-                                      IconButton(
-                                        icon: const Icon(Icons.delete),
-                                        onPressed: () =>
-                                            _showDeleteConfirmation(sequence),
-                                        color: Colors.red,
-                                      ),
-                                    ],
+                                  trailing: Builder(
+                                    builder: (context) => IconButton(
+                                      icon: const Icon(Icons.more_vert),
+                                      onPressed: () =>
+                                          _showSequenceOverflowMenu(
+                                              context, sequence),
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                    ),
                                   ),
                                 ),
                               );
@@ -505,7 +292,54 @@ class _SequencesState extends State<Sequences> {
                 ],
               ),
       ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _navigateToCreateSequence,
+        backgroundColor: FlutterFlowTheme.of(context).primary,
+        child: const Icon(
+          Icons.add,
+          color: Colors.white,
+        ),
+      ),
     );
+  }
+
+  Future<void> _showSequenceOverflowMenu(
+      BuildContext anchorContext, SequenceRecord sequence) async {
+    final box = anchorContext.findRenderObject() as RenderBox?;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
+    final size = box?.size ?? const Size(0, 0);
+    final selected = await showMenu<String>(
+      context: anchorContext,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy + size.height,
+        overlay.size.width - position.dx - size.width,
+        overlay.size.height - position.dy,
+      ),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
+      ),
+      items: const [
+        PopupMenuItem<String>(
+            value: 'edit',
+            height: 32,
+            child: Text('Edit', style: TextStyle(fontSize: 12))),
+        PopupMenuDivider(height: 6),
+        PopupMenuItem<String>(
+            value: 'delete',
+            height: 32,
+            child: Text('Delete', style: TextStyle(fontSize: 12))),
+      ],
+    );
+    if (selected == null) return;
+    if (selected == 'edit') {
+      _navigateToEditSequence(sequence);
+    } else if (selected == 'delete') {
+      _showDeleteConfirmation(sequence);
+    }
   }
 
   void _showDeleteConfirmation(SequenceRecord sequence) {

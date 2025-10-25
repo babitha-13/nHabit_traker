@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart'; // Keep for fetching template on edit
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
@@ -38,7 +39,6 @@ class ItemComponent extends StatefulWidget {
   final bool showTypeIcon;
   final bool showRecurringIcon;
   final String? subtitle;
-
   const ItemComponent(
       {Key? key,
       required this.instance,
@@ -59,7 +59,6 @@ class ItemComponent extends StatefulWidget {
       this.subtitle,
       this.page})
       : super(key: key);
-
   @override
   State<ItemComponent> createState() => _ItemComponentState();
 }
@@ -70,7 +69,6 @@ class _ItemComponentState extends State<ItemComponent>
   Timer? _timer;
   num? _quantProgressOverride;
   bool? _timerStateOverride;
-
   @override
   void initState() {
     super.initState();
@@ -83,7 +81,6 @@ class _ItemComponentState extends State<ItemComponent>
   @override
   void didUpdateWidget(covariant ItemComponent oldWidget) {
     super.didUpdateWidget(oldWidget);
-
     // Reset quantitative progress override when backend catches up
     if (widget.instance.templateTrackingType == 'quantitative' &&
         _quantProgressOverride != null) {
@@ -92,7 +89,6 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _quantProgressOverride = null);
       }
     }
-
     // Reset timer state override when backend catches up
     if (widget.instance.templateTrackingType == 'time' &&
         _timerStateOverride != null) {
@@ -100,7 +96,6 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _timerStateOverride = null);
       }
     }
-
     // Handle timer state changes (existing logic)
     if (widget.instance.templateTrackingType == 'time') {
       if (widget.instance.isTimerActive && !oldWidget.instance.isTimerActive) {
@@ -132,15 +127,12 @@ class _ItemComponentState extends State<ItemComponent>
   Future<void> _copyHabit() async {
     try {
       setState(() => _isUpdating = true);
-
       // Get the template from the instance
       final templateRef = ActivityRecord.collectionForUser(currentUserUid)
           .doc(widget.instance.templateId);
       final template = await ActivityRecord.getDocumentOnce(templateRef);
-
       // Create a new template with "Copy of" prefix
       final newTemplateName = 'Copy of ${template.name}';
-
       // Create the new activity template
       final newTemplateRef = await createActivity(
         name: newTemplateName,
@@ -157,22 +149,18 @@ class _ItemComponentState extends State<ItemComponent>
         startDate: template.startDate,
         dueDate: template.dueDate,
       );
-
       // Get the new template to create an instance
       final newTemplate = await ActivityRecord.getDocumentOnce(newTemplateRef);
-
       // Create a new instance for the duplicated template
       await ActivityInstanceService.createActivityInstance(
         templateId: newTemplateRef.id,
         template: newTemplate,
       );
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
               content: Text('Task "${newTemplateName}" created successfully')),
         );
-
         // Refresh the page to show the new task
         if (widget.onRefresh != null) {
           await widget.onRefresh!();
@@ -250,12 +238,10 @@ class _ItemComponentState extends State<ItemComponent>
         _quantProgressOverride != null) {
       return _quantProgressOverride!;
     }
-
     // For time-based tasks, use real-time accumulated time
     if (widget.instance.templateTrackingType == 'time') {
       return TimerLogicHelper.getRealTimeAccumulated(widget.instance);
     }
-
     final val = widget.instance.currentValue;
     if (val is num) return val;
     if (val is String) return num.tryParse(val) ?? 0;
@@ -562,13 +548,11 @@ class _ItemComponentState extends State<ItemComponent>
       final uid = FirebaseAuth.instance.currentUser!.uid;
       final templateRef =
           ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
-
       // Update the template's priority
       await templateRef.update({
         'priority': newPriority,
         'lastUpdated': DateTime.now(),
       });
-
       // Also update the instance's cached priority for immediate UI update
       final instanceRef = ActivityInstanceRecord.collectionForUser(uid)
           .doc(widget.instance.reference.id);
@@ -576,22 +560,18 @@ class _ItemComponentState extends State<ItemComponent>
         'templatePriority': newPriority,
         'lastUpdated': DateTime.now(),
       });
-
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Show confirmation
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
             content: Text(
                 'Priority set to $newPriority star${newPriority > 1 ? 's' : ''}')),
       );
-
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-
       // Broadcast the instance update event
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
@@ -638,12 +618,10 @@ class _ItemComponentState extends State<ItemComponent>
       ],
     );
     if (selected == null) return;
-
     // To edit/delete, we need the original template document.
     final uid = FirebaseAuth.instance.currentUser!.uid;
     final templateRef =
         ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
-
     if (selected == 'edit') {
       final template = await ActivityRecord.getDocumentOnce(templateRef);
       if (widget.instance.templateCategoryType == 'task') {
@@ -704,14 +682,12 @@ class _ItemComponentState extends State<ItemComponent>
           // Hard delete all instances for the template
           await ActivityInstanceService.deleteInstancesForTemplate(
               templateId: widget.instance.templateId);
-
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Activity deleted')),
             );
             // Call onInstanceDeleted for granular UI update
             widget.onInstanceDeleted?.call(widget.instance);
-
             // Broadcast the instance deletion event
             InstanceEvents.broadcastInstanceDeleted(widget.instance);
           }
@@ -727,26 +703,21 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   // TODO: Phase 4 - Reschedule/Skip logic
-
   Future<void> _showScheduleMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
-
     final isHabit = widget.instance.templateCategoryType == 'habit';
     final isRecurringTask =
         widget.instance.templateCategoryType == 'task' && _isRecurringItem();
     final isSnoozed = widget.instance.snoozedUntil != null &&
         DateTime.now().isBefore(widget.instance.snoozedUntil!);
-
     final menuItems = <PopupMenuEntry<String>>[];
-
     if (isHabit) {
       // Habit-specific menu
       final isSkipped = widget.instance.status == 'skipped';
-
       if (isSkipped) {
         // Show unskip option for skipped habits
         menuItems.add(
@@ -769,7 +740,6 @@ class _ItemComponentState extends State<ItemComponent>
         // Check if habit has partial progress
         final currentValue = _currentProgressLocal();
         final hasProgress = currentValue > 0;
-
         if (hasProgress) {
           menuItems.add(
             const PopupMenuItem<String>(
@@ -787,7 +757,6 @@ class _ItemComponentState extends State<ItemComponent>
             ),
           );
         }
-
         // Check if today is the last day of the window
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
@@ -797,7 +766,6 @@ class _ItemComponentState extends State<ItemComponent>
                     widget.instance.windowEndDate!.month,
                     widget.instance.windowEndDate!.day)
                 .isAtSameMomentAs(today);
-
         // Add "Snooze for Today" option (only if not last day)
         if (!isLastDay) {
           menuItems.add(
@@ -808,7 +776,6 @@ class _ItemComponentState extends State<ItemComponent>
             ),
           );
         }
-
         // Add snooze option
         menuItems.add(
           const PopupMenuItem<String>(
@@ -821,7 +788,6 @@ class _ItemComponentState extends State<ItemComponent>
     } else if (isRecurringTask) {
       // Recurring task menu
       final isSkipped = widget.instance.status == 'skipped';
-
       if (isSkipped) {
         // Show unskip option for skipped tasks
         menuItems.add(
@@ -849,7 +815,6 @@ class _ItemComponentState extends State<ItemComponent>
           instance: widget.instance,
           today: today,
         );
-
         // Standard recurring task options
         final recurringTaskOptions = <PopupMenuEntry<String>>[
           const PopupMenuItem<String>(
@@ -858,7 +823,6 @@ class _ItemComponentState extends State<ItemComponent>
             child: Text('Skip this occurrence', style: TextStyle(fontSize: 12)),
           ),
         ];
-
         // Only show "Skip all past occurrences" if there are 2+ missing instances
         if (missingInstancesCount >= 2) {
           recurringTaskOptions.add(
@@ -870,7 +834,6 @@ class _ItemComponentState extends State<ItemComponent>
             ),
           );
         }
-
         recurringTaskOptions.addAll([
           const PopupMenuItem<String>(
             value: 'skip_until',
@@ -884,13 +847,11 @@ class _ItemComponentState extends State<ItemComponent>
             child: Text('Snooze until...', style: TextStyle(fontSize: 12)),
           ),
         ]);
-
         menuItems.addAll(recurringTaskOptions);
       }
     } else {
       // One-time tasks menu - show contextual options
       final isSkipped = widget.instance.status == 'skipped';
-
       if (isSkipped) {
         // Show unskip option for skipped one-time tasks
         menuItems.add(
@@ -905,12 +866,10 @@ class _ItemComponentState extends State<ItemComponent>
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
         final tomorrow = today.add(const Duration(days: 1));
-
         final isDueToday =
             currentDueDate != null && _isSameDay(currentDueDate, today);
         final isDueTomorrow =
             currentDueDate != null && _isSameDay(currentDueDate, tomorrow);
-
         // Only show "Schedule for today" if not already due today
         if (!isDueToday) {
           menuItems.add(
@@ -921,7 +880,6 @@ class _ItemComponentState extends State<ItemComponent>
             ),
           );
         }
-
         // Only show "Schedule for tomorrow" if not already due tomorrow
         if (!isDueTomorrow) {
           menuItems.add(
@@ -933,7 +891,6 @@ class _ItemComponentState extends State<ItemComponent>
             ),
           );
         }
-
         // Always show "Pick due date"
         menuItems.add(
           const PopupMenuItem<String>(
@@ -942,7 +899,6 @@ class _ItemComponentState extends State<ItemComponent>
             child: Text('Pick due date...', style: TextStyle(fontSize: 12)),
           ),
         );
-
         // Only show "Clear due date" if task has a due date
         if (currentDueDate != null) {
           menuItems.addAll([
@@ -956,7 +912,6 @@ class _ItemComponentState extends State<ItemComponent>
         }
       }
     }
-
     final selected = await showMenu<String>(
       context: anchorContext,
       position: RelativeRect.fromLTRB(
@@ -971,9 +926,7 @@ class _ItemComponentState extends State<ItemComponent>
       ),
       items: menuItems,
     );
-
     if (selected == null) return;
-
     await _handleScheduleAction(selected);
   }
 
@@ -982,7 +935,6 @@ class _ItemComponentState extends State<ItemComponent>
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final tomorrow = today.add(const Duration(days: 1));
-
       switch (action) {
         case 'unskip':
           await _handleUnskip();
@@ -999,7 +951,6 @@ class _ItemComponentState extends State<ItemComponent>
             SnackBar(content: Text(message)),
           );
           break;
-
         case 'skip_until_today':
           await ActivityInstanceService.skipInstancesUntil(
             templateId: widget.instance.templateId,
@@ -1009,7 +960,6 @@ class _ItemComponentState extends State<ItemComponent>
             const SnackBar(content: Text('Skipped all past occurrences')),
           );
           break;
-
         case 'skip_until':
           final picked = await showDatePicker(
             context: context,
@@ -1028,7 +978,6 @@ class _ItemComponentState extends State<ItemComponent>
             );
           }
           break;
-
         case 'today':
           await ActivityInstanceService.rescheduleInstance(
             instanceId: widget.instance.reference.id,
@@ -1038,7 +987,6 @@ class _ItemComponentState extends State<ItemComponent>
             const SnackBar(content: Text('Scheduled for today')),
           );
           break;
-
         case 'tomorrow':
           await ActivityInstanceService.rescheduleInstance(
             instanceId: widget.instance.reference.id,
@@ -1048,7 +996,6 @@ class _ItemComponentState extends State<ItemComponent>
             const SnackBar(content: Text('Scheduled for tomorrow')),
           );
           break;
-
         case 'pick_date':
           final picked = await showDatePicker(
             context: context,
@@ -1067,41 +1014,31 @@ class _ItemComponentState extends State<ItemComponent>
             );
           }
           break;
-
         case 'clear_due_date':
-          print(
-              'DEBUG: Attempting to clear due date for instance: ${widget.instance.reference.id}');
           await ActivityInstanceService.removeDueDateFromInstance(
             instanceId: widget.instance.reference.id,
           );
-          print('DEBUG: Due date cleared successfully');
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Due date cleared')),
           );
           break;
-
         case 'skip_rest':
           await _handleHabitSkipRest();
           break;
-
         case 'snooze_today':
           await _handleSnoozeForToday();
           break;
-
         case 'snooze':
           await _handleSnooze();
           break;
-
         case 'bring_back':
           await _handleBringBack();
           break;
       }
-
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
     } catch (e) {
@@ -1118,18 +1055,14 @@ class _ItemComponentState extends State<ItemComponent>
       await ActivityInstanceService.uncompleteInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Get the updated instance
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Call the instance update callback
       widget.onInstanceUpdated?.call(updatedInstance);
-
       // Broadcast update
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1166,17 +1099,22 @@ class _ItemComponentState extends State<ItemComponent>
       case 'time':
         final target = widget.instance.templateTarget ?? 0;
         final currentTime = _getTimerDisplayWithSeconds();
-
-        // For completed tasks, show target = completion time
+        // For completed tasks, show max(actual, target) / target
         if (widget.instance.status == 'completed') {
-          return '$currentTime / $currentTime';
+          final targetFormatted = TimerLogicHelper.formatTargetTime(target);
+          // Use max of actual time or target time for the left side
+          final actualTimeMs =
+              TimerLogicHelper.getRealTimeAccumulated(widget.instance);
+          final targetTimeMs = target * 60000;
+          final maxTimeMs =
+              actualTimeMs > targetTimeMs ? actualTimeMs : targetTimeMs;
+          final maxTimeFormatted = _formatTimeFromMs(maxTimeMs);
+          return '$maxTimeFormatted / $targetFormatted';
         }
-
         // For incomplete tasks, show current time / - (undefined target)
         if (target == 0) {
           return '$currentTime / -';
         }
-
         // For tasks with defined target, show normal format
         final targetFormatted = TimerLogicHelper.formatTargetTime(target);
         return '$currentTime / $targetFormatted';
@@ -1271,31 +1209,42 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _updateProgress(int delta) async {
     if (_isUpdating) return;
-
     setState(() {
       _isUpdating = true;
     });
-
     try {
       final currentValue = _currentProgressLocal();
+      final target = _getTargetValue();
       final newValue = (currentValue + delta).clamp(0, double.infinity);
-
+      // NEW: Add cap check for binary habits in weekly view
+      if (widget.instance.templateTrackingType == 'binary' &&
+          widget.instance.templateCategoryType == 'habit') {
+        // Cap at 10x target to prevent accidental pocket taps
+        final maxCompletions = (target * 10).toInt();
+        if (newValue > maxCompletions) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                  content:
+                      Text('Maximum completions reached (${maxCompletions}x)')),
+            );
+          }
+          setState(() => _isUpdating = false);
+          return;
+        }
+      }
       // Set optimistic state immediately
       setState(() => _quantProgressOverride = newValue.toInt());
-
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
         currentValue: newValue,
       );
-
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-
       // Broadcast the instance update event
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
@@ -1317,33 +1266,38 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _handleBinaryCompletion(bool completed) async {
     if (_isUpdating) return;
-
     setState(() {
       _isUpdating = true;
     });
-
     try {
       if (completed) {
+        // NEW: For binary habits, set currentValue to 1 (counter)
+        // This makes it consistent with the counter-based approach
+        await ActivityInstanceService.updateInstanceProgress(
+          instanceId: widget.instance.reference.id,
+          currentValue: 1,
+        );
         await ActivityInstanceService.completeInstance(
           instanceId: widget.instance.reference.id,
         );
       } else {
+        // NEW: Reset counter to 0 when uncompleting
+        await ActivityInstanceService.updateInstanceProgress(
+          instanceId: widget.instance.reference.id,
+          currentValue: 0,
+        );
         await ActivityInstanceService.uncompleteInstance(
           instanceId: widget.instance.reference.id,
         );
       }
-
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-
       // Broadcast the instance update event
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-
       // For habits, trigger a full refresh to fetch the newly generated instance
       if (widget.instance.templateCategoryType == 'habit' && completed) {
         widget.onRefresh?.call();
@@ -1365,26 +1319,20 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _toggleTimer() async {
     if (_isUpdating) return;
-
     setState(() {
       _isUpdating = true;
     });
-
     try {
       final wasActive = _isTimerActiveLocal;
-
       // Set optimistic state immediately
       setState(() => _timerStateOverride = !wasActive);
-
       await ActivityInstanceService.toggleInstanceTimer(
         instanceId: widget.instance.reference.id,
       );
-
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Integrate with TimerManager for floating timer
       if (!wasActive) {
         // Timer was started - add to TimerManager
@@ -1392,16 +1340,13 @@ class _ItemComponentState extends State<ItemComponent>
       } else {
         // Timer was stopped - remove from TimerManager
         TimerManager().stopInstance(updatedInstance);
-
         // Only check completion if target is set and met
         if (TimerLogicHelper.hasMetTarget(updatedInstance)) {
           await _checkTimerCompletion(updatedInstance);
         }
       }
-
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-
       // Broadcast the instance update event
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
@@ -1423,36 +1368,31 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _checkTimerCompletion(ActivityInstanceRecord instance) async {
     if (instance.templateTrackingType != 'time') return;
-
     final target = instance.templateTarget ?? 0;
     if (target == 0) return; // No target set
-
     // Use the instance's accumulatedTime (already updated by stop)
     final accumulated = instance.accumulatedTime;
-
+    // Convert target to int for comparison (target is in minutes, accumulated is in milliseconds)
+    final targetMs = (target * 60000).toInt();
     // Only complete if target is met or exceeded
-    if (accumulated >= target) {
+    if (accumulated >= targetMs) {
       try {
         await ActivityInstanceService.completeInstance(
           instanceId: instance.reference.id,
           finalAccumulatedTime: accumulated,
         );
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Task completed! Target reached.')),
           );
         }
-
         // Get updated instance and call callback for immediate UI update
         final completedInstance =
             await ActivityInstanceService.getUpdatedInstance(
           instanceId: instance.reference.id,
         );
         widget.onInstanceUpdated?.call(completedInstance);
-      } catch (e) {
-        print('Error auto-completing timer task: $e');
-      }
+      } catch (e) {}
     }
   }
 
@@ -1467,13 +1407,11 @@ class _ItemComponentState extends State<ItemComponent>
         Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
-
     // Calculate remaining quantity needed to complete
     final current = _currentProgressLocal();
     final target = _getTargetValue();
     final remaining = target - current;
     final canMarkComplete = remaining > 0;
-
     final selected = await showMenu<String>(
       context: anchorContext,
       position: RelativeRect.fromLTRB(
@@ -1525,7 +1463,6 @@ class _ItemComponentState extends State<ItemComponent>
         ),
       ],
     );
-
     if (selected == 'inc') {
       await _updateProgress(1);
     } else if (selected == 'dec' && canDecrement) {
@@ -1541,7 +1478,6 @@ class _ItemComponentState extends State<ItemComponent>
         Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
-
     // Calculate remaining time needed to complete
     final realTimeAccumulated =
         TimerLogicHelper.getRealTimeAccumulated(widget.instance);
@@ -1549,7 +1485,6 @@ class _ItemComponentState extends State<ItemComponent>
     final targetMs = target * 60000; // Convert minutes to milliseconds
     final remainingMs = targetMs - realTimeAccumulated;
     final canMarkComplete = remainingMs > 0;
-
     final selected = await showMenu<String>(
       context: anchorContext,
       position: RelativeRect.fromLTRB(
@@ -1590,9 +1525,7 @@ class _ItemComponentState extends State<ItemComponent>
         ),
       ],
     );
-
     if (selected == null) return;
-
     if (selected == 'reset') {
       await _resetTimer();
     } else if (selected == 'complete' && canMarkComplete) {
@@ -1604,36 +1537,45 @@ class _ItemComponentState extends State<ItemComponent>
     final totalSeconds = remainingMs ~/ 1000;
     final minutes = totalSeconds ~/ 60;
     final seconds = totalSeconds % 60;
-
     if (minutes > 0) {
       return '${minutes}m ${seconds}s';
     }
     return '${seconds}s';
   }
 
+  String _formatTimeFromMs(int milliseconds) {
+    final totalSeconds = milliseconds ~/ 1000;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    if (hours > 0) {
+      return '${hours}h ${minutes}m';
+    } else if (minutes > 0) {
+      return '${minutes}m';
+    } else {
+      return '${seconds}s';
+    }
+  }
+
   Future<void> _resetTimer() async {
     if (_isUpdating) return;
-
     setState(() {
       _isUpdating = true;
     });
-
     try {
       // Get current instance to check status
       final instance = widget.instance;
-
       // Reset timer by updating the instance directly
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
               .doc(widget.instance.reference.id);
-
       await instanceRef.update({
         'accumulatedTime': 0,
         'isTimerActive': false,
         'timerStartTime': null,
         'lastUpdated': DateTime.now(),
       });
-
       // If the item was completed or skipped based on timer, uncomplete it
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if timer was the only progress (for time-based tracking)
@@ -1643,18 +1585,14 @@ class _ItemComponentState extends State<ItemComponent>
           );
         }
       }
-
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-
       // Broadcast update
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Timer reset to 0')),
@@ -1677,39 +1615,50 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _markTimerComplete() async {
     if (_isUpdating) return;
-
     setState(() {
       _isUpdating = true;
     });
-
     try {
-      // Calculate the remaining time needed to reach target
-      final realTimeAccumulated =
-          TimerLogicHelper.getRealTimeAccumulated(widget.instance);
-      final target = widget.instance.templateTarget ?? 0;
-      final targetMs = target * 60000; // Convert minutes to milliseconds
-      final remainingMs = targetMs - realTimeAccumulated;
+      // Step 1: Stop any active timer session first
+      if (widget.instance.isTimeLogging &&
+          widget.instance.currentSessionStartTime != null) {
+        await TaskInstanceService.stopTimeLogging(
+          activityInstanceRef: widget.instance.reference,
+          markComplete: false, // Don't mark complete yet, just stop the session
+        );
+      }
 
-      // Add the remaining time to accumulated time
-      final newAccumulatedTime = (realTimeAccumulated + remainingMs).toInt();
-
-      // Complete the instance with the final accumulated time
-      await ActivityInstanceService.completeInstance(
-        instanceId: widget.instance.reference.id,
-        finalAccumulatedTime: newAccumulatedTime,
-      );
-
-      // Get the updated instance data
+      // Step 2: Get fresh instance data after stopping timer
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
 
+      // Step 3: Get target amount for completion
+      final target = updatedInstance.templateTarget ?? 0;
+      final targetMs = target * 60000; // Convert minutes to milliseconds
+
+      // Step 4: Complete with target amount (ensures 100% progress)
+      final newAccumulatedTime = targetMs.toInt();
+      await ActivityInstanceService.completeInstance(
+        instanceId: widget.instance.reference.id,
+        finalValue:
+            newAccumulatedTime, // Ensure currentValue matches accumulatedTime
+        finalAccumulatedTime: newAccumulatedTime,
+      );
+
+      // Step 5: Also update totalTimeLogged to match target for UI consistency
+      await widget.instance.reference.update({
+        'totalTimeLogged': newAccumulatedTime,
+      });
+
+      // Get the final updated instance data
+      final finalInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
       // Call the instance update callback for real-time updates
-      widget.onInstanceUpdated?.call(updatedInstance);
-
+      widget.onInstanceUpdated?.call(finalInstance);
       // Broadcast the instance update event
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-
+      InstanceEvents.broadcastInstanceUpdated(finalInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1759,7 +1708,6 @@ class _ItemComponentState extends State<ItemComponent>
     try {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-
       // For both habits and recurring tasks, limit snooze date to window end date
       DateTime maxDate;
       if (widget.instance.windowEndDate != null) {
@@ -1768,14 +1716,12 @@ class _ItemComponentState extends State<ItemComponent>
         // For one-time tasks, allow up to 1 year in the future
         maxDate = today.add(const Duration(days: 365));
       }
-
       final picked = await showDatePicker(
         context: context,
         initialDate: today.add(const Duration(days: 1)),
         firstDate: today,
         lastDate: maxDate,
       );
-
       if (picked != null) {
         await ActivityInstanceService.snoozeInstance(
           instanceId: widget.instance.reference.id,
@@ -1801,7 +1747,6 @@ class _ItemComponentState extends State<ItemComponent>
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final tomorrow = today.add(const Duration(days: 1));
-
       await ActivityInstanceService.snoozeInstance(
         instanceId: widget.instance.reference.id,
         snoozeUntil: tomorrow,

@@ -1,10 +1,8 @@
 import 'dart:async';
-
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-
 class DailyProgressRecord extends FirestoreRecord {
   DailyProgressRecord._(
     super.reference,
@@ -12,97 +10,86 @@ class DailyProgressRecord extends FirestoreRecord {
   ) {
     _initializeFields();
   }
-
   // "userId" field.
   String? _userId;
   String get userId => _userId ?? '';
   bool hasUserId() => _userId != null;
-
   // "date" field - normalized to 00:00:00
   DateTime? _date;
   DateTime? get date => _date;
   bool hasDate() => _date != null;
-
   // "targetPoints" field - total daily target for all habits
   double? _targetPoints;
   double get targetPoints => _targetPoints ?? 0.0;
   bool hasTargetPoints() => _targetPoints != null;
-
   // "earnedPoints" field - total points earned from habits
   double? _earnedPoints;
   double get earnedPoints => _earnedPoints ?? 0.0;
   bool hasEarnedPoints() => _earnedPoints != null;
-
   // "completionPercentage" field
   double? _completionPercentage;
   double get completionPercentage => _completionPercentage ?? 0.0;
   bool hasCompletionPercentage() => _completionPercentage != null;
-
   // "totalHabits" field - habits scheduled for this day
   int? _totalHabits;
   int get totalHabits => _totalHabits ?? 0;
   bool hasTotalHabits() => _totalHabits != null;
-
   // "completedHabits" field - fully completed
   int? _completedHabits;
   int get completedHabits => _completedHabits ?? 0;
   bool hasCompletedHabits() => _completedHabits != null;
-
   // "partialHabits" field - partial completion (e.g., 6/8 glasses)
   int? _partialHabits;
   int get partialHabits => _partialHabits ?? 0;
   bool hasPartialHabits() => _partialHabits != null;
-
   // "skippedHabits" field - auto-closed or manually skipped
   int? _skippedHabits;
   int get skippedHabits => _skippedHabits ?? 0;
   bool hasSkippedHabits() => _skippedHabits != null;
-
   // "totalTasks" field - tasks scheduled for this day
   int? _totalTasks;
   int get totalTasks => _totalTasks ?? 0;
   bool hasTotalTasks() => _totalTasks != null;
-
   // "completedTasks" field - fully completed
   int? _completedTasks;
   int get completedTasks => _completedTasks ?? 0;
   bool hasCompletedTasks() => _completedTasks != null;
-
   // "partialTasks" field - partial completion (e.g., 6/8 items)
   int? _partialTasks;
   int get partialTasks => _partialTasks ?? 0;
   bool hasPartialTasks() => _partialTasks != null;
-
   // "skippedTasks" field - manually skipped or rescheduled
   int? _skippedTasks;
   int get skippedTasks => _skippedTasks ?? 0;
   bool hasSkippedTasks() => _skippedTasks != null;
-
   // "taskTargetPoints" field - total daily target for all tasks
   double? _taskTargetPoints;
   double get taskTargetPoints => _taskTargetPoints ?? 0.0;
   bool hasTaskTargetPoints() => _taskTargetPoints != null;
-
   // "taskEarnedPoints" field - total points earned from tasks
   double? _taskEarnedPoints;
   double get taskEarnedPoints => _taskEarnedPoints ?? 0.0;
   bool hasTaskEarnedPoints() => _taskEarnedPoints != null;
-
   // "categoryBreakdown" field - per-category stats
   Map<String, dynamic>? _categoryBreakdown;
   Map<String, dynamic> get categoryBreakdown => _categoryBreakdown ?? {};
   bool hasCategoryBreakdown() => _categoryBreakdown != null;
-
+  // "habitBreakdown" field - detailed breakdown of habits
+  List<Map<String, dynamic>>? _habitBreakdown;
+  List<Map<String, dynamic>> get habitBreakdown => _habitBreakdown ?? [];
+  bool hasHabitBreakdown() => _habitBreakdown != null;
+  // "taskBreakdown" field - detailed breakdown of tasks
+  List<Map<String, dynamic>>? _taskBreakdown;
+  List<Map<String, dynamic>> get taskBreakdown => _taskBreakdown ?? [];
+  bool hasTaskBreakdown() => _taskBreakdown != null;
   // "createdAt" field
   DateTime? _createdAt;
   DateTime? get createdAt => _createdAt;
   bool hasCreatedAt() => _createdAt != null;
-
   // "lastEditedAt" field - if user corrected historical data
   DateTime? _lastEditedAt;
   DateTime? get lastEditedAt => _lastEditedAt;
   bool hasLastEditedAt() => _lastEditedAt != null;
-
   void _initializeFields() {
     _userId = snapshotData['userId'] as String?;
     _date = snapshotData['date'] as DateTime?;
@@ -122,25 +109,24 @@ class DailyProgressRecord extends FirestoreRecord {
     _taskEarnedPoints = (snapshotData['taskEarnedPoints'] as num?)?.toDouble();
     _categoryBreakdown =
         snapshotData['categoryBreakdown'] as Map<String, dynamic>?;
+    _habitBreakdown =
+        (snapshotData['habitBreakdown'] as List?)?.cast<Map<String, dynamic>>();
+    _taskBreakdown =
+        (snapshotData['taskBreakdown'] as List?)?.cast<Map<String, dynamic>>();
     _createdAt = snapshotData['createdAt'] as DateTime?;
     _lastEditedAt = snapshotData['lastEditedAt'] as DateTime?;
   }
-
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('daily_progress');
-
   static CollectionReference collectionForUser(String userId) =>
       FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
           .collection('daily_progress');
-
   static Stream<DailyProgressRecord> getDocument(DocumentReference ref) =>
       ref.snapshots().map((s) => DailyProgressRecord.fromSnapshot(s));
-
   static Future<DailyProgressRecord> getDocumentOnce(DocumentReference ref) =>
       ref.get().then((s) => DailyProgressRecord.fromSnapshot(s));
-
   static DailyProgressRecord fromSnapshot(DocumentSnapshot snapshot) {
     final snapshotData = snapshot.data() as Map<String, dynamic>;
     try {
@@ -149,30 +135,24 @@ class DailyProgressRecord extends FirestoreRecord {
         mapFromFirestore(snapshotData),
       );
     } catch (e) {
-      print('Error creating DailyProgressRecord from snapshot: $e');
       rethrow;
     }
   }
-
   static DailyProgressRecord getDocumentFromData(
     Map<String, dynamic> data,
     DocumentReference reference,
   ) =>
       DailyProgressRecord._(reference, mapFromFirestore(data));
-
   @override
   String toString() =>
       'DailyProgressRecord(reference: ${reference.path}, data: $snapshotData)';
-
   @override
   int get hashCode => reference.path.hashCode;
-
   @override
   bool operator ==(other) =>
       other is DailyProgressRecord &&
       reference.path.hashCode == other.reference.path.hashCode;
 }
-
 Map<String, dynamic> createDailyProgressRecordData({
   String? userId,
   DateTime? date,
@@ -190,6 +170,8 @@ Map<String, dynamic> createDailyProgressRecordData({
   double? taskTargetPoints,
   double? taskEarnedPoints,
   Map<String, dynamic>? categoryBreakdown,
+  List<Map<String, dynamic>>? habitBreakdown,
+  List<Map<String, dynamic>>? taskBreakdown,
   DateTime? createdAt,
   DateTime? lastEditedAt,
 }) {
@@ -211,21 +193,19 @@ Map<String, dynamic> createDailyProgressRecordData({
       'taskTargetPoints': taskTargetPoints,
       'taskEarnedPoints': taskEarnedPoints,
       'categoryBreakdown': categoryBreakdown,
+      'habitBreakdown': habitBreakdown,
+      'taskBreakdown': taskBreakdown,
       'createdAt': createdAt,
       'lastEditedAt': lastEditedAt,
     }.withoutNulls,
   );
-
   return firestoreData;
 }
-
 class DailyProgressRecordDocumentEquality
     implements Equality<DailyProgressRecord> {
   const DailyProgressRecordDocumentEquality();
-
   @override
   bool isValidKey(Object? o) => o is DailyProgressRecord;
-
   @override
   bool equals(DailyProgressRecord? e1, DailyProgressRecord? e2) {
     return e1?.userId == e2?.userId &&
@@ -248,7 +228,6 @@ class DailyProgressRecordDocumentEquality
         e1?.createdAt == e2?.createdAt &&
         e1?.lastEditedAt == e2?.lastEditedAt;
   }
-
   @override
   int hash(DailyProgressRecord? e) => const ListEquality().hash([
         e?.userId,

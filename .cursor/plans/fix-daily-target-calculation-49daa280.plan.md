@@ -200,27 +200,27 @@ Count habit for actual completion date:
 
 1. `lib/Helper/backend/schema/activity_instance_record.dart`
 
-                                                                                                - Add `windowEndDate`, `windowDuration` fields
+                                                                                                                                                                                                                                                                                                                                                                                                - Add `windowEndDate`, `windowDuration` fields
 
 2. `lib/Helper/backend/day_end_processor.dart`
 
-                                                                                                - Change query from `dayState='open'` to `windowEndDate < today`
-                                                                                                - Add `_generateNextInstance()` helper
+                                                                                                                                                                                                                                                                                                                                                                                                - Change query from `dayState='open'` to `windowEndDate < today`
+                                                                                                                                                                                                                                                                                                                                                                                                - Add `_generateNextInstance()` helper
 
 3. `lib/Helper/backend/activity_instance_service.dart`
 
-                                                                                                - Update `createActivityInstance()` to calculate windows
-                                                                                                - Update `completeActivityInstance()` to generate next
-                                                                                                - Add window calculation helpers
+                                                                                                                                                                                                                                                                                                                                                                                                - Update `createActivityInstance()` to calculate windows
+                                                                                                                                                                                                                                                                                                                                                                                                - Update `completeActivityInstance()` to generate next
+                                                                                                                                                                                                                                                                                                                                                                                                - Add window calculation helpers
 
 4. `lib/Screens/Queue/queue_page.dart`
 
-                                                                                                - Update query to show habits in active window
-                                                                                                - Display window countdown
+                                                                                                                                                                                                                                                                                                                                                                                                - Update query to show habits in active window
+                                                                                                                                                                                                                                                                                                                                                                                                - Display window countdown
 
 5. `lib/Helper/backend/points_service.dart`
 
-                                                                                                - Update progress calculation to use completion date
+                                                                                                                                                                                                                                                                                                                                                                                                - Update progress calculation to use completion date
 
 ## Testing with Day Advancer
 

@@ -1,15 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/testing/simple_day_advancer_ui.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 /// Simple testing page for day advancement
 class SimpleTestingPage extends StatelessWidget {
   const SimpleTestingPage({Key? key}) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Scaffold(
       backgroundColor: theme.primaryBackground,
       appBar: AppBar(
@@ -60,11 +57,9 @@ class SimpleTestingPage extends StatelessWidget {
                 ),
               ),
               const SizedBox(height: 24),
-
               // Simple Day Advancer
               const SimpleDayAdvancerUI(),
               const SizedBox(height: 24),
-
               // Simple instructions
               Container(
                 padding: const EdgeInsets.all(16),
@@ -117,7 +112,6 @@ class SimpleTestingPage extends StatelessWidget {
       ),
     );
   }
-
   Widget _buildInstructionStep(
       String number, String title, String description, FlutterFlowTheme theme) {
     return Padding(

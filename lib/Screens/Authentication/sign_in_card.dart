@@ -12,22 +12,18 @@ import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_pg_model.dart';
 import 'package:habit_tracker/Helper/utils/gradient_button.dart';
 import 'package:habit_tracker/main.dart';
-
 class SignInCard extends StatefulWidget {
   final AuthenticationPgModel model;
   final FirebaseAuthManager authManager;
   final Map<String, AnimationInfo> animationsMap;
-
   const SignInCard(
       {super.key,
       required this.model,
       required this.authManager,
       required this.animationsMap});
-
   @override
   State<SignInCard> createState() => _SignInCardState();
 }
-
 class _SignInCardState extends State<SignInCard> {
   @override
   Widget build(BuildContext context) {
@@ -235,25 +231,17 @@ class _SignInCardState extends State<SignInCard> {
                     width: 230.0,
                     child: GradientButton(
                       onPressed: () async {
-                        print('Login button pressed');
                         final email =
                             widget.model.emailAddressTextController.text.trim();
                         final password =
                             widget.model.passwordTextController.text.trim();
-
                         try {
-                          print('Starting sign in with email');
-
                           final user = await widget.authManager.signInWithEmail(
                             context,
                             widget.model.emailAddressTextController.text,
                             widget.model.passwordTextController.text,
                           );
-
-                          print('Sign in completed, user: ${user?.uid}');
-
                           if (!mounted) return;
-
                           if (user == null) {
                             ScaffoldMessenger.of(context).showSnackBar(
                               const SnackBar(
@@ -261,7 +249,6 @@ class _SignInCardState extends State<SignInCard> {
                             );
                             return;
                           }
-                          print('Login successful');
                           users.uid = user.uid;
                           users.email = email;
                           users.password = password;
@@ -271,7 +258,6 @@ class _SignInCardState extends State<SignInCard> {
                           Navigator.pushReplacementNamed(context, home);
                         } catch (e) {
                           if (!mounted) return;
-                          print('Login error: $e');
                           ScaffoldMessenger.of(context).showSnackBar(
                             SnackBar(
                                 content: Text('Login failed: ${e.toString()}')),
@@ -310,7 +296,6 @@ class _SignInCardState extends State<SignInCard> {
                     const EdgeInsetsDirectional.fromSTEB(0.0, 0.0, 0.0, 16.0),
                 child: FFButtonWidget(
                   onPressed: () {
-                    print('Button pressed ...');
                   },
                   text: 'Forgot Password',
                   options: FFButtonOptions(
@@ -404,7 +389,6 @@ class _SignInCardState extends State<SignInCard> {
                               if (user == null) {
                                 return;
                               }
-
                               await _navigateToNextPage();
                             },
                             text: 'Continue with Google',
@@ -461,7 +445,6 @@ class _SignInCardState extends State<SignInCard> {
                                     if (user == null) {
                                       return;
                                     }
-
                                     await _navigateToNextPage();
                                   },
                                   text: 'Continue with Apple',
@@ -522,7 +505,6 @@ class _SignInCardState extends State<SignInCard> {
       ),
     );
   }
-
   Future<void> _navigateToNextPage() async {
     Navigator.pushReplacementNamed(context, home);
   }

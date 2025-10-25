@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-
 /// Reusable dialog to warn users about the consequences of changing start date
 class StartDateChangeDialog {
   /// Show a confirmation dialog when start date is changed
@@ -112,7 +111,6 @@ class StartDateChangeDialog {
         ) ??
         false;
   }
-
   /// Format date for display
   static String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';

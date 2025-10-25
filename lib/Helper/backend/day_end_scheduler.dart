@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/notification_service.dart';
-
 /// Service for managing day-end processing with snooze functionality
 /// Handles scheduling, notifications, and user snooze requests
 class DayEndScheduler {
@@ -11,101 +10,72 @@ class DayEndScheduler {
   static const String _scheduledTimeKey = 'day_end_scheduled_time';
   static const String _snoozeUsedKey = 'day_end_snooze_used';
   static const String _lastResetKey = 'day_end_last_reset';
-
   static DateTime? _scheduledProcessTime;
   static int _snoozeUsedMinutes = 0;
   static DateTime? _lastResetDate;
   static Timer? _dayEndTimer;
-
   /// Initialize the day-end scheduler
   /// Should be called when the app starts
   static Future<void> initialize() async {
-    print('DayEndScheduler: Initializing day-end scheduler...');
-
     // Load state from SharedPreferences
     await _loadState();
-
     // Reset snooze budget if it's a new day
     await _checkAndResetSnoozeBudget();
-
     // Schedule the next day-end processing
     await _scheduleNextDayEnd();
-
-    print('DayEndScheduler: Initialization complete');
   }
-
   /// Load scheduler state from SharedPreferences
   static Future<void> _loadState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-
       // Load scheduled process time
       final scheduledTimeString = prefs.getString(_scheduledTimeKey);
       if (scheduledTimeString != null) {
         _scheduledProcessTime = DateTime.parse(scheduledTimeString);
-        print('DayEndScheduler: Loaded scheduled time: $_scheduledProcessTime');
       }
-
       // Load snooze used
       _snoozeUsedMinutes = prefs.getInt(_snoozeUsedKey) ?? 0;
-      print('DayEndScheduler: Loaded snooze used: $_snoozeUsedMinutes minutes');
-
       // Load last reset date
       final lastResetString = prefs.getString(_lastResetKey);
       if (lastResetString != null) {
         _lastResetDate = DateTime.parse(lastResetString);
-        print('DayEndScheduler: Loaded last reset: $_lastResetDate');
       }
     } catch (e) {
-      print('DayEndScheduler: Error loading state: $e');
     }
   }
-
   /// Save scheduler state to SharedPreferences
   static Future<void> _saveState() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-
       if (_scheduledProcessTime != null) {
         await prefs.setString(
             _scheduledTimeKey, _scheduledProcessTime!.toIso8601String());
       }
-
       await prefs.setInt(_snoozeUsedKey, _snoozeUsedMinutes);
-
       if (_lastResetDate != null) {
         await prefs.setString(_lastResetKey, _lastResetDate!.toIso8601String());
       }
-
-      print('DayEndScheduler: State saved');
     } catch (e) {
-      print('DayEndScheduler: Error saving state: $e');
     }
   }
-
   /// Check if snooze budget should be reset (new day)
   static Future<void> _checkAndResetSnoozeBudget() async {
     final today = DateTime.now();
     final todayDate = DateTime(today.year, today.month, today.day);
-
     // If no last reset date or it's a new day, reset snooze budget
     if (_lastResetDate == null || !_isSameDay(_lastResetDate!, todayDate)) {
       _snoozeUsedMinutes = 0;
       _lastResetDate = todayDate;
       await _saveState();
-      print('DayEndScheduler: Reset snooze budget for new day');
     }
   }
-
   /// Schedule the next day-end processing
   static Future<void> _scheduleNextDayEnd() async {
     // Cancel existing timer
     _dayEndTimer?.cancel();
-
     // Calculate the next processing time
     final now = DateTime.now();
     DateTime nextProcessTime;
-
     if (_scheduledProcessTime != null) {
       // Use existing scheduled time (may be snoozed)
       nextProcessTime = _scheduledProcessTime!;
@@ -113,55 +83,39 @@ class DayEndScheduler {
       // Calculate next 2 AM
       nextProcessTime = _getNext2AM(now);
     }
-
     // If the scheduled time has already passed today, move to tomorrow
     if (nextProcessTime.isBefore(now)) {
       nextProcessTime = nextProcessTime.add(const Duration(days: 1));
     }
-
     _scheduledProcessTime = nextProcessTime;
     await _saveState();
-
     // Calculate time until processing
     final timeUntilProcessing = nextProcessTime.difference(now);
-
-    print(
-        'DayEndScheduler: Scheduling day-end processing for $nextProcessTime');
-    print(
-        'DayEndScheduler: Time until processing: ${timeUntilProcessing.inHours}h ${timeUntilProcessing.inMinutes % 60}m');
-
     // Schedule the timer
     _dayEndTimer = Timer(timeUntilProcessing, () async {
       await _processDayEnd();
       // Reschedule for next day
       await _scheduleNextDayEnd();
     });
-
     // Schedule notifications
     await _scheduleDayEndNotifications();
   }
-
   /// Get the next 2 AM from the given time
   static DateTime _getNext2AM(DateTime from) {
     final today2AM =
         DateTime(from.year, from.month, from.day, _defaultProcessHour);
-
     if (from.isBefore(today2AM)) {
       return today2AM;
     } else {
       return today2AM.add(const Duration(days: 1));
     }
   }
-
   /// Schedule day-end notifications (1hr, 30min, 15min before)
   static Future<void> _scheduleDayEndNotifications() async {
     if (_scheduledProcessTime == null) return;
-
     final processTime = _scheduledProcessTime!;
-
     // Cancel existing day-end notifications
     await NotificationService.cancelDayEndNotifications();
-
     // Schedule 3 notifications
     final notifications = [
       {
@@ -183,12 +137,10 @@ class DayEndScheduler {
         'id': 'day_end_15min'
       },
     ];
-
     for (final notification in notifications) {
       final notificationTime = notification['time'] as DateTime;
       final message = notification['message'] as String;
       final id = notification['id'] as String;
-
       // Only schedule if the notification time is in the future
       if (notificationTime.isAfter(DateTime.now())) {
         await NotificationService.scheduleReminder(
@@ -198,78 +150,51 @@ class DayEndScheduler {
           scheduledTime: notificationTime,
           payload: 'day_end_notification',
         );
-        print(
-            'DayEndScheduler: Scheduled notification "$id" for $notificationTime');
       }
     }
   }
-
   /// Process the day-end (called by timer)
   static Future<void> _processDayEnd() async {
-    print('DayEndScheduler: Processing day-end at scheduled time');
-
     // Trigger the background scheduler to process day-end
     await BackgroundScheduler.triggerDayEndProcessing();
-
     // Reset snooze budget for next day
     _snoozeUsedMinutes = 0;
     _scheduledProcessTime = null;
     await _saveState();
-
-    print('DayEndScheduler: Day-end processing completed');
   }
-
   /// Snooze the day-end processing
   /// Returns true if snooze was successful, false if max snooze reached
   static Future<bool> snooze(int minutes) async {
-    print('DayEndScheduler: Attempting to snooze for $minutes minutes');
-
     // Check if snooze would exceed max limit
     if (_snoozeUsedMinutes + minutes > _maxSnoozeMinutes) {
-      print('DayEndScheduler: Snooze denied - would exceed max limit');
       return false;
     }
-
     // Check if we have a scheduled time to snooze
     if (_scheduledProcessTime == null) {
-      print('DayEndScheduler: No scheduled time to snooze');
       return false;
     }
-
     // Update scheduled time
     final newScheduledTime =
         _scheduledProcessTime!.add(Duration(minutes: minutes));
     _scheduledProcessTime = newScheduledTime;
     _snoozeUsedMinutes += minutes;
-
     await _saveState();
-
     // Reschedule timer and notifications
     await _scheduleNextDayEnd();
-
-    print(
-        'DayEndScheduler: Snoozed for $minutes minutes. New time: $newScheduledTime');
-    print('DayEndScheduler: Total snooze used: $_snoozeUsedMinutes minutes');
-
     return true;
   }
-
   /// Get remaining snooze budget in minutes
   static int get remainingSnoozeMinutes {
     return _maxSnoozeMinutes - _snoozeUsedMinutes;
   }
-
   /// Get the currently scheduled process time
   static DateTime? get scheduledProcessTime => _scheduledProcessTime;
-
   /// Get snooze used so far
   static int get snoozeUsedMinutes => _snoozeUsedMinutes;
-
   /// Check if user can snooze for the given minutes
   static bool canSnooze(int minutes) {
     return _snoozeUsedMinutes + minutes <= _maxSnoozeMinutes;
   }
-
   /// Get snooze status for UI
   static Map<String, dynamic> getSnoozeStatus() {
     return {
@@ -282,14 +207,11 @@ class DayEndScheduler {
       'canSnooze60': canSnooze(60),
     };
   }
-
   /// Cancel all timers and clear state
   static void cancel() {
     _dayEndTimer?.cancel();
     _dayEndTimer = null;
-    print('DayEndScheduler: Cancelled all timers');
   }
-
   /// Helper method to check if two dates are the same day
   static bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;

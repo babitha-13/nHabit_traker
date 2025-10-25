@@ -26,39 +26,31 @@ class TaskInstanceService {
   }
 
   // ==================== TASK INSTANCES ====================
-
   /// Get all active activity instances for today and overdue
   static Future<List<ActivityInstanceRecord>> getTodaysTaskInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('status', isEqualTo: 'pending');
-
       final result = await query.get();
-
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) => instance.isActive) // Filter isActive in Dart
           .toList();
-
       // Sort by priority (high to low) then by due date (oldest first, nulls last)
       instances.sort((a, b) {
         final priorityCompare =
             b.templatePriority.compareTo(a.templatePriority);
         if (priorityCompare != 0) return priorityCompare;
-
         if (a.dueDate == null && b.dueDate == null) return 0;
         if (a.dueDate == null) return 1;
         if (b.dueDate == null) return -1;
         return a.dueDate!.compareTo(b.dueDate!);
       });
-
       return instances;
     } catch (e) {
-      print('Error getting today\'s task instances: $e');
       return [];
     }
   }
@@ -71,7 +63,6 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: dueDate,
@@ -90,7 +81,6 @@ class TaskInstanceService {
       templateDescription: template.description,
       templateShowInFloatingTimer: template.showInFloatingTimer,
     );
-
     return await ActivityInstanceRecord.collectionForUser(uid)
         .add(instanceData);
   }
@@ -104,19 +94,15 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
       final instanceDoc = await instanceRef.get();
-
       if (!instanceDoc.exists) {
         throw Exception('Task instance not found');
       }
-
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
-
       // Update current instance as completed
       await instanceRef.update({
         'status': 'completed',
@@ -126,15 +112,12 @@ class TaskInstanceService {
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
-
       // Get the template to check if it's recurring
       final templateRef =
           ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
-
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
-
         // Generate next instance if task is recurring and still active
         if (template.isRecurring &&
             template.isActive &&
@@ -149,7 +132,6 @@ class TaskInstanceService {
             periodType: template.periodType,
             specificDays: template.specificDays,
           );
-
           if (nextDueDate != null) {
             await createTaskInstance(
               templateId: instance.templateId,
@@ -172,7 +154,6 @@ class TaskInstanceService {
         }
       }
     } catch (e) {
-      print('Error completing task instance: $e');
       rethrow;
     }
   }
@@ -184,19 +165,15 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
       final instanceDoc = await instanceRef.get();
-
       if (!instanceDoc.exists) {
         throw Exception('Task instance not found');
       }
-
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
-
       // Update current instance as skipped
       await instanceRef.update({
         'status': 'skipped',
@@ -204,15 +181,12 @@ class TaskInstanceService {
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
-
       // Get the template to check if it's recurring
       final templateRef =
           ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
-
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
-
         // Generate next instance if task is recurring
         if (template.isRecurring &&
             template.frequencyType.isNotEmpty &&
@@ -226,7 +200,6 @@ class TaskInstanceService {
             periodType: template.periodType,
             specificDays: template.specificDays,
           );
-
           if (nextDueDate != null) {
             await createTaskInstance(
               templateId: instance.templateId,
@@ -249,13 +222,11 @@ class TaskInstanceService {
         }
       }
     } catch (e) {
-      print('Error skipping task instance: $e');
       rethrow;
     }
   }
 
   // ==================== HABIT INSTANCES ====================
-
   /// Get all active habit instances for today and overdue
   static Future<List<habit_schema.HabitInstanceRecord>>
       getTodaysHabitInstances({
@@ -263,56 +234,44 @@ class TaskInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     final today = _todayStart;
-
     try {
       // Remove server-side date filter to allow client-side date filtering with test dates
       final query = habit_schema.HabitInstanceRecord.collectionForUser(uid)
           .where('isActive', isEqualTo: true)
           .where('status', isEqualTo: 'pending');
-
       final result = await query.get();
       final allInstances = result.docs
           .map((doc) => habit_schema.HabitInstanceRecord.fromSnapshot(doc))
           .toList();
-
       // Filter by date on client side using DateService
       // For habits, use window logic; for tasks, use due date logic
       final instances = allInstances.where((instance) {
         if (instance.dueDate == null)
           return true; // Include instances without due dates
-
         // For tasks, use simple due date logic
         return instance.dueDate!.isBefore(today) ||
             instance.dueDate!.isAtSameMomentAs(today);
       }).toList();
-
       // Filter instances based on template date boundaries
       final activeInstances = <habit_schema.HabitInstanceRecord>[];
-
       for (final instance in instances) {
         try {
           // Get the template to check date boundaries
           final templateRef =
               ActivityRecord.collectionForUser(uid).doc(instance.templateId);
           final templateDoc = await templateRef.get();
-
           if (!templateDoc.exists) {
             continue; // Skip if template doesn't exist
           }
-
           final template = ActivityRecord.fromSnapshot(templateDoc);
-
           // Check if habit is active based on date boundaries
           if (isHabitActiveByDate(template, today)) {
             activeInstances.add(instance);
           }
         } catch (e) {
-          print(
-              'Error checking template date boundaries for instance ${instance.reference.id}: $e');
           // Continue with other instances even if one fails
         }
       }
-
       // Sort by priority (high to low) then by due date (oldest first)
       activeInstances.sort((a, b) {
         final priorityCompare =
@@ -320,10 +279,8 @@ class TaskInstanceService {
         if (priorityCompare != 0) return priorityCompare;
         return a.dueDate!.compareTo(b.dueDate!);
       });
-
       return activeInstances;
     } catch (e) {
-      print('Error getting today\'s habit instances: $e');
       return [];
     }
   }
@@ -336,7 +293,6 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     final instanceData = habit_schema.createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: dueDate,
@@ -360,7 +316,6 @@ class TaskInstanceService {
       templateTimesPerPeriod: template.timesPerPeriod,
       templatePeriodType: template.periodType,
     );
-
     return await habit_schema.HabitInstanceRecord.collectionForUser(uid)
         .add(instanceData);
   }
@@ -374,21 +329,17 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       final instanceRef =
           habit_schema.HabitInstanceRecord.collectionForUser(uid)
               .doc(instanceId);
       final instanceDoc = await instanceRef.get();
-
       if (!instanceDoc.exists) {
         throw Exception('Habit instance not found');
       }
-
       final instance =
           habit_schema.HabitInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
-
       // Update current instance as completed
       await instanceRef.update({
         'status': 'completed',
@@ -398,15 +349,12 @@ class TaskInstanceService {
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
-
       // Get the template to generate next instance (habits are always recurring)
       final templateRef =
           ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
-
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
-
         if (template.frequencyType.isNotEmpty && instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
@@ -417,7 +365,6 @@ class TaskInstanceService {
             periodType: template.periodType,
             specificDays: template.specificDays,
           );
-
           if (nextDueDate != null) {
             await createActivityInstance(
               templateId: instance.templateId,
@@ -429,7 +376,6 @@ class TaskInstanceService {
         }
       }
     } catch (e) {
-      print('Error completing habit instance: $e');
       rethrow;
     }
   }
@@ -441,21 +387,17 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       final instanceRef =
           habit_schema.HabitInstanceRecord.collectionForUser(uid)
               .doc(instanceId);
       final instanceDoc = await instanceRef.get();
-
       if (!instanceDoc.exists) {
         throw Exception('Habit instance not found');
       }
-
       final instance =
           habit_schema.HabitInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateTime.now();
-
       // Update current instance as skipped
       await instanceRef.update({
         'status': 'skipped',
@@ -463,15 +405,12 @@ class TaskInstanceService {
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
-
       // Get the template to generate next instance (habits are always recurring)
       final templateRef =
           ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       final templateDoc = await templateRef.get();
-
       if (templateDoc.exists) {
         final template = ActivityRecord.fromSnapshot(templateDoc);
-
         if (template.frequencyType.isNotEmpty && instance.dueDate != null) {
           final nextDueDate = _calculateNextDueDate(
             currentDueDate: instance.dueDate!,
@@ -482,7 +421,6 @@ class TaskInstanceService {
             periodType: template.periodType,
             specificDays: template.specificDays,
           );
-
           if (nextDueDate != null) {
             await createActivityInstance(
               templateId: instance.templateId,
@@ -494,13 +432,11 @@ class TaskInstanceService {
         }
       }
     } catch (e) {
-      print('Error skipping habit instance: $e');
       rethrow;
     }
   }
 
   // ==================== RECURRENCE LOGIC ====================
-
   /// Calculate the next due date based on schedule and frequency
   /// This is the core logic that handles Microsoft To-Do style recurrence
   static DateTime? _calculateNextDueDate({
@@ -526,7 +462,6 @@ class TaskInstanceService {
           default:
             return currentDueDate.add(Duration(days: value));
         }
-
       case 'timesPerPeriod':
         switch (periodType) {
           case 'weeks':
@@ -542,13 +477,11 @@ class TaskInstanceService {
           default:
             return currentDueDate.add(Duration(days: 7));
         }
-
       case 'specificDays':
         if (specificDays != null && specificDays.isNotEmpty) {
           return _getNextWeeklyOccurrence(currentDueDate, specificDays);
         }
         return currentDueDate.add(Duration(days: 1));
-
       default:
         // Default to daily
         return currentDueDate.add(Duration(days: 1));
@@ -562,13 +495,11 @@ class TaskInstanceService {
       date.month + months,
       date.day,
     );
-
     // Handle cases where the day doesn't exist in the target month
     if (nextMonth.month != (date.month + months) % 12) {
       // Day doesn't exist in target month, use last day of month
       return DateTime(nextMonth.year, nextMonth.month, 0);
     }
-
     return nextMonth;
   }
 
@@ -577,7 +508,6 @@ class TaskInstanceService {
       DateTime currentDate, List<int> specificDays) {
     final currentWeekday = currentDate.weekday; // Monday = 1, Sunday = 7
     final sortedDays = List<int>.from(specificDays)..sort();
-
     // Find next day in the same week
     for (final day in sortedDays) {
       if (day > currentWeekday) {
@@ -585,7 +515,6 @@ class TaskInstanceService {
         return currentDate.add(Duration(days: daysToAdd));
       }
     }
-
     // No more days this week, go to first day of next week
     final firstDayNextWeek = sortedDays.first;
     final daysToAdd = 7 - currentWeekday + firstDayNextWeek;
@@ -593,7 +522,6 @@ class TaskInstanceService {
   }
 
   // ==================== INITIALIZATION ====================
-
   /// Generate initial instances for a new recurring task
   static Future<void> initializeTaskInstances({
     required String templateId,
@@ -611,7 +539,6 @@ class TaskInstanceService {
       );
       return;
     }
-
     final firstDueDate = template.dueDate ?? startDate ?? _todayStart;
     await createTaskInstance(
       templateId: templateId,
@@ -619,7 +546,6 @@ class TaskInstanceService {
       template: template,
       userId: userId,
     );
-
     await _updateTemplateDueDate(
       templateRef: template.reference,
       dueDate: firstDueDate,
@@ -644,7 +570,6 @@ class TaskInstanceService {
   }
 
   // ==================== TEMPLATE SYNC METHODS ====================
-
   /// Update template's dueDate to keep it in sync with instances
   static Future<void> _updateTemplateDueDate({
     required DocumentReference templateRef,
@@ -653,7 +578,6 @@ class TaskInstanceService {
     try {
       await templateRef.update({'dueDate': dueDate});
     } catch (e) {
-      print('Error updating template dueDate: $e');
       // Decide if we should re-throw or handle silently
     }
   }
@@ -666,7 +590,6 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       if (templateType == 'task') {
         await ActivityRecord.collectionForUser(uid).doc(templateId).update({
@@ -680,13 +603,11 @@ class TaskInstanceService {
         });
       }
     } catch (e) {
-      print('Error syncing template next due date: $e');
       // Don't rethrow - this is a sync operation, shouldn't fail the main operation
     }
   }
 
   // ==================== UTILITY METHODS ====================
-
   /// Update instance progress (for quantity/duration tracking)
   static Future<void> updateInstanceProgress({
     required String instanceId,
@@ -698,17 +619,14 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     final updateData = <String, dynamic>{
       'lastUpdated': DateTime.now(),
     };
-
     if (currentValue != null) updateData['currentValue'] = currentValue;
     if (accumulatedTime != null)
       updateData['accumulatedTime'] = accumulatedTime;
     if (isTimerActive != null) updateData['isTimerActive'] = isTimerActive;
     if (timerStartTime != null) updateData['timerStartTime'] = timerStartTime;
-
     if (instanceType == 'task') {
       await ActivityInstanceRecord.collectionForUser(uid)
           .doc(instanceId)
@@ -727,13 +645,11 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       if (templateType == 'task') {
         final query = ActivityInstanceRecord.collectionForUser(uid)
             .where('templateId', isEqualTo: templateId);
         final instances = await query.get();
-
         for (final doc in instances.docs) {
           await doc.reference.update({
             'isActive': false,
@@ -744,7 +660,6 @@ class TaskInstanceService {
         final query = habit_schema.HabitInstanceRecord.collectionForUser(uid)
             .where('templateId', isEqualTo: templateId);
         final instances = await query.get();
-
         for (final doc in instances.docs) {
           await doc.reference.update({
             'isActive': false,
@@ -753,13 +668,11 @@ class TaskInstanceService {
         }
       }
     } catch (e) {
-      print('Error deleting instances for template $templateId: $e');
       rethrow;
     }
   }
 
   // ==================== TIMER TASK METHODS ====================
-
   /// Create a new timer task instance when timer starts
   static Future<DocumentReference> createTimerTaskInstance({
     String? categoryId,
@@ -767,18 +680,15 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
-      // Get or create the Timer Task template
+      // Create a new timer task template for this session
       final templateData =
-          await TimerTaskTemplateService.getOrCreateTimerTaskTemplate();
+          await TimerTaskTemplateService.createTimerTaskTemplate();
       final template = templateData['template'] as ActivityRecord;
       final templateRef = templateData['templateRef'] as DocumentReference;
-
       // Use provided category or default to Inbox
       String finalCategoryId = categoryId ?? template.categoryId;
       String finalCategoryName = categoryName ?? template.categoryName;
-
       final instanceData = createActivityInstanceRecordData(
         templateId: templateRef.id,
         status: 'pending',
@@ -803,11 +713,9 @@ class TaskInstanceService {
         currentSessionStartTime: DateTime.now(),
         isTimeLogging: true,
       );
-
       return await ActivityInstanceRecord.collectionForUser(uid)
           .add(instanceData);
     } catch (e) {
-      print('Error creating timer task instance: $e');
       rethrow;
     }
   }
@@ -825,7 +733,6 @@ class TaskInstanceService {
       // Get current instance to check for existing sessions
       final currentInstance =
           await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
-
       // Create new session
       final newSession = {
         'startTime': currentInstance.currentSessionStartTime ??
@@ -833,16 +740,13 @@ class TaskInstanceService {
         'endTime': DateTime.now(),
         'durationMilliseconds': duration.inMilliseconds,
       };
-
       // Get existing sessions and add new one
       final existingSessions =
           List<Map<String, dynamic>>.from(currentInstance.timeLogSessions);
       existingSessions.add(newSession);
-
       // Calculate total cumulative time
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-
       final updateData = <String, dynamic>{
         'status': 'completed',
         'completedAt': DateTime.now(),
@@ -851,12 +755,12 @@ class TaskInstanceService {
         'totalTimeLogged': totalTime,
         'accumulatedTime': totalTime,
         'currentValue': totalTime,
-        'templateTarget': totalTime, // Set target = cumulative time
+        'templateTarget':
+            totalTime / 60000.0, // Convert milliseconds to minutes
         'templateName': taskName,
         'currentSessionStartTime': null,
         'lastUpdated': DateTime.now(),
       };
-
       // Update category if provided
       if (categoryId != null) {
         updateData['templateCategoryId'] = categoryId;
@@ -864,10 +768,31 @@ class TaskInstanceService {
       if (categoryName != null) {
         updateData['templateCategoryName'] = categoryName;
       }
-
       await taskInstanceRef.update(updateData);
+
+      // Update the template name as well
+      final uid = userId ?? _currentUserId;
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
+      final templateUpdateData = <String, dynamic>{
+        'name': taskName,
+        'lastUpdated': DateTime.now(),
+      };
+
+      // Update template category if provided
+      if (categoryId != null) {
+        templateUpdateData['categoryId'] = categoryId;
+      }
+      if (categoryName != null) {
+        templateUpdateData['categoryName'] = categoryName;
+      }
+
+      await templateRef.update(templateUpdateData);
+
+      // Mark template as inactive - timer tasks are one-time use only
+      // Keep template for editing purposes but prevent it from appearing in task lists
+      await templateRef.update({'isActive': false});
     } catch (e) {
-      print('Error updating timer task on stop: $e');
       rethrow;
     }
   }
@@ -885,7 +810,6 @@ class TaskInstanceService {
       // Get current instance to check for existing sessions
       final currentInstance =
           await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
-
       // Create new session
       final newSession = {
         'startTime': currentInstance.currentSessionStartTime ??
@@ -893,16 +817,13 @@ class TaskInstanceService {
         'endTime': DateTime.now(),
         'durationMilliseconds': duration.inMilliseconds,
       };
-
       // Get existing sessions and add new one
       final existingSessions =
           List<Map<String, dynamic>>.from(currentInstance.timeLogSessions);
       existingSessions.add(newSession);
-
       // Calculate total cumulative time
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-
       final updateData = <String, dynamic>{
         'status': 'pending',
         'isTimerActive': false,
@@ -915,7 +836,6 @@ class TaskInstanceService {
         'currentSessionStartTime': null,
         'lastUpdated': DateTime.now(),
       };
-
       // Update category if provided
       if (categoryId != null) {
         updateData['templateCategoryId'] = categoryId;
@@ -923,10 +843,31 @@ class TaskInstanceService {
       if (categoryName != null) {
         updateData['templateCategoryName'] = categoryName;
       }
-
       await taskInstanceRef.update(updateData);
+
+      // Update the template name as well
+      final uid = userId ?? _currentUserId;
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
+      final templateUpdateData = <String, dynamic>{
+        'name': taskName,
+        'lastUpdated': DateTime.now(),
+      };
+
+      // Update template category if provided
+      if (categoryId != null) {
+        templateUpdateData['categoryId'] = categoryId;
+      }
+      if (categoryName != null) {
+        templateUpdateData['categoryName'] = categoryName;
+      }
+
+      await templateRef.update(templateUpdateData);
+
+      // Mark template as inactive - timer tasks are one-time use only
+      // Keep template for editing purposes but prevent it from appearing in task lists
+      await templateRef.update({'isActive': false});
     } catch (e) {
-      print('Error updating timer task on pause: $e');
       rethrow;
     }
   }
@@ -936,46 +877,47 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       // Get tasks with traditional timer fields
       final timerQuery = ActivityInstanceRecord.collectionForUser(uid)
           .where('timerStartTime', isNull: false)
           .where('accumulatedTime', isGreaterThan: 0);
-
       // Get tasks with timeLogSessions
       final sessionQuery = ActivityInstanceRecord.collectionForUser(uid)
           .where('timeLogSessions', isNull: false);
-
+      // Get tasks with time logged data (for paused timer tasks)
+      final timeLoggedQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('totalTimeLogged', isGreaterThan: 0);
       final timerResult = await timerQuery.get();
       final sessionResult = await sessionQuery.get();
-
+      final timeLoggedResult = await timeLoggedQuery.get();
       // Combine and deduplicate results
       final allInstances = <String, ActivityInstanceRecord>{};
-
       for (final doc in timerResult.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
         if (instance.isActive) {
           allInstances[instance.reference.id] = instance;
         }
       }
-
       for (final doc in sessionResult.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
         if (instance.isActive && instance.timeLogSessions.isNotEmpty) {
           allInstances[instance.reference.id] = instance;
         }
       }
-
+      for (final doc in timeLoggedResult.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.isActive) {
+          allInstances[instance.reference.id] = instance;
+        }
+      }
       return allInstances.values.toList();
     } catch (e) {
-      print('Error getting timer task instances: $e');
       return [];
     }
   }
 
   // ==================== TIME LOGGING METHODS ====================
-
   /// Start time logging on an existing activity instance
   static Future<void> startTimeLogging({
     required DocumentReference activityInstanceRef,
@@ -985,19 +927,16 @@ class TaskInstanceService {
       // Validate: cannot start timer on completed tasks
       final instance =
           await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
-
       final error = TimeValidationHelper.getStartTimerError(instance);
       if (error != null) {
         throw Exception(error);
       }
-
       await activityInstanceRef.update({
         'isTimeLogging': true,
         'currentSessionStartTime': DateTime.now(),
         'lastUpdated': DateTime.now(),
       });
     } catch (e) {
-      print('Error starting time logging: $e');
       rethrow;
     }
   }
@@ -1011,36 +950,29 @@ class TaskInstanceService {
     try {
       final instance =
           await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
-
       if (instance.currentSessionStartTime == null) {
         throw Exception('No active session to stop');
       }
-
       final endTime = DateTime.now();
       final duration = endTime.difference(instance.currentSessionStartTime!);
-
       // Validate session duration
       final validationError =
           TimeValidationHelper.validateSessionDuration(duration);
       if (validationError != null) {
         throw Exception(validationError);
       }
-
       // Create new session
       final newSession = {
         'startTime': instance.currentSessionStartTime,
         'endTime': endTime,
         'durationMilliseconds': duration.inMilliseconds,
       };
-
       // Add to existing sessions
       final sessions = List<Map<String, dynamic>>.from(instance.timeLogSessions)
         ..add(newSession);
-
       // Calculate total time across all sessions
       final totalTime = sessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-
       final updateData = <String, dynamic>{
         'timeLogSessions': sessions,
         'totalTimeLogged': totalTime,
@@ -1048,15 +980,12 @@ class TaskInstanceService {
         'currentSessionStartTime': null,
         'lastUpdated': DateTime.now(),
       };
-
       if (markComplete) {
         updateData['status'] = 'completed';
         updateData['completedAt'] = DateTime.now();
       }
-
       await activityInstanceRef.update(updateData);
     } catch (e) {
-      print('Error stopping time logging: $e');
       rethrow;
     }
   }
@@ -1096,17 +1025,14 @@ class TaskInstanceService {
     DateTime? endDate,
   }) async {
     final uid = userId ?? _currentUserId;
-
     try {
       final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('totalTimeLogged', isGreaterThan: 0);
-
       final result = await query.get();
       final tasks = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((task) => task.isActive)
           .toList();
-
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
         return tasks.where((task) {
@@ -1120,10 +1046,8 @@ class TaskInstanceService {
           });
         }).toList();
       }
-
       return tasks;
     } catch (e) {
-      print('Error getting time logged tasks: $e');
       return [];
     }
   }

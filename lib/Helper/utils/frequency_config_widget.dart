@@ -1,37 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'frequency_config_dialog.dart'; // Import FrequencyConfig, FrequencyType, PeriodType
-
 class FrequencyConfigWidget extends StatefulWidget {
   final FrequencyConfig initialConfig;
   final Function(FrequencyConfig) onChanged;
-
   const FrequencyConfigWidget({
     super.key,
     required this.initialConfig,
     required this.onChanged,
   });
-
   @override
   State<FrequencyConfigWidget> createState() => _FrequencyConfigWidgetState();
 }
-
 class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
   late FrequencyConfig _config;
-
   @override
   void initState() {
     super.initState();
     _config = widget.initialConfig;
   }
-
   void _updateConfig(FrequencyConfig newConfig) {
     setState(() {
       _config = newConfig;
     });
     widget.onChanged(newConfig);
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
@@ -47,14 +40,12 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       ],
     );
   }
-
   Widget _buildSectionHeader(String title, FlutterFlowTheme theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(title, style: theme.titleMedium),
     );
   }
-
   Widget _buildDatePickers(FlutterFlowTheme theme) {
     return Column(
       children: [
@@ -88,7 +79,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       ],
     );
   }
-
   Future<void> _selectStartDate(BuildContext context) async {
     final picked = await showDatePicker(
       context: context,
@@ -104,7 +94,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       _updateConfig(newConfig);
     }
   }
-
   Future<void> _selectEndDate(BuildContext context) async {
     final picked = await showDatePicker(
       context: context,
@@ -117,11 +106,9 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       _updateConfig(_config.copyWith(endDate: picked));
     }
   }
-
   String _formatDate(DateTime date) {
     return '${date.day}/${date.month}/${date.year}';
   }
-
   Widget _buildFrequencyTypeSelection(FlutterFlowTheme theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -147,7 +134,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       ],
     );
   }
-
   Widget _buildRadioOption(
     FlutterFlowTheme theme,
     FrequencyType type,
@@ -155,7 +141,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
     String? subtitle,
   ) {
     final isSelected = _config.type == type;
-
     if (type == FrequencyType.everyXPeriod) {
       return InkWell(
         onTap: () => _updateConfig(_config.copyWith(type: type)),
@@ -180,7 +165,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
         ),
       );
     }
-
     if (type == FrequencyType.timesPerPeriod) {
       return InkWell(
         onTap: () => _updateConfig(_config.copyWith(type: type)),
@@ -205,7 +189,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
         ),
       );
     }
-
     return InkWell(
       onTap: () => _updateConfig(_config.copyWith(type: type)),
       child: Container(
@@ -243,15 +226,12 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       ),
     );
   }
-
   Widget _buildInlineForm(FlutterFlowTheme theme, FrequencyType type) {
     switch (type) {
       case FrequencyType.specificDays:
         return _buildDaySelection(theme);
-
       case FrequencyType.timesPerPeriod:
         return const SizedBox.shrink();
-
       case FrequencyType.everyXPeriod:
         return const SizedBox
             .shrink(); // This is now handled inline with the radio button
@@ -259,17 +239,14 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
         return const SizedBox.shrink();
     }
   }
-
   Widget _buildDaySelection(FlutterFlowTheme theme) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-
     return Wrap(
       spacing: 8,
       runSpacing: 8,
       children: List.generate(7, (index) {
         final dayIndex = index + 1; // 1-7
         final isSelected = _config.selectedDays.contains(dayIndex);
-
         return FilterChip(
           label: Text(days[index]),
           selected: isSelected,
@@ -293,7 +270,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       }),
     );
   }
-
   Widget _buildTimesPerPeriodInput(FlutterFlowTheme theme) {
     return Row(
       children: [
@@ -379,7 +355,6 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
       ],
     );
   }
-
   Widget _buildEveryXPeriodInput(FlutterFlowTheme theme) {
     return Row(
       children: [

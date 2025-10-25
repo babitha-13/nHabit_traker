@@ -14,7 +14,6 @@ class EditTask extends StatefulWidget {
   final List<CategoryRecord> categories;
   final Function(ActivityRecord) onSave;
   final ActivityInstanceRecord? instance;
-
   const EditTask({
     super.key,
     required this.task,
@@ -22,7 +21,6 @@ class EditTask extends StatefulWidget {
     required this.onSave,
     this.instance,
   });
-
   @override
   State<EditTask> createState() => _EditTaskState();
 }
@@ -46,14 +44,12 @@ class _EditTaskState extends State<EditTask> {
   DateTime? _originalStartDate; // Track original start date for comparison
   FrequencyConfig?
       _originalFrequencyConfig; // Track original frequency config for comparison
-
   @override
   void initState() {
     super.initState();
     final t = widget.task;
     _titleController = TextEditingController(text: t.name);
     _unitController = TextEditingController(text: t.unit);
-
     // Set the category ID - try both categoryId and categoryName matching
     String? matchingCategoryId;
     if (t.categoryId.isNotEmpty &&
@@ -67,13 +63,8 @@ class _EditTaskState extends State<EditTask> {
       matchingCategoryId = category.reference.id;
     }
     _selectedCategoryId = matchingCategoryId;
-
-    print('DEBUG: Task category ID: ${t.categoryId}');
-    print('DEBUG: Task category Name: ${t.categoryName}');
     print(
         'DEBUG: Available categories: ${widget.categories.map((c) => '${c.name} (${c.reference.id})').toList()}');
-    print('DEBUG: Selected category ID: $_selectedCategoryId');
-
     _selectedTrackingType = t.trackingType;
     _targetNumber = t.target is int ? t.target as int : 1;
     _targetDuration = t.trackingType == 'time'
@@ -82,12 +73,10 @@ class _EditTaskState extends State<EditTask> {
     _unit = t.unit;
     _dueDate = t.dueDate;
     _endDate = t.endDate;
-
     // Load due time from template
     if (t.hasDueTime()) {
       _selectedDueTime = TimeUtils.stringToTimeOfDay(t.dueTime);
     }
-
     // Load instance data if provided
     if (widget.instance != null) {
       _instanceDueDate = widget.instance!.dueDate;
@@ -96,7 +85,6 @@ class _EditTaskState extends State<EditTask> {
             TimeUtils.stringToTimeOfDay(widget.instance!.dueTime);
       }
     }
-
     // Load existing frequency configuration
     quickIsTaskRecurring = t.isRecurring;
     if (quickIsTaskRecurring) {
@@ -104,10 +92,8 @@ class _EditTaskState extends State<EditTask> {
       // Store original frequency config for comparison
       _originalFrequencyConfig = _frequencyConfig;
     }
-
     // Store original start date for comparison
     _originalStartDate = t.startDate;
-
     // Check if start date should be read-only
     _checkStartDateReadOnly();
   }
@@ -125,27 +111,23 @@ class _EditTaskState extends State<EditTask> {
       setState(() => _isStartDateReadOnly = false);
       return;
     }
-
     // Check if start date has passed
     final startDate = widget.task.startDate;
     if (startDate == null) {
       setState(() => _isStartDateReadOnly = false);
       return;
     }
-
     final today = DateTime.now();
     if (!startDate.isBefore(today)) {
       setState(() => _isStartDateReadOnly = false);
       return;
     }
-
     // Check if any instances have been completed
     try {
       final completedInstances =
           await ActivityInstanceService.getInstancesForTemplate(
         templateId: widget.task.reference.id,
       );
-
       final hasCompletedInstances =
           completedInstances.any((i) => i.status == 'completed');
       setState(() => _isStartDateReadOnly = hasCompletedInstances);
@@ -164,12 +146,10 @@ class _EditTaskState extends State<EditTask> {
     List<int> selectedDays = [];
     DateTime startDate = task.startDate ?? DateTime.now();
     DateTime? endDate = task.endDate;
-
     // Handle endDate - if it's 2099 or later, treat as perpetual (set to null)
     if (endDate != null && endDate.year >= 2099) {
       endDate = null;
     }
-
     switch (task.frequencyType) {
       case 'everyXPeriod':
         type = FrequencyType.everyXPeriod;
@@ -198,7 +178,6 @@ class _EditTaskState extends State<EditTask> {
         everyXValue = 1;
         everyXPeriodType = PeriodType.days;
     }
-
     return FrequencyConfig(
       type: type,
       timesPerPeriod: timesPerPeriod,
@@ -215,10 +194,8 @@ class _EditTaskState extends State<EditTask> {
   bool _hasFrequencyChanged() {
     if (_originalFrequencyConfig == null || _frequencyConfig == null)
       return false;
-
     final original = _originalFrequencyConfig!;
     final current = _frequencyConfig!;
-
     // Compare all frequency-related fields
     return original.type != current.type ||
         original.startDate != current.startDate ||
@@ -248,29 +225,18 @@ class _EditTaskState extends State<EditTask> {
       );
       return;
     }
-
     final docRef = widget.task.reference;
-
-    print('DEBUG: Starting save operation');
-    print('DEBUG: quickIsTaskRecurring: $quickIsTaskRecurring');
-    print('DEBUG: _frequencyConfig: $_frequencyConfig');
-    print('DEBUG: _endDate: $_endDate');
-    print('DEBUG: _selectedCategoryId: $_selectedCategoryId');
     print(
         'DEBUG: Available categories: ${widget.categories.map((c) => '${c.name} (${c.reference.id})').toList()}');
-
     // Handle instance due date change if applicable
     if (widget.instance != null && _instanceDueDate != null) {
       final originalInstanceDueDate = widget.instance!.dueDate;
       if (originalInstanceDueDate != _instanceDueDate) {
         try {
-          print(
-              'DEBUG: Moving instance from $originalInstanceDueDate to $_instanceDueDate');
           await ActivityInstanceService.rescheduleInstance(
             instanceId: widget.instance!.reference.id,
             newDueDate: _instanceDueDate!,
           );
-          print('DEBUG: Instance due date updated successfully');
         } catch (e) {
           if (!mounted) return;
           ScaffoldMessenger.of(context).showSnackBar(
@@ -280,22 +246,16 @@ class _EditTaskState extends State<EditTask> {
         }
       }
     }
-
     // Find the selected category name
-    print('DEBUG: Looking for category with ID: $_selectedCategoryId');
     final selectedCategory = widget.categories
         .where((c) => c.reference.id == _selectedCategoryId)
         .firstOrNull;
-
-    print('DEBUG: Found category: ${selectedCategory?.name}');
-
     if (selectedCategory == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Selected category not found')),
       );
       return;
     }
-
     final updateData = createActivityRecordData(
       isRecurring: quickIsTaskRecurring,
       name: _titleController.text.trim(),
@@ -325,7 +285,6 @@ class _EditTaskState extends State<EditTask> {
       endDate: quickIsTaskRecurring && _frequencyConfig != null
           ? _frequencyConfig!.endDate
           : _endDate,
-
       // New frequency fields - only store relevant fields based on frequency type
       frequencyType: quickIsTaskRecurring && _frequencyConfig != null
           ? _frequencyConfig!.type.toString().split('.').last
@@ -353,17 +312,10 @@ class _EditTaskState extends State<EditTask> {
           ? _frequencyConfig!.periodType.toString().split('.').last
           : null,
     );
-
-    print('DEBUG: About to update template with data: $updateData');
-
     // Check if frequency configuration has changed for recurring tasks
     if (quickIsTaskRecurring &&
         _frequencyConfig != null &&
         _hasFrequencyChanged()) {
-      print('DEBUG: Frequency configuration changed');
-      print('DEBUG: Original: $_originalFrequencyConfig');
-      print('DEBUG: Current: $_frequencyConfig');
-
       // Show confirmation dialog
       final shouldProceed = await StartDateChangeDialog.show(
         context: context,
@@ -371,12 +323,9 @@ class _EditTaskState extends State<EditTask> {
         newStartDate: _frequencyConfig!.startDate,
         activityName: _titleController.text.trim(),
       );
-
       if (!shouldProceed) {
-        print('DEBUG: User cancelled frequency change');
         return; // Abort save operation
       }
-
       // Regenerate instances with new frequency configuration
       try {
         await ActivityInstanceService.regenerateInstancesFromStartDate(
@@ -384,9 +333,7 @@ class _EditTaskState extends State<EditTask> {
           template: widget.task,
           newStartDate: _frequencyConfig!.startDate,
         );
-        print('DEBUG: Instances regenerated successfully');
       } catch (e) {
-        print('ERROR: Failed to regenerate instances: $e');
         if (!mounted) return;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating instances: $e')),
@@ -398,8 +345,6 @@ class _EditTaskState extends State<EditTask> {
       final originalEndDate = _originalFrequencyConfig?.endDate;
       final newEndDate = _frequencyConfig!.endDate;
       if (originalEndDate != newEndDate && newEndDate != null) {
-        print('DEBUG: End date changed from $originalEndDate to $newEndDate');
-
         // If end date was shortened, clean up instances beyond the new end date
         if (originalEndDate == null || newEndDate.isBefore(originalEndDate)) {
           try {
@@ -407,48 +352,34 @@ class _EditTaskState extends State<EditTask> {
               templateId: widget.task.reference.id,
               newEndDate: newEndDate,
             );
-            print('DEBUG: Cleaned up instances beyond shortened end date');
           } catch (e) {
-            print('ERROR: Failed to cleanup instances beyond end date: $e');
             // Don't fail the save operation for this
           }
         }
       }
     }
-
     try {
       await docRef.update(updateData);
-      print('DEBUG: Template updated successfully');
-
       // Update all pending instances with new template data (with error handling)
       try {
-        print('DEBUG: Fetching instances for template');
         final instances = await ActivityInstanceService.getInstancesForTemplate(
             templateId: widget.task.reference.id);
-
         final pendingInstances =
             instances.where((i) => i.status != 'completed').toList();
-        print(
-            'DEBUG: Found ${pendingInstances.length} pending instances to update');
-
         // Update instances in batches to avoid timeout
         const batchSize = 10;
         int successCount = 0;
         int failureCount = 0;
-
         for (int i = 0; i < pendingInstances.length; i += batchSize) {
           final batch = pendingInstances.skip(i).take(batchSize);
           print(
               'DEBUG: Updating batch ${(i ~/ batchSize) + 1} with ${batch.length} instances');
-
           final results = await Future.wait(batch.map((instance) async {
             try {
-              print('DEBUG: Updating instance ${instance.reference.id}');
               print(
                   'DEBUG: Old category: ${instance.templateCategoryName} (${instance.templateCategoryId})');
               print(
                   'DEBUG: New category: ${updateData['categoryName']} (${updateData['categoryId']})');
-
               await instance.reference.update({
                 'templateName': updateData['name'],
                 'templateCategoryId': updateData['categoryId'],
@@ -461,7 +392,6 @@ class _EditTaskState extends State<EditTask> {
                 'templateDueTime': updateData['dueTime'],
                 'lastUpdated': DateTime.now(),
               });
-
               // Create updated instance record and broadcast event immediately
               final updatedInstanceData = createActivityInstanceRecordData(
                 templateId: instance.templateId,
@@ -501,37 +431,23 @@ class _EditTaskState extends State<EditTask> {
                 windowEndDate: instance.windowEndDate,
                 windowDuration: instance.windowDuration,
               );
-
               final updatedInstance =
                   ActivityInstanceRecord.getDocumentFromData(
                 updatedInstanceData,
                 instance.reference,
               );
-
               // Broadcast the update event immediately
               InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-
               // Reschedule reminder if due time changed
               try {
                 await ReminderScheduler.rescheduleReminderForInstance(
                     updatedInstance);
-                print(
-                    'DEBUG: Rescheduled reminder for instance ${instance.reference.id}');
-              } catch (e) {
-                print(
-                    'DEBUG: Error rescheduling reminder for instance ${instance.reference.id}: $e');
-              }
-
-              print(
-                  'DEBUG: Instance ${instance.reference.id} updated and event broadcasted successfully');
+              } catch (e) {}
               return true;
             } catch (e) {
-              print(
-                  'ERROR: Failed to update instance ${instance.reference.id}: $e');
               return false;
             }
           }));
-
           // Count successes and failures
           for (final result in results) {
             if (result) {
@@ -541,26 +457,14 @@ class _EditTaskState extends State<EditTask> {
             }
           }
         }
-
-        print(
-            'DEBUG: Instance update summary: $successCount successful, $failureCount failed');
-        print('DEBUG: All instance updates and events completed');
       } catch (e) {
-        print('Error updating instances: $e');
         // Don't fail the entire save operation if instance updates fail
       }
-
       final updatedHabit =
           ActivityRecord.getDocumentFromData(updateData, docRef);
-      print('DEBUG: Save completed successfully');
-      print(
-          'DEBUG: Updated habit category: ${updatedHabit.categoryId} - ${updatedHabit.categoryName}');
-
       // Call onSave to trigger UI refresh
       widget.onSave(updatedHabit);
-
       if (!mounted) return;
-
       // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -568,7 +472,6 @@ class _EditTaskState extends State<EditTask> {
           duration: Duration(seconds: 1),
         ),
       );
-
       Navigator.pop(context, true);
     } catch (e) {
       if (!mounted) return;
@@ -640,19 +543,8 @@ class _EditTaskState extends State<EditTask> {
     }
   }
 
-  Future<void> _pickInstanceDueTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _instanceDueTime ?? TimeUtils.getCurrentTime(),
-    );
-    if (picked != null && picked != _instanceDueTime) {
-      setState(() => _instanceDueTime = picked);
-    }
-  }
-
   String _getFrequencyDescription() {
     if (_frequencyConfig == null) return '';
-
     switch (_frequencyConfig!.type) {
       case FrequencyType.daily:
         return 'Every day';
@@ -728,8 +620,6 @@ class _EditTaskState extends State<EditTask> {
                     if (_selectedCategoryId == null) return null;
                     final isValid = widget.categories
                         .any((c) => c.reference.id == _selectedCategoryId);
-                    print(
-                        'DEBUG: Dropdown value check - selectedId: $_selectedCategoryId, isValid: $isValid');
                     return isValid ? _selectedCategoryId : null;
                   }(),
                   decoration: InputDecoration(
@@ -749,10 +639,7 @@ class _EditTaskState extends State<EditTask> {
                             categoryIds.indexOf(id) !=
                             categoryIds.lastIndexOf(id))
                         .toList();
-                    if (duplicateIds.isNotEmpty) {
-                      print(
-                          'DEBUG: Duplicate category IDs found: $duplicateIds');
-                    }
+                    if (duplicateIds.isNotEmpty) {}
                     print(
                         'DEBUG: Category dropdown items: ${widget.categories.map((c) => '${c.name} -> ${c.reference.id}').toList()}');
                     return widget.categories

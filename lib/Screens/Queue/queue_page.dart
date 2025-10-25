@@ -19,17 +19,15 @@ import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
-
 class QueuePage extends StatefulWidget {
   const QueuePage({super.key});
-
   @override
   _QueuePageState createState() => _QueuePageState();
 }
-
 class _QueuePageState extends State<QueuePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
@@ -45,11 +43,9 @@ class _QueuePageState extends State<QueuePage> {
   double _pointsEarned = 0.0;
   double _dailyPercentage = 0.0;
   // Removed legacy Recent Completions expansion state; now uses standard sections
-
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
-
   @override
   void initState() {
     super.initState();
@@ -62,18 +58,14 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     });
-
     // Listen for category updates to refresh data
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
-        print('QueuePage: Category updated, refreshing data...');
         _silentRefreshInstances();
       }
     });
-
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
-
     // Listen for instance events
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
@@ -94,7 +86,6 @@ class _QueuePageState extends State<QueuePage> {
       }
     });
   }
-
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
@@ -102,7 +93,6 @@ class _QueuePageState extends State<QueuePage> {
     _scrollController.dispose();
     super.dispose();
   }
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -116,7 +106,6 @@ class _QueuePageState extends State<QueuePage> {
       _didInitialDependencies = true;
     }
   }
-
   Future<void> _loadExpansionState() async {
     final expandedSection =
         await ExpansionStateManager().getQueueExpandedSection();
@@ -126,7 +115,6 @@ class _QueuePageState extends State<QueuePage> {
       });
     }
   }
-
   void _onSearchChanged(String query) {
     if (mounted) {
       setState(() {
@@ -134,7 +122,6 @@ class _QueuePageState extends State<QueuePage> {
       });
     }
   }
-
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
@@ -144,30 +131,21 @@ class _QueuePageState extends State<QueuePage> {
         final habitCategories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final allCategories = [...habitCategories, ...taskCategories];
-
-        // DEBUG: Print instance details
-        print('QueuePage: Received ${allInstances.length} instances');
+        // Count instances by type
         int taskCount = 0;
         int habitCount = 0;
         for (final inst in allInstances) {
-          print('  Instance: ${inst.templateName}');
-          print('    - Category ID: ${inst.templateCategoryId}');
-          print('    - Category Name: ${inst.templateCategoryName}');
-          print('    - Category Type: ${inst.templateCategoryType}');
-          print('    - Status: ${inst.status}');
-          print('    - Due Date: ${inst.dueDate}');
           if (inst.templateCategoryType == 'task') taskCount++;
           if (inst.templateCategoryType == 'habit') habitCount++;
         }
-        print('QueuePage: Tasks: $taskCount, Habits: $habitCount');
-
+        print(
+            'QueuePage: Loaded ${allInstances.length} instances ($taskCount tasks, $habitCount habits)');
         if (mounted) {
           setState(() {
             _instances = allInstances;
             _categories = allCategories;
             _isLoading = false;
           });
-
           // Calculate progress for today's habits
           _calculateProgress();
         }
@@ -175,17 +153,12 @@ class _QueuePageState extends State<QueuePage> {
         if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      print('QueuePage: Error loading data: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
   /// Calculate progress for today's habits and tasks
   /// Uses shared DailyProgressCalculator for consistency with historical data
   void _calculateProgress() async {
-    print('QueuePage: _calculateProgress() called');
-    print('  - Total instances: ${_instances.length}');
-
     // Separate habit and task instances
     final habitInstances = _instances
         .where((inst) => inst.templateCategoryType == 'habit')
@@ -193,10 +166,6 @@ class _QueuePageState extends State<QueuePage> {
     final taskInstances = _instances
         .where((inst) => inst.templateCategoryType == 'task')
         .toList();
-
-    print('  - Habit instances: ${habitInstances.length}');
-    print('  - Task instances: ${taskInstances.length}');
-
     // Use the shared calculator - same logic as DayEndProcessor
     final progressData = await DailyProgressCalculator.calculateTodayProgress(
       userId: currentUserUid,
@@ -204,32 +173,16 @@ class _QueuePageState extends State<QueuePage> {
       categories: _categories,
       taskInstances: taskInstances,
     );
-
     _dailyTarget = progressData['target'] as double;
     _pointsEarned = progressData['earned'] as double;
     _dailyPercentage = progressData['percentage'] as double;
-
-    // Extract breakdown for detailed logging
-    final habitTarget = progressData['habitTarget'] as double;
-    final habitEarned = progressData['habitEarned'] as double;
-    final taskTarget = progressData['taskTarget'] as double;
-    final taskEarned = progressData['taskEarned'] as double;
-
-    // Debug logging
-    print('QueuePage: Progress calculation (via DailyProgressCalculator):');
-    print(
-        '  - Total target: $_dailyTarget (Habits: $habitTarget, Tasks: $taskTarget)');
-    print(
-        '  - Total earned: $_pointsEarned (Habits: $habitEarned, Tasks: $taskEarned)');
-    print('  - Percentage: $_dailyPercentage%');
-
+    // Simple progress summary
     // Update UI with new progress values immediately
     if (mounted) {
       setState(() {
         // Progress values are already updated above
       });
     }
-
     // Publish to shared state for other pages (after UI update)
     TodayProgressState().updateProgress(
       target: _dailyTarget,
@@ -237,64 +190,35 @@ class _QueuePageState extends State<QueuePage> {
       percentage: _dailyPercentage,
     );
   }
-
   /// Check if instance is due today or overdue
   bool _isTodayOrOverdue(ActivityInstanceRecord instance) {
     if (instance.dueDate == null) return true; // No due date = today
-
     final today = _todayDate();
     final dueDate = DateTime(
         instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
-
     // For habits: include if today is within the window [dueDate, windowEndDate]
     if (instance.templateCategoryType == 'habit') {
       final windowEnd = instance.windowEndDate;
-
       if (windowEnd != null) {
         // Today should be >= dueDate AND <= windowEnd
         final isWithinWindow = !today.isBefore(dueDate) &&
             !today.isAfter(
                 DateTime(windowEnd.year, windowEnd.month, windowEnd.day));
-
-        print(
-            'QueuePage: _isTodayOrOverdue check for ${instance.templateName}:');
-        print('  - Today: $today');
-        print('  - Due Date: $dueDate');
-        print('  - Window End: ${windowEnd}');
-        print('  - Is within window: $isWithinWindow');
-
         return isWithinWindow;
       }
-
       // Fallback to due date check if no window
       final isDueToday = dueDate.isAtSameMomentAs(today);
-      print(
-          'QueuePage: _isTodayOrOverdue check for ${instance.templateName} (no window):');
-      print('  - Today: $today');
-      print('  - Due Date: $dueDate');
-      print('  - Is due today: $isDueToday');
-
       return isDueToday;
     }
-
     // For tasks: only if due today or overdue
     final isTodayOrOverdue =
         dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
-
-    print('QueuePage: _isTodayOrOverdue check for ${instance.templateName}:');
-    print('  - Today: $today');
-    print('  - Due Date: $dueDate');
-    print('  - Is today or overdue: $isTodayOrOverdue');
-
     return isTodayOrOverdue;
   }
-
   // Removed _wasCompletedToday - now handled by DailyProgressCalculator
-
   bool _isInstanceCompleted(ActivityInstanceRecord instance) {
     return instance.status == 'completed' || instance.status == 'skipped';
   }
-
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
     final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
@@ -302,9 +226,7 @@ class _QueuePageState extends State<QueuePage> {
       'Needs Processing': [],
       'Completed/Skipped': [],
     };
-
     final today = _todayDate();
-
     // Filter instances by search query if active
     final instancesToProcess = _instances.where((instance) {
       if (_searchQuery.isEmpty) return true;
@@ -312,33 +234,22 @@ class _QueuePageState extends State<QueuePage> {
           .toLowerCase()
           .contains(_searchQuery.toLowerCase());
     }).toList();
-
-    print(
-        '_bucketedItems: Processing ${instancesToProcess.length} instances (search: "$_searchQuery")');
     for (final instance in instancesToProcess) {
       // Don't skip completed/skipped instances here - they'll be handled in the Completed/Skipped section
       if (_isInstanceCompleted(instance)) {
-        print(
-            '  ${instance.templateName}: SKIPPED from main processing (will be handled in Completed/Skipped section)');
         continue;
       }
-
       // Skip snoozed instances from main processing (they'll be handled in Completed/Skipped section)
       if (instance.snoozedUntil != null &&
           DateTime.now().isBefore(instance.snoozedUntil!)) {
-        print(
-            '  ${instance.templateName}: SKIPPED from main processing (will be handled in Completed/Skipped section)');
         continue;
       }
-
       final dueDate = instance.dueDate;
       if (dueDate == null) {
         // Skip instances without due dates (no "Later" section)
-        print('  ${instance.templateName}: SKIPPED (no due date)');
         continue;
       }
       final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
-
       // Check for expired habit instances that need processing
       if (instance.templateCategoryType == 'habit' &&
           instance.windowEndDate != null &&
@@ -350,83 +261,52 @@ class _QueuePageState extends State<QueuePage> {
         );
         if (windowEndDate.isBefore(today)) {
           buckets['Needs Processing']!.add(instance);
-          print(
-              '  ${instance.templateName}: NEEDS PROCESSING (expired window)');
           continue;
         }
       }
-
       // OVERDUE: Only tasks that are overdue
       if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
         buckets['Overdue']!.add(instance);
-        print('  ${instance.templateName}: OVERDUE (task)');
       }
       // PENDING: Both habits and tasks for today
       else if (_isTodayOrOverdue(instance)) {
         buckets['Pending']!.add(instance);
-        print(
-            '  ${instance.templateName}: PENDING (within window or due today)');
       }
       // Skip anything beyond today (no "Later" section)
-      else {
-        print('  ${instance.templateName}: SKIPPED (beyond today)');
-      }
     }
-
     // Populate Completed/Skipped (completed or skipped TODAY only)
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     for (final instance in instancesToProcess) {
       if (instance.status != 'completed' && instance.status != 'skipped')
         continue;
-      print(
-          'QueuePage: Processing ${instance.status} instance ${instance.templateName}');
-      print('  - Status: ${instance.status}');
-
       // For completed items, check completion date
       if (instance.status == 'completed') {
-        print('  - CompletedAt: ${instance.completedAt}');
         if (instance.completedAt == null) {
-          print('  - SKIPPED: completedAt is null');
           continue;
         }
         final completedAt = instance.completedAt!;
         final completedDateOnly =
             DateTime(completedAt.year, completedAt.month, completedAt.day);
         final isToday = completedDateOnly.isAtSameMomentAs(todayStart);
-        print('  - Completed date only: $completedDateOnly');
-        print('  - Today start: $todayStart');
-        print('  - Is today: $isToday');
         if (isToday) {
           buckets['Completed/Skipped']!.add(instance);
-          print('  - ADDED to Completed/Skipped');
-        } else {
-          print('  - NOT completed today');
         }
       }
       // For skipped items, check skipped date
       else if (instance.status == 'skipped') {
-        print('  - SkippedAt: ${instance.skippedAt}');
         if (instance.skippedAt == null) {
-          print('  - SKIPPED: skippedAt is null');
           continue;
         }
         final skippedAt = instance.skippedAt!;
         final skippedDateOnly =
             DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
         final isToday = skippedDateOnly.isAtSameMomentAs(todayStart);
-        print('  - Skipped date only: $skippedDateOnly');
-        print('  - Today start: $todayStart');
-        print('  - Is today: $isToday');
         if (isToday) {
           buckets['Completed/Skipped']!.add(instance);
-          print('  - ADDED to Completed/Skipped');
-        } else {
-          print('  - NOT skipped today');
         }
       }
     }
-
     // Add snoozed instances to Completed/Skipped section (only if due today)
     for (final instance in instancesToProcess) {
       if (instance.snoozedUntil != null &&
@@ -437,23 +317,11 @@ class _QueuePageState extends State<QueuePage> {
           final dueDateOnly =
               DateTime(dueDate.year, dueDate.month, dueDate.day);
           if (dueDateOnly.isAtSameMomentAs(todayStart)) {
-            print(
-                'QueuePage: Processing snoozed instance ${instance.templateName}');
-            print('  - SnoozedUntil: ${instance.snoozedUntil}');
-            print('  - Due date: $dueDateOnly');
-            print('  - Today start: $todayStart');
             buckets['Completed/Skipped']!.add(instance);
-            print('  - ADDED to Completed/Skipped');
-          } else {
-            print(
-                'QueuePage: Skipping snoozed instance ${instance.templateName} (not due today)');
-            print('  - Due date: $dueDateOnly');
-            print('  - Today start: $todayStart');
           }
         }
       }
     }
-
     // Sort items within each bucket by queue order
     for (final key in buckets.keys) {
       final items = buckets[key]!;
@@ -465,7 +333,6 @@ class _QueuePageState extends State<QueuePage> {
             InstanceOrderService.sortInstancesByOrder(items, 'queue');
       }
     }
-
     // Auto-expand sections with search results
     if (_searchQuery.isNotEmpty) {
       for (final key in buckets.keys) {
@@ -475,22 +342,15 @@ class _QueuePageState extends State<QueuePage> {
         }
       }
     }
-
     return buckets;
   }
-
   String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
     if (bucketKey == 'Completed/Skipped') {
-      print(
-          'QueuePage: _getSubtitle for Completed/Skipped - ${item.templateName}');
-      print('  - Status: ${item.status}');
-
       // For completed/skipped habits with completion windows, show next window info
       if (item.templateCategoryType == 'habit' &&
           WindowDisplayHelper.hasCompletionWindow(item)) {
         return WindowDisplayHelper.getNextWindowStartSubtitle(item);
       }
-
       String statusText;
       // Check if item is snoozed first
       if (item.snoozedUntil != null &&
@@ -503,7 +363,6 @@ class _QueuePageState extends State<QueuePage> {
       } else {
         statusText = 'Unknown';
       }
-
       final due = item.dueDate;
       final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
       final timeStr = item.hasDueTime()
@@ -511,10 +370,8 @@ class _QueuePageState extends State<QueuePage> {
           : '';
       final subtitle =
           '$statusText • ${item.templateCategoryName} • Due: $dueStr$timeStr';
-      print('  - Generated subtitle: $subtitle');
       return subtitle;
     }
-
     if (bucketKey == 'Pending') {
       // For habits with completion windows, show when window ends
       if (item.templateCategoryType == 'habit' &&
@@ -528,7 +385,6 @@ class _QueuePageState extends State<QueuePage> {
       }
       return subtitle;
     }
-
     final dueDate = item.dueDate;
     if (dueDate != null) {
       final formattedDate = DateFormat.MMMd().format(dueDate);
@@ -537,14 +393,11 @@ class _QueuePageState extends State<QueuePage> {
           : '';
       return '$formattedDate$timeStr • ${item.templateCategoryName}';
     }
-
     return item.templateCategoryName;
   }
-
   DateTime _todayDate() {
     return DateService.todayStart;
   }
-
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -578,7 +431,6 @@ class _QueuePageState extends State<QueuePage> {
       ),
     );
   }
-
   Widget _buildDailyTabContent() {
     return Stack(
       children: [
@@ -587,47 +439,57 @@ class _QueuePageState extends State<QueuePage> {
             : Column(
                 children: [
                   // Progress indicator
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 12, horizontal: 16),
-                    child: Center(
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          ProgressDonutChart(
-                            percentage: _dailyPercentage,
-                            totalTarget: _dailyTarget,
-                            pointsEarned: _pointsEarned,
-                            size: 90,
-                          ),
-                          const SizedBox(width: 16),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                'Daily Progress',
-                                style: FlutterFlowTheme.of(context)
-                                    .titleMedium
-                                    .override(
-                                      fontFamily: 'Readex Pro',
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                '${_pointsEarned.toStringAsFixed(1)} / ${_dailyTarget.toStringAsFixed(1)} points',
-                                style: FlutterFlowTheme.of(context)
-                                    .bodySmall
-                                    .override(
-                                      fontFamily: 'Readex Pro',
-                                      color: FlutterFlowTheme.of(context)
-                                          .secondaryText,
-                                    ),
-                              ),
-                            ],
-                          ),
-                        ],
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => const ProgressPage(),
+                        ),
+                      );
+                    },
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 16),
+                      child: Center(
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            ProgressDonutChart(
+                              percentage: _dailyPercentage,
+                              totalTarget: _dailyTarget,
+                              pointsEarned: _pointsEarned,
+                              size: 90,
+                            ),
+                            const SizedBox(width: 16),
+                            Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                Text(
+                                  'Daily Progress',
+                                  style: FlutterFlowTheme.of(context)
+                                      .titleMedium
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                                const SizedBox(height: 4),
+                                Text(
+                                  '${_pointsEarned.toStringAsFixed(1)} / ${_dailyTarget.toStringAsFixed(1)} points',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
@@ -645,12 +507,10 @@ class _QueuePageState extends State<QueuePage> {
       ],
     );
   }
-
   // List<ActivityRecord> get _activeFloatingHabits {
   //   // TODO: Re-implement with instances
   //   return [];
   // }
-
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
     final order = [
@@ -660,10 +520,8 @@ class _QueuePageState extends State<QueuePage> {
       'Completed/Skipped'
     ];
     final theme = FlutterFlowTheme.of(context);
-
     final visibleSections =
         order.where((key) => buckets[key]!.isNotEmpty).toList();
-
     if (visibleSections.isEmpty) {
       return Center(
         child: Column(
@@ -684,18 +542,14 @@ class _QueuePageState extends State<QueuePage> {
         ),
       );
     }
-
     final slivers = <Widget>[];
-
     for (final key in visibleSections) {
       final items = buckets[key]!;
       final expanded = _expandedSection == key;
-
       // Get or create GlobalKey for this section
       if (!_sectionKeys.containsKey(key)) {
         _sectionKeys[key] = GlobalKey();
       }
-
       slivers.add(
         SliverToBoxAdapter(
           child: Container(
@@ -754,7 +608,6 @@ class _QueuePageState extends State<QueuePage> {
                       // Save state persistently
                       ExpansionStateManager()
                           .setQueueExpandedSection(_expandedSection);
-
                       // Scroll to make the newly expanded section visible
                       if (_expandedSection == key) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -781,7 +634,6 @@ class _QueuePageState extends State<QueuePage> {
           ),
         ),
       );
-
       if (expanded) {
         // Add Process Expired button for Needs Processing section
         if (key == 'Needs Processing') {
@@ -789,21 +641,27 @@ class _QueuePageState extends State<QueuePage> {
             SliverToBoxAdapter(
               child: Container(
                 margin: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: ElevatedButton.icon(
-                  onPressed: _processExpiredInstances,
-                  icon: Icon(Icons.refresh),
-                  label: Text('Process Expired Instances'),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.error,
-                    foregroundColor: theme.primaryBackground,
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton.icon(
+                        onPressed: _processExpiredInstances,
+                        icon: Icon(Icons.refresh),
+                        label: Text('Process Expired Instances'),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.error,
+                          foregroundColor: theme.primaryBackground,
+                          padding: EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 12),
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
           );
         }
-
         slivers.add(
           SliverReorderableList(
             itemBuilder: (context, index) {
@@ -836,7 +694,6 @@ class _QueuePageState extends State<QueuePage> {
         );
       }
     }
-
     return CustomScrollView(
       controller: _scrollController,
       slivers: [
@@ -847,44 +704,29 @@ class _QueuePageState extends State<QueuePage> {
       ],
     );
   }
-
   String _getCategoryColor(ActivityInstanceRecord instance) {
     final category = _categories
         .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
     if (category == null) {
-      print(
-          'QueuePage: Could not find category for instance ${instance.templateName} with category name: ${instance.templateCategoryName}');
     }
     return category?.color ?? '#000000';
   }
-
   // Recent Completions UI is now handled via standard sections and ItemComponent
-
   /// Update instance in local state and recalculate progress
   void _updateInstanceInLocalState(
       ActivityInstanceRecord updatedInstance) async {
-    print(
-        'QueuePage: _updateInstanceInLocalState called for ${updatedInstance.templateName}');
-    print('  - Status: ${updatedInstance.status}');
-    print('  - Current Value: ${updatedInstance.currentValue}');
-    print('  - Category Type: ${updatedInstance.templateCategoryType}');
-
     setState(() {
       final index = _instances.indexWhere(
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _instances[index] = updatedInstance;
-        print('  - Updated instance at index $index');
       } else {
-        print('  - Instance not found in local state!');
       }
     });
-
     // Recalculate progress for instant updates
     print('QueuePage: Triggering _calculateProgress() after instance update');
     _calculateProgress();
   }
-
   /// Remove instance from local state and recalculate progress
   void _removeInstanceFromLocalState(
       ActivityInstanceRecord deletedInstance) async {
@@ -892,55 +734,45 @@ class _QueuePageState extends State<QueuePage> {
       _instances.removeWhere(
           (inst) => inst.reference.id == deletedInstance.reference.id);
     });
-
     // Recalculate progress for instant updates
     _calculateProgress();
   }
-
   // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     setState(() {
       _instances.add(instance);
     });
-    print('QueuePage: Added new instance ${instance.templateName}');
     // Recalculate progress for instant updates
     _calculateProgress();
   }
-
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
       if (index != -1) {
         _instances[index] = instance;
-        print('QueuePage: Updated instance ${instance.templateName}');
       }
     });
     // Recalculate progress for instant updates
     _calculateProgress();
   }
-
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     setState(() {
       _instances
           .removeWhere((inst) => inst.reference.id == instance.reference.id);
     });
-    print('QueuePage: Removed instance ${instance.templateName}');
     // Recalculate progress for instant updates
     _calculateProgress();
   }
-
   /// Silent refresh instances without loading indicator
   Future<void> _silentRefreshInstances() async {
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
-
       final allInstances = await queryAllInstances(userId: userId);
       final habitCategories = await queryHabitCategoriesOnce(userId: userId);
       final taskCategories = await queryTaskCategoriesOnce(userId: userId);
       final allCategories = [...habitCategories, ...taskCategories];
-
       if (mounted) {
         setState(() {
           _instances = allInstances;
@@ -950,25 +782,19 @@ class _QueuePageState extends State<QueuePage> {
         _calculateProgress();
       }
     } catch (e) {
-      print('Error silently refreshing instances: $e');
     }
   }
-
-  /// Process expired instances by triggering day-end processing
   Future<void> _processExpiredInstances() async {
     try {
       // Show loading indicator
       setState(() => _isLoading = true);
-
       // Find the oldest expired instance to determine the date to process
       final buckets = _bucketedItems;
       final expiredInstances = buckets['Needs Processing'] ?? [];
-
       if (expiredInstances.isEmpty) {
         setState(() => _isLoading = false);
         return;
       }
-
       // Find the oldest window end date among expired instances
       DateTime? oldestWindowEnd;
       for (final instance in expiredInstances) {
@@ -984,16 +810,11 @@ class _QueuePageState extends State<QueuePage> {
           }
         }
       }
-
       if (oldestWindowEnd != null) {
-        print(
-            'QueuePage: Processing expired instances for date: $oldestWindowEnd');
         await BackgroundScheduler.triggerDayEndProcessing(
             targetDate: oldestWindowEnd);
-
         // Refresh the data
         await _loadData();
-
         // Show success message
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -1003,7 +824,6 @@ class _QueuePageState extends State<QueuePage> {
         );
       }
     } catch (e) {
-      print('QueuePage: Error processing expired instances: $e');
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Error processing expired instances: $e'),
@@ -1014,29 +834,23 @@ class _QueuePageState extends State<QueuePage> {
       setState(() => _isLoading = false);
     }
   }
-
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
     try {
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
-
       if (oldIndex >= items.length || newIndex >= items.length) return;
-
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
-
       // Adjust newIndex for the case where we're moving down
       int adjustedNewIndex = newIndex;
       if (oldIndex < newIndex) {
         adjustedNewIndex -= 1;
       }
-
       // Get the item being moved
       final movedItem = reorderedItems.removeAt(oldIndex);
       reorderedItems.insert(adjustedNewIndex, movedItem);
-
       // OPTIMISTIC UI UPDATE: Update local state immediately
       // Update order values in the local _instances list
       for (int i = 0; i < reorderedItems.length; i++) {
@@ -1054,14 +868,12 @@ class _QueuePageState extends State<QueuePage> {
           _instances[index] = updatedInstance;
         }
       }
-
       // Trigger setState to update UI immediately (eliminates twitch)
       if (mounted) {
         setState(() {
           // State is already updated above
         });
       }
-
       // Perform database update in background
       await InstanceOrderService.reorderInstancesInSection(
         reorderedItems,
@@ -1069,10 +881,7 @@ class _QueuePageState extends State<QueuePage> {
         oldIndex,
         newIndex,
       );
-
-      print('QueuePage: Reordered items in section $sectionKey');
     } catch (e) {
-      print('QueuePage: Error reordering items: $e');
       // Revert to correct state by refreshing data
       await _loadData();
       // Show error to user
@@ -1083,7 +892,6 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
   }
-
   /// Show snooze bottom sheet for day-end processing
   void showSnoozeBottomSheet() {
     showModalBottomSheet(
@@ -1094,21 +902,17 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 }
-
 /// Snooze bottom sheet widget
 class _SnoozeBottomSheet extends StatefulWidget {
   @override
   _SnoozeBottomSheetState createState() => _SnoozeBottomSheetState();
 }
-
 class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
   bool _isLoading = false;
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     final snoozeStatus = DayEndScheduler.getSnoozeStatus();
-
     return Container(
       decoration: BoxDecoration(
         color: theme.primaryBackground,
@@ -1134,7 +938,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 24),
-
           // Title
           Text(
             'Day Ending Soon',
@@ -1145,7 +948,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 8),
-
           // Description
           Text(
             'You have ${snoozeStatus['remainingSnooze']} minutes of snooze time remaining. Extend your day to finish more tasks!',
@@ -1155,7 +957,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 24),
-
           // Current processing time
           if (snoozeStatus['scheduledTime'] != null) ...[
             Container(
@@ -1200,7 +1001,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
             const SizedBox(height: 20),
           ],
-
           // Snooze buttons
           Text(
             'Snooze Options',
@@ -1210,7 +1010,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 12),
-
           Row(
             children: [
               Expanded(
@@ -1242,7 +1041,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ],
           ),
           const SizedBox(height: 20),
-
           // View Tasks button
           SizedBox(
             width: double.infinity,
@@ -1270,19 +1068,14 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
       ),
     );
   }
-
   String _formatTime(DateTime dateTime) {
     return DateFormat('h:mm a').format(dateTime);
   }
-
   Future<void> _handleSnooze(int minutes) async {
     if (_isLoading) return;
-
     setState(() => _isLoading = true);
-
     try {
       final success = await DayEndScheduler.snooze(minutes);
-
       if (success) {
         if (mounted) {
           Navigator.pop(context);
@@ -1319,25 +1112,21 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
     }
   }
 }
-
 /// Snooze button widget
 class _SnoozeButton extends StatelessWidget {
   final int minutes;
   final String label;
   final bool enabled;
   final VoidCallback onPressed;
-
   const _SnoozeButton({
     required this.minutes,
     required this.label,
     required this.enabled,
     required this.onPressed,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return ElevatedButton(
       onPressed: enabled ? onPressed : null,
       style: ElevatedButton.styleFrom(

@@ -10,16 +10,12 @@ import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-
 class createActivityPage extends StatefulWidget {
   final ActivityRecord? habitToEdit;
-
   const createActivityPage({super.key, this.habitToEdit});
-
   @override
   State<createActivityPage> createState() => _createActivityPageState();
 }
-
 class _createActivityPageState extends State<createActivityPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -33,24 +29,19 @@ class _createActivityPageState extends State<createActivityPage> {
   int _targetNumber = 1;
   Duration _targetDuration = const Duration(hours: 1);
   late FrequencyConfig _frequencyConfig;
-
   // Date range fields
   DateTime _startDate = DateTime.now();
   DateTime? _endDate; // null means perpetual (will be set to 2099 in backend)
   DateTime? _originalStartDate; // Track original start date for comparison
-
   // Due time field
   TimeOfDay? _selectedDueTime;
   FrequencyConfig?
       _originalFrequencyConfig; // Track original frequency config for comparison
-
   @override
   void initState() {
     super.initState();
     _loadCategories();
-
     _frequencyConfig = FrequencyConfig(type: FrequencyType.everyXPeriod);
-
     if (widget.habitToEdit != null) {
       final habit = widget.habitToEdit!;
       _nameController.text = habit.name;
@@ -64,7 +55,6 @@ class _createActivityPageState extends State<createActivityPage> {
         final minutes = habit.target ?? 60;
         _targetDuration = Duration(minutes: minutes);
       }
-
       // Load date fields if editing existing habit
       _startDate = habit.startDate ?? DateTime.now();
       _originalStartDate =
@@ -74,21 +64,17 @@ class _createActivityPageState extends State<createActivityPage> {
       if (_endDate != null && _endDate!.year >= 2099) {
         _endDate = null;
       }
-
       // Load due time if editing existing habit
       if (habit.hasDueTime()) {
         _selectedDueTime = TimeUtils.stringToTimeOfDay(habit.dueTime);
       }
-
       // Convert legacy schedule to FrequencyConfig
       _frequencyConfig =
           _convertLegacyScheduleToFrequencyConfig(habit, _startDate, _endDate);
-
       // Store original frequency config for comparison
       _originalFrequencyConfig = _frequencyConfig;
     }
   }
-
   FrequencyConfig _convertLegacyScheduleToFrequencyConfig(
       ActivityRecord habit, DateTime startDate, DateTime? endDate) {
     // For existing habits, try to use the new frequency fields first
@@ -107,7 +93,6 @@ class _createActivityPageState extends State<createActivityPage> {
         default:
           type = FrequencyType.everyXPeriod;
       }
-
       return FrequencyConfig(
         type: type,
         timesPerPeriod: habit.hasTimesPerPeriod() ? habit.timesPerPeriod : 1,
@@ -131,7 +116,6 @@ class _createActivityPageState extends State<createActivityPage> {
         endDate: endDate,
       );
     }
-
     // Fallback to default configuration for habits without frequency data
     return FrequencyConfig(
       type: FrequencyType.everyXPeriod,
@@ -141,14 +125,12 @@ class _createActivityPageState extends State<createActivityPage> {
       endDate: endDate,
     );
   }
-
   @override
   void dispose() {
     _nameController.dispose();
     _unitController.dispose();
     super.dispose();
   }
-
   Future<void> _loadCategories() async {
     try {
       final userId = currentUserUid;
@@ -158,12 +140,10 @@ class _createActivityPageState extends State<createActivityPage> {
         setState(() {
           _categories = categories;
           _isLoading = false;
-
           // Apply the same category matching logic as task page
           if (widget.habitToEdit != null) {
             final habit = widget.habitToEdit!;
             String? matchingCategoryId;
-
             // Try categoryId first
             if (habit.categoryId.isNotEmpty &&
                 categories.any((c) => c.reference.id == habit.categoryId)) {
@@ -176,14 +156,9 @@ class _createActivityPageState extends State<createActivityPage> {
                   categories.firstWhere((c) => c.name == habit.categoryName);
               matchingCategoryId = category.reference.id;
             }
-
             _selectedCategoryId = matchingCategoryId;
-
-            print(
-                'DEBUG: Habit category matching - original ID: ${habit.categoryId}, name: ${habit.categoryName}');
             print(
                 'DEBUG: Available categories: ${categories.map((c) => '${c.name} (${c.reference.id})').toList()}');
-            print('DEBUG: Final selected category ID: $_selectedCategoryId');
           }
         });
       }
@@ -196,7 +171,6 @@ class _createActivityPageState extends State<createActivityPage> {
       }
     }
   }
-
   bool _canSave() {
     if (_nameController.text.trim().isEmpty) return false;
     if (_selectedCategoryId == null) return false;
@@ -205,16 +179,13 @@ class _createActivityPageState extends State<createActivityPage> {
       return false;
     if (_selectedTrackingType == 'time' && _targetDuration.inMinutes <= 0)
       return false;
-
     // Date validation
     if (_frequencyConfig.endDate != null &&
         _frequencyConfig.endDate!.isBefore(_frequencyConfig.startDate)) {
       return false;
     }
-
     return true;
   }
-
   Future<void> _selectDueTime() async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
@@ -226,14 +197,11 @@ class _createActivityPageState extends State<createActivityPage> {
       });
     }
   }
-
   /// Check if frequency configuration has changed
   bool _hasFrequencyChanged() {
     if (_originalFrequencyConfig == null) return false;
-
     final original = _originalFrequencyConfig!;
     final current = _frequencyConfig;
-
     // Compare all frequency-related fields
     return original.type != current.type ||
         original.startDate != current.startDate ||
@@ -244,7 +212,6 @@ class _createActivityPageState extends State<createActivityPage> {
         original.periodType != current.periodType ||
         !_listEquals(original.selectedDays, current.selectedDays);
   }
-
   /// Helper method to compare lists
   bool _listEquals<T>(List<T>? a, List<T>? b) {
     if (a == null) return b == null;
@@ -254,18 +221,14 @@ class _createActivityPageState extends State<createActivityPage> {
     }
     return true;
   }
-
   Future<void> _saveHabit() async {
     if (!_formKey.currentState!.validate() || !_canSave()) return;
-
     setState(() => _isSaving = true);
-
     try {
       final userId = currentUserUid;
       final selectedCategory = _categories.firstWhere(
         (cat) => cat.reference.id == _selectedCategoryId,
       );
-
       dynamic targetValue;
       switch (_selectedTrackingType) {
         case 'binary':
@@ -278,7 +241,6 @@ class _createActivityPageState extends State<createActivityPage> {
           targetValue = _targetDuration.inMinutes;
           break;
       }
-
       final recordData = createActivityRecordData(
         priority: weight,
         name: _nameController.text.trim(),
@@ -301,7 +263,6 @@ class _createActivityPageState extends State<createActivityPage> {
         dueTime: _selectedDueTime != null
             ? TimeUtils.timeOfDayToString(_selectedDueTime!)
             : null,
-
         // New frequency fields - only store relevant fields based on frequency type
         frequencyType: _frequencyConfig.type.toString().split('.').last,
         // Only store everyX fields if frequency type is everyXPeriod
@@ -319,16 +280,9 @@ class _createActivityPageState extends State<createActivityPage> {
             ? _frequencyConfig.periodType.toString().split('.').last
             : null,
       );
-
-      print('DEBUG: Saving ActivityRecord data: $recordData');
-
       if (widget.habitToEdit != null) {
         // Check if frequency configuration has changed for existing habits
         if (_hasFrequencyChanged()) {
-          print('DEBUG: Frequency configuration changed');
-          print('DEBUG: Original: $_originalFrequencyConfig');
-          print('DEBUG: Current: $_frequencyConfig');
-
           // Show confirmation dialog
           final shouldProceed = await StartDateChangeDialog.show(
             context: context,
@@ -336,13 +290,10 @@ class _createActivityPageState extends State<createActivityPage> {
             newStartDate: _frequencyConfig.startDate,
             activityName: _nameController.text.trim(),
           );
-
           if (!shouldProceed) {
-            print('DEBUG: User cancelled frequency change');
             setState(() => _isSaving = false);
             return; // Abort save operation
           }
-
           // Regenerate instances with new frequency configuration
           try {
             await ActivityInstanceService.regenerateInstancesFromStartDate(
@@ -350,9 +301,7 @@ class _createActivityPageState extends State<createActivityPage> {
               template: widget.habitToEdit!,
               newStartDate: _frequencyConfig.startDate,
             );
-            print('DEBUG: Instances regenerated successfully');
           } catch (e) {
-            print('ERROR: Failed to regenerate instances: $e');
             if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Error updating instances: $e')),
@@ -366,9 +315,6 @@ class _createActivityPageState extends State<createActivityPage> {
           final originalEndDate = _originalFrequencyConfig?.endDate;
           final newEndDate = _frequencyConfig.endDate;
           if (originalEndDate != newEndDate && newEndDate != null) {
-            print(
-                'DEBUG: End date changed from $originalEndDate to $newEndDate');
-
             // If end date was shortened, clean up instances beyond the new end date
             if (originalEndDate == null ||
                 newEndDate.isBefore(originalEndDate)) {
@@ -377,48 +323,35 @@ class _createActivityPageState extends State<createActivityPage> {
                   templateId: widget.habitToEdit!.reference.id,
                   newEndDate: newEndDate,
                 );
-                print('DEBUG: Cleaned up instances beyond shortened end date');
               } catch (e) {
-                print('ERROR: Failed to cleanup instances beyond end date: $e');
                 // Don't fail the save operation for this
               }
             }
           }
         }
-
         // Update the template
         await widget.habitToEdit!.reference.update(recordData);
-
         // Update all pending instances with new template data
         try {
-          print('DEBUG: Fetching instances for template');
           final instances =
               await ActivityInstanceService.getInstancesForTemplate(
                   templateId: widget.habitToEdit!.reference.id);
-
           final pendingInstances =
               instances.where((i) => i.status != 'completed').toList();
-          print(
-              'DEBUG: Found ${pendingInstances.length} pending instances to update');
-
           // Update instances in batches to avoid timeout
           const batchSize = 10;
           int successCount = 0;
           int failureCount = 0;
-
           for (int i = 0; i < pendingInstances.length; i += batchSize) {
             final batch = pendingInstances.skip(i).take(batchSize);
             print(
                 'DEBUG: Updating batch ${(i ~/ batchSize) + 1} with ${batch.length} instances');
-
             final results = await Future.wait(batch.map((instance) async {
               try {
-                print('DEBUG: Updating instance ${instance.reference.id}');
                 print(
                     'DEBUG: Old category: ${instance.templateCategoryName} (${instance.templateCategoryId})');
                 print(
                     'DEBUG: New category: ${recordData['categoryName']} (${recordData['categoryId']})');
-
                 await instance.reference.update({
                   'templateName': recordData['name'],
                   'templateCategoryId': recordData['categoryId'],
@@ -430,17 +363,11 @@ class _createActivityPageState extends State<createActivityPage> {
                   'templateDescription': recordData['description'],
                   'lastUpdated': DateTime.now(),
                 });
-
-                print(
-                    'DEBUG: Instance ${instance.reference.id} updated successfully');
                 return true;
               } catch (e) {
-                print(
-                    'ERROR: Failed to update instance ${instance.reference.id}: $e');
                 return false;
               }
             }));
-
             // Count successes and failures
             for (final result in results) {
               if (result) {
@@ -450,10 +377,6 @@ class _createActivityPageState extends State<createActivityPage> {
               }
             }
           }
-
-          print(
-              'DEBUG: Instance update summary: $successCount successful, $failureCount failed');
-
           // Verify the updates by re-fetching a few instances
           if (successCount > 0) {
             try {
@@ -467,16 +390,11 @@ class _createActivityPageState extends State<createActivityPage> {
               print(
                   'DEBUG: Verification - Sample instance category: ${sampleInstance.templateCategoryName} (${sampleInstance.templateCategoryId})');
             } catch (e) {
-              print('DEBUG: Verification failed: $e');
             }
           }
-
-          print('DEBUG: All habit instance updates completed');
         } catch (e) {
-          print('Error updating habit instances: $e');
           // Don't fail the entire save operation if instance updates fail
         }
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Habit updated successfully!')),
@@ -485,12 +403,7 @@ class _createActivityPageState extends State<createActivityPage> {
         }
       } else {
         print(
-            '--- create_habit.dart: Preparing to call createActivity for a new habit...');
-        print(
             '--- create_habit.dart: Habit Name: ${_nameController.text.trim()}');
-        print('--- create_habit.dart: Category Name: ${selectedCategory.name}');
-        print('--- create_habit.dart: User ID: $userId');
-
         await createActivity(
           name: _nameController.text.trim(),
           categoryName: selectedCategory.name,
@@ -524,9 +437,6 @@ class _createActivityPageState extends State<createActivityPage> {
           startDate: _frequencyConfig.startDate,
           endDate: _frequencyConfig.endDate,
         );
-
-        print('--- create_habit.dart: createActivity call finished.');
-
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('New Habit Created successfully!')),
@@ -544,7 +454,6 @@ class _createActivityPageState extends State<createActivityPage> {
       if (mounted) setState(() => _isSaving = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -597,8 +506,6 @@ class _createActivityPageState extends State<createActivityPage> {
                                   if (_selectedCategoryId == null) return null;
                                   final isValid = _categories.any((c) =>
                                       c.reference.id == _selectedCategoryId);
-                                  print(
-                                      'DEBUG: Habit dropdown value check - selectedId: $_selectedCategoryId, isValid: $isValid');
                                   return isValid ? _selectedCategoryId : null;
                                 }(),
                                 decoration: const InputDecoration(
@@ -855,7 +762,6 @@ class _createActivityPageState extends State<createActivityPage> {
       ),
     );
   }
-
   Widget _buildSectionHeader(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),

@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 class NeumorphicContainer extends StatelessWidget {
   const NeumorphicContainer({
     Key? key,
@@ -13,7 +12,6 @@ class NeumorphicContainer extends StatelessWidget {
     this.borderColor,
     this.compact = false,
   }) : super(key: key);
-
   final Widget child;
   final EdgeInsetsGeometry? margin;
   final EdgeInsetsGeometry? padding;
@@ -22,12 +20,10 @@ class NeumorphicContainer extends StatelessWidget {
   final List<BoxShadow>? shadows;
   final Color? borderColor;
   final bool compact;
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     final borderRadius = BorderRadius.circular(radius ?? theme.cardRadius);
-
     final EdgeInsetsGeometry effectivePadding = padding ??
         (compact
             ? const EdgeInsets.symmetric(horizontal: 10, vertical: 4)
@@ -36,7 +32,6 @@ class NeumorphicContainer extends StatelessWidget {
         (compact
             ? const EdgeInsets.symmetric(horizontal: 8, vertical: 2)
             : null);
-
     return Container(
       margin: effectiveMargin,
       decoration: BoxDecoration(

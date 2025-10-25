@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/category_color_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -8,7 +9,6 @@ class CreateCategory extends StatefulWidget {
   final CategoryRecord? category;
   final String? categoryType; // 'habit' or 'task'
   const CreateCategory({super.key, this.category, this.categoryType});
-
   @override
   State<CreateCategory> createState() => _CreateCategoryState();
 }
@@ -17,10 +17,9 @@ class _CreateCategoryState extends State<CreateCategory> {
   late TextEditingController nameController;
   late TextEditingController descriptionController;
   int weight = 1;
-  String selectedColor = '#2196F3';
+  String selectedColor = CategoryColorUtil.palette.first;
   List<CategoryRecord> existingCategories = [];
   bool _isValidating = false;
-
   @override
   void initState() {
     super.initState();
@@ -31,7 +30,7 @@ class _CreateCategoryState extends State<CreateCategory> {
     weight = (widget.category?.weight ?? 1.0).round();
     selectedColor = widget.category?.color.isNotEmpty == true
         ? widget.category!.color
-        : '#2196F3';
+        : CategoryColorUtil.palette.first;
     _loadExistingCategories();
   }
 
@@ -57,7 +56,6 @@ class _CreateCategoryState extends State<CreateCategory> {
   @override
   Widget build(BuildContext context) {
     final isEdit = widget.category != null;
-
     return AlertDialog(
       title: Text(isEdit ? 'Edit Category' : 'Create New Category'),
       content: SingleChildScrollView(
@@ -87,14 +85,7 @@ class _CreateCategoryState extends State<CreateCategory> {
             Wrap(
               spacing: 10,
               runSpacing: 10,
-              children: [
-                '#2196F3',
-                '#4CAF50',
-                '#FF9800',
-                '#F44336',
-                '#9C27B0',
-                '#607D8B',
-              ].map((color) {
+              children: CategoryColorUtil.palette.map((color) {
                 final isSelected = selectedColor == color;
                 return GestureDetector(
                   onTap: () => setState(() => selectedColor = color),
@@ -131,16 +122,13 @@ class _CreateCategoryState extends State<CreateCategory> {
               ? null
               : () async {
                   if (nameController.text.isEmpty) return;
-
                   setState(() {
                     _isValidating = true;
                   });
-
                   try {
                     // Get fresh categories from database
                     final freshCategories =
                         await queryCategoriesRecordOnce(userId: currentUserUid);
-
                     // Check for duplicate names, but exclude the current category when editing
                     final newName = nameController.text.trim().toLowerCase();
                     final nameExists = freshCategories.any((cat) {
@@ -152,7 +140,6 @@ class _CreateCategoryState extends State<CreateCategory> {
                       final existingName = cat.name.trim().toLowerCase();
                       return existingName == newName;
                     });
-
                     if (nameExists) {
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
@@ -173,7 +160,6 @@ class _CreateCategoryState extends State<CreateCategory> {
                       final oldName = widget.category!.name;
                       final newName = nameController.text.trim();
                       final nameChanged = oldName != newName;
-
                       await updateCategory(
                         categoryId: widget.category!.reference.id,
                         name: nameController.text,
@@ -185,7 +171,6 @@ class _CreateCategoryState extends State<CreateCategory> {
                         categoryType:
                             widget.categoryType, // Only update if provided
                       );
-
                       // If name changed, cascade the update to all templates and instances
                       if (nameChanged) {
                         try {
@@ -194,11 +179,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                             newCategoryName: newName,
                             userId: currentUserUid,
                           );
-
-                          print(
-                              'DEBUG: Category name cascade completed for: $oldName -> $newName');
                         } catch (e) {
-                          print('ERROR: Cascade update failed: $e');
                           // Show warning but don't fail the operation
                           if (mounted) {
                             ScaffoldMessenger.of(context).showSnackBar(
@@ -211,7 +192,6 @@ class _CreateCategoryState extends State<CreateCategory> {
                           }
                         }
                       }
-
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -233,7 +213,6 @@ class _CreateCategoryState extends State<CreateCategory> {
                         categoryType: widget.categoryType ??
                             'habit', // Default to habit if not specified
                       );
-
                       if (mounted) {
                         ScaffoldMessenger.of(context).showSnackBar(
                           SnackBar(
@@ -244,7 +223,6 @@ class _CreateCategoryState extends State<CreateCategory> {
                         );
                       }
                     }
-
                     Navigator.of(context).pop();
                   } catch (e) {
                     if (mounted) {

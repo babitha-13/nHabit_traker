@@ -3,28 +3,23 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 class FloatingTimer extends StatefulWidget {
   final List<ActivityInstanceRecord> activeInstances;
   final Future<void> Function()? onRefresh;
   final void Function(ActivityInstanceRecord updatedInstance)?
       onInstanceUpdated;
-
   const FloatingTimer({
     Key? key,
     required this.activeInstances,
     this.onRefresh,
     this.onInstanceUpdated,
   }) : super(key: key);
-
   @override
   State<FloatingTimer> createState() => _FloatingTimerState();
 }
-
 class _FloatingTimerState extends State<FloatingTimer> {
   Timer? _updateTimer;
   final Set<String> _hiddenAfterStop = <String>{};
-
   @override
   void initState() {
     super.initState();
@@ -32,13 +27,11 @@ class _FloatingTimerState extends State<FloatingTimer> {
       _startUpdateTimer();
     }
   }
-
   @override
   void dispose() {
     _updateTimer?.cancel();
     super.dispose();
   }
-
   @override
   void didUpdateWidget(covariant FloatingTimer oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -48,14 +41,12 @@ class _FloatingTimerState extends State<FloatingTimer> {
       }
     }
   }
-
   void _startUpdateTimer() {
     _updateTimer?.cancel();
     _updateTimer = Timer.periodic(const Duration(seconds: 1), (_) {
       if (mounted) setState(() {});
     });
   }
-
   List<ActivityInstanceRecord> get _activeTimers {
     return widget.activeInstances.where((instance) {
       if (instance.templateTrackingType != 'time') return false;
@@ -69,7 +60,6 @@ class _FloatingTimerState extends State<FloatingTimer> {
           !_hiddenAfterStop.contains(instance.reference.id);
     }).toList();
   }
-
   Future<void> _resetTimer(ActivityInstanceRecord instance) async {
     try {
       await instance.reference.update({
@@ -77,7 +67,6 @@ class _FloatingTimerState extends State<FloatingTimer> {
         'timerStartTime': null,
         'isTimerActive': false,
       });
-
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
@@ -91,13 +80,11 @@ class _FloatingTimerState extends State<FloatingTimer> {
       }
     }
   }
-
   @override
   Widget build(BuildContext context) {
     if (_activeTimers.isEmpty) {
       return const SizedBox.shrink();
     }
-
     return Positioned(
       bottom: 80, // Above bottom navigation
       right: 80, // Increased padding to avoid FAB overlap
@@ -107,7 +94,6 @@ class _FloatingTimerState extends State<FloatingTimer> {
       ),
     );
   }
-
   Widget _buildTimerCard(ActivityInstanceRecord instance) {
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -175,7 +161,6 @@ class _FloatingTimerState extends State<FloatingTimer> {
                                     .toggleInstanceTimer(
                                   instanceId: instance.reference.id,
                                 );
-
                                 final updatedInstance =
                                     await ActivityInstanceService
                                         .getUpdatedInstance(
@@ -188,7 +173,6 @@ class _FloatingTimerState extends State<FloatingTimer> {
                                     .toggleInstanceTimer(
                                   instanceId: instance.reference.id,
                                 );
-
                                 final updatedInstance =
                                     await ActivityInstanceService
                                         .getUpdatedInstance(
@@ -325,23 +309,19 @@ class _FloatingTimerState extends State<FloatingTimer> {
       ),
     );
   }
-
   String _getTimerDisplayWithSeconds(ActivityInstanceRecord instance) {
     final accumulated = instance.accumulatedTime;
     int totalMilliseconds = accumulated;
-
     // Add elapsed time if timer is active
     if (instance.isTimerActive && instance.timerStartTime != null) {
       final elapsed =
           DateTime.now().difference(instance.timerStartTime!).inMilliseconds;
       totalMilliseconds += elapsed;
     }
-
     final totalSeconds = totalMilliseconds ~/ 1000;
     final hours = totalSeconds ~/ 3600;
     final minutes = (totalSeconds % 3600) ~/ 60;
     final seconds = totalSeconds % 60;
-
     return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
 }

@@ -2,22 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/testing/simple_day_advancer.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:intl/intl.dart';
-
 /// Simple UI for day advancement testing
 class SimpleDayAdvancerUI extends StatefulWidget {
   const SimpleDayAdvancerUI({Key? key}) : super(key: key);
-
   @override
   State<SimpleDayAdvancerUI> createState() => _SimpleDayAdvancerUIState();
 }
-
 class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
   bool _isProcessing = false;
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -46,7 +41,6 @@ class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
             ],
           ),
           const SizedBox(height: 16),
-
           // Current date display
           Container(
             padding: const EdgeInsets.all(12),
@@ -78,7 +72,6 @@ class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
             ),
           ),
           const SizedBox(height: 16),
-
           // Action buttons
           Row(
             children: [
@@ -116,7 +109,6 @@ class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
             ],
           ),
           const SizedBox(height: 12),
-
           // Instructions
           Container(
             padding: const EdgeInsets.all(12),
@@ -152,16 +144,13 @@ class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
       ),
     );
   }
-
   Future<void> _advanceDay() async {
     setState(() {
       _isProcessing = true;
     });
-
     try {
       await SimpleDayAdvancer.advanceToNextDay();
       setState(() {});
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -172,7 +161,6 @@ class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
         );
       }
     } catch (e) {
-      print('SimpleDayAdvancerUI: Error advancing day: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -189,11 +177,9 @@ class _SimpleDayAdvancerUIState extends State<SimpleDayAdvancerUI> {
       }
     }
   }
-
   void _resetDate() {
     SimpleDayAdvancer.resetToRealTime();
     setState(() {});
-
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Date reset to real time'),

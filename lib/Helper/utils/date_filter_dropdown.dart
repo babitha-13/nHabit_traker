@@ -4,30 +4,25 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
-
 enum DateFilterType {
   today,
   tomorrow,
   week,
   later,
 }
-
 class DateFilterDropdown extends StatelessWidget {
   final DateFilterType selectedFilter;
   final Function(DateFilterType) onChanged;
   final bool showSortIcon;
-
   const DateFilterDropdown({
     super.key,
     required this.selectedFilter,
     required this.onChanged,
     this.showSortIcon = true,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -61,7 +56,6 @@ class DateFilterDropdown extends StatelessWidget {
       ],
     );
   }
-
   String _getDisplayText() {
     final now = DateTime.now();
     switch (selectedFilter) {
@@ -78,13 +72,11 @@ class DateFilterDropdown extends StatelessWidget {
         return 'Later';
     }
   }
-
   void _showFilterMenu(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     final RenderBox button = context.findRenderObject() as RenderBox;
     final RenderBox overlay =
         Overlay.of(context).context.findRenderObject() as RenderBox;
-
     final RelativeRect position = RelativeRect.fromRect(
       Rect.fromPoints(
         button.localToGlobal(Offset.zero, ancestor: overlay),
@@ -93,7 +85,6 @@ class DateFilterDropdown extends StatelessWidget {
       ),
       Offset.zero & overlay.size,
     );
-
     showMenu<DateFilterType>(
       context: context,
       position: position, // menu appears near icon
@@ -114,7 +105,6 @@ class DateFilterDropdown extends StatelessWidget {
       if (value != null) onChanged(value);
     });
   }
-
   PopupMenuItem<DateFilterType> _buildMenuItem(DateFilterType value,
       String label, IconData icon, FlutterFlowTheme theme) {
     return PopupMenuItem<DateFilterType>(
@@ -144,14 +134,11 @@ class DateFilterDropdown extends StatelessWidget {
     );
   }
 }
-
 // Helper class for filtering logic
 class DateFilterHelper {
   static bool isItemInFilter(dynamic item, DateFilterType filterType) {
     if (item is! ActivityRecord) return false;
-
     final today = DateService.todayStart;
-
     switch (filterType) {
       case DateFilterType.today:
         return _isItemForToday(item, today);
@@ -163,11 +150,9 @@ class DateFilterHelper {
         return _isItemForLater(item, today);
     }
   }
-
   static bool isInstanceInFilter(
       ActivityInstanceRecord instance, DateFilterType filterType) {
     final today = DateService.todayStart;
-
     switch (filterType) {
       case DateFilterType.today:
         return _isInstanceForToday(instance, today);
@@ -179,7 +164,6 @@ class DateFilterHelper {
         return _isInstanceForLater(instance, today);
     }
   }
-
   static bool _isInstanceForToday(
       ActivityInstanceRecord instance, DateTime today) {
     // Instances with null dueDate (recurring habits) are considered "today" items
@@ -189,7 +173,6 @@ class DateFilterHelper {
     // Include today AND overdue items (items before today should still show)
     return dueDate.isBefore(today) || dueDate == today;
   }
-
   static bool _isInstanceForTomorrow(
       ActivityInstanceRecord instance, DateTime today) {
     if (instance.dueDate == null) return false;
@@ -198,7 +181,6 @@ class DateFilterHelper {
     final tomorrow = today.add(const Duration(days: 1));
     return dueDate == tomorrow;
   }
-
   static bool _isInstanceForThisWeek(
       ActivityInstanceRecord instance, DateTime today) {
     // Instances with null dueDate (recurring habits) are included in weekly view
@@ -210,7 +192,6 @@ class DateFilterHelper {
     // Include items through end of week, plus overdue items (anything on or before end of week)
     return !dueDate.isAfter(endOfWeek);
   }
-
   static bool _isInstanceForLater(
       ActivityInstanceRecord instance, DateTime today) {
     if (instance.dueDate == null) return true; // No due date means later
@@ -221,14 +202,12 @@ class DateFilterHelper {
         .add(const Duration(days: 6));
     return dueDate.isAfter(endOfWeek);
   }
-
   static bool _isItemForToday(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return false;
     final dueDate =
         DateTime(item.dueDate!.year, item.dueDate!.month, item.dueDate!.day);
     return dueDate == today;
   }
-
   static bool _isItemForTomorrow(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return false;
     final dueDate =
@@ -236,7 +215,6 @@ class DateFilterHelper {
     final tomorrow = today.add(const Duration(days: 1));
     return dueDate == tomorrow;
   }
-
   static bool _isItemForThisWeek(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return false;
     final dueDate =
@@ -245,7 +223,6 @@ class DateFilterHelper {
     final endOfWeek = startOfWeek.add(const Duration(days: 6));
     return !dueDate.isBefore(startOfWeek) && !dueDate.isAfter(endOfWeek);
   }
-
   static bool _isItemForLater(ActivityRecord item, DateTime today) {
     if (item.dueDate == null) return true; // No due date means later
     final dueDate =

@@ -7,7 +7,6 @@ import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
   const TaskTab({super.key});
-
   @override
   State<TaskTab> createState() => _TaskTabState();
 }
@@ -31,15 +30,14 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
         name: 'Inbox',
         description: 'Inbox task category',
         weight: 1.0,
+        color: '#2F4F4F', // Dark Slate Gray (charcoal) for tasks
         categoryType: 'task',
       );
     }
-
     final updatedFetched =
         await queryTaskCategoriesOnce(userId: currentUserUid);
     final otherCategories =
         updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
-
     setState(() {
       _categories = updatedFetched;
       _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
@@ -155,7 +153,6 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                         return;
                       }
                     }
-
                     final exists = _categories.any(
                       (c) => c.name.toLowerCase() == newName.toLowerCase(),
                     );
@@ -174,9 +171,9 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                       name: newName,
                       description: null,
                       weight: 1,
+                      color: '#2F4F4F', // Dark Slate Gray (charcoal) for tasks
                       categoryType: 'task',
                     );
-
                     if (context.mounted) Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(

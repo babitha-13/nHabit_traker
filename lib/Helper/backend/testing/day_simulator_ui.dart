@@ -3,39 +3,32 @@ import 'package:habit_tracker/Helper/backend/testing/day_simulator.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:intl/intl.dart';
-
 /// UI Widget for testing day simulation
 /// Add this to your app for easy testing of day-end processing
 class DaySimulatorUI extends StatefulWidget {
   const DaySimulatorUI({Key? key}) : super(key: key);
-
   @override
   State<DaySimulatorUI> createState() => _DaySimulatorUIState();
 }
-
 class _DaySimulatorUIState extends State<DaySimulatorUI> {
   bool _isSimulationMode = false;
   DateTime _simulatedDate = DateTime.now();
   bool _isLoading = false;
   Map<String, dynamic>? _progressAnalysis;
-
   @override
   void initState() {
     super.initState();
     _updateStatus();
   }
-
   void _updateStatus() {
     setState(() {
       _isSimulationMode = DaySimulator.isSimulationMode;
       _simulatedDate = DaySimulator.simulatedDate;
     });
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -83,26 +76,21 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
             ],
           ),
           const SizedBox(height: 16),
-
           // Current status
           _buildStatusCard(theme),
           const SizedBox(height: 16),
-
           // Simulation controls
           _buildSimulationControls(theme),
           const SizedBox(height: 16),
-
           // Quick scenarios
           _buildQuickScenarios(theme),
           const SizedBox(height: 16),
-
           // Progress analysis
           if (_progressAnalysis != null) _buildProgressAnalysis(theme),
         ],
       ),
     );
   }
-
   Widget _buildStatusCard(FlutterFlowTheme theme) {
     return Container(
       padding: const EdgeInsets.all(12),
@@ -163,7 +151,6 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ),
     );
   }
-
   Widget _buildSimulationControls(FlutterFlowTheme theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -238,7 +225,6 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ],
     );
   }
-
   Widget _buildQuickScenarios(FlutterFlowTheme theme) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -270,7 +256,6 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ],
     );
   }
-
   Widget _buildScenarioButton(
       String label, Color color, VoidCallback onPressed) {
     return ElevatedButton(
@@ -287,10 +272,8 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ),
     );
   }
-
   Widget _buildProgressAnalysis(FlutterFlowTheme theme) {
     if (_progressAnalysis == null) return const SizedBox.shrink();
-
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
@@ -331,7 +314,6 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ),
     );
   }
-
   Widget _buildStatCard(String label, String value, FlutterFlowTheme theme) {
     return Container(
       padding: const EdgeInsets.all(8),
@@ -359,13 +341,11 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ),
     );
   }
-
   // Event handlers
   Future<void> _toggleSimulation() async {
     setState(() {
       _isLoading = true;
     });
-
     try {
       if (_isSimulationMode) {
         DaySimulator.stopSimulation();
@@ -379,12 +359,10 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       });
     }
   }
-
   Future<void> _advanceDay() async {
     setState(() {
       _isLoading = true;
     });
-
     try {
       await DaySimulator.advanceToNextDay();
       _updateStatus();
@@ -396,12 +374,10 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       });
     }
   }
-
   Future<void> _advanceWeek() async {
     setState(() {
       _isLoading = true;
     });
-
     try {
       await DaySimulator.advanceDays(7);
       _updateStatus();
@@ -413,19 +389,16 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       });
     }
   }
-
   Future<void> _runWeekSimulation() async {
     setState(() {
       _isLoading = true;
     });
-
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
         _showError('No authenticated user');
         return;
       }
-
       await DaySimulatorTesting.simulateWeek(userId: userId);
       _showSuccess('Week simulation completed!');
     } catch (e) {
@@ -436,19 +409,16 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       });
     }
   }
-
   Future<void> _runScenario(List<DaySimulationScenario> scenarios) async {
     setState(() {
       _isLoading = true;
     });
-
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
         _showError('No authenticated user');
         return;
       }
-
       await DaySimulator.simulateDay(
         userId: userId,
         date: _simulatedDate,
@@ -463,7 +433,6 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       });
     }
   }
-
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -472,7 +441,6 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       ),
     );
   }
-
   void _showSuccess(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(

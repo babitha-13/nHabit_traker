@@ -5,28 +5,23 @@ import 'package:habit_tracker/Helper/backend/historical_edit_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:intl/intl.dart';
-
 class EditHistoricalDayModal extends StatefulWidget {
   final DateTime selectedDate;
   final List<ActivityInstanceRecord> habitInstances;
   final DailyProgressRecord? dailyProgress;
-
   const EditHistoricalDayModal({
     Key? key,
     required this.selectedDate,
     required this.habitInstances,
     this.dailyProgress,
   }) : super(key: key);
-
   @override
   State<EditHistoricalDayModal> createState() => _EditHistoricalDayModalState();
 }
-
 class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
   final Map<String, String> _statusChanges = {};
   final Map<String, dynamic> _currentValueChanges = {};
   bool _isSaving = false;
-
   @override
   void initState() {
     super.initState();
@@ -36,11 +31,9 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       _currentValueChanges[instance.reference.id] = instance.currentValue;
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Dialog(
       backgroundColor: Colors.transparent,
       child: Container(
@@ -65,12 +58,10 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ),
     );
   }
-
   Widget _buildHeader(FlutterFlowTheme theme) {
     final dateStr = DateFormat('MMM d, yyyy').format(widget.selectedDate);
     final originalPercentage =
         widget.dailyProgress?.completionPercentage ?? 0.0;
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -111,7 +102,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ),
     );
   }
-
   Widget _buildContent(FlutterFlowTheme theme) {
     if (widget.habitInstances.isEmpty) {
       return Center(
@@ -147,7 +137,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
         ),
       );
     }
-
     return ListView.builder(
       padding: const EdgeInsets.all(16),
       itemCount: widget.habitInstances.length,
@@ -157,20 +146,17 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       },
     );
   }
-
   Widget _buildHabitItem(
       ActivityInstanceRecord instance, FlutterFlowTheme theme) {
     final instanceId = instance.reference.id;
     final currentStatus = _statusChanges[instanceId] ?? instance.status;
     final currentValue =
         _currentValueChanges[instanceId] ?? instance.currentValue;
-
     // For now, assume all habits have a simple quantity target of 1
     // In a real implementation, this would come from the template
     final hasQuantity = true;
     final quantityTarget = 1; // Simplified for now
     final currentQuantity = currentValue is int ? currentValue : 0;
-
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
       padding: const EdgeInsets.all(16),
@@ -253,7 +239,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ),
     );
   }
-
   Widget _buildStatusToggle(
       String instanceId, String currentStatus, FlutterFlowTheme theme) {
     return Row(
@@ -279,7 +264,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ],
     );
   }
-
   Widget _buildStatusButton(
     String instanceId,
     String status,
@@ -315,7 +299,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ),
     );
   }
-
   Widget _buildQuantityControls(
     String instanceId,
     int currentQuantity,
@@ -380,11 +363,9 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ],
     );
   }
-
   Widget _buildFooter(FlutterFlowTheme theme) {
     final hasChanges = _hasChanges();
     final newPercentage = _calculateNewPercentage();
-
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -478,7 +459,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
       ),
     );
   }
-
   bool _hasChanges() {
     for (final instance in widget.habitInstances) {
       final instanceId = instance.reference.id;
@@ -491,7 +471,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
     }
     return false;
   }
-
   double _calculateNewPercentage() {
     // This is a simplified calculation - in a real implementation,
     // you'd want to recalculate the actual percentage based on the changes
@@ -507,25 +486,20 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
         ? 0.0
         : (completedCount / widget.habitInstances.length) * 100;
   }
-
   Future<void> _saveChanges() async {
     if (!_hasChanges()) {
       Navigator.of(context).pop();
       return;
     }
-
     setState(() {
       _isSaving = true;
     });
-
     try {
       final userId = 'szbvXb6Z5TXikcqaU1SfChU6iXl2'; // TODO: Get from auth
-
       for (final instance in widget.habitInstances) {
         final instanceId = instance.reference.id;
         final newStatus = _statusChanges[instanceId];
         final newValue = _currentValueChanges[instanceId];
-
         if (newStatus != null && newStatus != instance.status) {
           await HistoricalEditService.updateHabitInstance(
             instanceId: instance.reference.id,
@@ -533,7 +507,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
             newStatus: newStatus,
           );
         }
-
         if (newValue != null && newValue != instance.currentValue) {
           await HistoricalEditService.updateHabitInstance(
             instanceId: instance.reference.id,
@@ -542,7 +515,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
           );
         }
       }
-
       if (mounted) {
         Navigator.of(context)
             .pop(true); // Return true to indicate changes were saved
@@ -554,7 +526,6 @@ class _EditHistoricalDayModalState extends State<EditHistoricalDayModal> {
         );
       }
     } catch (e) {
-      print('EditHistoricalDayModal: Error saving changes: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(

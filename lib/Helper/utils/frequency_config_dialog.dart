@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
-
 /// Frequency configuration data model
 class FrequencyConfig {
   final FrequencyType type;
@@ -12,7 +11,6 @@ class FrequencyConfig {
   final PeriodType everyXPeriodType; // days, weeks, months
   final DateTime startDate;
   final DateTime? endDate;
-
   FrequencyConfig({
     required this.type,
     this.selectedDays = const [],
@@ -23,12 +21,10 @@ class FrequencyConfig {
     DateTime? startDate,
     this.endDate,
   }) : startDate = startDate ?? DateTime.now();
-
   @override
   String toString() {
     return 'FrequencyConfig(type: $type, selectedDays: $selectedDays, timesPerPeriod: $timesPerPeriod, everyXValue: $everyXValue, periodType: $periodType, everyXPeriodType: $everyXPeriodType, startDate: $startDate, endDate: $endDate)';
   }
-
   FrequencyConfig copyWith({
     FrequencyType? type,
     List<int>? selectedDays,
@@ -52,62 +48,49 @@ class FrequencyConfig {
     );
   }
 }
-
 enum FrequencyType {
   daily,
   specificDays,
   timesPerPeriod,
   everyXPeriod,
 }
-
 enum PeriodType {
   days,
   weeks,
   months,
   year,
 }
-
 /// Dialog for configuring task/habit frequency
 class FrequencyConfigDialog extends StatefulWidget {
   final FrequencyConfig initialConfig;
-
   const FrequencyConfigDialog({
     super.key,
     required this.initialConfig,
   });
-
   @override
   State<FrequencyConfigDialog> createState() => _FrequencyConfigDialogState();
 }
-
 class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
   late FrequencyConfig _config;
-
   @override
   void initState() {
     super.initState();
     _config = widget.initialConfig;
   }
-
   void _updateConfig(FrequencyConfig newConfig) {
     setState(() {
       _config = newConfig;
     });
   }
-
   void _save() {
-    print('--- frequency_config_dialog.dart: Saving config: $_config');
     Navigator.pop(context, _config);
   }
-
   void _cancel() {
     Navigator.pop(context);
   }
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
@@ -144,7 +127,6 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
               ],
             ),
             const SizedBox(height: 20),
-
             // Scrollable content
             Flexible(
               child: SingleChildScrollView(
@@ -154,9 +136,7 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
                 ),
               ),
             ),
-
             const SizedBox(height: 24),
-
             // Action buttons
             _buildActionButtons(theme),
           ],
@@ -164,7 +144,6 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
       ),
     );
   }
-
   Widget _buildActionButtons(FlutterFlowTheme theme) {
     return Row(
       children: [
@@ -205,7 +184,6 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
     );
   }
 }
-
 /// Helper function to show the frequency configuration dialog
 Future<FrequencyConfig?> showFrequencyConfigDialog({
   required BuildContext context,

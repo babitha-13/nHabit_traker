@@ -19,7 +19,6 @@ class DailyProgressCalculator {
   }) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-
     // Build instances within window for the target date (status-agnostic)
     // This set is used for target calculations and counts
     final inWindowHabits = allInstances
@@ -27,7 +26,6 @@ class DailyProgressCalculator {
             inst.templateCategoryType == 'habit' &&
             _isWithinWindow(inst, normalizedDate))
         .toList();
-
     // For UI/display list: pending + completed-on-date (unchanged behavior)
     final pendingHabits =
         inWindowHabits.where((inst) => inst.status == 'pending').toList();
@@ -37,7 +35,6 @@ class DailyProgressCalculator {
             _wasCompletedOnDate(inst, normalizedDate))
         .toList();
     final displayHabits = [...pendingHabits, ...completedOnDate];
-
     // For earned math: include
     // - completed instances only if completed on the target date
     // - non-completed instances (pending/snoozed/etc.) to allow differential points
@@ -47,12 +44,9 @@ class DailyProgressCalculator {
       }
       return true; // include non-completed for differential contribution
     }).toList();
-
     // Instances used for target/percentage math
     final allForMath = inWindowHabits;
-
     // ==================== TASK FILTERING ====================
-
     // Filter tasks by completion date logic:
     // - Pending tasks due on/before targetDate (includes overdue)
     // - Completed tasks where completedAt date matches targetDate
@@ -62,7 +56,6 @@ class DailyProgressCalculator {
       if (task.dueDate == null) return false;
       return !task.dueDate!.isAfter(normalizedDate);
     }).toList();
-
     final completedTasksOnDate = taskInstances.where((task) {
       if (task.status != 'completed' || task.completedAt == null) return false;
       final completedDate = DateTime(
@@ -72,9 +65,7 @@ class DailyProgressCalculator {
       );
       return completedDate.isAtSameMomentAs(normalizedDate);
     }).toList();
-
     final displayTasks = [...pendingTasks, ...completedTasksOnDate];
-
     // For task target calculation: include all tasks that should be counted for this date
     // This includes pending tasks due on/before the date AND completed tasks completed on the date
     final allTasksForMath = taskInstances.where((task) {
@@ -87,30 +78,18 @@ class DailyProgressCalculator {
         );
         return completedDate.isAtSameMomentAs(normalizedDate);
       }
-
       // Include if pending and due on/before the target date
       if (task.status == 'pending' && task.dueDate != null) {
         return !task.dueDate!.isAfter(normalizedDate);
       }
-
       return false;
     }).toList();
 
-    print('DailyProgressCalculator: Calculating for $normalizedDate');
-    print('  - Pending habits: ${pendingHabits.length}');
-    print('  - Completed habits (on date): ${completedOnDate.length}');
-    print('  - Total (display) habits: ${displayHabits.length}');
-    print('  - Pending tasks: ${pendingTasks.length}');
-    print('  - Completed tasks (on date): ${completedTasksOnDate.length}');
-    print('  - Total (display) tasks: ${displayTasks.length}');
     // includeSkippedForComputation is now implicit via inWindowHabits (status-agnostic)
     if (includeSkippedForComputation) {
       final skippedCount =
           inWindowHabits.where((i) => i.status == 'skipped').length;
-      print('  - Skipped (in-window) counted in target: $skippedCount');
     }
-    print('  - Total (math) habits (in-window): ${allForMath.length}');
-    print('  - Total (math) tasks: ${allTasksForMath.length}');
 
     // Use the SAME PointsService methods as Queue page
     double habitTargetPoints;
@@ -122,31 +101,49 @@ class DailyProgressCalculator {
       habitTargetPoints =
           PointsService.calculateTotalDailyTarget(allForMath, categories);
     }
-
     final habitEarnedPoints =
         PointsService.calculateTotalPointsEarned(earnedSet, categories);
-
     // Calculate task points using ActivityInstanceRecord
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
     final taskEarnedPoints =
         _calculateTaskPointsFromActivityInstances(allTasksForMath);
-
     // Combine habit and task points
     final totalTargetPoints = habitTargetPoints + taskTargetPoints;
     final totalEarnedPoints = habitEarnedPoints + taskEarnedPoints;
     final percentage = PointsService.calculateDailyPerformancePercent(
         totalEarnedPoints, totalTargetPoints);
-
-    print('DailyProgressCalculator: Results:');
-    print('  - Habit Target: $habitTargetPoints');
-    print('  - Habit Earned: $habitEarnedPoints');
-    print('  - Task Target: $taskTargetPoints');
-    print('  - Task Earned: $taskEarnedPoints');
-    print('  - Total Target: $totalTargetPoints');
-    print('  - Total Earned: $totalEarnedPoints');
-    print('  - Percentage: $percentage%');
-
+    // Calculate detailed breakdown for habits
+    final habitBreakdown = <Map<String, dynamic>>[];
+    for (final habit in allForMath) {
+      final category = _findCategoryForInstance(habit, categories);
+      if (category != null) {
+        final target = PointsService.calculateDailyTarget(habit, category);
+        final earned = PointsService.calculatePointsEarned(habit, category);
+        final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+        habitBreakdown.add({
+          'name': habit.templateName,
+          'status': habit.status,
+          'target': target,
+          'earned': earned,
+          'progress': progress,
+        });
+      }
+    }
+    // Calculate detailed breakdown for tasks
+    final taskBreakdown = <Map<String, dynamic>>[];
+    for (final task in allTasksForMath) {
+      final target = _calculateTaskTargetFromActivityInstances([task]);
+      final earned = _calculateTaskPointsFromActivityInstances([task]);
+      final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+      taskBreakdown.add({
+        'name': task.templateName,
+        'status': task.status,
+        'target': target,
+        'earned': earned,
+        'progress': progress,
+      });
+    }
     return {
       'target': totalTargetPoints,
       'earned': totalEarnedPoints,
@@ -162,6 +159,9 @@ class DailyProgressCalculator {
       'habitEarned': habitEarnedPoints,
       'taskTarget': taskTargetPoints,
       'taskEarned': taskEarnedPoints,
+      // Detailed breakdown for UI
+      'habitBreakdown': habitBreakdown,
+      'taskBreakdown': taskBreakdown,
     };
   }
 
@@ -170,20 +170,16 @@ class DailyProgressCalculator {
   static bool _isWithinWindow(
       ActivityInstanceRecord instance, DateTime targetDate) {
     if (instance.dueDate == null) return true;
-
     final dueDate = DateTime(
         instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
     final windowEnd = instance.windowEndDate;
-
     if (windowEnd != null) {
       final windowEndNormalized =
           DateTime(windowEnd.year, windowEnd.month, windowEnd.day);
-
       // targetDate should be >= dueDate AND <= windowEnd
       return !targetDate.isBefore(dueDate) &&
           !targetDate.isAfter(windowEndNormalized);
     }
-
     // Fallback: check if due on targetDate
     return dueDate.isAtSameMomentAs(targetDate);
   }
@@ -193,10 +189,8 @@ class DailyProgressCalculator {
   static bool _wasCompletedOnDate(
       ActivityInstanceRecord instance, DateTime targetDate) {
     if (instance.completedAt == null) return false;
-
     final completedDate = DateTime(instance.completedAt!.year,
         instance.completedAt!.month, instance.completedAt!.day);
-
     return completedDate.isAtSameMomentAs(targetDate);
   }
 
@@ -218,22 +212,39 @@ class DailyProgressCalculator {
     );
   }
 
+  /// Helper method to find category for an instance
+  static CategoryRecord? _findCategoryForInstance(
+    ActivityInstanceRecord instance,
+    List<CategoryRecord> categories,
+  ) {
+    try {
+      // First try to find by category ID
+      if (instance.templateCategoryId.isNotEmpty) {
+        return categories.firstWhere(
+          (cat) => cat.reference.id == instance.templateCategoryId,
+        );
+      }
+      // Fallback: try to find by category name
+      if (instance.templateCategoryName.isNotEmpty) {
+        return categories.firstWhere(
+          (cat) => cat.name == instance.templateCategoryName,
+        );
+      }
+      return null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   /// Calculate task target points from ActivityInstanceRecord list
   /// For tasks: target = priority (no category weightage)
   static double _calculateTaskTargetFromActivityInstances(
       List<ActivityInstanceRecord> taskInstances) {
     double totalTarget = 0.0;
-
-    print(
-        'DailyProgressCalculator: Calculating task target for ${taskInstances.length} instances');
-
     for (final task in taskInstances) {
       final priority = task.templatePriority.toDouble();
       totalTarget += priority;
-      print('DailyProgressCalculator: ${task.templateName} target: $priority');
     }
-
-    print('DailyProgressCalculator: Total task target: $totalTarget');
     return totalTarget;
   }
 
@@ -242,20 +253,25 @@ class DailyProgressCalculator {
   static double _calculateTaskPointsFromActivityInstances(
       List<ActivityInstanceRecord> taskInstances) {
     double totalPoints = 0.0;
-
-    print(
-        'DailyProgressCalculator: Calculating task points for ${taskInstances.length} instances');
-
     for (final task in taskInstances) {
       final priority = task.templatePriority.toDouble();
       double points = 0.0;
-
       switch (task.templateTrackingType) {
         case 'binary':
-          // Binary tasks: full points if completed, 0 if not
-          points = task.status == 'completed' ? priority : 0.0;
+          // Binary habits: use counter if available, otherwise status
+          final count = task.currentValue ?? 0;
+          final countValue = (count is num ? count.toDouble() : 0.0);
+          if (countValue > 0) {
+            // Has counter: calculate proportional points (counter / target)
+            final target = task.templateTarget ?? 1;
+            points = (countValue / target).clamp(0.0, 1.0) * priority;
+          } else if (task.status == 'completed') {
+            // No counter but completed: full points (backward compatibility)
+            points = priority;
+          } else {
+            points = 0.0;
+          }
           break;
-
         case 'quantitative':
           // Quantitative tasks: points based on progress percentage
           if (task.status == 'completed') {
@@ -263,7 +279,6 @@ class DailyProgressCalculator {
           } else {
             final currentValue = _getTaskCurrentValue(task);
             final target = _getTaskTargetValue(task);
-
             if (target > 0) {
               final completionFraction =
                   (currentValue / target).clamp(0.0, 1.0);
@@ -271,7 +286,6 @@ class DailyProgressCalculator {
             }
           }
           break;
-
         case 'time':
           // Time-based tasks: points based on accumulated time vs target
           if (task.status == 'completed') {
@@ -284,7 +298,6 @@ class DailyProgressCalculator {
             final targetMinutes = _getTaskTargetValue(task);
             final targetMs =
                 targetMinutes * 60000; // Convert minutes to milliseconds
-
             if (targetMs > 0) {
               final completionFraction =
                   (accumulatedTime / targetMs).clamp(0.0, 1.0);
@@ -294,22 +307,30 @@ class DailyProgressCalculator {
             }
           }
           break;
-
         default:
           points = 0.0;
       }
-
       totalPoints += points;
-      print('DailyProgressCalculator: ${task.templateName} earned: $points');
     }
-
-    print('DailyProgressCalculator: Total task points: $totalPoints');
     return totalPoints;
   }
 
   /// Helper method to get current value from task instance
   static double _getTaskCurrentValue(ActivityInstanceRecord task) {
     final value = task.currentValue;
+
+    // For time-based tracking, currentValue is in milliseconds but target is in minutes
+    // Convert milliseconds to minutes for consistency
+    if (task.templateTrackingType == 'time') {
+      if (value is num) return (value.toDouble() / 60000.0);
+      if (value is String) {
+        final parsed = double.tryParse(value);
+        return parsed != null ? (parsed / 60000.0) : 0.0;
+      }
+      return 0.0;
+    }
+
+    // For other tracking types, use value as-is
     if (value is num) return value.toDouble();
     if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;

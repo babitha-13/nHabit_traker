@@ -8,7 +8,6 @@ import 'package:habit_tracker/main.dart';
 /// Supports both view and edit modes
 class GoalDialog extends StatefulWidget {
   const GoalDialog({super.key});
-
   @override
   State<GoalDialog> createState() => _GoalDialogState();
 }
@@ -18,21 +17,20 @@ class _GoalDialogState extends State<GoalDialog> {
   bool _isLoading = true;
   bool _isSaving = false;
   GoalRecord? _currentGoal;
-
   // Form controllers
   final _whatController = TextEditingController();
   final _byWhenController = TextEditingController();
   final _whyController = TextEditingController();
   final _howController = TextEditingController();
   final _avoidController = TextEditingController();
-
   // Form key for validation
   final _formKey = GlobalKey<FormState>();
-
   @override
   void initState() {
     super.initState();
     _loadGoal();
+    // Mark goal as shown immediately when dialog appears
+    _markGoalAsShown();
   }
 
   @override
@@ -52,7 +50,6 @@ class _GoalDialogState extends State<GoalDialog> {
         _currentGoal = goal;
         _isLoading = false;
       });
-
       if (goal != null) {
         _whatController.text = goal.whatToAchieve;
         _byWhenController.text = goal.byWhen;
@@ -66,10 +63,17 @@ class _GoalDialogState extends State<GoalDialog> {
         });
       }
     } catch (e) {
-      print('GoalDialog: Error loading goal: $e');
       setState(() {
         _isLoading = false;
       });
+    }
+  }
+
+  Future<void> _markGoalAsShown() async {
+    try {
+      await GoalService.markGoalShown(users.uid ?? '');
+    } catch (e) {
+      // Silently handle error - don't show to user
     }
   }
 
@@ -77,11 +81,9 @@ class _GoalDialogState extends State<GoalDialog> {
     if (!_formKey.currentState!.validate()) {
       return;
     }
-
     setState(() {
       _isSaving = true;
     });
-
     try {
       final goalData = createGoalRecordData(
         whatToAchieve: _whatController.text.trim(),
@@ -94,20 +96,16 @@ class _GoalDialogState extends State<GoalDialog> {
         lastUpdated: DateTime.now(),
         isActive: true,
       );
-
       final goal = GoalRecord.getDocumentFromData(
         goalData,
         _currentGoal?.reference ??
             GoalRecord.collectionForUser(users.uid ?? '').doc(),
       );
-
       await GoalService.saveGoal(users.uid ?? '', goal);
-
       setState(() {
         _isEditMode = false;
         _isSaving = false;
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Goal saved successfully! 🎯'),
@@ -115,11 +113,9 @@ class _GoalDialogState extends State<GoalDialog> {
         ),
       );
     } catch (e) {
-      print('GoalDialog: Error saving goal: $e');
       setState(() {
         _isSaving = false;
       });
-
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Error saving goal. Please try again.'),
@@ -157,7 +153,6 @@ class _GoalDialogState extends State<GoalDialog> {
     int maxLines = 1,
   }) {
     final theme = FlutterFlowTheme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -193,7 +188,6 @@ class _GoalDialogState extends State<GoalDialog> {
     required String answer,
   }) {
     final theme = FlutterFlowTheme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -221,7 +215,6 @@ class _GoalDialogState extends State<GoalDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(
@@ -246,7 +239,7 @@ class _GoalDialogState extends State<GoalDialog> {
                   Row(
                     children: [
                       Icon(
-                        Icons.flag,
+                        Icons.gps_fixed,
                         color: theme.primary,
                         size: 28,
                       ),
@@ -279,7 +272,6 @@ class _GoalDialogState extends State<GoalDialog> {
                     ],
                   ),
                   const SizedBox(height: 24),
-
                   // Form
                   Expanded(
                     child: Container(
@@ -371,7 +363,6 @@ class _GoalDialogState extends State<GoalDialog> {
                                           ? _whatController.text
                                           : 'Not specified',
                                     ),
-
                                     _buildDisplayField(
                                       question:
                                           'By when do you want to achieve this?',
@@ -379,7 +370,6 @@ class _GoalDialogState extends State<GoalDialog> {
                                           ? _byWhenController.text
                                           : 'Not specified',
                                     ),
-
                                     _buildDisplayField(
                                       question:
                                           'Why do you want to achieve this?',
@@ -387,14 +377,12 @@ class _GoalDialogState extends State<GoalDialog> {
                                           ? _whyController.text
                                           : 'Not specified',
                                     ),
-
                                     _buildDisplayField(
                                       question: 'How will you achieve this?',
                                       answer: _howController.text.isNotEmpty
                                           ? _howController.text
                                           : 'Not specified',
                                     ),
-
                                     _buildDisplayField(
                                       question:
                                           'Things I will avoid in order to achieve this',
@@ -408,9 +396,7 @@ class _GoalDialogState extends State<GoalDialog> {
                       ),
                     ),
                   ),
-
                   const SizedBox(height: 24),
-
                   // Action buttons
                   Row(
                     mainAxisAlignment: MainAxisAlignment.end,
@@ -446,7 +432,6 @@ class _GoalDialogState extends State<GoalDialog> {
                       ] else ...[
                         ElevatedButton(
                           onPressed: () async {
-                            await GoalService.markGoalShown(users.uid ?? '');
                             Navigator.of(context).pop();
                           },
                           style: ElevatedButton.styleFrom(

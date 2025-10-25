@@ -1,7 +1,6 @@
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:flutter/material.dart';
 import 'package:auto_size_text/auto_size_text.dart';
-
 class FFButtonOptions {
   const FFButtonOptions({
     this.textAlign,
@@ -26,7 +25,6 @@ class FFButtonOptions {
     this.hoverElevation,
     this.maxLines,
   });
-
   final TextAlign? textAlign;
   final TextStyle? textStyle;
   final double? elevation;
@@ -49,7 +47,6 @@ class FFButtonOptions {
   final Color? hoverTextColor;
   final double? hoverElevation;
 }
-
 class FFButtonWidget extends StatefulWidget {
   const FFButtonWidget({
     super.key,
@@ -60,25 +57,20 @@ class FFButtonWidget extends StatefulWidget {
     required this.options,
     this.showLoadingIndicator = true,
   });
-
   final String text;
   final Widget? icon;
   final IconData? iconData;
   final Function()? onPressed;
   final FFButtonOptions options;
   final bool showLoadingIndicator;
-
   @override
   State<FFButtonWidget> createState() => _FFButtonWidgetState();
 }
-
 class _FFButtonWidgetState extends State<FFButtonWidget> {
   bool loading = false;
-
   int get maxLines => widget.options.maxLines ?? 1;
   String? get text =>
       widget.options.textStyle?.fontSize == 0 ? null : widget.text;
-
   @override
   Widget build(BuildContext context) {
     Widget textWidget = loading
@@ -106,7 +98,6 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
             maxLines: maxLines,
             overflow: TextOverflow.ellipsis,
           );
-
     final onPressed = widget.onPressed != null
         ? (widget.showLoadingIndicator
             ? () async {
@@ -124,7 +115,6 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
               }
             : () => widget.onPressed!())
         : null;
-
     ButtonStyle style = ButtonStyle(
       shape: WidgetStateProperty.resolveWith<OutlinedBorder>(
         (states) {
@@ -200,10 +190,8 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
         },
       ),
     );
-
     final isElevated = (widget.options.elevation ?? 0.0) > 0.0;
     final buttonShape = widget.options.borderRadius ?? BorderRadius.circular(8);
-
     final buttonWidget = () {
       if ((widget.icon != null || widget.iconData != null) && !loading) {
         Widget icon = widget.icon ??
@@ -212,7 +200,6 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
               size: widget.options.iconSize,
               color: widget.options.iconColor,
             );
-
         if (text == null) {
           return SizedBox(
             height: widget.options.height,
@@ -243,7 +230,6 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
           ),
         );
       }
-
       return SizedBox(
         height: widget.options.height,
         width: widget.options.width,
@@ -254,7 +240,6 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
         ),
       );
     }();
-
     return Container(
       height: widget.options.height,
       width: widget.options.width,
@@ -279,7 +264,6 @@ class _FFButtonWidgetState extends State<FFButtonWidget> {
     );
   }
 }
-
 extension _WithoutColorExtension on TextStyle {
   TextStyle withoutColor() => TextStyle(
         inherit: inherit,
@@ -311,7 +295,6 @@ extension _WithoutColorExtension on TextStyle {
         overflow: overflow,
       );
 }
-
 // Slightly hacky method of getting the layout width of the provided text.
 double _getTextWidth(String? text, TextStyle? style, int maxLines) =>
     text != null

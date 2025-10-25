@@ -17,16 +17,12 @@ import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:intl/intl.dart';
-
 class TaskPage extends StatefulWidget {
   final String? categoryName;
-
   const TaskPage({super.key, this.categoryName});
-
   @override
   State<TaskPage> createState() => _TaskPageState();
 }
-
 class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickAddController = TextEditingController();
   final TextEditingController _quickTargetNumberController =
@@ -50,11 +46,9 @@ class _TaskPageState extends State<TaskPage> {
   String? _expandedSection;
   final Map<String, GlobalKey> _sectionKeys = {};
   int _completionTimeFrame = 2; // 2 = 2 days, 7 = 7 days, 30 = 30 days
-
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
-
   @override
   void initState() {
     super.initState();
@@ -64,10 +58,8 @@ class _TaskPageState extends State<TaskPage> {
         (_quickTargetDuration.inMinutes % 60).toString();
     _loadExpansionState();
     _loadData();
-
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
-
     // Listen for instance events
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
@@ -88,7 +80,6 @@ class _TaskPageState extends State<TaskPage> {
       }
     });
   }
-
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
@@ -100,7 +91,6 @@ class _TaskPageState extends State<TaskPage> {
     _quickUnitController.dispose();
     super.dispose();
   }
-
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -113,7 +103,6 @@ class _TaskPageState extends State<TaskPage> {
       _didInitialDependencies = true;
     }
   }
-
   Future<void> _loadExpansionState() async {
     final expandedSection =
         await ExpansionStateManager().getTaskExpandedSection();
@@ -123,7 +112,6 @@ class _TaskPageState extends State<TaskPage> {
       });
     }
   }
-
   void _onSearchChanged(String query) {
     if (mounted) {
       setState(() {
@@ -131,7 +119,6 @@ class _TaskPageState extends State<TaskPage> {
       });
     }
   }
-
   @override
   Widget build(BuildContext context) {
     final returnedWidget = _isLoading
@@ -161,7 +148,6 @@ class _TaskPageState extends State<TaskPage> {
           );
     return returnedWidget;
   }
-
   List<ActivityInstanceRecord> get _activeFloatingInstances {
     return _taskInstances.where((inst) {
       return inst.templateShowInFloatingTimer == true &&
@@ -170,7 +156,6 @@ class _TaskPageState extends State<TaskPage> {
           inst.status != 'completed';
     }).toList();
   }
-
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
@@ -181,25 +166,12 @@ class _TaskPageState extends State<TaskPage> {
       }
       final instances = await queryAllTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
-
       // DEBUG: Print instance details
-      print('TaskPage: Received ${instances.length} instances');
       for (final inst in instances) {
-        print('  Instance: ${inst.templateName}');
-        print('    - ID: ${inst.reference.id}');
-        print('    - Category ID: ${inst.templateCategoryId}');
-        print('    - Category Name: ${inst.templateCategoryName}');
-        print('    - Category Type: ${inst.templateCategoryType}');
-        print('    - Due Date: ${inst.dueDate}');
-        print('    - Status: ${inst.status}');
-        print('    - isActive: ${inst.isActive}');
       }
-      print('TaskPage: This page categoryName filter: ${widget.categoryName}');
-      print('TaskPage: Available categories:');
       for (final cat in categories) {
         print('  - ${cat.name} (${cat.reference.id})');
       }
-
       if (mounted) {
         setState(() {
           _categories = categories;
@@ -211,13 +183,8 @@ class _TaskPageState extends State<TaskPage> {
                 'Instance ${inst.templateName} matches filter: $matches (categoryName: ${inst.templateCategoryName} vs ${widget.categoryName})');
             return matches;
           }).toList();
-
           // Store all instances
           _taskInstances = categoryFiltered;
-
-          print(
-              'TaskPage: After filtering: ${_taskInstances.length} instances');
-
           if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
             // Set the quick-add category to the current tab's category
             final currentCategory = categories.firstWhere(
@@ -240,7 +207,6 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
-
   Widget _buildQuickAdd() {
     final quickAddWidget = Container(
       decoration: BoxDecoration(
@@ -309,7 +275,6 @@ class _TaskPageState extends State<TaskPage> {
                         },
                         tooltip: 'Select task type',
                       ),
-
                       // Date icon or chip
                       if (_selectedQuickDueDate == null)
                         IconButton(
@@ -370,7 +335,6 @@ class _TaskPageState extends State<TaskPage> {
                             ),
                           ),
                         ),
-
                       // Time icon or chip
                       if (_selectedQuickDueTime == null)
                         IconButton(
@@ -429,7 +393,6 @@ class _TaskPageState extends State<TaskPage> {
                             ),
                           ),
                         ),
-
                       // Recurring icon or chip
                       if (!quickIsRecurring || _quickFrequencyConfig == null)
                         SizedBox(
@@ -723,14 +686,11 @@ class _TaskPageState extends State<TaskPage> {
     );
     return quickAddWidget;
   }
-
   bool _isTaskCompleted(ActivityInstanceRecord instance) {
     return instance.status == 'completed';
   }
-
   String _getQuickFrequencyDescription() {
     if (_quickFrequencyConfig == null) return '';
-
     switch (_quickFrequencyConfig!.type) {
       case FrequencyType.specificDays:
         const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -781,7 +741,6 @@ class _TaskPageState extends State<TaskPage> {
         return 'Recurring';
     }
   }
-
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
@@ -810,12 +769,10 @@ class _TaskPageState extends State<TaskPage> {
       if (visibleItems.isEmpty) continue;
       _applySort(visibleItems);
       final isExpanded = _expandedSection == key;
-
       // Get or create GlobalKey for this section
       if (!_sectionKeys.containsKey(key)) {
         _sectionKeys[key] = GlobalKey();
       }
-
       widgets.add(
         SliverToBoxAdapter(
           child: _buildSectionHeader(
@@ -866,12 +823,9 @@ class _TaskPageState extends State<TaskPage> {
         ),
       ));
     }
-
     // Recent Completions will be handled via buckets like other sections
-
     return widgets;
   }
-
   Widget _buildSectionHeader(
       String title, int count, bool isExpanded, GlobalKey headerKey) {
     final theme = FlutterFlowTheme.of(context);
@@ -910,7 +864,6 @@ class _TaskPageState extends State<TaskPage> {
           });
           // Save state persistently
           ExpansionStateManager().setTaskExpandedSection(_expandedSection);
-
           // Scroll to make the newly expanded section visible
           if (_expandedSection == title) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -951,7 +904,6 @@ class _TaskPageState extends State<TaskPage> {
       ),
     );
   }
-
   String _getSubtitle(ActivityInstanceRecord instance, String bucketKey) {
     if (bucketKey == 'Recent Completions') {
       final completedAt = instance.completedAt!;
@@ -964,7 +916,6 @@ class _TaskPageState extends State<TaskPage> {
           : '';
       return 'Completed $completedStr • Due: $dueStr$timeStr';
     }
-
     // For Today and Tomorrow, dates are obvious, show only time if available
     if (bucketKey == 'Today' || bucketKey == 'Tomorrow') {
       if (instance.hasDueTime()) {
@@ -972,7 +923,6 @@ class _TaskPageState extends State<TaskPage> {
       }
       return '';
     }
-
     // For Overdue, This Week, Later, show date + time
     final dueDate = instance.dueDate;
     if (dueDate != null) {
@@ -982,15 +932,12 @@ class _TaskPageState extends State<TaskPage> {
           : '';
       return '$formattedDate$timeStr';
     }
-
     // For No due date section, show just time if available
     if (instance.hasDueTime()) {
       return '@ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}';
     }
-
     return '';
   }
-
   Future<void> _submitQuickAdd() async {
     final title = _quickAddController.text.trim();
     if (title.isEmpty) {
@@ -1000,7 +947,6 @@ class _TaskPageState extends State<TaskPage> {
       );
       return;
     }
-
     final categoryId = _selectedQuickCategoryId;
     if (categoryId == null) {
       if (!mounted) return;
@@ -1009,14 +955,12 @@ class _TaskPageState extends State<TaskPage> {
       );
       return;
     }
-
     if (_selectedQuickTrackingType == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Please select a tracking type')),
       );
       return;
     }
-
     try {
       dynamic targetValue;
       switch (_selectedQuickTrackingType) {
@@ -1032,7 +976,6 @@ class _TaskPageState extends State<TaskPage> {
         default:
           targetValue = null;
       }
-
       await createActivity(
         name: title,
         categoryName:
@@ -1074,10 +1017,8 @@ class _TaskPageState extends State<TaskPage> {
         startDate: quickIsRecurring ? _quickFrequencyConfig!.startDate : null,
         endDate: quickIsRecurring ? _quickFrequencyConfig!.endDate : null,
       );
-
       // Reset the form immediately after creating the task
       _resetQuickAdd();
-
       // The createActivity function already broadcasts the instance creation event
       // No need to manually broadcast or refresh - the event handler will handle it
     } catch (e) {
@@ -1087,10 +1028,7 @@ class _TaskPageState extends State<TaskPage> {
       );
     }
   }
-
   void _resetQuickAdd() {
-    print('DEBUG: _resetQuickAdd called');
-    print('DEBUG: Controller text before clear: "${_quickAddController.text}"');
     setState(() {
       _quickAddController.clear();
       _selectedQuickTrackingType = 'binary';
@@ -1105,9 +1043,7 @@ class _TaskPageState extends State<TaskPage> {
       _quickHoursController.text = '1';
       _quickMinutesController.text = '0';
     });
-    print('DEBUG: Controller text after clear: "${_quickAddController.text}"');
   }
-
   Future<void> _selectQuickDueDate() async {
     final DateTime? picked = await showDatePicker(
       context: context,
@@ -1125,7 +1061,6 @@ class _TaskPageState extends State<TaskPage> {
       });
     }
   }
-
   Future<void> _selectQuickDueTime() async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
@@ -1137,7 +1072,6 @@ class _TaskPageState extends State<TaskPage> {
       });
     }
   }
-
   Map<String, List<dynamic>> get _bucketedItems {
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
@@ -1148,7 +1082,6 @@ class _TaskPageState extends State<TaskPage> {
       'No due date': [],
       'Recent Completions': [],
     };
-
     // Filter instances by search query if active
     final activeInstancesToProcess = _taskInstances
         .where((inst) => inst.status == 'pending') // Filter for pending tasks
@@ -1158,32 +1091,24 @@ class _TaskPageState extends State<TaskPage> {
           .toLowerCase()
           .contains(_searchQuery.toLowerCase());
     }).toList();
-
     print(
         '_bucketedItems: Processing ${activeInstancesToProcess.length} active task instances (search: "$_searchQuery")');
     final today = DateService.todayStart;
     final tomorrow = DateService.tomorrowStart;
     // "This Week" covers the next 5 days after tomorrow
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
-
     // Group recurring tasks by templateId to show only earliest pending instance
     final Map<String, List<ActivityInstanceRecord>> recurringTasksByTemplate =
         {};
     final List<ActivityInstanceRecord> oneOffTasks = [];
-
     for (final instance in activeInstancesToProcess) {
-      print('  Bucketing instance: ${instance.templateName}');
-      print('    - isActive: ${instance.isActive}');
       if (!instance.isActive) {
-        print('    - SKIPPED: not active');
         continue;
       }
       if (widget.categoryName != null &&
           instance.templateCategoryName != widget.categoryName) {
-        print('    - SKIPPED: category mismatch');
         continue;
       }
-
       if (instance.templateIsRecurring) {
         // Group recurring tasks by template
         final templateId = instance.templateId;
@@ -1193,42 +1118,31 @@ class _TaskPageState extends State<TaskPage> {
         oneOffTasks.add(instance);
       }
     }
-
     // Process one-off tasks normally
     for (final instance in oneOffTasks) {
       final dueDate = instance.dueDate;
       if (dueDate == null) {
-        print('    - ADDED TO: No due date');
         buckets['No due date']!.add(instance);
         continue;
       }
       final instanceDueDate =
           DateTime(dueDate.year, dueDate.month, dueDate.day);
-      print('    - Due date: $instanceDueDate, Today: $today');
-
       if (instanceDueDate.isBefore(today)) {
-        print('    - ADDED TO: Overdue');
         buckets['Overdue']!.add(instance);
       } else if (_isSameDay(instanceDueDate, today)) {
-        print('    - ADDED TO: Today');
         buckets['Today']!.add(instance);
       } else if (_isSameDay(instanceDueDate, tomorrow)) {
-        print('    - ADDED TO: Tomorrow');
         buckets['Tomorrow']!.add(instance);
       } else if (instanceDueDate.isAfter(tomorrow) &&
           !instanceDueDate.isAfter(thisWeekEnd)) {
-        print('    - ADDED TO: This Week');
         buckets['This Week']!.add(instance);
       } else {
-        print('    - ADDED TO: Later');
         buckets['Later']!.add(instance);
       }
     }
-
     // Process recurring tasks - show only earliest pending instance per template
     for (final templateId in recurringTasksByTemplate.keys) {
       final instances = recurringTasksByTemplate[templateId]!;
-
       // Sort by due date (earliest first)
       instances.sort((a, b) {
         if (a.dueDate == null && b.dueDate == null) return 0;
@@ -1236,57 +1150,43 @@ class _TaskPageState extends State<TaskPage> {
         if (b.dueDate == null) return -1;
         return a.dueDate!.compareTo(b.dueDate!);
       });
-
       // Take the earliest pending instance
       final earliestInstance = instances.first;
       print(
           '  Processing recurring task: ${earliestInstance.templateName} (earliest of ${instances.length} instances)');
-
       final dueDate = earliestInstance.dueDate;
       if (dueDate == null) {
-        print('    - ADDED TO: No due date');
         buckets['No due date']!.add(earliestInstance);
         continue;
       }
       final instanceDueDate =
           DateTime(dueDate.year, dueDate.month, dueDate.day);
-      print('    - Due date: $instanceDueDate, Today: $today');
-
       if (instanceDueDate.isBefore(today)) {
-        print('    - ADDED TO: Overdue');
         buckets['Overdue']!.add(earliestInstance);
       } else if (_isSameDay(instanceDueDate, today)) {
-        print('    - ADDED TO: Today');
         buckets['Today']!.add(earliestInstance);
       } else if (_isSameDay(instanceDueDate, tomorrow)) {
-        print('    - ADDED TO: Tomorrow');
         buckets['Tomorrow']!.add(earliestInstance);
       } else if (instanceDueDate.isAfter(tomorrow) &&
           !instanceDueDate.isAfter(thisWeekEnd)) {
-        print('    - ADDED TO: This Week');
         buckets['This Week']!.add(earliestInstance);
       } else {
-        print('    - ADDED TO: Later');
         buckets['Later']!.add(earliestInstance);
       }
     }
-
     // Populate Recent Completions with unified time window logic
     final completionCutoff =
         DateService.todayStart.subtract(Duration(days: _completionTimeFrame));
-
     final allInstancesToProcess = _taskInstances.where((instance) {
       if (_searchQuery.isEmpty) return true;
       return instance.templateName
           .toLowerCase()
           .contains(_searchQuery.toLowerCase());
     }).toList();
-
     // Group completed instances by template for recurring tasks
     final Map<String, List<ActivityInstanceRecord>>
         completedRecurringByTemplate = {};
     final List<ActivityInstanceRecord> completedOneOffTasks = [];
-
     for (final instance in allInstancesToProcess) {
       if (instance.status != 'completed') continue;
       if (instance.completedAt == null) continue;
@@ -1294,11 +1194,9 @@ class _TaskPageState extends State<TaskPage> {
           instance.templateCategoryName != widget.categoryName) {
         continue;
       }
-
       final completedDate = instance.completedAt!;
       final completedDateOnly =
           DateTime(completedDate.year, completedDate.month, completedDate.day);
-
       // Unified time window for both recurring and one-off tasks
       if (completedDateOnly.isAfter(completionCutoff) ||
           completedDateOnly.isAtSameMomentAs(completionCutoff)) {
@@ -1312,14 +1210,11 @@ class _TaskPageState extends State<TaskPage> {
         }
       }
     }
-
     // Add all completed instances of recurring tasks within time window
     for (final templateId in completedRecurringByTemplate.keys) {
       final instances = completedRecurringByTemplate[templateId]!;
-
       // Sort by completion date (latest first)
       instances.sort((a, b) => b.completedAt!.compareTo(a.completedAt!));
-
       // Add ALL instances within the time window
       for (final instance in instances) {
         buckets['Recent Completions']!.add(instance);
@@ -1327,13 +1222,10 @@ class _TaskPageState extends State<TaskPage> {
             '  Added completed recurring task: ${instance.templateName} (completed: ${instance.completedAt})');
       }
     }
-
     // Add all completed one-off tasks within time window
     for (final instance in completedOneOffTasks) {
       buckets['Recent Completions']!.add(instance);
-      print('  Added completed one-off task: ${instance.templateName}');
     }
-
     // Sort items within each bucket by tasks order
     for (final key in buckets.keys) {
       final items = buckets[key]!;
@@ -1347,7 +1239,6 @@ class _TaskPageState extends State<TaskPage> {
             InstanceOrderService.sortInstancesByOrder(typedItems, 'tasks');
       }
     }
-
     // Auto-expand sections with search results
     if (_searchQuery.isNotEmpty) {
       for (final key in buckets.keys) {
@@ -1357,29 +1248,20 @@ class _TaskPageState extends State<TaskPage> {
         }
       }
     }
-
-    print('_bucketedItems: Final bucket counts:');
     buckets.forEach((key, value) {
-      print('  $key: ${value.length} items');
     });
-
     return buckets;
   }
-
   // Recent Completions UI is now handled via standard sections and ItemComponent
-
   // Removed legacy actions for custom Recent Completions UI
-
   Widget _buildItemTile(dynamic item, String bucketKey) {
     if (item is ActivityInstanceRecord) {
       return _buildTaskTile(item, bucketKey);
     }
     return const SizedBox.shrink();
   }
-
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
-
   Widget _buildTaskTile(ActivityInstanceRecord instance, String bucketKey) {
     return ItemComponent(
       page: "task",
@@ -1397,7 +1279,6 @@ class _TaskPageState extends State<TaskPage> {
       showCompleted: bucketKey == 'Recent Completions' ? true : null,
     );
   }
-
   Widget _buildShowOlderButtons(FlutterFlowTheme theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1491,7 +1372,6 @@ class _TaskPageState extends State<TaskPage> {
       ),
     );
   }
-
   void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
     setState(() {
       final index = _taskInstances.indexWhere(
@@ -1508,7 +1388,6 @@ class _TaskPageState extends State<TaskPage> {
     // Background refresh to sync with server
     _loadDataSilently();
   }
-
   void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
     setState(() {
       _taskInstances.removeWhere(
@@ -1517,14 +1396,12 @@ class _TaskPageState extends State<TaskPage> {
     // Background refresh to sync with server
     _loadDataSilently();
   }
-
   Future<void> _loadDataSilently() async {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
       final instances = await queryTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
-
       if (mounted) {
         setState(() {
           _categories = categories;
@@ -1537,10 +1414,8 @@ class _TaskPageState extends State<TaskPage> {
       }
     } catch (e) {
       // Silent error handling - don't disrupt UI
-      print('Silent refresh error: $e');
     }
   }
-
   void _applySort(List<dynamic> items) {
     if (sortMode != 'importance') return;
     int cmpTask(ActivityInstanceRecord a, ActivityInstanceRecord b) {
@@ -1556,7 +1431,6 @@ class _TaskPageState extends State<TaskPage> {
           .toLowerCase()
           .compareTo(b.templateName.toLowerCase());
     }
-
     items.sort((x, y) {
       final xt = x is ActivityInstanceRecord;
       final yt = y is ActivityInstanceRecord;
@@ -1566,7 +1440,6 @@ class _TaskPageState extends State<TaskPage> {
       return 0;
     });
   }
-
   // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     // Only add task instances to this page
@@ -1574,80 +1447,65 @@ class _TaskPageState extends State<TaskPage> {
       // Check if instance matches this page's category filter
       final matchesCategory = widget.categoryName == null ||
           instance.templateCategoryName == widget.categoryName;
-
       if (matchesCategory) {
         setState(() {
           _taskInstances.add(instance);
         });
-        print('TaskPage: Added new task instance ${instance.templateName}');
       }
     }
   }
-
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
       final matchesCategory = widget.categoryName == null ||
           instance.templateCategoryName == widget.categoryName;
-
       if (matchesCategory) {
         setState(() {
           final index = _taskInstances
               .indexWhere((inst) => inst.reference.id == instance.reference.id);
           if (index != -1) {
             _taskInstances[index] = instance;
-            print('TaskPage: Updated task instance ${instance.templateName}');
           }
         });
       }
     }
   }
-
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
       final matchesCategory = widget.categoryName == null ||
           instance.templateCategoryName == widget.categoryName;
-
       if (matchesCategory) {
         setState(() {
           _taskInstances.removeWhere(
               (inst) => inst.reference.id == instance.reference.id);
-          print('TaskPage: Removed task instance ${instance.templateName}');
         });
       }
     }
   }
-
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
     try {
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
-
       if (oldIndex >= items.length || newIndex >= items.length) return;
-
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
-
       // Adjust newIndex for the case where we're moving down
       int adjustedNewIndex = newIndex;
       if (oldIndex < newIndex) {
         adjustedNewIndex -= 1;
       }
-
       // Get the item being moved
       final movedItem = reorderedItems.removeAt(oldIndex);
       reorderedItems.insert(adjustedNewIndex, movedItem);
-
       // OPTIMISTIC UI UPDATE: Update local state immediately
       // Update order values in _taskInstances
       for (int i = 0; i < reorderedItems.length; i++) {
         final instance = reorderedItems[i];
-
         // Create updated instance with new tasks order
         final updatedData = Map<String, dynamic>.from(instance.snapshotData);
         updatedData['tasksOrder'] = i;
@@ -1655,7 +1513,6 @@ class _TaskPageState extends State<TaskPage> {
           updatedData,
           instance.reference,
         );
-
         // Update in _taskInstances
         final taskIndex = _taskInstances
             .indexWhere((inst) => inst.reference.id == instance.reference.id);
@@ -1663,14 +1520,12 @@ class _TaskPageState extends State<TaskPage> {
           _taskInstances[taskIndex] = updatedInstance;
         }
       }
-
       // Trigger setState to update UI immediately (eliminates twitch)
       if (mounted) {
         setState(() {
           // State is already updated above
         });
       }
-
       // Perform database update in background
       await InstanceOrderService.reorderInstancesInSection(
         reorderedItems,
@@ -1678,10 +1533,7 @@ class _TaskPageState extends State<TaskPage> {
         oldIndex,
         newIndex,
       );
-
-      print('TaskPage: Reordered items in section $sectionKey');
     } catch (e) {
-      print('TaskPage: Error reordering items: $e');
       // Revert to correct state by refreshing data
       await _loadData();
       // Show error to user

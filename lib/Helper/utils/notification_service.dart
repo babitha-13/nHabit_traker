@@ -4,7 +4,9 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/main.dart';
 import 'package:habit_tracker/Screens/Queue/queue_page.dart';
+import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Helper/backend/day_end_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/goal_service.dart';
 
 /// Service for managing local notifications
 class NotificationService {
@@ -13,20 +15,14 @@ class NotificationService {
 
   /// Initialize the notification service
   static Future<void> initialize() async {
-    print('NotificationService: Starting initialization...');
-
     // Initialize timezone data
     tz.initializeTimeZones();
-
     // Set timezone to a common timezone (you can change this to your local timezone)
     // Common options: 'Asia/Kolkata', 'America/New_York', 'Europe/London', 'Asia/Tokyo'
     tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
-    print('NotificationService: Timezone set to: Asia/Kolkata');
-
     // Android initialization settings
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
-
     // iOS initialization settings
     const DarwinInitializationSettings iosSettings =
         DarwinInitializationSettings(
@@ -34,27 +30,18 @@ class NotificationService {
       requestBadgePermission: true,
       requestSoundPermission: true,
     );
-
     // Combined initialization settings
     const InitializationSettings initSettings = InitializationSettings(
       android: androidSettings,
       iOS: iosSettings,
     );
-
-    print('NotificationService: Initializing plugin...');
     // Initialize the plugin
     await _notificationsPlugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
     );
-    print('NotificationService: Plugin initialized');
-
     // Create notification channel for Android
-    print('NotificationService: Creating notification channel...');
     await _createNotificationChannel();
-    print('NotificationService: Notification channel created');
-
-    print('NotificationService: Initialization complete');
   }
 
   /// Create notification channel for Android
@@ -67,7 +54,6 @@ class NotificationService {
       playSound: true,
       enableVibration: true,
     );
-
     await _notificationsPlugin
         .resolvePlatformSpecificImplementation<
             AndroidFlutterLocalNotificationsPlugin>()
@@ -76,8 +62,6 @@ class NotificationService {
 
   /// Handle notification tap
   static void _onNotificationTapped(NotificationResponse response) {
-    print('Notification tapped: ${response.payload}');
-
     // Handle day-end notifications
     if (response.payload == 'day_end_notification') {
       _handleDayEndNotificationTap();
@@ -86,12 +70,13 @@ class NotificationService {
 
   /// Handle day-end notification tap
   static void _handleDayEndNotificationTap() {
-    print('Day-end notification tapped - navigating to Queue page');
-
-    // Navigate to Queue page and show snooze bottom sheet
+    // Show goal dialog first, then navigate to Queue page
     final context = navigatorKey.currentContext;
     if (context != null) {
-      // Navigate to Queue page and show snooze bottom sheet
+      // Show goal dialog first
+      _showGoalDialogFromNotification(context);
+
+      // Then navigate to Queue page and show snooze bottom sheet
       Navigator.of(context)
           .push(
         MaterialPageRoute(
@@ -107,8 +92,28 @@ class NotificationService {
           }
         });
       });
-    } else {
-      print('NotificationService: No navigator context available');
+    } else {}
+  }
+
+  /// Show goal dialog from notification tap
+  static void _showGoalDialogFromNotification(BuildContext context) async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      // Check if goal should be shown (bypass time check for notification)
+      final shouldShow =
+          await GoalService.shouldShowGoalFromNotification(userId);
+      if (shouldShow) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const GoalDialog(),
+        );
+      }
+    } catch (e) {
+      // Silently handle error
     }
   }
 
@@ -142,7 +147,6 @@ class NotificationService {
         scheduledTime.minute,
         scheduledTime.second,
       );
-
       // Try exact scheduling first, fallback to approximate if needed
       try {
         await _notificationsPlugin.zonedSchedule(
@@ -173,8 +177,6 @@ class NotificationService {
         );
       } catch (e) {
         // Fallback to approximate scheduling if exact fails
-        print(
-            'NotificationService: Exact scheduling failed, trying approximate: $e');
         await _notificationsPlugin.zonedSchedule(
           id.hashCode,
           title,
@@ -204,29 +206,21 @@ class NotificationService {
       }
       print(
           'NotificationService: Scheduled reminder for $title at $scheduledTime (TZDateTime: $tzDateTime) with ID: ${id.hashCode}');
-    } catch (e) {
-      print('NotificationService: Error scheduling reminder: $e');
-    }
+    } catch (e) {}
   }
 
   /// Cancel a specific notification
   static Future<void> cancelNotification(String id) async {
     try {
       await _notificationsPlugin.cancel(id.hashCode);
-      print('NotificationService: Cancelled notification $id');
-    } catch (e) {
-      print('NotificationService: Error cancelling notification $id: $e');
-    }
+    } catch (e) {}
   }
 
   /// Cancel all notifications
   static Future<void> cancelAllNotifications() async {
     try {
       await _notificationsPlugin.cancelAll();
-      print('NotificationService: Cancelled all notifications');
-    } catch (e) {
-      print('NotificationService: Error cancelling all notifications: $e');
-    }
+    } catch (e) {}
   }
 
   /// Get pending notifications
@@ -235,7 +229,6 @@ class NotificationService {
     try {
       return await _notificationsPlugin.pendingNotificationRequests();
     } catch (e) {
-      print('NotificationService: Error getting pending notifications: $e');
       return [];
     }
   }
@@ -246,24 +239,16 @@ class NotificationService {
       final androidPlugin =
           _notificationsPlugin.resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>();
-
       if (androidPlugin != null) {
         final notificationPermission =
             await androidPlugin.areNotificationsEnabled();
         final exactAlarmPermission =
             await androidPlugin.canScheduleExactNotifications();
-
-        print(
-            'NotificationService: Notifications enabled: $notificationPermission');
-        print(
-            'NotificationService: Exact alarms allowed: $exactAlarmPermission');
-
         return (notificationPermission ?? false) &&
             (exactAlarmPermission ?? false);
       }
       return false;
     } catch (e) {
-      print('NotificationService: Error checking permissions: $e');
       return false;
     }
   }
@@ -276,21 +261,13 @@ class NotificationService {
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>()
           ?.requestNotificationsPermission();
-
       // Request exact alarm permission (Android 12+)
       final exactAlarmResult = await _notificationsPlugin
           .resolvePlatformSpecificImplementation<
               AndroidFlutterLocalNotificationsPlugin>()
           ?.requestExactAlarmsPermission();
-
-      print(
-          'NotificationService: Notification permission: ${notificationResult ?? false}');
-      print(
-          'NotificationService: Exact alarm permission: ${exactAlarmResult ?? false}');
-
       return (notificationResult ?? false) && (exactAlarmResult ?? false);
     } catch (e) {
-      print('NotificationService: Error requesting permissions: $e');
       return false;
     }
   }
@@ -325,25 +302,18 @@ class NotificationService {
         ),
         payload: payload,
       );
-
-      print('NotificationService: Immediate notification shown: $title');
-    } catch (e) {
-      print('NotificationService: Error showing immediate notification: $e');
-    }
+    } catch (e) {}
   }
 
   /// Log all pending notifications for debugging
   static Future<void> logPendingNotifications() async {
     try {
       final pending = await getPendingNotifications();
-      print('NotificationService: ${pending.length} pending notifications:');
-      for (final notif in pending) {
-        print(
-            '  - ID: ${notif.id}, Title: ${notif.title}, Body: ${notif.body}');
+      for (final notification in pending) {
+        // Log notification details if needed
+        print('Pending notification: ${notification.id}');
       }
-    } catch (e) {
-      print('NotificationService: Error getting pending notifications: $e');
-    }
+    } catch (e) {}
   }
 
   /// Cancel all day-end notifications
@@ -353,10 +323,7 @@ class NotificationService {
       await cancelNotification('day_end_1hr');
       await cancelNotification('day_end_30min');
       await cancelNotification('day_end_15min');
-      print('NotificationService: Cancelled all day-end notifications');
-    } catch (e) {
-      print('NotificationService: Error cancelling day-end notifications: $e');
-    }
+    } catch (e) {}
   }
 
   /// Schedule day-end notifications (1hr, 30min, 15min before processing)
@@ -366,7 +333,6 @@ class NotificationService {
     try {
       // Cancel existing day-end notifications first
       await cancelDayEndNotifications();
-
       // Schedule 3 notifications
       final notifications = [
         {
@@ -388,12 +354,10 @@ class NotificationService {
           'id': 'day_end_15min'
         },
       ];
-
       for (final notification in notifications) {
         final notificationTime = notification['time'] as DateTime;
         final message = notification['message'] as String;
         final id = notification['id'] as String;
-
         // Only schedule if the notification time is in the future
         if (notificationTime.isAfter(DateTime.now())) {
           await scheduleReminder(
@@ -403,13 +367,9 @@ class NotificationService {
             scheduledTime: notificationTime,
             payload: 'day_end_notification',
           );
-          print(
-              'NotificationService: Scheduled day-end notification "$id" for $notificationTime');
         }
       }
-    } catch (e) {
-      print('NotificationService: Error scheduling day-end notifications: $e');
-    }
+    } catch (e) {}
   }
 
   /// Reschedule day-end notifications after snooze
@@ -428,12 +388,10 @@ class _SnoozeBottomSheet extends StatefulWidget {
 
 class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
   bool _isLoading = false;
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final snoozeStatus = DayEndScheduler.getSnoozeStatus();
-
     return Container(
       decoration: BoxDecoration(
         color: theme.colorScheme.surface,
@@ -459,7 +417,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 24),
-
           // Title
           Text(
             'Day Ending Soon',
@@ -468,7 +425,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 8),
-
           // Description
           Text(
             'You have ${snoozeStatus['remainingSnooze']} minutes of snooze time remaining. Extend your day to finish more tasks!',
@@ -477,7 +433,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 24),
-
           // Current processing time
           if (snoozeStatus['scheduledTime'] != null) ...[
             Container(
@@ -520,7 +475,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
             const SizedBox(height: 20),
           ],
-
           // Snooze buttons
           Text(
             'Snooze Options',
@@ -529,7 +483,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ),
           ),
           const SizedBox(height: 12),
-
           Row(
             children: [
               Expanded(
@@ -561,7 +514,6 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
             ],
           ),
           const SizedBox(height: 20),
-
           // View Tasks button
           SizedBox(
             width: double.infinity,
@@ -595,12 +547,9 @@ class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
 
   Future<void> _handleSnooze(int minutes) async {
     if (_isLoading) return;
-
     setState(() => _isLoading = true);
-
     try {
       final success = await DayEndScheduler.snooze(minutes);
-
       if (success) {
         if (mounted) {
           Navigator.pop(context);
@@ -644,18 +593,15 @@ class _SnoozeButton extends StatelessWidget {
   final String label;
   final bool enabled;
   final VoidCallback onPressed;
-
   const _SnoozeButton({
     required this.minutes,
     required this.label,
     required this.enabled,
     required this.onPressed,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-
     return ElevatedButton(
       onPressed: enabled ? onPressed : null,
       style: ElevatedButton.styleFrom(

@@ -2,21 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/testing/simple_day_advancer_ui.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
-
 /// Testing page for day simulation and habit/task testing
 /// Add this to your app navigation for easy testing access
 class TestingPage extends StatefulWidget {
   const TestingPage({Key? key}) : super(key: key);
-
   @override
   State<TestingPage> createState() => _TestingPageState();
 }
-
 class _TestingPageState extends State<TestingPage> {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Scaffold(
       backgroundColor: theme.primaryBackground,
       appBar: AppBar(
@@ -67,15 +63,12 @@ class _TestingPageState extends State<TestingPage> {
                 ),
               ),
               const SizedBox(height: 24),
-
               // Simple Day Advancer
               const SimpleDayAdvancerUI(),
               const SizedBox(height: 24),
-
               // DateService Status
               _buildDateServiceStatus(theme),
               const SizedBox(height: 24),
-
               // Testing instructions
               _buildInstructions(theme),
               const SizedBox(height: 24),
@@ -85,10 +78,8 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
-
   Widget _buildDateServiceStatus(FlutterFlowTheme theme) {
     final status = DateService.getStatus();
-
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -127,7 +118,6 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
-
   Widget _buildStatusRow(String label, String value, FlutterFlowTheme theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -158,7 +148,6 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
-
   Widget _buildInstructions(FlutterFlowTheme theme) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -206,7 +195,6 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
-
   Widget _buildInstructionStep(
       String number, String title, String description, FlutterFlowTheme theme) {
     return Padding(

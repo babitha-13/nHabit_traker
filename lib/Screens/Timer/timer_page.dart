@@ -5,20 +5,20 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;
   final String? taskTitle;
   final bool fromSwipe;
-
   const TimerPage({
     super.key,
     this.initialTimerLogRef,
     this.taskTitle,
     this.fromSwipe = false,
   });
-
   @override
   State<TimerPage> createState() => _TimerPageState();
 }
@@ -32,7 +32,6 @@ class _TimerPageState extends State<TimerPage> {
   Duration _remainingTime = Duration.zero;
   DocumentReference? _taskInstanceRef;
   List<CategoryRecord> _categories = [];
-
   @override
   void initState() {
     super.initState();
@@ -53,9 +52,7 @@ class _TimerPageState extends State<TimerPage> {
       setState(() {
         _categories = categories;
       });
-    } catch (e) {
-      print('Error loading categories: $e');
-    }
+    } catch (e) {}
   }
 
   String _formatTime(Duration duration) {
@@ -89,18 +86,15 @@ class _TimerPageState extends State<TimerPage> {
         return;
       }
     }
-
     setState(() {
       _isRunning = true;
     });
-
     if (_isStopwatch) {
       _stopwatch.start();
     } else {
       _remainingTime =
           _remainingTime > Duration.zero ? _remainingTime : _countdownDuration;
     }
-
     _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!_isStopwatch && _remainingTime.inSeconds <= 0) {
         _pauseTimer();
@@ -117,7 +111,6 @@ class _TimerPageState extends State<TimerPage> {
   void _pauseTimer() async {
     final duration =
         _isStopwatch ? _stopwatch.elapsed : _countdownDuration - _remainingTime;
-
     setState(() {
       _isRunning = false;
     });
@@ -125,18 +118,14 @@ class _TimerPageState extends State<TimerPage> {
       _stopwatch.stop();
     }
     _timer.cancel();
-
     // Stop time logging session if we have an existing task
     if (_taskInstanceRef != null) {
       try {
         await TaskInstanceService.pauseTimeLogging(
           activityInstanceRef: _taskInstanceRef!,
         );
-      } catch (e) {
-        print('Error pausing time logging: $e');
-      }
+      } catch (e) {}
     }
-
     // Show dialog to get task name and category (skip if from swipe)
     if (!widget.fromSwipe) {
       _showTaskNameDialog(isStop: false, duration: duration);
@@ -146,7 +135,6 @@ class _TimerPageState extends State<TimerPage> {
   void _stopTimer() async {
     final duration =
         _isStopwatch ? _stopwatch.elapsed : _countdownDuration - _remainingTime;
-
     setState(() {
       _isRunning = false;
     });
@@ -154,7 +142,6 @@ class _TimerPageState extends State<TimerPage> {
       _stopwatch.stop();
     }
     _timer.cancel();
-
     // Stop time logging session and mark complete if we have an existing task
     if (_taskInstanceRef != null) {
       try {
@@ -162,11 +149,8 @@ class _TimerPageState extends State<TimerPage> {
           activityInstanceRef: _taskInstanceRef!,
           markComplete: true,
         );
-      } catch (e) {
-        print('Error stopping time logging: $e');
-      }
+      } catch (e) {}
     }
-
     // Show dialog to get task name and category (skip if from swipe)
     if (!widget.fromSwipe) {
       _showTaskNameDialog(isStop: true, duration: duration);
@@ -184,8 +168,12 @@ class _TimerPageState extends State<TimerPage> {
       _stopwatch.reset();
       _remainingTime = Duration.zero;
       _taskInstanceRef = null;
-      if (_timer.isActive) {
-        _timer.cancel();
+      try {
+        if (_timer.isActive) {
+          _timer.cancel();
+        }
+      } catch (e) {
+        // Timer not initialized yet, ignore
       }
     });
   }
@@ -193,17 +181,40 @@ class _TimerPageState extends State<TimerPage> {
   void _showCountdownPicker() {
     showModalBottomSheet(
       context: context,
+      isScrollControlled: true,
       builder: (BuildContext builder) {
-        return SizedBox(
-          height: 250,
-          child: CupertinoTimerPicker(
-            mode: CupertinoTimerPickerMode.hms,
-            initialTimerDuration: _countdownDuration,
-            onTimerDurationChanged: (Duration newDuration) {
-              setState(() {
-                _countdownDuration = newDuration;
-              });
-            },
+        return SafeArea(
+          child: Container(
+            padding: const EdgeInsets.fromLTRB(
+                16, 8, 16, 64), // 16 + 48 = 64px bottom padding
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                CupertinoTimerPicker(
+                  mode: CupertinoTimerPickerMode.hms,
+                  initialTimerDuration: _countdownDuration,
+                  onTimerDurationChanged: (Duration newDuration) {
+                    setState(() {
+                      _countdownDuration = newDuration;
+                    });
+                  },
+                ),
+                const SizedBox(height: 8),
+                SizedBox(
+                  width: double.infinity,
+                  height: 48,
+                  child: ElevatedButton(
+                    onPressed: () {
+                      setState(() {
+                        _remainingTime = _countdownDuration;
+                      });
+                      Navigator.pop(context);
+                    },
+                    child: const Text('Done'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -214,7 +225,6 @@ class _TimerPageState extends State<TimerPage> {
     final taskNameController = TextEditingController();
     String? selectedCategoryId;
     String? selectedCategoryName;
-
     // Pre-populate with Inbox category if available
     if (_categories.isNotEmpty) {
       final inboxCategory = _categories.firstWhere(
@@ -224,7 +234,6 @@ class _TimerPageState extends State<TimerPage> {
       selectedCategoryId = inboxCategory.reference.id;
       selectedCategoryName = inboxCategory.name;
     }
-
     showDialog(
       context: context,
       builder: (BuildContext context) {
@@ -268,7 +277,24 @@ class _TimerPageState extends State<TimerPage> {
               ),
               actions: [
                 TextButton(
-                  onPressed: () {
+                  onPressed: () async {
+                    // Clean up template and instance if they exist
+                    if (_taskInstanceRef != null) {
+                      try {
+                        final instance =
+                            await ActivityInstanceRecord.getDocumentOnce(
+                                _taskInstanceRef!);
+                        // Delete the template
+                        final templateRef =
+                            ActivityRecord.collectionForUser(currentUserUid)
+                                .doc(instance.templateId);
+                        await templateRef.delete();
+                        // Delete the instance
+                        await _taskInstanceRef!.delete();
+                      } catch (e) {
+                        // Handle error silently - cleanup is best effort
+                      }
+                    }
                     Navigator.of(context).pop();
                     // Reset timer state
                     _resetTimer();
@@ -285,7 +311,6 @@ class _TimerPageState extends State<TimerPage> {
                       );
                       return;
                     }
-
                     try {
                       if (_taskInstanceRef != null) {
                         if (isStop) {
@@ -306,10 +331,8 @@ class _TimerPageState extends State<TimerPage> {
                           );
                         }
                       }
-
                       Navigator.of(context).pop();
                       _resetTimer();
-
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
                           content: Text(isStop
@@ -345,8 +368,12 @@ class _TimerPageState extends State<TimerPage> {
 
   @override
   void dispose() {
-    if (_timer.isActive) {
-      _timer.cancel();
+    try {
+      if (_timer.isActive) {
+        _timer.cancel();
+      }
+    } catch (e) {
+      // Timer not initialized yet, ignore
     }
     super.dispose();
   }
@@ -354,7 +381,6 @@ class _TimerPageState extends State<TimerPage> {
   @override
   Widget build(BuildContext context) {
     final displayTime = _isStopwatch ? _stopwatch.elapsed : _remainingTime;
-
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.taskTitle ?? 'Timer'),

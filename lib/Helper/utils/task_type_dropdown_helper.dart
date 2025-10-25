@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 /// Helper class for task type dropdown functionality
 /// Separates business logic from UI components
 class TaskTypeDropdownHelper {
@@ -22,64 +21,53 @@ class TaskTypeDropdownHelper {
       icon: Icons.access_time,
     ),
   };
-
   /// Get task type info by value
   static TaskTypeInfo? getTaskTypeInfo(String? value) {
     return taskTypes[value];
   }
-
   /// Get icon for task type value
   static IconData getIconForType(String? value) {
     return taskTypes[value]?.icon ?? Icons.task_alt;
   }
-
   /// Get label for task type value
   static String getLabelForType(String? value) {
     return taskTypes[value]?.label ?? 'To-do';
   }
-
   /// Get all task type options for dropdown
   static List<TaskTypeInfo> getAllTaskTypes() {
     return taskTypes.values.toList();
   }
-
   /// Validate task type value
   static bool isValidTaskType(String? value) {
     return taskTypes.containsKey(value);
   }
 }
-
 /// Data class for task type information
 class TaskTypeInfo {
   final String value;
   final String label;
   final IconData icon;
-
   const TaskTypeInfo({
     required this.value,
     required this.label,
     required this.icon,
   });
 }
-
 /// Custom icon-based dropdown widget for task types
 class IconTaskTypeDropdown extends StatelessWidget {
   final String? selectedValue;
   final ValueChanged<String?> onChanged;
   final String? tooltip;
-
   const IconTaskTypeDropdown({
     super.key,
     required this.selectedValue,
     required this.onChanged,
     this.tooltip,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     final selectedInfo = TaskTypeDropdownHelper.getTaskTypeInfo(selectedValue);
-
     return SizedBox(
       width: 40,
       height: 40,

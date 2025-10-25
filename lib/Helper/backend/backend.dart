@@ -1,7 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/category_color_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
@@ -26,7 +25,6 @@ Future<int> queryUsersRecordCount({
       queryBuilder: queryBuilder,
       limit: limit,
     );
-
 Stream<List<UsersRecord>> queryUsersRecord({
   Query Function(Query)? queryBuilder,
   int limit = -1,
@@ -39,7 +37,6 @@ Stream<List<UsersRecord>> queryUsersRecord({
       limit: limit,
       singleRecord: singleRecord,
     );
-
 Future<List<UsersRecord>> queryUsersRecordOnce({
   Query Function(Query)? queryBuilder,
   int limit = -1,
@@ -52,7 +49,6 @@ Future<List<UsersRecord>> queryUsersRecordOnce({
       limit: limit,
       singleRecord: singleRecord,
     );
-
 Future<int> queryCollectionCount(
   Query collection, {
   Query Function(Query)? queryBuilder,
@@ -63,12 +59,10 @@ Future<int> queryCollectionCount(
   if (limit > 0) {
     query = query.limit(limit);
   }
-
   try {
     final snapshot = await query.count().get();
     return snapshot.count ?? 0;
   } catch (err) {
-    print('Error querying $collection: $err');
     return 0;
   }
 }
@@ -85,9 +79,7 @@ Stream<List<T>> queryCollection<T>(
   if (limit > 0 || singleRecord) {
     query = query.limit(singleRecord ? 1 : limit);
   }
-  return query.snapshots().handleError((err) {
-    print('Error querying $collection: $err');
-  }).map((s) => s.docs
+  return query.snapshots().handleError((err) {}).map((s) => s.docs
       .map(
         (d) => safeGet(
           () => recordBuilder(d),
@@ -111,7 +103,6 @@ Future<List<T>> queryCollectionOnce<T>(
   if (limit > 0 || singleRecord) {
     query = query.limit(singleRecord ? 1 : limit);
   }
-
   return query.get().then((s) => s.docs
       .map(
         (d) => safeGet(
@@ -127,7 +118,6 @@ Future<List<T>> queryCollectionOnce<T>(
 Filter filterIn(String field, List? list) => (list?.isEmpty ?? true)
     ? Filter(field, whereIn: null)
     : Filter(field, whereIn: list);
-
 Filter filterArrayContainsAny(String field, List? list) =>
     (list?.isEmpty ?? true)
         ? Filter(field, arrayContainsAny: null)
@@ -137,11 +127,9 @@ extension QueryExtension on Query {
   Query whereIn(String field, List? list) => (list?.isEmpty ?? true)
       ? where(field, whereIn: null)
       : where(field, whereIn: list);
-
   Query whereNotIn(String field, List? list) => (list?.isEmpty ?? true)
       ? where(field, whereNotIn: null)
       : where(field, whereNotIn: list);
-
   Query whereArrayContainsAny(String field, List? list) =>
       (list?.isEmpty ?? true)
           ? where(field, arrayContainsAny: null)
@@ -152,7 +140,6 @@ class FFFirestorePage<T> {
   final List<T> data;
   final Stream<List<T>>? dataStream;
   final QueryDocumentSnapshot? nextPageMarker;
-
   FFFirestorePage(this.data, this.dataStream, this.nextPageMarker);
 }
 
@@ -196,25 +183,14 @@ Future<FFFirestorePage<T>> queryCollectionPage<T>(
 // Creates a Firestore document representing the logged in user if it doesn't yet exist
 Future maybeCreateUser(User user) async {
   try {
-    print('maybeCreateUser: Starting for user ${user.uid}');
-
     // Add a small delay to ensure user is fully authenticated
     await Future.delayed(const Duration(milliseconds: 500));
-
     final userRecord = UsersRecord.collection.doc(user.uid);
-    print('maybeCreateUser: Checking if user exists');
-
     final userExists = await userRecord.get().then((u) => u.exists);
-    print('maybeCreateUser: User exists: $userExists');
-
     if (userExists) {
-      print('maybeCreateUser: Getting existing user document');
       currentUserDocument = await UsersRecord.getDocumentOnce(userRecord);
-      print('maybeCreateUser: Existing user document retrieved');
       return;
     }
-
-    print('maybeCreateUser: Creating new user document');
     final userData = createUsersRecordData(
       email: user.email ??
           FirebaseAuth.instance.currentUser?.email ??
@@ -228,20 +204,9 @@ Future maybeCreateUser(User user) async {
       goalPromptSkipped: false,
       goalOnboardingCompleted: false,
     );
-
-    print('maybeCreateUser: Setting user data in Firestore');
-    print('maybeCreateUser: User data: $userData');
-
     await userRecord.set(userData);
-    print('maybeCreateUser: User data set successfully');
-
     currentUserDocument = UsersRecord.getDocumentFromData(userData, userRecord);
-    print('maybeCreateUser: User document created and assigned');
   } catch (e) {
-    print('maybeCreateUser: Error occurred: $e');
-    print('maybeCreateUser: Error type: ${e.runtimeType}');
-    print(
-        'maybeCreateUser: Current user: ${FirebaseAuth.instance.currentUser?.uid}');
     rethrow;
   }
 }
@@ -262,7 +227,6 @@ bool isHabitActiveByDate(ActivityRecord habit, DateTime currentDate) {
       return false; // Habit hasn't started yet
     }
   }
-
   // Check if habit has ended (endDate < currentDate)
   // Compare only the date part, not the time
   if (habit.endDate != null) {
@@ -272,32 +236,37 @@ bool isHabitActiveByDate(ActivityRecord habit, DateTime currentDate) {
       return false; // Habit has ended
     }
   }
-
   return true; // Habit is active within date range
 }
 
 /// Query to get habits for a specific user
 Future<List<ActivityRecord>> queryActivitiesRecordOnce({
   required String userId,
+  bool includeSequenceItems = false,
 }) async {
   try {
     // Use simple query without orderBy to avoid Firestore composite index requirements
     final query = ActivityRecord.collectionForUser(userId)
         .where('isActive', isEqualTo: true);
     final result = await query.get();
-    final habits =
+    final activities =
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
-
+    // Filter out sequence_item types unless explicitly requested
+    final filteredActivities = activities.where((activity) {
+      if (!includeSequenceItems && activity.categoryType == 'sequence_item') {
+        return false;
+      }
+      return true;
+    }).toList();
     // Filter habits based on date boundaries
     final today = DateService.todayStart;
-    final activeHabits =
-        habits.where((habit) => isHabitActiveByDate(habit, today)).toList();
-
+    final activeHabits = filteredActivities
+        .where((habit) => isHabitActiveByDate(habit, today))
+        .toList();
     // Sort in memory instead of in query
     activeHabits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
     return activeHabits;
   } catch (e) {
-    print('Error querying habits: $e');
     return []; // Return empty list on error
   }
 }
@@ -309,7 +278,6 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
   final query = CategoryRecord.collectionForUser(userId)
       .where('isActive', isEqualTo: true)
       .orderBy('name');
-
   final result = await query.get();
   return result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
 }
@@ -321,16 +289,13 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
   try {
     // Use simple query and filter in memory to avoid Firestore composite index requirements
     final allCategories = await queryCategoriesRecordOnce(userId: userId);
-
     // Filter in memory (no Firestore index needed)
     final habitCategories =
         allCategories.where((c) => c.categoryType == 'habit').toList();
-
     // Sort in memory
     habitCategories.sort((a, b) => a.name.compareTo(b.name));
     return habitCategories;
   } catch (e) {
-    print('Error querying habit categories: $e');
     return []; // Return empty list on error
   }
 }
@@ -342,16 +307,13 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
   try {
     // Use simple query and filter in memory to avoid Firestore composite index requirements
     final allCategories = await queryCategoriesRecordOnce(userId: userId);
-
     // Filter in memory (no Firestore index needed)
     final taskCategories =
         allCategories.where((c) => c.categoryType == 'task').toList();
-
     // Sort in memory
     taskCategories.sort((a, b) => a.name.compareTo(b.name));
     return taskCategories;
   } catch (e) {
-    print('Error querying task categories: $e');
     return []; // Return empty list on error
   }
 }
@@ -365,7 +327,6 @@ Future<List<ActivityInstanceRecord>> queryTaskInstances({
   try {
     return await ActivityInstanceService.getActiveTaskInstances(userId: userId);
   } catch (e) {
-    print('Error querying today\'s task instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -377,7 +338,6 @@ Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
   try {
     return await ActivityInstanceService.getAllTaskInstances(userId: userId);
   } catch (e) {
-    print('Error querying all task instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -392,7 +352,6 @@ Future<List<ActivityInstanceRecord>> queryTodaysHabitInstances({
     return await ActivityInstanceService.getActiveHabitInstances(
         userId: userId);
   } catch (e) {
-    print('Error querying today\'s habit instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -406,7 +365,6 @@ Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
     return await ActivityInstanceService.getCurrentHabitInstances(
         userId: userId);
   } catch (e) {
-    print('Error querying current habit instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -419,7 +377,6 @@ Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
   try {
     return await ActivityInstanceService.getAllHabitInstances(userId: userId);
   } catch (e) {
-    print('Error querying all habit instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -433,7 +390,6 @@ Future<List<ActivityInstanceRecord>> queryLatestHabitInstances({
     return await ActivityInstanceService.getLatestHabitInstancePerTemplate(
         userId: userId);
   } catch (e) {
-    print('Error querying latest habit instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -445,7 +401,6 @@ Future<List<ActivityInstanceRecord>> queryAllInstances({
   try {
     return await ActivityInstanceService.getAllActiveInstances(userId: userId);
   } catch (e) {
-    print('Error querying all today\'s instances: $e');
     return []; // Return empty list on error
   }
 }
@@ -454,12 +409,19 @@ Future<List<ActivityInstanceRecord>> queryAllInstances({
 Future<List<SequenceRecord>> querySequenceRecordOnce({
   required String userId,
 }) async {
-  final query = SequenceRecord.collectionForUser(userId)
-      .where('isActive', isEqualTo: true)
-      .orderBy('name');
-
-  final result = await query.get();
-  return result.docs.map((doc) => SequenceRecord.fromSnapshot(doc)).toList();
+  try {
+    final query = SequenceRecord.collectionForUser(userId)
+        .where('isActive', isEqualTo: true)
+        .orderBy('name');
+    final result = await query.get();
+    final sequences = result.docs.map((doc) {
+      return SequenceRecord.fromSnapshot(doc);
+    }).toList();
+    return sequences;
+  } catch (e) {
+    if (e is FirebaseException) {}
+    rethrow;
+  }
 }
 
 /// Create a new habit
@@ -471,7 +433,6 @@ Future<DocumentReference> createActivity({
   String? description,
   String? userId,
   required String categoryType, // 'habit' or 'task'
-
   // Task-specific parameters
   DateTime? dueDate,
   String? dueTime,
@@ -490,9 +451,7 @@ Future<DocumentReference> createActivity({
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   final effectiveIsRecurring = categoryType == 'habit' ? true : isRecurring;
-
   final habitData = createActivityRecordData(
     name: name,
     categoryName: categoryName,
@@ -503,7 +462,6 @@ Future<DocumentReference> createActivity({
     createdTime: DateTime.now(),
     lastUpdated: DateTime.now(),
     categoryType: categoryType,
-
     // Task-specific fields
     dueDate: dueDate,
     dueTime: dueTime,
@@ -511,11 +469,9 @@ Future<DocumentReference> createActivity({
     unit: unit,
     priority: priority,
     specificDays: specificDays,
-
     // Date range fields
     startDate: startDate ?? DateTime.now(),
     endDate: endDate,
-
     // New frequency fields
     frequencyType: frequencyType,
     everyXValue: everyXValue,
@@ -523,15 +479,10 @@ Future<DocumentReference> createActivity({
     timesPerPeriod: timesPerPeriod,
     periodType: periodType,
   );
-
   final habitRef = await ActivityRecord.collectionForUser(uid).add(habitData);
-
   // Create initial activity instance
   try {
-    print('Creating activity instance for template: ${habitRef.id}');
     final activity = await ActivityRecord.getDocumentOnce(habitRef);
-    print('Activity template loaded: ${activity.name}');
-
     final instanceRef = await ActivityInstanceService.createActivityInstance(
       templateId: habitRef.id,
       dueDate: InstanceDateCalculator.calculateInitialDueDate(
@@ -542,23 +493,16 @@ Future<DocumentReference> createActivity({
       template: activity,
       userId: uid,
     );
-    print('Activity instance created successfully: ${instanceRef.id}');
-
     // Get the created instance and broadcast the event
     try {
       final instance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instanceRef.id,
       );
       InstanceEvents.broadcastInstanceCreated(instance);
-    } catch (e) {
-      print('Error broadcasting instance creation: $e');
-    }
+    } catch (e) {}
   } catch (e) {
-    print('Error creating initial activity instance: $e');
-    print('Stack trace: ${StackTrace.current}');
     // Don't fail the activity creation if instance creation fails
   }
-
   return habitRef;
 }
 
@@ -567,7 +511,7 @@ Future<DocumentReference> createCategory({
   required String name,
   String? description,
   double weight = 1.0,
-  String? color,
+  required String color,
   String? userId,
   required String categoryType, // Must be 'habit' or 'task'
   bool isSystemCategory = false,
@@ -578,18 +522,15 @@ Future<DocumentReference> createCategory({
   final nameExists = existingCategories.any((cat) =>
       cat.name.toString().trim().toLowerCase() ==
       name.toString().trim().toLowerCase());
-
   if (nameExists) {
     throw Exception('Category with name "$name" already exists!');
   }
-  final resolvedColor = color ?? CategoryColorUtil.hexForName(name);
-
   final categoryData = createCategoryRecordData(
     uid: uid,
     name: name,
     description: description,
     weight: weight,
-    color: resolvedColor,
+    color: color,
     isActive: true,
     createdTime: DateTime.now(),
     lastUpdated: DateTime.now(),
@@ -597,7 +538,6 @@ Future<DocumentReference> createCategory({
     categoryType: categoryType,
     isSystemCategory: isSystemCategory,
   );
-
   return await CategoryRecord.collectionForUser(uid).add(categoryData);
 }
 
@@ -605,15 +545,12 @@ Future<DocumentReference> createCategory({
 Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   if (uid.isEmpty) {
     throw Exception('User not authenticated');
   }
-
   try {
     // Use simple query to avoid Firestore composite index requirements
     final allCategories = await queryTaskCategoriesOnce(userId: uid);
-
     // Find inbox category in memory
     final inboxCategory = allCategories.firstWhere(
       (c) => c.name == 'Inbox' && c.isSystemCategory,
@@ -622,7 +559,6 @@ Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
         orElse: () => throw StateError('No inbox found'),
       ),
     );
-
     return inboxCategory;
   } catch (e) {
     // Create inbox category if it doesn't exist
@@ -630,11 +566,11 @@ Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
       name: 'Inbox',
       description: 'Default inbox for tasks',
       weight: 1.0,
+      color: '#2F4F4F', // Dark Slate Gray (charcoal) for tasks
       userId: uid,
       categoryType: 'task',
       isSystemCategory: true,
     );
-
     return await CategoryRecord.getDocumentOnce(inboxRef);
   }
 }
@@ -647,18 +583,15 @@ Future<List<CategoryRecord>> queryUserCategoriesOnce({
   try {
     // Use simple query and filter in memory to avoid Firestore composite index requirements
     final allCategories = await queryCategoriesRecordOnce(userId: userId);
-
     // Filter in memory (no Firestore index needed)
     var filtered = allCategories.where((c) => !c.isSystemCategory);
     if (categoryType != null) {
       filtered = filtered.where((c) => c.categoryType == categoryType);
     }
-
     final result = filtered.toList();
     result.sort((a, b) => a.name.compareTo(b.name));
     return result;
   } catch (e) {
-    print('Error querying user categories: $e');
     return []; // Return empty list on error
   }
 }
@@ -684,7 +617,6 @@ Future<void> updateTask({
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
   };
-
   if (title != null) updateData['name'] = title;
   if (description != null) updateData['description'] = description;
   if (status != null) updateData['status'] = status;
@@ -699,7 +631,6 @@ Future<void> updateTask({
   if (isTimerActive != null) updateData['isTimerActive'] = isTimerActive;
   if (timerStartTime != null) updateData['timerStartTime'] = timerStartTime;
   if (accumulatedTime != null) updateData['accumulatedTime'] = accumulatedTime;
-
   await taskRef.update(updateData);
 }
 
@@ -709,7 +640,6 @@ Future<void> deleteTask(DocumentReference taskRef) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
-
   // Also delete all instances for this task
   // TODO: Phase 6 - Implement with ActivityInstanceService
   /*
@@ -719,7 +649,6 @@ Future<void> deleteTask(DocumentReference taskRef) async {
       templateType: 'task',
     );
   } catch (e) {
-    print('Error deleting task instances: $e');
     // Don't fail the task deletion if instance deletion fails
   }
   */
@@ -736,7 +665,6 @@ Future<DocumentReference> createWorkSession({
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   final durationMs = endTime.difference(startTime).inMilliseconds;
   final sessionData = createWorkSessionRecordData(
     uid: uid,
@@ -748,7 +676,6 @@ Future<DocumentReference> createWorkSession({
     note: note,
     userId: uid,
   );
-
   return await WorkSessionRecord.collectionForUser(uid).add(sessionData);
 }
 
@@ -756,42 +683,44 @@ Future<DocumentReference> createWorkSession({
 Future<DocumentReference> createSequence({
   required String name,
   String? description,
-  required List<String> habitIds,
+  required List<String> itemIds,
+  required List<String> itemOrder,
   String? userId,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
-  // Get habit names from the habit IDs
-  final habitNames = <String>[];
-  for (final habitId in habitIds) {
+  // Get item names and types from the item IDs
+  final itemNames = <String>[];
+  final itemTypes = <String>[];
+  for (final itemId in itemIds) {
     try {
-      final habitDoc =
-          await ActivityRecord.collectionForUser(uid).doc(habitId).get();
-      if (habitDoc.exists) {
-        final habitData = habitDoc.data() as Map<String, dynamic>?;
-        if (habitData != null) {
-          habitNames.add(habitData['name'] ?? 'Unknown Habit');
+      final activityDoc =
+          await ActivityRecord.collectionForUser(uid).doc(itemId).get();
+      if (activityDoc.exists) {
+        final activityData = activityDoc.data() as Map<String, dynamic>?;
+        if (activityData != null) {
+          itemNames.add(activityData['name'] ?? 'Unknown Item');
+          itemTypes.add(activityData['categoryType'] ?? 'habit');
         }
       }
     } catch (e) {
-      print('Error getting habit name for ID $habitId: $e');
-      habitNames.add('Unknown Habit');
+      itemNames.add('Unknown Item');
+      itemTypes.add('habit');
     }
   }
-
   final sequenceData = createSequenceRecordData(
     uid: uid,
     name: name,
     description: description,
-    habitIds: habitIds,
-    habitNames: habitNames,
+    itemIds: itemIds,
+    itemNames: itemNames,
+    itemOrder: itemOrder,
+    itemTypes: itemTypes,
     isActive: true,
     createdTime: DateTime.now(),
     lastUpdated: DateTime.now(),
     userId: uid,
   );
-
   return await SequenceRecord.collectionForUser(uid).add(sequenceData);
 }
 
@@ -813,7 +742,6 @@ Future<void> updateHabit({
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
   };
-
   if (name != null) updateData['name'] = name;
   if (categoryName != null) updateData['categoryName'] = categoryName;
   if (trackingType != null) updateData['trackingType'] = trackingType;
@@ -825,7 +753,6 @@ Future<void> updateHabit({
   if (manualOrder != null) updateData['manualOrder'] = manualOrder;
   if (priority != null) updateData['priority'] = priority;
   if (snoozedUntil != null) updateData['snoozedUntil'] = snoozedUntil;
-
   await habitRef.update(updateData);
 }
 
@@ -835,7 +762,6 @@ Future<void> deleteHabit(DocumentReference habitRef) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
-
   // Also delete all instances for this habit
   // TODO: Phase 6 - Implement with ActivityInstanceService
   /*
@@ -845,7 +771,6 @@ Future<void> deleteHabit(DocumentReference habitRef) async {
       templateType: 'habit',
     );
   } catch (e) {
-    print('Error deleting habit instances: $e');
     // Don't fail the habit deletion if instance deletion fails
   }
   */
@@ -864,19 +789,16 @@ Future<void> updateCategory({
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   final categoryRef = CategoryRecord.collectionForUser(uid).doc(categoryId);
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
   };
-
   if (name != null) updateData['name'] = name;
   if (description != null) updateData['description'] = description;
   if (weight != null) updateData['weight'] = weight;
   if (color != null) updateData['color'] = color;
   if (isActive != null) updateData['isActive'] = isActive;
   if (categoryType != null) updateData['categoryType'] = categoryType;
-
   await categoryRef.update(updateData);
 }
 
@@ -884,7 +806,6 @@ Future<void> updateCategory({
 Future<void> deleteCategory(String categoryId, {String? userId}) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   final categoryRef = CategoryRecord.collectionForUser(uid).doc(categoryId);
   await categoryRef.update({
     'isActive': false,
@@ -897,25 +818,45 @@ Future<void> updateSequence({
   required String sequenceId,
   String? name,
   String? description,
-  List<String>? habitIds,
-  List<String>? habitNames,
+  List<String>? itemIds,
+  List<String>? itemOrder,
   bool? isActive,
   String? userId,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   final sequenceRef = SequenceRecord.collectionForUser(uid).doc(sequenceId);
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
   };
-
   if (name != null) updateData['name'] = name;
   if (description != null) updateData['description'] = description;
-  if (habitIds != null) updateData['habitIds'] = habitIds;
-  if (habitNames != null) updateData['habitNames'] = habitNames;
+  if (itemOrder != null) updateData['itemOrder'] = itemOrder;
   if (isActive != null) updateData['isActive'] = isActive;
-
+  if (itemIds != null) {
+    updateData['itemIds'] = itemIds;
+    // Update cached names and types
+    final itemNames = <String>[];
+    final itemTypes = <String>[];
+    for (final itemId in itemIds) {
+      try {
+        final activityDoc =
+            await ActivityRecord.collectionForUser(uid).doc(itemId).get();
+        if (activityDoc.exists) {
+          final activityData = activityDoc.data() as Map<String, dynamic>?;
+          if (activityData != null) {
+            itemNames.add(activityData['name'] ?? 'Unknown Item');
+            itemTypes.add(activityData['categoryType'] ?? 'habit');
+          }
+        }
+      } catch (e) {
+        itemNames.add('Unknown Item');
+        itemTypes.add('habit');
+      }
+    }
+    updateData['itemNames'] = itemNames;
+    updateData['itemTypes'] = itemTypes;
+  }
   await sequenceRef.update(updateData);
 }
 
@@ -923,7 +864,6 @@ Future<void> updateSequence({
 Future<void> deleteSequence(String sequenceId, {String? userId}) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-
   final sequenceRef = SequenceRecord.collectionForUser(uid).doc(sequenceId);
   await sequenceRef.update({
     'isActive': false,
@@ -933,7 +873,6 @@ Future<void> deleteSequence(String sequenceId, {String? userId}) async {
 
 // ==================== TASK INSTANCE MANAGEMENT ====================
 // TODO: Phase 3 - Implement with ActivityInstanceService
-
 /*
 /// Complete a task instance and generate next occurrence if recurring
 Future<void> completeTaskInstance({
@@ -951,7 +890,6 @@ Future<void> completeTaskInstance({
     userId: userId,
   );
 }
-
 /// Skip a task instance and generate next occurrence if recurring
 Future<void> skipTaskInstance({
   required String instanceId,
@@ -965,7 +903,6 @@ Future<void> skipTaskInstance({
   );
 }
 */
-
 // TODO: Phase 3 - Implement with ActivityInstanceService
 /*
 /// Complete a habit instance and generate next occurrence
@@ -984,7 +921,6 @@ Future<void> completeHabitInstance({
     userId: userId,
   );
 }
-
 /// Skip a habit instance and generate next occurrence
 Future<void> skipHabitInstance({
   required String instanceId,
@@ -997,7 +933,6 @@ Future<void> skipHabitInstance({
     userId: userId,
   );
 }
-
 /// Update instance progress (for quantity/duration tracking)
 Future<void> updateInstanceProgress({
   required String instanceId,
@@ -1018,9 +953,7 @@ Future<void> updateInstanceProgress({
     userId: userId,
   );
 }
-
 // ==================== ACTIVITY INSTANCE CONVENIENCE WRAPPERS ====================
-
 /// Complete an activity instance
 Future<void> completeActivityInstance({
   required String instanceId,
@@ -1037,7 +970,6 @@ Future<void> completeActivityInstance({
     userId: userId,
   );
 }
-
 /// Uncomplete an activity instance (mark as pending)
 Future<void> uncompleteActivityInstance({
   required String instanceId,
@@ -1048,7 +980,6 @@ Future<void> uncompleteActivityInstance({
     userId: userId,
   );
 }
-
 /// Update activity instance progress (for quantitative tracking)
 Future<void> updateActivityInstanceProgress({
   required String instanceId,
@@ -1061,7 +992,6 @@ Future<void> updateActivityInstanceProgress({
     userId: userId,
   );
 }
-
 /// Toggle activity instance timer (for time tracking)
 Future<void> toggleActivityInstanceTimer({
   required String instanceId,
@@ -1072,7 +1002,6 @@ Future<void> toggleActivityInstanceTimer({
     userId: userId,
   );
 }
-
 /// Skip an activity instance
 Future<void> skipActivityInstance({
   required String instanceId,
@@ -1085,7 +1014,6 @@ Future<void> skipActivityInstance({
     userId: userId,
   );
 }
-
 /// Reschedule an activity instance
 Future<void> rescheduleActivityInstance({
   required String instanceId,
@@ -1098,7 +1026,6 @@ Future<void> rescheduleActivityInstance({
     userId: userId,
   );
 }
-
 /// Remove due date from an activity instance
 Future<void> removeDueDateFromInstance({
   required String instanceId,
@@ -1109,7 +1036,6 @@ Future<void> removeDueDateFromInstance({
     userId: userId,
   );
 }
-
 /// Skip all instances until a specific date
 Future<void> skipActivityInstancesUntil({
   required String templateId,
@@ -1122,7 +1048,6 @@ Future<void> skipActivityInstancesUntil({
     userId: userId,
   );
 }
-
 /// Get updated instance data after changes
 Future<ActivityInstanceRecord> getUpdatedActivityInstance({
   required String instanceId,
@@ -1133,7 +1058,6 @@ Future<ActivityInstanceRecord> getUpdatedActivityInstance({
     userId: userId,
   );
 }
-
 /// Snooze an activity instance until a specific date
 Future<void> snoozeActivityInstance({
   required String instanceId,
@@ -1146,7 +1070,6 @@ Future<void> snoozeActivityInstance({
     userId: userId,
   );
 }
-
 /// Unsnooze an activity instance (remove snooze)
 Future<void> unsnoozeActivityInstance({
   required String instanceId,
@@ -1157,51 +1080,37 @@ Future<void> unsnoozeActivityInstance({
     userId: userId,
   );
 }
-
 /// Manually update lastDayValue for windowed habits (for testing/fixing)
 Future<void> updateLastDayValuesForWindowedHabits({
   String? userId,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-  
   if (uid.isEmpty) {
     throw Exception('No authenticated user');
   }
-
   // Get all active windowed habit instances
   final query = ActivityInstanceRecord.collectionForUser(uid)
       .where('templateCategoryType', isEqualTo: 'habit')
       .where('status', isEqualTo: 'pending')
       .where('windowDuration', isGreaterThan: 1);
-
   final querySnapshot = await query.get();
   final instances = querySnapshot.docs
       .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
       .toList();
-
-  print('Backend: Found ${instances.length} windowed habits to update lastDayValue');
-
   if (instances.isEmpty) return;
-
   final batch = FirebaseFirestore.instance.batch();
   final now = DateTime.now();
-
   for (final instance in instances) {
     final instanceRef = instance.reference;
     batch.update(instanceRef, {
       'lastDayValue': instance.currentValue,
       'lastUpdated': now,
     });
-
-    print('Backend: Updated lastDayValue for ${instance.templateName} to ${instance.currentValue}');
   }
-
   await batch.commit();
-  print('Backend: Updated lastDayValue for ${instances.length} windowed habits');
 }
 */
-
 /// Update category name and cascade to all templates and instances
 Future<void> updateCategoryNameCascade({
   required String categoryId,
@@ -1209,18 +1118,11 @@ Future<void> updateCategoryNameCascade({
   required String userId,
 }) async {
   try {
-    print('DEBUG: Starting category name cascade update');
-    print('DEBUG: Category ID: $categoryId');
-    print('DEBUG: New name: $newCategoryName');
-
     // 1. Find all templates with this categoryId
     final templatesQuery = ActivityRecord.collectionForUser(userId)
         .where('categoryId', isEqualTo: categoryId);
     final templatesSnapshot = await templatesQuery.get();
     final templates = templatesSnapshot.docs;
-
-    print('DEBUG: Found ${templates.length} templates to update');
-
     // 2. Update all templates
     int templateSuccessCount = 0;
     for (final templateDoc in templates) {
@@ -1230,30 +1132,21 @@ Future<void> updateCategoryNameCascade({
           'lastUpdated': DateTime.now(),
         });
         templateSuccessCount++;
-      } catch (e) {
-        print('ERROR: Failed to update template ${templateDoc.id}: $e');
-      }
+      } catch (e) {}
     }
-
-    print('DEBUG: Updated $templateSuccessCount/${templates.length} templates');
-
     // 3. Find ALL instances (pending AND completed) with this categoryId
     final instancesQuery = ActivityInstanceRecord.collectionForUser(userId)
         .where('templateCategoryId', isEqualTo: categoryId);
     final instancesSnapshot = await instancesQuery.get();
     final instances = instancesSnapshot.docs;
-
     print(
         'DEBUG: Found ${instances.length} instances to update (all statuses)');
-
     // 4. Update all instances in batches
     const batchSize = 10;
     int instanceSuccessCount = 0;
     int instanceFailureCount = 0;
-
     for (int i = 0; i < instances.length; i += batchSize) {
       final batch = instances.skip(i).take(batchSize);
-
       final results = await Future.wait(batch.map((instanceDoc) async {
         try {
           await instanceDoc.reference.update({
@@ -1262,11 +1155,9 @@ Future<void> updateCategoryNameCascade({
           });
           return true;
         } catch (e) {
-          print('ERROR: Failed to update instance ${instanceDoc.id}: $e');
           return false;
         }
       }));
-
       for (final result in results) {
         if (result) {
           instanceSuccessCount++;
@@ -1275,18 +1166,12 @@ Future<void> updateCategoryNameCascade({
         }
       }
     }
-
-    print('DEBUG: Updated $instanceSuccessCount/${instances.length} instances');
-    print('DEBUG: Failed: $instanceFailureCount');
-    print('DEBUG: Category name cascade update completed');
-
     // Notify all pages that categories have been updated
     NotificationCenter.post('categoryUpdated', {
       'categoryId': categoryId,
       'newCategoryName': newCategoryName,
     });
   } catch (e) {
-    print('ERROR: Category name cascade update failed: $e');
     throw e;
   }
 }

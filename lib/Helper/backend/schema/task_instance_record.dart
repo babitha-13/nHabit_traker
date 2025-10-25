@@ -1,10 +1,8 @@
 import 'dart:async';
-
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-
 class TaskInstanceRecord extends FirestoreRecord {
   TaskInstanceRecord._(
     super.reference,
@@ -12,106 +10,82 @@ class TaskInstanceRecord extends FirestoreRecord {
   ) {
     _initializeFields();
   }
-
   // Reference to the template task
   String? _templateId;
   String get templateId => _templateId ?? '';
   bool hasTemplateId() => _templateId != null;
-
   // Instance-specific fields
   DateTime? _dueDate;
   DateTime? get dueDate => _dueDate;
   bool hasDueDate() => _dueDate != null;
-
   String? _status; // 'pending', 'completed', 'skipped'
   String get status => _status ?? 'pending';
   bool hasStatus() => _status != null;
-
   DateTime? _completedAt;
   DateTime? get completedAt => _completedAt;
   bool hasCompletedAt() => _completedAt != null;
-
   DateTime? _skippedAt;
   DateTime? get skippedAt => _skippedAt;
   bool hasSkippedAt() => _skippedAt != null;
-
   // Progress tracking for quantity/duration tasks
   dynamic _currentValue;
   dynamic get currentValue => _currentValue;
   bool hasCurrentValue() => _currentValue != null;
-
   int? _accumulatedTime; // For duration tracking (milliseconds)
   int get accumulatedTime => _accumulatedTime ?? 0;
   bool hasAccumulatedTime() => _accumulatedTime != null;
-
   bool? _isTimerActive;
   bool get isTimerActive => _isTimerActive ?? false;
   bool hasIsTimerActive() => _isTimerActive != null;
-
   DateTime? _timerStartTime;
   DateTime? get timerStartTime => _timerStartTime;
   bool hasTimerStartTime() => _timerStartTime != null;
-
   // Metadata
   DateTime? _createdTime;
   DateTime? get createdTime => _createdTime;
   bool hasCreatedTime() => _createdTime != null;
-
   DateTime? _lastUpdated;
   DateTime? get lastUpdated => _lastUpdated;
   bool hasLastUpdated() => _lastUpdated != null;
-
   bool? _isActive;
   bool get isActive => _isActive ?? true;
   bool hasIsActive() => _isActive != null;
-
   // User notes for this specific instance
   String? _notes;
   String get notes => _notes ?? '';
   bool hasNotes() => _notes != null;
-
   // Template data cached for quick access (denormalized)
   String? _templateName;
   String get templateName => _templateName ?? '';
   bool hasTemplateName() => _templateName != null;
-
   String? _templateCategoryId;
   String get templateCategoryId => _templateCategoryId ?? '';
   bool hasTemplateCategoryId() => _templateCategoryId != null;
-
   String? _templateCategoryName;
   String get templateCategoryName => _templateCategoryName ?? '';
   bool hasTemplateCategoryName() => _templateCategoryName != null;
-
   int? _templatePriority;
   int get templatePriority => _templatePriority ?? 1;
   bool hasTemplatePriority() => _templatePriority != null;
-
   String? _templateTrackingType;
   String get templateTrackingType => _templateTrackingType ?? 'binary';
   bool hasTemplateTrackingType() => _templateTrackingType != null;
-
   dynamic _templateTarget;
   dynamic get templateTarget => _templateTarget;
   bool hasTemplateTarget() => _templateTarget != null;
-
   String? _templateUnit;
   String get templateUnit => _templateUnit ?? '';
   bool hasTemplateUnit() => _templateUnit != null;
-
   String? _templateDescription;
   String get templateDescription => _templateDescription ?? '';
   bool hasTemplateDescription() => _templateDescription != null;
-
   bool? _templateShowInFloatingTimer;
   bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
   bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
-
   // "isTimerTask" field - identifies timer-generated tasks
   bool? _isTimerTask;
   bool get isTimerTask => _isTimerTask ?? false;
   bool hasIsTimerTask() => _isTimerTask != null;
-
   // Time logging fields - NEW
   List<dynamic>? _timeLogSessions;
   List<Map<String, dynamic>> get timeLogSessions {
@@ -124,21 +98,16 @@ class TaskInstanceRecord extends FirestoreRecord {
       };
     }).toList();
   }
-
   bool hasTimeLogSessions() => _timeLogSessions != null;
-
   DateTime? _currentSessionStartTime;
   DateTime? get currentSessionStartTime => _currentSessionStartTime;
   bool hasCurrentSessionStartTime() => _currentSessionStartTime != null;
-
   bool? _isTimeLogging;
   bool get isTimeLogging => _isTimeLogging ?? false;
   bool hasIsTimeLogging() => _isTimeLogging != null;
-
   int? _totalTimeLogged; // Sum of all sessions in milliseconds
   int get totalTimeLogged => _totalTimeLogged ?? 0;
   bool hasTotalTimeLogged() => _totalTimeLogged != null;
-
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -170,47 +139,37 @@ class TaskInstanceRecord extends FirestoreRecord {
     _isTimeLogging = snapshotData['isTimeLogging'] as bool?;
     _totalTimeLogged = snapshotData['totalTimeLogged'] as int?;
   }
-
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('task_instances');
-
   static CollectionReference collectionForUser(String userId) =>
       FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
           .collection('task_instances');
-
   static Stream<TaskInstanceRecord> getDocument(DocumentReference ref) =>
       ref.snapshots().map((s) => TaskInstanceRecord.fromSnapshot(s));
-
   static Future<TaskInstanceRecord> getDocumentOnce(DocumentReference ref) =>
       ref.get().then((s) => TaskInstanceRecord.fromSnapshot(s));
-
   static TaskInstanceRecord fromSnapshot(DocumentSnapshot snapshot) =>
       TaskInstanceRecord._(
         snapshot.reference,
         mapFromFirestore(snapshot.data() as Map<String, dynamic>),
       );
-
   static TaskInstanceRecord getDocumentFromData(
     Map<String, dynamic> data,
     DocumentReference reference,
   ) =>
       TaskInstanceRecord._(reference, mapFromFirestore(data));
-
   @override
   String toString() =>
       'TaskInstanceRecord(reference: ${reference.path}, data: $snapshotData)';
-
   @override
   int get hashCode => reference.path.hashCode;
-
   @override
   bool operator ==(other) =>
       other is TaskInstanceRecord &&
       reference.path.hashCode == other.reference.path.hashCode;
 }
-
 Map<String, dynamic> createTaskInstanceRecordData({
   String? templateId,
   DateTime? dueDate,
@@ -271,17 +230,13 @@ Map<String, dynamic> createTaskInstanceRecordData({
       'totalTimeLogged': totalTimeLogged,
     }.withoutNulls,
   );
-
   return firestoreData;
 }
-
 class TaskInstanceRecordDocumentEquality
     implements Equality<TaskInstanceRecord> {
   const TaskInstanceRecordDocumentEquality();
-
   @override
   bool isValidKey(Object? o) => o is TaskInstanceRecord;
-
   @override
   bool equals(TaskInstanceRecord? e1, TaskInstanceRecord? e2) {
     return e1?.templateId == e2?.templateId &&
@@ -312,7 +267,6 @@ class TaskInstanceRecordDocumentEquality
         e1?.isTimeLogging == e2?.isTimeLogging &&
         e1?.totalTimeLogged == e2?.totalTimeLogged;
   }
-
   @override
   int hash(TaskInstanceRecord? e) => const ListEquality().hash([
         e?.templateId,

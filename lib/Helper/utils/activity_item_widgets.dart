@@ -6,14 +6,12 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Edit Task/edit_task.dart';
 import 'package:habit_tracker/Screens/CreateHabit/create_habit.dart';
 import 'package:intl/intl.dart';
-
 class ActivityControls extends StatefulWidget {
   final ActivityRecord activity;
   final Function(ActivityRecord) onActivityUpdated;
   final Color impactLevelColor;
   final bool isTimerActive;
   final num currentProgress;
-
   const ActivityControls({
     Key? key,
     required this.activity,
@@ -22,14 +20,11 @@ class ActivityControls extends StatefulWidget {
     required this.isTimerActive,
     required this.currentProgress,
   }) : super(key: key);
-
   @override
   _ActivityControlsState createState() => _ActivityControlsState();
 }
-
 class _ActivityControlsState extends State<ActivityControls> {
   bool _isUpdating = false;
-
   Future<void> _showQuantControlsMenu(
       BuildContext anchorContext, bool canDecrement) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
@@ -81,7 +76,6 @@ class _ActivityControlsState extends State<ActivityControls> {
       await _updateProgress(-1);
     }
   }
-
   Future<void> _updateProgress(int delta) async {
     if (_isUpdating) return;
     setState(() => _isUpdating = true);
@@ -94,7 +88,6 @@ class _ActivityControlsState extends State<ActivityControls> {
       if (mounted) setState(() => _isUpdating = false);
     }
   }
-
   @override
   Widget build(BuildContext context) {
     switch (widget.activity.trackingType) {
@@ -108,7 +101,6 @@ class _ActivityControlsState extends State<ActivityControls> {
         return const SizedBox.shrink();
     }
   }
-
   Widget _buildBinaryControl(BuildContext context) {
     return SizedBox(
       width: 24,
@@ -133,7 +125,6 @@ class _ActivityControlsState extends State<ActivityControls> {
       ),
     );
   }
-
   Widget _buildQuantitativeControl(BuildContext context) {
     final canDecrement = widget.currentProgress > 0;
     return Builder(
@@ -162,7 +153,6 @@ class _ActivityControlsState extends State<ActivityControls> {
       ),
     );
   }
-
   Widget _buildTimeControl(BuildContext context) {
     return Container(
       width: 24,
@@ -198,7 +188,6 @@ class _ActivityControlsState extends State<ActivityControls> {
     );
   }
 }
-
 class ActivityOverflowMenu extends StatelessWidget {
   final ActivityRecord activity;
   final bool showTaskEdit;
@@ -207,7 +196,6 @@ class ActivityOverflowMenu extends StatelessWidget {
   final VoidCallback? onRefresh;
   final Function(ActivityRecord)? onHabitUpdated;
   final Function(ActivityRecord)? onHabitDeleted;
-
   const ActivityOverflowMenu({
     Key? key,
     required this.activity,
@@ -218,7 +206,6 @@ class ActivityOverflowMenu extends StatelessWidget {
     this.onHabitUpdated,
     this.onHabitDeleted,
   }) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     return Builder(
@@ -230,7 +217,6 @@ class ActivityOverflowMenu extends StatelessWidget {
       ),
     );
   }
-
   Future<void> _showHabitOverflowMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
@@ -274,7 +260,6 @@ class ActivityOverflowMenu extends StatelessWidget {
       _deleteHabit(anchorContext);
     }
   }
-
   void _editHabit(BuildContext context) {
     if (showTaskEdit) {
       showDialog(
@@ -311,7 +296,6 @@ class ActivityOverflowMenu extends StatelessWidget {
       });
     }
   }
-
   Future<void> _copyHabit(BuildContext context) async {
     try {
       await ActivityService.copyActivity(activity);
@@ -325,7 +309,6 @@ class ActivityOverflowMenu extends StatelessWidget {
       );
     }
   }
-
   Future<void> _deleteHabit(BuildContext context) async {
     final shouldDelete = await showDialog<bool>(
       context: context,
@@ -363,17 +346,14 @@ class ActivityOverflowMenu extends StatelessWidget {
     }
   }
 }
-
 class ActivityScheduleMenu extends StatelessWidget {
   final ActivityRecord activity;
   final Function(ActivityRecord) onActivityUpdated;
-
   const ActivityScheduleMenu({
     Key? key,
     required this.activity,
     required this.onActivityUpdated,
   }) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     return Builder(
@@ -385,18 +365,15 @@ class ActivityScheduleMenu extends StatelessWidget {
       ),
     );
   }
-
   bool _isRecurringItem() {
     return activity.isRecurring;
   }
-
   Future<void> _showScheduleMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
-
     List<PopupMenuEntry<String>> items;
     if (_isRecurringItem()) {
       items = const [
@@ -432,7 +409,6 @@ class ActivityScheduleMenu extends StatelessWidget {
             child: Text('Pick a Date...', style: TextStyle(fontSize: 12))),
       ];
     }
-
     final selected = await showMenu<String>(
       context: anchorContext,
       position: RelativeRect.fromLTRB(
@@ -448,7 +424,6 @@ class ActivityScheduleMenu extends StatelessWidget {
       items: items,
     );
     if (selected == null) return;
-
     switch (selected) {
       case 'schedule_today':
         _scheduleForToday(anchorContext);
@@ -470,20 +445,16 @@ class ActivityScheduleMenu extends StatelessWidget {
         break;
     }
   }
-
   DateTime _todayDate() {
     final now = DateTime.now();
     return DateTime(now.year, now.month, now.day);
   }
-
   DateTime _tomorrowDate() => _todayDate().add(const Duration(days: 1));
-
   Future<void> _updateDueDate(BuildContext context, DateTime newDate) async {
     try {
       await ActivityService.updateDueDate(activity.reference, newDate);
       final updated = await ActivityRecord.getDocumentOnce(activity.reference);
       onActivityUpdated(updated);
-
       final label = DateFormat('EEE, MMM d').format(newDate);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Due date set to $label')),
@@ -494,15 +465,12 @@ class ActivityScheduleMenu extends StatelessWidget {
       );
     }
   }
-
   void _scheduleForToday(BuildContext context) {
     _updateDueDate(context, _todayDate());
   }
-
   void _scheduleForTomorrow(BuildContext context) {
     _updateDueDate(context, _tomorrowDate());
   }
-
   void _pickDueDate(BuildContext context) async {
     final picked = await showDatePicker(
       context: context,
@@ -514,17 +482,14 @@ class ActivityScheduleMenu extends StatelessWidget {
       _updateDueDate(context, picked);
     }
   }
-
   void _skipOccurrence(BuildContext context) {
     ActivityService.skipOccurrence(activity);
   }
-
   void _rescheduleOccurrence(BuildContext context) {
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('Rescheduling not implemented yet.')),
     );
   }
-
   void _skipUntil(BuildContext context) async {
     final picked = await showDatePicker(
       context: context,
@@ -538,7 +503,6 @@ class ActivityScheduleMenu extends StatelessWidget {
         final updated =
             await ActivityRecord.getDocumentOnce(activity.reference);
         onActivityUpdated(updated);
-
         final label = DateFormat('EEE, MMM d').format(picked);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Skipped until $label')),

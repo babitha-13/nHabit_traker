@@ -1,5 +1,4 @@
 import 'dart:async';
-
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
@@ -12,56 +11,44 @@ class ActivityInstanceRecord extends FirestoreRecord {
   ) {
     _initializeFields();
   }
-
   // Reference to the template activity
   String? _templateId;
   String get templateId => _templateId ?? '';
   bool hasTemplateId() => _templateId != null;
-
   // Instance-specific fields
   DateTime? _dueDate;
   DateTime? get dueDate => _dueDate;
   bool hasDueDate() => _dueDate != null;
-
   // Instance-specific due time (stored as "HH:mm" in 24-hour format)
   String? _dueTime;
   String? get dueTime => _dueTime;
   bool hasDueTime() => _dueTime != null;
-
   String? _status; // 'pending', 'completed', 'skipped'
   String get status => _status ?? 'pending';
   bool hasStatus() => _status != null;
-
   DateTime? _completedAt;
   DateTime? get completedAt => _completedAt;
   bool hasCompletedAt() => _completedAt != null;
-
   DateTime? _skippedAt;
   DateTime? get skippedAt => _skippedAt;
   bool hasSkippedAt() => _skippedAt != null;
-
   // Progress tracking for quantity/duration activities
   dynamic _currentValue;
   dynamic get currentValue => _currentValue;
   bool hasCurrentValue() => _currentValue != null;
-
   // Differential progress tracking for windowed habits
   dynamic _lastDayValue;
   dynamic get lastDayValue => _lastDayValue;
   bool hasLastDayValue() => _lastDayValue != null;
-
   int? _accumulatedTime; // For duration tracking (milliseconds)
   int get accumulatedTime => _accumulatedTime ?? 0;
   bool hasAccumulatedTime() => _accumulatedTime != null;
-
   bool? _isTimerActive;
   bool get isTimerActive => _isTimerActive ?? false;
   bool hasIsTimerActive() => _isTimerActive != null;
-
   DateTime? _timerStartTime;
   DateTime? get timerStartTime => _timerStartTime;
   bool hasTimerStartTime() => _timerStartTime != null;
-
   // Time logging fields - NEW
   List<dynamic>? _timeLogSessions;
   List<Map<String, dynamic>> get timeLogSessions {
@@ -76,147 +63,116 @@ class ActivityInstanceRecord extends FirestoreRecord {
   }
 
   bool hasTimeLogSessions() => _timeLogSessions != null;
-
   DateTime? _currentSessionStartTime;
   DateTime? get currentSessionStartTime => _currentSessionStartTime;
   bool hasCurrentSessionStartTime() => _currentSessionStartTime != null;
-
   bool? _isTimeLogging;
   bool get isTimeLogging => _isTimeLogging ?? false;
   bool hasIsTimeLogging() => _isTimeLogging != null;
-
   int? _totalTimeLogged; // Sum of all sessions in milliseconds
   int get totalTimeLogged => _totalTimeLogged ?? 0;
   bool hasTotalTimeLogged() => _totalTimeLogged != null;
-
   // Metadata
   DateTime? _createdTime;
   DateTime? get createdTime => _createdTime;
   bool hasCreatedTime() => _createdTime != null;
-
   DateTime? _lastUpdated;
   DateTime? get lastUpdated => _lastUpdated;
   bool hasLastUpdated() => _lastUpdated != null;
-
   bool? _isActive;
   bool get isActive => _isActive ?? true;
   bool hasIsActive() => _isActive != null;
-
   // User notes for this specific instance
   String? _notes;
   String get notes => _notes ?? '';
   bool hasNotes() => _notes != null;
-
   // Template data cached for quick access (denormalized)
   String? _templateName;
   String get templateName => _templateName ?? '';
   bool hasTemplateName() => _templateName != null;
-
   String? _templateCategoryId;
   String get templateCategoryId => _templateCategoryId ?? '';
   bool hasTemplateCategoryId() => _templateCategoryId != null;
-
   String? _templateCategoryName;
   String get templateCategoryName => _templateCategoryName ?? '';
   bool hasTemplateCategoryName() => _templateCategoryName != null;
-
   String? _templateCategoryType;
   String get templateCategoryType => _templateCategoryType ?? 'habit';
   bool hasTemplateCategoryType() => _templateCategoryType != null;
-
+  String? _templateCategoryColor;
+  String get templateCategoryColor => _templateCategoryColor ?? '';
+  bool hasTemplateCategoryColor() => _templateCategoryColor != null;
   int? _templatePriority;
   int get templatePriority => _templatePriority ?? 1;
   bool hasTemplatePriority() => _templatePriority != null;
-
   String? _templateTrackingType;
   String get templateTrackingType => _templateTrackingType ?? 'binary';
   bool hasTemplateTrackingType() => _templateTrackingType != null;
-
   dynamic _templateTarget;
   dynamic get templateTarget => _templateTarget;
   bool hasTemplateTarget() => _templateTarget != null;
-
   String? _templateUnit;
   String get templateUnit => _templateUnit ?? '';
   bool hasTemplateUnit() => _templateUnit != null;
-
   String? _templateDescription;
   String get templateDescription => _templateDescription ?? '';
   bool hasTemplateDescription() => _templateDescription != null;
-
   // Template due time (denormalized from template)
   String? _templateDueTime;
   String? get templateDueTime => _templateDueTime;
   bool hasTemplateDueTime() => _templateDueTime != null;
-
   bool? _templateShowInFloatingTimer;
   bool get templateShowInFloatingTimer => _templateShowInFloatingTimer ?? false;
   bool hasTemplateShowInFloatingTimer() => _templateShowInFloatingTimer != null;
-
   // Template recurring flag (cached from template)
   bool? _templateIsRecurring;
   bool get templateIsRecurring => _templateIsRecurring ?? true;
   bool hasTemplateIsRecurring() => _templateIsRecurring != null;
-
   // Template frequency fields (cached from template)
   int? _templateEveryXValue;
   int get templateEveryXValue => _templateEveryXValue ?? 1;
   bool hasTemplateEveryXValue() => _templateEveryXValue != null;
-
   String? _templateEveryXPeriodType;
   String get templateEveryXPeriodType => _templateEveryXPeriodType ?? '';
   bool hasTemplateEveryXPeriodType() => _templateEveryXPeriodType != null;
-
   int? _templateTimesPerPeriod;
   int get templateTimesPerPeriod => _templateTimesPerPeriod ?? 1;
   bool hasTemplateTimesPerPeriod() => _templateTimesPerPeriod != null;
-
   String? _templatePeriodType;
   String get templatePeriodType => _templatePeriodType ?? '';
   bool hasTemplatePeriodType() => _templatePeriodType != null;
-
   // Habit-specific day state tracking
-
   String? _dayState; // 'open', 'closed' (habits only)
   String get dayState => _dayState ?? 'open';
   bool hasDayState() => _dayState != null;
-
   // Supporting fields for habits
   DateTime? _belongsToDate; // Normalized date this counts for (habits only)
   DateTime? get belongsToDate => _belongsToDate;
   bool hasBelongsToDate() => _belongsToDate != null;
-
   DateTime? _closedAt; // When dayState changed to 'closed'
   DateTime? get closedAt => _closedAt;
   bool hasClosedAt() => _closedAt != null;
-
   // Window fields for habit completion windows
   DateTime? _windowEndDate; // End of completion window
   DateTime? get windowEndDate => _windowEndDate;
   bool hasWindowEndDate() => _windowEndDate != null;
-
   int? _windowDuration; // Duration in days (cached from template)
   int get windowDuration => _windowDuration ?? 1;
   bool hasWindowDuration() => _windowDuration != null;
-
   // Snooze fields for temporarily hiding from queue
   DateTime? _snoozedUntil; // When snooze expires
   DateTime? get snoozedUntil => _snoozedUntil;
   bool hasSnoozedUntil() => _snoozedUntil != null;
-
   // Order fields for drag-to-reorder functionality (per page)
   int? _queueOrder; // Order position in Queue page
   int get queueOrder => _queueOrder ?? 0;
   bool hasQueueOrder() => _queueOrder != null;
-
   int? _habitsOrder; // Order position in Habits page
   int get habitsOrder => _habitsOrder ?? 0;
   bool hasHabitsOrder() => _habitsOrder != null;
-
   int? _tasksOrder; // Order position in Tasks page
   int get tasksOrder => _tasksOrder ?? 0;
   bool hasTasksOrder() => _tasksOrder != null;
-
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -242,6 +198,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _templateCategoryId = snapshotData['templateCategoryId'] as String?;
     _templateCategoryName = snapshotData['templateCategoryName'] as String?;
     _templateCategoryType = snapshotData['templateCategoryType'] as String?;
+    _templateCategoryColor = snapshotData['templateCategoryColor'] as String?;
     _templatePriority = snapshotData['templatePriority'] as int?;
     _templateTrackingType = snapshotData['templateTrackingType'] as String?;
     _templateTarget = snapshotData['templateTarget'];
@@ -269,20 +226,16 @@ class ActivityInstanceRecord extends FirestoreRecord {
 
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('activity_instances');
-
   static CollectionReference collectionForUser(String userId) =>
       FirebaseFirestore.instance
           .collection('users')
           .doc(userId)
           .collection('activity_instances');
-
   static Stream<ActivityInstanceRecord> getDocument(DocumentReference ref) =>
       ref.snapshots().map((s) => ActivityInstanceRecord.fromSnapshot(s));
-
   static Future<ActivityInstanceRecord> getDocumentOnce(
           DocumentReference ref) =>
       ref.get().then((s) => ActivityInstanceRecord.fromSnapshot(s));
-
   static ActivityInstanceRecord fromSnapshot(DocumentSnapshot snapshot) {
     final snapshotData = snapshot.data() as Map<String, dynamic>;
     try {
@@ -291,7 +244,6 @@ class ActivityInstanceRecord extends FirestoreRecord {
         mapFromFirestore(snapshotData),
       );
     } catch (e) {
-      print('Error creating ActivityInstanceRecord from snapshot: $e');
       rethrow;
     }
   }
@@ -301,14 +253,11 @@ class ActivityInstanceRecord extends FirestoreRecord {
     DocumentReference reference,
   ) =>
       ActivityInstanceRecord._(reference, mapFromFirestore(data));
-
   @override
   String toString() =>
       'ActivityInstanceRecord(reference: ${reference.path}, data: $snapshotData)';
-
   @override
   int get hashCode => reference.path.hashCode;
-
   @override
   bool operator ==(other) =>
       other is ActivityInstanceRecord &&
@@ -335,6 +284,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateCategoryId,
   String? templateCategoryName,
   String? templateCategoryType,
+  String? templateCategoryColor,
   int? templatePriority,
   String? templateTrackingType,
   dynamic templateTarget,
@@ -381,6 +331,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateCategoryId': templateCategoryId,
       'templateCategoryName': templateCategoryName,
       'templateCategoryType': templateCategoryType,
+      'templateCategoryColor': templateCategoryColor,
       'templatePriority': templatePriority,
       'templateTrackingType': templateTrackingType,
       'templateTarget': templateTarget,
@@ -407,17 +358,14 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'totalTimeLogged': totalTimeLogged,
     }.withoutNulls,
   );
-
   return firestoreData;
 }
 
 class ActivityInstanceRecordDocumentEquality
     implements Equality<ActivityInstanceRecord> {
   const ActivityInstanceRecordDocumentEquality();
-
   @override
   bool isValidKey(Object? o) => o is ActivityInstanceRecord;
-
   @override
   bool equals(ActivityInstanceRecord? e1, ActivityInstanceRecord? e2) {
     return e1?.templateId == e2?.templateId &&

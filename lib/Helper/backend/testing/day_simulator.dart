@@ -21,8 +21,6 @@ class DaySimulator {
   static void startSimulation({DateTime? startDate}) {
     _simulatedDate = startDate ?? DateTime.now();
     _isSimulationMode = true;
-    print(
-        'DaySimulator: Started simulation mode at ${_simulatedDate.toIso8601String()}');
   }
 
   /// Stop simulation mode and return to real time
@@ -30,7 +28,6 @@ class DaySimulator {
     _isSimulationMode = false;
     _simulationTimer?.cancel();
     _simulationTimer = null;
-    print('DaySimulator: Stopped simulation mode');
   }
 
   /// Fast forward to the next day and trigger day-end processing
@@ -38,25 +35,18 @@ class DaySimulator {
     if (!_isSimulationMode) {
       throw Exception('Not in simulation mode. Call startSimulation() first.');
     }
-
     final currentUser = currentUserUid;
     if (currentUser.isEmpty) {
       throw Exception('No authenticated user');
     }
-
-    print(
-        'DaySimulator: Advancing from ${_simulatedDate.toIso8601String()} to next day...');
 
     // Process day-end for current simulated date
     await DayEndProcessor.processDayEnd(
       userId: currentUser,
       targetDate: _simulatedDate,
     );
-
     // Advance to next day
     _simulatedDate = _simulatedDate.add(const Duration(days: 1));
-    print('DaySimulator: Now at ${_simulatedDate.toIso8601String()}');
-
     // Generate new instances for the new day
     await _generateNewInstancesForDay(currentUser, _simulatedDate);
   }
@@ -74,9 +64,6 @@ class DaySimulator {
     required DateTime date,
     List<DaySimulationScenario> scenarios = const [],
   }) async {
-    print(
-        'DaySimulator: Simulating day ${date.toIso8601String()} with ${scenarios.length} scenarios');
-
     // Get all habit instances for this day
     final habitInstances =
         await ActivityInstanceRecord.collectionForUser(userId)
@@ -87,15 +74,10 @@ class DaySimulator {
             .then((snapshot) => snapshot.docs
                 .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
                 .toList());
-
-    print(
-        'DaySimulator: Found ${habitInstances.length} habit instances for simulation');
-
     // Apply scenarios
     for (final scenario in scenarios) {
       await _applyScenario(habitInstances, scenario);
     }
-
     // Process day-end
     await DayEndProcessor.processDayEnd(userId: userId, targetDate: date);
   }
@@ -118,7 +100,6 @@ class DaySimulator {
     DaySimulationScenario scenario,
   ) async {
     final updates = <String, dynamic>{};
-
     switch (scenario.type) {
       case ScenarioType.complete:
         updates['status'] = 'completed';
@@ -138,12 +119,9 @@ class DaySimulator {
         // Keep as is
         break;
     }
-
     if (updates.isNotEmpty) {
       updates['lastUpdated'] = DateTime.now();
       await instance.reference.update(updates);
-      print(
-          'DaySimulator: Applied ${scenario.type} to ${instance.templateName}');
     }
   }
 
@@ -152,8 +130,6 @@ class DaySimulator {
       String userId, DateTime date) async {
     // This would typically be handled by your instance generation service
     // For now, we'll just log that it should happen
-    print(
-        'DaySimulator: Should generate new instances for ${date.toIso8601String()}');
   }
 
   /// Get simulation status
@@ -171,7 +147,6 @@ class DaySimulator {
     _isSimulationMode = false;
     _simulationTimer?.cancel();
     _simulationTimer = null;
-    print('DaySimulator: Reset to real time');
   }
 }
 
@@ -182,7 +157,6 @@ class DaySimulationScenario {
   final String? habitNameFilter; // Apply only to habits with this name
   final String? categoryFilter; // Apply only to habits in this category
   final int? maxInstances; // Apply to max N instances
-
   const DaySimulationScenario({
     required this.type,
     this.partialPercentage = 0.5,
@@ -256,60 +230,48 @@ class DaySimulatorTesting {
     DateTime? startDate,
   }) async {
     final start = startDate ?? DateTime.now().subtract(const Duration(days: 7));
-
-    print(
-        'DaySimulatorTesting: Starting week simulation from ${start.toIso8601String()}');
-
     // Day 1: Perfect day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start,
       scenarios: SimulationScenarios.perfectDay,
     );
-
     // Day 2: Good day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start.add(const Duration(days: 1)),
       scenarios: SimulationScenarios.goodDay,
     );
-
     // Day 3: Mixed day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start.add(const Duration(days: 2)),
       scenarios: SimulationScenarios.mixedDay,
     );
-
     // Day 4: Bad day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start.add(const Duration(days: 3)),
       scenarios: SimulationScenarios.badDay,
     );
-
     // Day 5: Lazy day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start.add(const Duration(days: 4)),
       scenarios: SimulationScenarios.lazyDay,
     );
-
     // Day 6: Good day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start.add(const Duration(days: 5)),
       scenarios: SimulationScenarios.goodDay,
     );
-
     // Day 7: Perfect day
     await DaySimulator.simulateDay(
       userId: userId,
       date: start.add(const Duration(days: 6)),
       scenarios: SimulationScenarios.perfectDay,
     );
-
-    print('DaySimulatorTesting: Week simulation completed');
   }
 
   /// Test day-end processing with various scenarios
@@ -318,35 +280,24 @@ class DaySimulatorTesting {
     DateTime? testDate,
   }) async {
     final date = testDate ?? DateTime.now().subtract(const Duration(days: 1));
-
-    print(
-        'DaySimulatorTesting: Testing day-end scenarios for ${date.toIso8601String()}');
-
     // Test 1: Perfect completion
-    print('Test 1: Perfect completion');
     await DaySimulator.simulateDay(
       userId: userId,
       date: date,
       scenarios: SimulationScenarios.perfectDay,
     );
-
     // Test 2: Partial completion
-    print('Test 2: Partial completion');
     await DaySimulator.simulateDay(
       userId: userId,
       date: date.add(const Duration(days: 1)),
       scenarios: SimulationScenarios.mixedDay,
     );
-
     // Test 3: All skipped
-    print('Test 3: All skipped');
     await DaySimulator.simulateDay(
       userId: userId,
       date: date.add(const Duration(days: 2)),
       scenarios: SimulationScenarios.lazyDay,
     );
-
-    print('DaySimulatorTesting: Day-end scenario testing completed');
   }
 
   /// Get progress data for analysis
@@ -363,11 +314,9 @@ class DaySimulatorTesting {
         .then((snapshot) => snapshot.docs
             .map((doc) => DailyProgressRecord.fromSnapshot(doc))
             .toList());
-
     if (progressRecords.isEmpty) {
       return {'error': 'No progress data found'};
     }
-
     final totalDays = progressRecords.length;
     final totalTarget =
         progressRecords.fold(0.0, (sum, record) => sum + record.targetPoints);
@@ -376,14 +325,12 @@ class DaySimulatorTesting {
     final averagePercentage = progressRecords.fold(
             0.0, (sum, record) => sum + record.completionPercentage) /
         totalDays;
-
     final perfectDays =
         progressRecords.where((r) => r.completionPercentage >= 100).length;
     final goodDays =
         progressRecords.where((r) => r.completionPercentage >= 70).length;
     final badDays =
         progressRecords.where((r) => r.completionPercentage < 50).length;
-
     return {
       'totalDays': totalDays,
       'totalTarget': totalTarget,

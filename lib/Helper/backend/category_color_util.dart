@@ -1,17 +1,19 @@
 class CategoryColorUtil {
-  // Enhanced palette with more variety - darker, distinct colors
+  // Sophisticated vibrant palette for habit categories - distinct and professional
   static const List<String> palette = <String>[
-    '#8B4513', // Saddle Brown (dark brown)
-    '#035929', // Dark Green
-    '#0c4b80', // Dark Blue
-    '#8B0000', // Dark Red (maroon)
-    '#4B0082', // Indigo (dark purple)
-    '#6f2e00', // Dark Brown
-    '#2F4F4F', // Dark Slate Gray (charcoal)
-    '#590059', // Dark Magenta (purple)
-    '#6f5922', // Dark grey Brown
+    '#C57B57', // Copper (your accent - keep this)
+    '#2E7D32', // Forest Green
+    '#1976D2', // Material Blue
+    '#7B1FA2', // Deep Purple
+    '#D32F2F', // Deep Red
+    '#F57C00', // Dark Orange
+    '#5D4037', // Brown
+    '#455A64', // Blue Grey
+    '#6A1B9A', // Purple
+    '#E65100', // Deep Orange
+    '#1B5E20', // Dark Green
+    '#BF360C', // Deep Red Orange
   ];
-
   // Deterministic mapping from category name to a color in the palette
   static String hexForName(String name) {
     if (name.trim().isEmpty) {

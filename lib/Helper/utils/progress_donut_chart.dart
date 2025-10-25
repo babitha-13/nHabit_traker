@@ -1,13 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 /// Custom donut chart widget for displaying daily progress
 class ProgressDonutChart extends StatelessWidget {
   final double percentage;
   final double totalTarget;
   final double pointsEarned;
   final double size;
-
   const ProgressDonutChart({
     Key? key,
     required this.percentage,
@@ -15,15 +13,10 @@ class ProgressDonutChart extends StatelessWidget {
     required this.pointsEarned,
     this.size = 120.0,
   }) : super(key: key);
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     // Debug logging
-    print(
-        'ProgressDonutChart: Building with percentage=$percentage, target=$totalTarget, earned=$pointsEarned');
-
     return Container(
       width: size,
       height: size,
@@ -48,7 +41,6 @@ class ProgressDonutChart extends StatelessWidget {
       ),
     );
   }
-
   /// Get progress color based on percentage
   Color _getProgressColor(double percentage) {
     if (percentage < 30) {
@@ -60,7 +52,6 @@ class ProgressDonutChart extends StatelessWidget {
     }
   }
 }
-
 /// Custom painter for the donut chart
 class DonutChartPainter extends CustomPainter {
   final double percentage;
@@ -68,7 +59,6 @@ class DonutChartPainter extends CustomPainter {
   final double pointsEarned;
   final Color backgroundColor;
   final Color progressColor;
-
   DonutChartPainter({
     required this.percentage,
     required this.totalTarget,
@@ -76,22 +66,18 @@ class DonutChartPainter extends CustomPainter {
     required this.backgroundColor,
     required this.progressColor,
   });
-
   @override
   void paint(Canvas canvas, Size size) {
     final center = Offset(size.width / 2, size.height / 2);
     final radius = (size.width - 20) / 2; // 20px padding
     final strokeWidth = 12.0;
-
     // Draw background circle
     final backgroundPaint = Paint()
       ..color = backgroundColor
       ..style = PaintingStyle.stroke
       ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
-
     canvas.drawCircle(center, radius, backgroundPaint);
-
     // Draw progress arc
     if (percentage > 0) {
       final progressPaint = Paint()
@@ -99,10 +85,8 @@ class DonutChartPainter extends CustomPainter {
         ..style = PaintingStyle.stroke
         ..strokeWidth = strokeWidth
         ..strokeCap = StrokeCap.round;
-
       final sweepAngle = (percentage / 100) * 2 * 3.14159; // Convert to radians
       const startAngle = -3.14159 / 2; // Start from top (-90 degrees)
-
       canvas.drawArc(
         Rect.fromCircle(center: center, radius: radius),
         startAngle,
@@ -112,7 +96,6 @@ class DonutChartPainter extends CustomPainter {
       );
     }
   }
-
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) {
     if (oldDelegate is DonutChartPainter) {

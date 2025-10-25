@@ -14,14 +14,11 @@ import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:collection/collection.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
-
 class WeeklyView extends StatefulWidget {
   const WeeklyView({super.key});
-
   @override
   State<WeeklyView> createState() => _WeeklyViewState();
 }
-
 class _WeeklyViewState extends State<WeeklyView> {
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _instances = [];
@@ -29,13 +26,11 @@ class _WeeklyViewState extends State<WeeklyView> {
   String? _expandedSection;
   final Map<String, GlobalKey> _sectionKeys = {};
   bool _isLoading = true;
-
   // Weekly progress data
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _habits = [];
   DateTime? _weekStart;
   DateTime? _weekEnd;
-
   @override
   void initState() {
     super.initState();
@@ -48,15 +43,12 @@ class _WeeklyViewState extends State<WeeklyView> {
         });
       }
     });
-
     // Listen for category updates to refresh data
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
-        print('WeeklyView: Category updated, refreshing data...');
         _loadData();
       }
     });
-
     // Listen for instance events
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
@@ -77,14 +69,12 @@ class _WeeklyViewState extends State<WeeklyView> {
       }
     });
   }
-
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
   }
-
   Future<void> _loadExpansionState() async {
     final expandedSection =
         await ExpansionStateManager().getWeeklyExpandedSection();
@@ -94,7 +84,6 @@ class _WeeklyViewState extends State<WeeklyView> {
       });
     }
   }
-
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
@@ -104,16 +93,13 @@ class _WeeklyViewState extends State<WeeklyView> {
         final habitCategories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final allCategories = [...habitCategories, ...taskCategories];
-
         if (mounted) {
           setState(() {
             _instances = allInstances;
             _categories = allCategories;
           });
-
           // Calculate weekly progress and wait for it to complete
           await _calculateWeeklyProgress();
-
           if (mounted) {
             setState(() {
               _isLoading = false;
@@ -124,17 +110,12 @@ class _WeeklyViewState extends State<WeeklyView> {
         if (mounted) setState(() => _isLoading = false);
       }
     } catch (e) {
-      print('WeeklyView: Error loading data: $e');
       if (mounted) setState(() => _isLoading = false);
     }
   }
-
   Future<void> _calculateWeeklyProgress() async {
     print('WeeklyView: _calculateWeeklyProgress() called');
-    print('  - Total instances: ${_instances.length}');
-
     final weekStart = DateService.currentWeekStart;
-
     // Use the weekly progress calculator
     final progressData = await WeeklyProgressCalculator.calculateWeeklyProgress(
       userId: currentUserUid,
@@ -142,35 +123,25 @@ class _WeeklyViewState extends State<WeeklyView> {
       allInstances: _instances,
       categories: _categories,
     );
-
     if (mounted) {
       _tasks = List<Map<String, dynamic>>.from(progressData['tasks']);
       _habits = List<Map<String, dynamic>>.from(progressData['habits']);
       _weekStart = progressData['weekStart'] as DateTime;
       _weekEnd = progressData['weekEnd'] as DateTime;
-
-      print('WeeklyView: Weekly progress calculation:');
-      print('  - Tasks: ${_tasks.length}');
-      print('  - Habits: ${_habits.length}');
-      print('  - Week: ${_weekStart} to ${_weekEnd}');
     }
   }
-
   @override
   Widget build(BuildContext context) {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : _buildWeeklyView();
   }
-
   Widget _buildWeeklyView() {
     final theme = FlutterFlowTheme.of(context);
-
     // Show week range
     final weekRangeText = _weekStart != null && _weekEnd != null
         ? '${DateFormat.MMMd().format(_weekStart!)} - ${DateFormat.MMMd().format(_weekEnd!)}'
         : '';
-
     final slivers = <Widget>[
       // Week range header
       SliverToBoxAdapter(
@@ -199,7 +170,6 @@ class _WeeklyViewState extends State<WeeklyView> {
         ),
       ),
     ];
-
     // Add Tasks section
     if (_tasks.isNotEmpty) {
       slivers.add(_buildSectionHeader('Tasks', _tasks.length, 'Tasks'));
@@ -207,7 +177,6 @@ class _WeeklyViewState extends State<WeeklyView> {
         slivers.add(_buildTasksList());
       }
     }
-
     // Add Habits section
     if (_habits.isNotEmpty) {
       slivers.add(_buildSectionHeader('Habits', _habits.length, 'Habits'));
@@ -215,7 +184,6 @@ class _WeeklyViewState extends State<WeeklyView> {
         slivers.add(_buildHabitsList());
       }
     }
-
     // Show empty state if no items
     if (_tasks.isEmpty && _habits.isEmpty) {
       slivers.add(
@@ -247,7 +215,6 @@ class _WeeklyViewState extends State<WeeklyView> {
         ),
       );
     }
-
     return CustomScrollView(
       controller: _scrollController,
       slivers: [
@@ -258,16 +225,13 @@ class _WeeklyViewState extends State<WeeklyView> {
       ],
     );
   }
-
   Widget _buildSectionHeader(String title, int count, String sectionKey) {
     final expanded = _expandedSection == sectionKey;
     final theme = FlutterFlowTheme.of(context);
-
     // Get or create GlobalKey for this section
     if (!_sectionKeys.containsKey(sectionKey)) {
       _sectionKeys[sectionKey] = GlobalKey();
     }
-
     return SliverToBoxAdapter(
       child: Container(
         key: _sectionKeys[sectionKey],
@@ -315,7 +279,6 @@ class _WeeklyViewState extends State<WeeklyView> {
                   // Save state persistently
                   ExpansionStateManager()
                       .setWeeklyExpandedSection(_expandedSection);
-
                   // Scroll to make the newly expanded section visible
                   if (_expandedSection == sectionKey) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -342,7 +305,6 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
-
   Widget _buildTasksList() {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -357,11 +319,9 @@ class _WeeklyViewState extends State<WeeklyView> {
           final weeklyTarget = task['weeklyTarget'] as double;
           final weeklyCompletion = task['weeklyCompletion'] as double;
           final isRecurring = task['templateIsRecurring'] as bool;
-
           if (currentInstance == null) {
             return const SizedBox.shrink();
           }
-
           // Create display instance with converted tracking type
           final displayInstance = _createDisplayInstance(
             currentInstance,
@@ -370,10 +330,8 @@ class _WeeklyViewState extends State<WeeklyView> {
             weeklyTarget,
             weeklyCompletion,
           );
-
           // Create subtitle with category name and status information for weekly view
           String subtitle = currentInstance.templateCategoryName;
-
           // Handle one-off vs recurring tasks differently
           if (!isRecurring) {
             // For one-off tasks, show completion status clearly
@@ -426,13 +384,11 @@ class _WeeklyViewState extends State<WeeklyView> {
               subtitle +=
                   ' • Snoozed until ${DateFormat.MMMd().format(snoozedDate)}';
             }
-
             // Add next due date for recurring tasks
             if (nextDueSubtitle.isNotEmpty) {
               subtitle += ' • $nextDueSubtitle';
             }
           }
-
           return Container(
             decoration: isOverdue
                 ? BoxDecoration(
@@ -465,7 +421,6 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
-
   Widget _buildHabitsList() {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -477,11 +432,9 @@ class _WeeklyViewState extends State<WeeklyView> {
           final displayUnit = habit['displayUnit'] as String;
           final weeklyTarget = habit['weeklyTarget'] as double;
           final weeklyCompletion = habit['weeklyCompletion'] as double;
-
           if (currentInstance == null) {
             return const SizedBox.shrink();
           }
-
           // Create display instance with converted tracking type
           final displayInstance = _createDisplayInstance(
             currentInstance,
@@ -490,7 +443,6 @@ class _WeeklyViewState extends State<WeeklyView> {
             weeklyTarget,
             weeklyCompletion,
           );
-
           // Create subtitle with category name and status information for weekly view
           String enhancedSubtitle = currentInstance.templateCategoryName;
           final status = currentInstance.status;
@@ -517,7 +469,6 @@ class _WeeklyViewState extends State<WeeklyView> {
             enhancedSubtitle +=
                 ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}';
           }
-
           return ItemComponent(
             subtitle: enhancedSubtitle,
             key: Key('habit_${habit['templateId']}'),
@@ -538,13 +489,11 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
-
   String _getCategoryColor(ActivityInstanceRecord instance) {
     final category = _categories
         .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
     return category?.color ?? '#000000';
   }
-
   /// Create a display instance with converted tracking type for weekly view
   ActivityInstanceRecord _createDisplayInstance(
     ActivityInstanceRecord originalInstance,
@@ -566,30 +515,22 @@ class _WeeklyViewState extends State<WeeklyView> {
       originalInstance.reference,
     );
   }
-
   /// Update instance in local state and recalculate progress
   void _updateInstanceInLocalState(
       ActivityInstanceRecord updatedInstance) async {
-    print(
-        'WeeklyView: _updateInstanceInLocalState called for ${updatedInstance.templateName}');
-
     setState(() {
       final index = _instances.indexWhere(
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _instances[index] = updatedInstance;
-        print('  - Updated instance at index $index');
       } else {
-        print('  - Instance not found in local state!');
       }
     });
-
     // Recalculate weekly progress for instant updates
     print(
         'WeeklyView: Triggering _calculateWeeklyProgress() after instance update');
     _calculateWeeklyProgress();
   }
-
   /// Remove instance from local state and recalculate progress
   void _removeInstanceFromLocalState(
       ActivityInstanceRecord deletedInstance) async {
@@ -597,38 +538,31 @@ class _WeeklyViewState extends State<WeeklyView> {
       _instances.removeWhere(
           (inst) => inst.reference.id == deletedInstance.reference.id);
     });
-
     // Recalculate weekly progress for instant updates
     _calculateWeeklyProgress();
   }
-
   // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     setState(() {
       _instances.add(instance);
     });
-    print('WeeklyView: Added new instance ${instance.templateName}');
     _calculateWeeklyProgress();
   }
-
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
       if (index != -1) {
         _instances[index] = instance;
-        print('WeeklyView: Updated instance ${instance.templateName}');
       }
     });
     _calculateWeeklyProgress();
   }
-
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     setState(() {
       _instances
           .removeWhere((inst) => inst.reference.id == instance.reference.id);
     });
-    print('WeeklyView: Removed instance ${instance.templateName}');
     _calculateWeeklyProgress();
   }
 }
