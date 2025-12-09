@@ -12,6 +12,7 @@ import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_pg_model.dart';
 import 'package:habit_tracker/Helper/utils/gradient_button.dart';
 import 'package:habit_tracker/main.dart';
+
 class SignInCard extends StatefulWidget {
   final AuthenticationPgModel model;
   final FirebaseAuthManager authManager;
@@ -24,6 +25,7 @@ class SignInCard extends StatefulWidget {
   @override
   State<SignInCard> createState() => _SignInCardState();
 }
+
 class _SignInCardState extends State<SignInCard> {
   @override
   Widget build(BuildContext context) {
@@ -295,8 +297,7 @@ class _SignInCardState extends State<SignInCard> {
                 padding:
                     const EdgeInsetsDirectional.fromSTEB(0.0, 0.0, 0.0, 16.0),
                 child: FFButtonWidget(
-                  onPressed: () {
-                  },
+                  onPressed: () {},
                   text: 'Forgot Password',
                   options: FFButtonOptions(
                     width: 230.0,
@@ -383,13 +384,52 @@ class _SignInCardState extends State<SignInCard> {
                               0.0, 0.0, 0.0, 16.0),
                           child: FFButtonWidget(
                             onPressed: () async {
-                              Navigator.pushReplacementNamed(context, home);
-                              final user =
-                                  await authManager.signInWithGoogle(context);
-                              if (user == null) {
-                                return;
+                              // Show loading indicator
+                              showDialog(
+                                context: context,
+                                barrierDismissible: false,
+                                builder: (context) => const Center(
+                                  child: CircularProgressIndicator(),
+                                ),
+                              );
+
+                              try {
+                                final user =
+                                    await authManager.signInWithGoogle(context);
+
+                                // Close loading dialog
+                                if (mounted) Navigator.of(context).pop();
+
+                                if (user == null) {
+                                  // Show error message if authentication failed
+                                  if (mounted) {
+                                    ScaffoldMessenger.of(context).showSnackBar(
+                                      const SnackBar(
+                                        content: Text(
+                                            'Google sign-in failed. Please try again.'),
+                                        backgroundColor: Colors.red,
+                                      ),
+                                    );
+                                  }
+                                  return;
+                                }
+
+                                // Only navigate after successful authentication
+                                await _navigateToNextPage();
+                              } catch (e) {
+                                // Close loading dialog if still open
+                                if (mounted) Navigator.of(context).pop();
+
+                                // Show error message
+                                if (mounted) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text('Error: ${e.toString()}'),
+                                      backgroundColor: Colors.red,
+                                    ),
+                                  );
+                                }
                               }
-                              await _navigateToNextPage();
                             },
                             text: 'Continue with Google',
                             icon: const FaIcon(
@@ -438,14 +478,55 @@ class _SignInCardState extends State<SignInCard> {
                                     0.0, 0.0, 0.0, 16.0),
                                 child: FFButtonWidget(
                                   onPressed: () async {
-                                    Navigator.pushReplacementNamed(
-                                        context, home);
-                                    final user = await authManager
-                                        .signInWithApple(context);
-                                    if (user == null) {
-                                      return;
+                                    // Show loading indicator
+                                    showDialog(
+                                      context: context,
+                                      barrierDismissible: false,
+                                      builder: (context) => const Center(
+                                        child: CircularProgressIndicator(),
+                                      ),
+                                    );
+
+                                    try {
+                                      final user = await authManager
+                                          .signInWithApple(context);
+
+                                      // Close loading dialog
+                                      if (mounted) Navigator.of(context).pop();
+
+                                      if (user == null) {
+                                        // Show error message if authentication failed
+                                        if (mounted) {
+                                          ScaffoldMessenger.of(context)
+                                              .showSnackBar(
+                                            const SnackBar(
+                                              content: Text(
+                                                  'Apple sign-in failed. Please try again.'),
+                                              backgroundColor: Colors.red,
+                                            ),
+                                          );
+                                        }
+                                        return;
+                                      }
+
+                                      // Only navigate after successful authentication
+                                      await _navigateToNextPage();
+                                    } catch (e) {
+                                      // Close loading dialog if still open
+                                      if (mounted) Navigator.of(context).pop();
+
+                                      // Show error message
+                                      if (mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          SnackBar(
+                                            content:
+                                                Text('Error: ${e.toString()}'),
+                                            backgroundColor: Colors.red,
+                                          ),
+                                        );
+                                      }
                                     }
-                                    await _navigateToNextPage();
                                   },
                                   text: 'Continue with Apple',
                                   icon: const FaIcon(
@@ -505,6 +586,7 @@ class _SignInCardState extends State<SignInCard> {
       ),
     );
   }
+
   Future<void> _navigateToNextPage() async {
     Navigator.pushReplacementNamed(context, home);
   }

@@ -56,7 +56,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        // Load all activities including sequence items
+        // Load all activities including non-productive items
         final activities = await queryActivitiesRecordOnce(
           userId: userId,
           includeSequenceItems: true,
@@ -132,7 +132,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Sequence Item'),
+        title: const Text('Delete Non-Productive Item'),
         content: Text(
           'Are you sure you want to permanently delete "${activity.name}"?\n\nThis action cannot be undone.',
         ),
@@ -178,7 +178,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content:
-                Text('Sequence item "${activity.name}" deleted successfully'),
+                Text('Non-productive item "${activity.name}" deleted successfully'),
             backgroundColor: Colors.green,
           ),
         );
@@ -187,7 +187,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting sequence item: $e'),
+            content: Text('Error deleting non-productive item: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -243,7 +243,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           userId: currentUserUid,
         );
         if (mounted) {
-          // Create instances for newly created sequence items first
+          // Create instances for newly created non-productive items first
           await _createInstancesForNewItems();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -266,7 +266,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           userId: currentUserUid,
         );
         if (mounted) {
-          // Create instances for newly created sequence items first
+          // Create instances for newly created non-productive items first
           await _createInstancesForNewItems();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -319,7 +319,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       case 'task':
         return 'Task';
       case 'sequence_item':
-        return 'Sequence Item';
+      case 'non_productive':
+        return 'Non-Productive'; // sequence_item is legacy, now non_productive
       default:
         return 'Unknown';
     }
@@ -332,7 +333,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       case 'task':
         return Colors.blue;
       case 'sequence_item':
-        return Colors.orange;
+      case 'non_productive':
+        return Colors.grey.shade600; // Muted color for non-productive
       default:
         return Colors.grey;
     }
@@ -431,7 +433,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                 controller: _searchController,
                                 decoration: const InputDecoration(
                                   hintText:
-                                      'Search habits, tasks, or sequence items...',
+                                      'Search habits, tasks, or non-productive items...',
                                   border: OutlineInputBorder(),
                                   prefixIcon: Icon(Icons.search),
                                 ),
@@ -491,7 +493,9 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                 margin: const EdgeInsets.only(bottom: 8),
                                 child: GestureDetector(
                                   onLongPress: activity.categoryType ==
-                                          'sequence_item'
+                                              'sequence_item' ||
+                                          activity.categoryType ==
+                                              'non_productive'
                                       ? () => _showDeleteConfirmation(activity)
                                       : null,
                                   child: ListTile(
@@ -506,9 +510,14 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                       child: Icon(
                                         activity.categoryType == 'habit'
                                             ? Icons.flag
-                                            : activity.categoryType == 'task'
+                                            :                                         activity.categoryType == 'task'
                                                 ? Icons.assignment
-                                                : Icons.playlist_add,
+                                                : (activity.categoryType ==
+                                                            'non_productive' ||
+                                                        activity.categoryType ==
+                                                            'sequence_item')
+                                                    ? Icons.access_time
+                                                    : Icons.playlist_add,
                                         color: Colors.white,
                                         size: 20,
                                       ),

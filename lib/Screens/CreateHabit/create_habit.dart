@@ -9,17 +9,22 @@ import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
+
 class createActivityPage extends StatefulWidget {
   final ActivityRecord? habitToEdit;
   const createActivityPage({super.key, this.habitToEdit});
   @override
   State<createActivityPage> createState() => _createActivityPageState();
 }
+
 class _createActivityPageState extends State<createActivityPage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _unitController = TextEditingController();
+  final _descriptionController = TextEditingController();
   String? _selectedCategoryId;
   String? _selectedTrackingType;
   List<CategoryRecord> _categories = [];
@@ -35,6 +40,7 @@ class _createActivityPageState extends State<createActivityPage> {
   DateTime? _originalStartDate; // Track original start date for comparison
   // Due time field
   TimeOfDay? _selectedDueTime;
+  List<ReminderConfig> _reminders = [];
   FrequencyConfig?
       _originalFrequencyConfig; // Track original frequency config for comparison
   @override
@@ -46,6 +52,7 @@ class _createActivityPageState extends State<createActivityPage> {
       final habit = widget.habitToEdit!;
       _nameController.text = habit.name;
       _unitController.text = habit.unit;
+      _descriptionController.text = habit.description;
       _selectedCategoryId = habit.categoryId;
       _selectedTrackingType = habit.trackingType;
       weight = habit.priority;
@@ -73,8 +80,13 @@ class _createActivityPageState extends State<createActivityPage> {
           _convertLegacyScheduleToFrequencyConfig(habit, _startDate, _endDate);
       // Store original frequency config for comparison
       _originalFrequencyConfig = _frequencyConfig;
+      // Load reminders if they exist
+      if (habit.hasReminders()) {
+        _reminders = ReminderConfigList.fromMapList(habit.reminders);
+      }
     }
   }
+
   FrequencyConfig _convertLegacyScheduleToFrequencyConfig(
       ActivityRecord habit, DateTime startDate, DateTime? endDate) {
     // For existing habits, try to use the new frequency fields first
@@ -125,12 +137,15 @@ class _createActivityPageState extends State<createActivityPage> {
       endDate: endDate,
     );
   }
+
   @override
   void dispose() {
     _nameController.dispose();
     _unitController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
+
   Future<void> _loadCategories() async {
     try {
       final userId = currentUserUid;
@@ -171,6 +186,7 @@ class _createActivityPageState extends State<createActivityPage> {
       }
     }
   }
+
   bool _canSave() {
     if (_nameController.text.trim().isEmpty) return false;
     if (_selectedCategoryId == null) return false;
@@ -186,17 +202,7 @@ class _createActivityPageState extends State<createActivityPage> {
     }
     return true;
   }
-  Future<void> _selectDueTime() async {
-    final TimeOfDay? picked = await showTimePicker(
-      context: context,
-      initialTime: _selectedDueTime ?? TimeUtils.getCurrentTime(),
-    );
-    if (picked != null && picked != _selectedDueTime) {
-      setState(() {
-        _selectedDueTime = picked;
-      });
-    }
-  }
+
   /// Check if frequency configuration has changed
   bool _hasFrequencyChanged() {
     if (_originalFrequencyConfig == null) return false;
@@ -212,6 +218,7 @@ class _createActivityPageState extends State<createActivityPage> {
         original.periodType != current.periodType ||
         !_listEquals(original.selectedDays, current.selectedDays);
   }
+
   /// Helper method to compare lists
   bool _listEquals<T>(List<T>? a, List<T>? b) {
     if (a == null) return b == null;
@@ -221,6 +228,116 @@ class _createActivityPageState extends State<createActivityPage> {
     }
     return true;
   }
+
+  Future<void> _showCategoryMenu(BuildContext context) async {
+    final RenderBox button = context.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero),
+            ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    final String? selectedId = await showMenu<String>(
+      context: context,
+      position: position,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
+      ),
+      color: FlutterFlowTheme.of(context).secondaryBackground,
+      items: _categories.map((c) {
+        return PopupMenuItem<String>(
+          value: c.reference.id,
+          child: Text(
+            c.name,
+            style: FlutterFlowTheme.of(context).bodyMedium,
+          ),
+        );
+      }).toList(),
+    );
+
+    if (selectedId != null) {
+      setState(() {
+        _selectedCategoryId = selectedId;
+      });
+    }
+  }
+
+  Future<void> _showTrackingTypeMenu(BuildContext context) async {
+    final RenderBox button = context.findRenderObject() as RenderBox;
+    final RenderBox overlay =
+        Overlay.of(context).context.findRenderObject() as RenderBox;
+    final RelativeRect position = RelativeRect.fromRect(
+      Rect.fromPoints(
+        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(button.size.bottomRight(Offset.zero),
+            ancestor: overlay),
+      ),
+      Offset.zero & overlay.size,
+    );
+
+    final String? selected = await showMenu<String>(
+      context: context,
+      position: position,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
+      ),
+      color: FlutterFlowTheme.of(context).secondaryBackground,
+      items: [
+        PopupMenuItem<String>(
+          value: 'binary',
+          child: Row(
+            children: [
+              Icon(Icons.check_circle_outline,
+                  color: FlutterFlowTheme.of(context).primaryText, size: 20),
+              const SizedBox(width: 12),
+              Text('Yes/No', style: FlutterFlowTheme.of(context).bodyMedium),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'quantitative',
+          child: Row(
+            children: [
+              Icon(Icons.numbers,
+                  color: FlutterFlowTheme.of(context).primaryText, size: 20),
+              const SizedBox(width: 12),
+              Text('Numeric', style: FlutterFlowTheme.of(context).bodyMedium),
+            ],
+          ),
+        ),
+        PopupMenuItem<String>(
+          value: 'time',
+          child: Row(
+            children: [
+              Icon(Icons.timer_outlined,
+                  color: FlutterFlowTheme.of(context).primaryText, size: 20),
+              const SizedBox(width: 12),
+              Text('Timer', style: FlutterFlowTheme.of(context).bodyMedium),
+            ],
+          ),
+        ),
+      ],
+    );
+
+    if (selected != null) {
+      setState(() {
+        _selectedTrackingType = selected;
+        if (selected == 'binary') {
+          _targetNumber = 1;
+          _targetDuration = const Duration(hours: 1);
+          _unitController.clear();
+        }
+      });
+    }
+  }
+
   Future<void> _saveHabit() async {
     if (!_formKey.currentState!.validate() || !_canSave()) return;
     setState(() => _isSaving = true);
@@ -249,6 +366,9 @@ class _createActivityPageState extends State<createActivityPage> {
         trackingType: _selectedTrackingType,
         target: targetValue,
         unit: _unitController.text.trim(),
+        description: _descriptionController.text.trim().isNotEmpty
+            ? _descriptionController.text.trim()
+            : null,
         dayEndTime: 0,
         specificDays: _frequencyConfig.type == FrequencyType.specificDays
             ? _frequencyConfig.selectedDays
@@ -278,6 +398,9 @@ class _createActivityPageState extends State<createActivityPage> {
             : null,
         periodType: _frequencyConfig.type == FrequencyType.timesPerPeriod
             ? _frequencyConfig.periodType.toString().split('.').last
+            : null,
+        reminders: _reminders.isNotEmpty
+            ? ReminderConfigList.toMapList(_reminders)
             : null,
       );
       if (widget.habitToEdit != null) {
@@ -341,7 +464,6 @@ class _createActivityPageState extends State<createActivityPage> {
           // Update instances in batches to avoid timeout
           const batchSize = 10;
           int successCount = 0;
-          int failureCount = 0;
           for (int i = 0; i < pendingInstances.length; i += batchSize) {
             final batch = pendingInstances.skip(i).take(batchSize);
             print(
@@ -372,8 +494,6 @@ class _createActivityPageState extends State<createActivityPage> {
             for (final result in results) {
               if (result) {
                 successCount++;
-              } else {
-                failureCount++;
               }
             }
           }
@@ -389,8 +509,7 @@ class _createActivityPageState extends State<createActivityPage> {
               );
               print(
                   'DEBUG: Verification - Sample instance category: ${sampleInstance.templateCategoryName} (${sampleInstance.templateCategoryId})');
-            } catch (e) {
-            }
+            } catch (e) {}
           }
         } catch (e) {
           // Don't fail the entire save operation if instance updates fail
@@ -404,8 +523,10 @@ class _createActivityPageState extends State<createActivityPage> {
       } else {
         print(
             '--- create_habit.dart: Habit Name: ${_nameController.text.trim()}');
+        print('--- create_habit.dart: calling createActivity (habit) ...');
         await createActivity(
           name: _nameController.text.trim(),
+          categoryId: selectedCategory.reference.id,
           categoryName: selectedCategory.name,
           trackingType: _selectedTrackingType!,
           target: targetValue,
@@ -413,6 +534,9 @@ class _createActivityPageState extends State<createActivityPage> {
           userId: userId,
           priority: weight,
           unit: _unitController.text.trim(),
+          description: _descriptionController.text.trim().isNotEmpty
+              ? _descriptionController.text.trim()
+              : null,
           categoryType: 'habit',
           dueTime: _selectedDueTime != null
               ? TimeUtils.timeOfDayToString(_selectedDueTime!)
@@ -436,7 +560,11 @@ class _createActivityPageState extends State<createActivityPage> {
               : null,
           startDate: _frequencyConfig.startDate,
           endDate: _frequencyConfig.endDate,
+          reminders: _reminders.isNotEmpty
+              ? ReminderConfigList.toMapList(_reminders)
+              : null,
         );
+        print('--- create_habit.dart: createActivity completed successfully');
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('New Habit Created successfully!')),
@@ -445,6 +573,7 @@ class _createActivityPageState extends State<createActivityPage> {
         }
       }
     } catch (e) {
+      print('--- create_habit.dart: createActivity failed: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error saving habit: $e')),
@@ -454,6 +583,7 @@ class _createActivityPageState extends State<createActivityPage> {
       if (mounted) setState(() => _isSaving = false);
     }
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -478,281 +608,730 @@ class _createActivityPageState extends State<createActivityPage> {
             children: [
               Expanded(
                 child: SingleChildScrollView(
-                  padding: const EdgeInsets.all(16),
+                  padding: const EdgeInsets.all(12),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      _buildSectionHeader('Basic Information'),
-                      TextFormField(
-                        controller: _nameController,
-                        decoration: const InputDecoration(
-                          labelText: 'Name *',
-                          border: OutlineInputBorder(),
-                        ),
-                        validator: (v) => v == null || v.trim().isEmpty
-                            ? 'Enter a name'
-                            : null,
-                      ),
-                      const SizedBox(height: 12),
                       if (_isLoading)
                         const Center(child: CircularProgressIndicator())
-                      else
+                      else ...[
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: FlutterFlowTheme.of(context)
+                                .tertiary
+                                .withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: FlutterFlowTheme.of(context)
+                                  .surfaceBorderColor,
+                              width: 1,
+                            ),
+                          ),
+                          child: TextFormField(
+                            controller: _nameController,
+                            style: FlutterFlowTheme.of(context).bodyMedium,
+                            maxLength: 200,
+                            decoration: InputDecoration(
+                              hintText: 'Habit name',
+                              hintStyle: TextStyle(
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                                fontSize: 14,
+                              ),
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                              counterText: '',
+                            ),
+                            validator: (v) => v == null || v.trim().isEmpty
+                                ? 'Enter a name'
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 12, vertical: 6),
+                          decoration: BoxDecoration(
+                            color: FlutterFlowTheme.of(context)
+                                .tertiary
+                                .withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: FlutterFlowTheme.of(context)
+                                  .surfaceBorderColor,
+                              width: 1,
+                            ),
+                          ),
+                          child: TextFormField(
+                            controller: _descriptionController,
+                            style: FlutterFlowTheme.of(context).bodyMedium,
+                            maxLines: 2,
+                            maxLength: 500,
+                            decoration: InputDecoration(
+                              hintText: 'Description (optional)',
+                              hintStyle: TextStyle(
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                                fontSize: 14,
+                              ),
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding: EdgeInsets.zero,
+                              counterText: '',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 8),
                         Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
                             Expanded(
-                              child: DropdownButtonFormField<String>(
-                                value: () {
-                                  if (_selectedCategoryId == null) return null;
-                                  final isValid = _categories.any((c) =>
-                                      c.reference.id == _selectedCategoryId);
-                                  return isValid ? _selectedCategoryId : null;
-                                }(),
-                                decoration: const InputDecoration(
-                                  labelText: 'Category *',
-                                  border: OutlineInputBorder(),
-                                ),
-                                items: _categories
-                                    .map((c) => DropdownMenuItem(
-                                        value: c.reference.id,
-                                        child: Text(c.name)))
-                                    .toList(),
-                                onChanged: (v) =>
-                                    setState(() => _selectedCategoryId = v),
-                                validator: (v) =>
-                                    v == null ? 'Select a category' : null,
+                              child: Builder(
+                                builder: (context) {
+                                  return GestureDetector(
+                                    onTap: () => _showCategoryMenu(context),
+                                    child: Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 12, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: FlutterFlowTheme.of(context)
+                                            .tertiary
+                                            .withOpacity(0.3),
+                                        borderRadius: BorderRadius.circular(10),
+                                        border: Border.all(
+                                          color: FlutterFlowTheme.of(context)
+                                              .surfaceBorderColor,
+                                          width: 1,
+                                        ),
+                                      ),
+                                      child: Row(
+                                        mainAxisAlignment:
+                                            MainAxisAlignment.spaceBetween,
+                                        children: [
+                                          Text(
+                                            _selectedCategoryId != null
+                                                ? _categories
+                                                    .firstWhere(
+                                                        (c) =>
+                                                            c.reference.id ==
+                                                            _selectedCategoryId,
+                                                        orElse: () =>
+                                                            _categories.first)
+                                                    .name
+                                                : 'Category',
+                                            style: _selectedCategoryId != null
+                                                ? FlutterFlowTheme.of(context)
+                                                    .bodyMedium
+                                                : TextStyle(
+                                                    color: FlutterFlowTheme.of(
+                                                            context)
+                                                        .secondaryText,
+                                                    fontSize: 14,
+                                                  ),
+                                          ),
+                                          Icon(
+                                            Icons.arrow_drop_down,
+                                            color: FlutterFlowTheme.of(context)
+                                                .secondaryText,
+                                            size: 20,
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
                             ),
-                            const SizedBox(
-                              width: 5,
+                            const SizedBox(width: 8),
+                            Container(
+                              decoration: BoxDecoration(
+                                gradient: FlutterFlowTheme.of(context)
+                                    .primaryButtonGradient,
+                                borderRadius: BorderRadius.circular(
+                                    FlutterFlowTheme.of(context).buttonRadius),
+                                boxShadow: [
+                                  BoxShadow(
+                                    color: FlutterFlowTheme.of(context)
+                                        .primary
+                                        .withOpacity(0.15),
+                                    offset: const Offset(0, 2),
+                                    blurRadius: 3,
+                                  ),
+                                ],
+                              ),
+                              child: Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  borderRadius: BorderRadius.circular(
+                                      FlutterFlowTheme.of(context)
+                                          .buttonRadius),
+                                  onTap: () {
+                                    showDialog(
+                                      context: context,
+                                      builder: (context) =>
+                                          const CreateCategory(
+                                              categoryType: 'habit'),
+                                    ).then((value) {
+                                      _loadCategories();
+                                    });
+                                  },
+                                  child: Container(
+                                    padding: const EdgeInsets.all(12),
+                                    child: const Icon(
+                                      Icons.add,
+                                      color: Colors.white,
+                                      size: 20,
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
-                            GestureDetector(
-                              onTap: () {
-                                showDialog(
-                                  context: context,
-                                  builder: (context) => const CreateCategory(
-                                      categoryType: 'habit'),
-                                ).then((value) {
-                                  _loadCategories();
-                                });
-                              },
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          height: 1,
+                          margin: const EdgeInsets.symmetric(vertical: 8),
+                          decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                              colors: [
+                                Colors.transparent,
+                                FlutterFlowTheme.of(context).surfaceBorderColor,
+                                Colors.transparent,
+                              ],
+                            ),
+                          ),
+                        ),
+                        Builder(
+                          builder: (context) {
+                            return GestureDetector(
+                              onTap: () => _showTrackingTypeMenu(context),
                               child: Container(
-                                padding: const EdgeInsets.all(8),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 8),
                                 decoration: BoxDecoration(
-                                  color: FlutterFlowTheme.of(context).primary,
-                                  borderRadius: BorderRadius.circular(8),
+                                  color: FlutterFlowTheme.of(context)
+                                      .tertiary
+                                      .withOpacity(0.3),
+                                  borderRadius: BorderRadius.circular(10),
                                   border: Border.all(
-                                    color: FlutterFlowTheme.of(context).primary,
+                                    color: FlutterFlowTheme.of(context)
+                                        .surfaceBorderColor,
                                     width: 1,
                                   ),
-                                  boxShadow: [
-                                    BoxShadow(
-                                      color: Colors.black.withOpacity(0.1),
-                                      blurRadius: 3,
-                                      offset: const Offset(0, 2),
+                                ),
+                                child: Row(
+                                  mainAxisAlignment:
+                                      MainAxisAlignment.spaceBetween,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Text(
+                                          _selectedTrackingType == 'binary'
+                                              ? 'Yes/No'
+                                              : _selectedTrackingType ==
+                                                      'quantitative'
+                                                  ? 'Numeric'
+                                                  : _selectedTrackingType ==
+                                                          'time'
+                                                      ? 'Timer'
+                                                      : 'Tracking Type',
+                                          style: _selectedTrackingType != null
+                                              ? FlutterFlowTheme.of(context)
+                                                  .bodyMedium
+                                              : TextStyle(
+                                                  color: FlutterFlowTheme.of(
+                                                          context)
+                                                      .secondaryText,
+                                                  fontSize: 14,
+                                                ),
+                                        ),
+                                      ],
+                                    ),
+                                    Icon(
+                                      Icons.arrow_drop_down,
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                      size: 20,
                                     ),
                                   ],
                                 ),
-                                child: const Icon(
-                                  Icons.add,
-                                  color: Colors.white,
+                              ),
+                            );
+                          },
+                        ),
+                        if (_selectedTrackingType == 'quantitative') ...[
+                          Container(
+                            margin: const EdgeInsets.only(top: 6),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: FlutterFlowTheme.of(context).accent2,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: FlutterFlowTheme.of(context)
+                                      .surfaceBorderColor),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: FlutterFlowTheme.of(context)
+                                      .primary
+                                      .withOpacity(0.05),
+                                  offset: const Offset(0, 1),
+                                  blurRadius: 2,
                                 ),
-                              ),
-                            )
-                          ],
-                        ),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Tracking Type'),
-                      DropdownButtonFormField<String>(
-                        value: _selectedTrackingType,
-                        decoration: const InputDecoration(
-                          labelText: 'Type *',
-                          border: OutlineInputBorder(),
-                        ),
-                        items: const [
-                          DropdownMenuItem(
-                              value: 'binary',
-                              child: Text('Binary (Done/Not Done)')),
-                          DropdownMenuItem(
-                              value: 'quantitative',
-                              child: Text('Quantity (Number)')),
-                          DropdownMenuItem(
-                              value: 'time', child: Text('Time (Duration)')),
-                        ],
-                        onChanged: (v) =>
-                            setState(() => _selectedTrackingType = v),
-                        validator: (v) =>
-                            v == null ? 'Select tracking type' : null,
-                      ),
-                      const SizedBox(height: 24),
-                      if (_selectedTrackingType == 'quantitative') ...[
-                        _buildSectionHeader('Target'),
-                        Row(children: [
-                          Expanded(
-                              child: TextFormField(
-                            initialValue: _targetNumber.toString(),
-                            decoration: const InputDecoration(
-                                labelText: 'Target *',
-                                border: OutlineInputBorder()),
-                            keyboardType: TextInputType.number,
-                            onChanged: (v) => setState(
-                                () => _targetNumber = int.tryParse(v) ?? 1),
-                          )),
-                          const SizedBox(width: 12),
-                          Expanded(
-                              child: TextFormField(
-                            controller: _unitController,
-                            decoration: const InputDecoration(
-                                labelText: 'Unit',
-                                border: OutlineInputBorder()),
-                          )),
-                        ]),
-                      ] else if (_selectedTrackingType == 'time') ...[
-                        _buildSectionHeader('Target'),
-                        Row(children: [
-                          Expanded(
-                              child: TextFormField(
-                            initialValue: _targetDuration.inHours.toString(),
-                            decoration: const InputDecoration(
-                                labelText: 'Hours *',
-                                border: OutlineInputBorder()),
-                            keyboardType: TextInputType.number,
-                            onChanged: (v) {
-                              final hours = int.tryParse(v) ?? 1;
-                              setState(() => _targetDuration = Duration(
-                                  hours: hours,
-                                  minutes: _targetDuration.inMinutes % 60));
-                            },
-                          )),
-                          const SizedBox(width: 12),
-                          Expanded(
-                              child: TextFormField(
-                            initialValue:
-                                (_targetDuration.inMinutes % 60).toString(),
-                            decoration: const InputDecoration(
-                                labelText: 'Minutes',
-                                border: OutlineInputBorder()),
-                            keyboardType: TextInputType.number,
-                            onChanged: (v) {
-                              final mins = int.tryParse(v) ?? 0;
-                              setState(() => _targetDuration = Duration(
-                                  hours: _targetDuration.inHours,
-                                  minutes: mins));
-                            },
-                          )),
-                        ]),
-                      ],
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Schedule'),
-                      FrequencyConfigWidget(
-                        initialConfig: _frequencyConfig,
-                        onChanged: (newConfig) {
-                          setState(() {
-                            _frequencyConfig = newConfig;
-                          });
-                        },
-                      ),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Due Time'),
-                      const SizedBox(height: 8),
-                      InkWell(
-                        onTap: _selectDueTime,
-                        borderRadius: BorderRadius.circular(8),
-                        child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 12, vertical: 16),
-                          decoration: BoxDecoration(
-                            border: Border.all(color: Colors.grey.shade300),
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                          child: Row(
-                            children: [
-                              Icon(
-                                Icons.access_time,
-                                color: _selectedDueTime != null
-                                    ? Colors.blue.shade700
-                                    : Colors.grey.shade600,
-                              ),
-                              const SizedBox(width: 12),
-                              Expanded(
-                                child: Text(
-                                  _selectedDueTime != null
-                                      ? TimeUtils.formatTimeOfDayForDisplay(
-                                          _selectedDueTime!)
-                                      : 'Select due time (optional)',
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.track_changes,
+                                    size: 16,
+                                    color:
+                                        FlutterFlowTheme.of(context).primary),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Target:',
                                   style: TextStyle(
-                                    color: _selectedDueTime != null
-                                        ? Colors.black87
-                                        : Colors.grey.shade600,
-                                    fontSize: 16,
+                                    fontSize: 12,
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontWeight: FontWeight.w500,
                                   ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue: _targetNumber.toString(),
+                                    style:
+                                        FlutterFlowTheme.of(context).bodyMedium,
+                                    decoration: InputDecoration(
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .accent1,
+                                            width: 2),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: FlutterFlowTheme.of(context)
+                                          .secondaryBackground,
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (v) => setState(() =>
+                                        _targetNumber = int.tryParse(v) ?? 1),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Unit:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: TextFormField(
+                                    controller: _unitController,
+                                    style:
+                                        FlutterFlowTheme.of(context).bodyMedium,
+                                    decoration: InputDecoration(
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .accent1,
+                                            width: 2),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
+                                      hintText: 'e.g., pages, reps',
+                                      hintStyle: TextStyle(
+                                          color: FlutterFlowTheme.of(context)
+                                              .secondaryText),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: FlutterFlowTheme.of(context)
+                                          .secondaryBackground,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                        ] else if (_selectedTrackingType == 'time') ...[
+                          Container(
+                            margin: const EdgeInsets.only(top: 6),
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: FlutterFlowTheme.of(context).accent2,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                  color: FlutterFlowTheme.of(context)
+                                      .surfaceBorderColor),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: FlutterFlowTheme.of(context)
+                                      .primary
+                                      .withOpacity(0.05),
+                                  offset: const Offset(0, 1),
+                                  blurRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Row(
+                              children: [
+                                Icon(Icons.timer,
+                                    size: 16,
+                                    color:
+                                        FlutterFlowTheme.of(context).primary),
+                                const SizedBox(width: 6),
+                                Text(
+                                  'Target Duration:',
+                                  style: TextStyle(
+                                    fontSize: 12,
+                                    color: FlutterFlowTheme.of(context).primary,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue:
+                                        _targetDuration.inHours.toString(),
+                                    style:
+                                        FlutterFlowTheme.of(context).bodyMedium,
+                                    decoration: InputDecoration(
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .accent1,
+                                            width: 2),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
+                                      labelText: 'Hours',
+                                      labelStyle: TextStyle(
+                                          color: FlutterFlowTheme.of(context)
+                                              .secondaryText),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: FlutterFlowTheme.of(context)
+                                          .secondaryBackground,
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (v) {
+                                      final hours = int.tryParse(v) ?? 1;
+                                      setState(() => _targetDuration = Duration(
+                                            hours: hours,
+                                            minutes:
+                                                _targetDuration.inMinutes % 60,
+                                          ));
+                                    },
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Expanded(
+                                  child: TextFormField(
+                                    initialValue:
+                                        (_targetDuration.inMinutes % 60)
+                                            .toString(),
+                                    style:
+                                        FlutterFlowTheme.of(context).bodyMedium,
+                                    decoration: InputDecoration(
+                                      border: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      enabledBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .surfaceBorderColor),
+                                      ),
+                                      focusedBorder: OutlineInputBorder(
+                                        borderRadius: BorderRadius.circular(8),
+                                        borderSide: BorderSide(
+                                            color: FlutterFlowTheme.of(context)
+                                                .accent1,
+                                            width: 2),
+                                      ),
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              horizontal: 12, vertical: 8),
+                                      labelText: 'Minutes',
+                                      labelStyle: TextStyle(
+                                          color: FlutterFlowTheme.of(context)
+                                              .secondaryText),
+                                      isDense: true,
+                                      filled: true,
+                                      fillColor: FlutterFlowTheme.of(context)
+                                          .secondaryBackground,
+                                    ),
+                                    keyboardType: TextInputType.number,
+                                    onChanged: (v) {
+                                      final mins = int.tryParse(v) ?? 0;
+                                      setState(() => _targetDuration = Duration(
+                                            hours: _targetDuration.inHours,
+                                            minutes: mins,
+                                          ));
+                                    },
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                        ],
+                        const SizedBox(height: 8),
+                        _buildSectionHeader('Frequency'),
+                        FrequencyConfigWidget(
+                          initialConfig: _frequencyConfig,
+                          onChanged: (newConfig) {
+                            setState(() {
+                              _frequencyConfig = newConfig;
+                              _startDate = newConfig.startDate;
+                              _endDate = newConfig.endDate;
+                            });
+                          },
+                        ),
+                        const SizedBox(height: 8),
+                        _buildSectionHeader('Reminders'),
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: FlutterFlowTheme.of(context)
+                                .tertiary
+                                .withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: FlutterFlowTheme.of(context)
+                                  .surfaceBorderColor,
+                              width: 1,
+                            ),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (_reminders.isNotEmpty)
+                                ..._reminders.map((r) => Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 6.0),
+                                      child: Row(
+                                        children: [
+                                          Icon(Icons.notifications_active,
+                                              size: 16,
+                                              color:
+                                                  FlutterFlowTheme.of(context)
+                                                      .primary),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '${TimeUtils.formatTimeOfDayForDisplay(r.time)} (${r.days.map((d) => [
+                                                  'Mon',
+                                                  'Tue',
+                                                  'Wed',
+                                                  'Thu',
+                                                  'Fri',
+                                                  'Sat',
+                                                  'Sun'
+                                                ][d - 1]).join(', ')})',
+                                            style: FlutterFlowTheme.of(context)
+                                                .bodyMedium,
+                                          ),
+                                          const Spacer(),
+                                          InkWell(
+                                            onTap: () {
+                                              setState(() {
+                                                _reminders.remove(r);
+                                              });
+                                            },
+                                            child: Icon(Icons.close,
+                                                size: 16,
+                                                color:
+                                                    FlutterFlowTheme.of(context)
+                                                        .secondaryText),
+                                          ),
+                                        ],
+                                      ),
+                                    )),
+                              InkWell(
+                                onTap: () async {
+                                  final reminders =
+                                      await ReminderConfigDialog.show(
+                                    context: context,
+                                    initialReminders: _reminders,
+                                    // We don't use dueTime for habits anymore, passing null
+                                    dueTime: null,
+                                  );
+                                  if (reminders != null) {
+                                    setState(() => _reminders = reminders);
+                                  }
+                                },
+                                child: Row(
+                                  children: [
+                                    Icon(Icons.add,
+                                        size: 18,
+                                        color: FlutterFlowTheme.of(context)
+                                            .primary),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      'Add Reminder',
+                                      style: FlutterFlowTheme.of(context)
+                                          .bodyMedium
+                                          .override(
+                                            color: FlutterFlowTheme.of(context)
+                                                .primary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
                                 ),
                               ),
-                              if (_selectedDueTime != null)
-                                InkWell(
-                                  onTap: () {
-                                    setState(() {
-                                      _selectedDueTime = null;
-                                    });
-                                  },
-                                  child: Icon(
-                                    Icons.close,
-                                    color: Colors.grey.shade600,
-                                    size: 20,
-                                  ),
-                                ),
                             ],
                           ),
                         ),
-                      ),
-                      const SizedBox(height: 24),
-                      _buildSectionHeader('Weight'),
-                      const SizedBox(height: 8),
-                      InputDecorator(
-                        decoration: const InputDecoration(
-                          border: OutlineInputBorder(),
-                          contentPadding:
-                              EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Slider(
-                              value: weight.toDouble(),
-                              min: 1.0,
-                              max: 3.0,
-                              divisions: 2,
-                              label: weight.toString(),
-                              onChanged: (value) {
-                                if (mounted) {
-                                  setState(() => weight = value.round());
-                                }
-                              },
+                        const SizedBox(height: 8),
+                        _buildSectionHeader('Weight'),
+                        const SizedBox(height: 6),
+                        Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: FlutterFlowTheme.of(context)
+                                .tertiary
+                                .withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: FlutterFlowTheme.of(context)
+                                  .surfaceBorderColor,
+                              width: 1,
                             ),
-                          ],
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Slider(
+                                value: weight.toDouble(),
+                                min: 1.0,
+                                max: 3.0,
+                                divisions: 2,
+                                label: weight.toString(),
+                                activeColor:
+                                    FlutterFlowTheme.of(context).primary,
+                                onChanged: (value) {
+                                  if (mounted) {
+                                    setState(() => weight = value.round());
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
                 ),
               ),
               Container(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(12),
                 child: SizedBox(
                   width: double.infinity,
-                  child: ElevatedButton(
-                    onPressed: (_canSave() && !_isSaving) ? _saveHabit : null,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: FlutterFlowTheme.of(context).primary,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Container(
+                    decoration: BoxDecoration(
+                      gradient: (_canSave() && !_isSaving)
+                          ? FlutterFlowTheme.of(context).primaryButtonGradient
+                          : null,
+                      color: (_canSave() && !_isSaving)
+                          ? null
+                          : FlutterFlowTheme.of(context).secondaryBackground,
+                      borderRadius: BorderRadius.circular(
+                          FlutterFlowTheme.of(context).buttonRadius),
+                      boxShadow: (_canSave() && !_isSaving)
+                          ? [
+                              BoxShadow(
+                                color: FlutterFlowTheme.of(context)
+                                    .primary
+                                    .withOpacity(0.15),
+                                offset: const Offset(0, 2),
+                                blurRadius: 3,
+                              ),
+                            ]
+                          : null,
                     ),
-                    child: _isSaving
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : Text(
-                            widget.habitToEdit != null
-                                ? 'Save Habit'
-                                : 'Create Habit',
-                            style: const TextStyle(color: Colors.white)),
+                    child: Material(
+                      color: Colors.transparent,
+                      child: InkWell(
+                        borderRadius: BorderRadius.circular(
+                            FlutterFlowTheme.of(context).buttonRadius),
+                        onTap: (_canSave() && !_isSaving) ? _saveHabit : null,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(vertical: 12),
+                          alignment: Alignment.center,
+                          child: _isSaving
+                              ? const CircularProgressIndicator(
+                                  color: Colors.white)
+                              : Text(
+                                  widget.habitToEdit != null
+                                      ? 'Save Habit'
+                                      : 'Create Habit',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodyMedium
+                                      .override(
+                                        color: (_canSave() && !_isSaving)
+                                            ? Colors.white
+                                            : FlutterFlowTheme.of(context)
+                                                .secondaryText,
+                                        fontWeight: FontWeight.w600,
+                                      )),
+                        ),
+                      ),
+                    ),
                   ),
                 ),
               ),
@@ -762,10 +1341,28 @@ class _createActivityPageState extends State<createActivityPage> {
       ),
     );
   }
+
   Widget _buildSectionHeader(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
-      child: Text(title, style: FlutterFlowTheme.of(context).titleMedium),
+    final theme = FlutterFlowTheme.of(context);
+    return Container(
+      margin: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        gradient: theme.neumorphicGradientSubtle,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Text(
+        title,
+        style: theme.titleMedium.override(
+          fontFamily: 'Readex Pro',
+          fontWeight: FontWeight.w600,
+          color: theme.primaryText,
+        ),
+      ),
     );
   }
 }

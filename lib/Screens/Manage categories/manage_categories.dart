@@ -3,12 +3,15 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/polished_dialog.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
+
 class ManageCategories extends StatefulWidget {
   const ManageCategories({super.key});
   @override
   _ManageCategoriesState createState() => _ManageCategoriesState();
 }
+
 class _ManageCategoriesState extends State<ManageCategories> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   List<CategoryRecord> _categories = [];
@@ -18,6 +21,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
     super.initState();
     _loadCategories();
   }
+
   Future<void> _loadCategories() async {
     setState(() {
       _isLoading = true;
@@ -38,6 +42,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       });
     }
   }
+
   Future<void> _deleteCategory(CategoryRecord category) async {
     try {
       // Safety check: prevent deletion of system categories
@@ -73,12 +78,14 @@ class _ManageCategoriesState extends State<ManageCategories> {
       }
     }
   }
+
   void _showEditCategoryDialog(CategoryRecord category) {
     showDialog(
       context: context,
       builder: (context) => CreateCategory(category: category),
     );
   }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -130,6 +137,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       ),
     );
   }
+
   Widget _buildCategorizedList() {
     // Separate categories by type
     final habitCategories =
@@ -165,6 +173,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       ),
     );
   }
+
   Widget _buildSectionHeader(String title, IconData icon, int count) {
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -212,6 +221,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       ),
     );
   }
+
   Widget _buildCategoryItem(CategoryRecord category, String type) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
@@ -296,6 +306,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       ),
     );
   }
+
   Widget _buildEmptyTypeMessage(String missingType) {
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -330,6 +341,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       ),
     );
   }
+
   Color _parseColor(String colorString) {
     try {
       return Color(int.parse(colorString.replaceAll('#', '0xFF')));
@@ -337,39 +349,27 @@ class _ManageCategoriesState extends State<ManageCategories> {
       return Colors.blue;
     }
   }
+
   void _showDeleteConfirmation(CategoryRecord category) {
-    showDialog(
+    showPolishedAlertDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Delete Category'),
-        content: Text(
+      title: 'Delete Category',
+      content:
           'Are you sure you want to delete "${category.name}"? This action cannot be undone.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _deleteCategory(category);
-            },
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              foregroundColor: Colors.white,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
+      cancelText: 'Cancel',
+      confirmText: 'Delete',
+      isDestructive: true,
+      onConfirm: () {
+        Navigator.of(context).pop();
+        _deleteCategory(category);
+      },
     );
   }
+
   void _showAddCategoryDialog() {
-    showDialog(
+    showPolishedDialog(
       context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setLocalState) => const CreateCategory()),
+      content: const CreateCategory(),
     );
   }
 }

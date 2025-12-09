@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -251,18 +252,25 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
     final result = await query.get();
     final activities =
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
-    // Filter out sequence_item types unless explicitly requested
+    // Filter out non-productive/sequence_item types unless explicitly requested
+    // (sequence_item is legacy, now all are non_productive)
     final filteredActivities = activities.where((activity) {
-      if (!includeSequenceItems && activity.categoryType == 'sequence_item') {
+      if (!includeSequenceItems &&
+          (activity.categoryType == 'sequence_item' ||
+              activity.categoryType == 'non_productive')) {
         return false;
       }
       return true;
     }).toList();
-    // Filter habits based on date boundaries
+    // Filter habits based on date boundaries (skip for non-productive items)
     final today = DateService.todayStart;
-    final activeHabits = filteredActivities
-        .where((habit) => isHabitActiveByDate(habit, today))
-        .toList();
+    final activeHabits = filteredActivities.where((habit) {
+      // Non-productive items don't have date boundaries, always include them
+      if (habit.categoryType == 'non_productive') {
+        return true;
+      }
+      return isHabitActiveByDate(habit, today);
+    }).toList();
     // Sort in memory instead of in query
     activeHabits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
     return activeHabits;
@@ -428,6 +436,7 @@ Future<List<SequenceRecord>> querySequenceRecordOnce({
 Future<DocumentReference> createActivity({
   required String name,
   required String categoryName,
+  String? categoryId,
   required String trackingType,
   dynamic target,
   String? description,
@@ -448,12 +457,17 @@ Future<DocumentReference> createActivity({
   String? periodType,
   DateTime? startDate,
   DateTime? endDate,
+  List<Map<String, dynamic>>? reminders,
 }) async {
+  print(
+      'backend.dart/createActivity: start name=$name categoryType=$categoryType categoryId=$categoryId');
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
+  print('backend.dart/createActivity: resolved uid=$uid');
   final effectiveIsRecurring = categoryType == 'habit' ? true : isRecurring;
   final habitData = createActivityRecordData(
     name: name,
+    categoryId: categoryId,
     categoryName: categoryName,
     trackingType: trackingType,
     target: target,
@@ -478,11 +492,28 @@ Future<DocumentReference> createActivity({
     everyXPeriodType: everyXPeriodType,
     timesPerPeriod: timesPerPeriod,
     periodType: periodType,
+    reminders: reminders,
   );
-  final habitRef = await ActivityRecord.collectionForUser(uid).add(habitData);
+  print('backend.dart/createActivity: adding template to activities...');
+  DocumentReference habitRef;
+  try {
+    habitRef = await ActivityRecord.collectionForUser(uid)
+        .add(habitData)
+        .timeout(const Duration(seconds: 10));
+    print('backend.dart/createActivity: template added id=${habitRef.id}');
+  } on TimeoutException catch (e) {
+    print('backend.dart/createActivity: add template timed out: $e');
+    rethrow;
+  } catch (e) {
+    print('backend.dart/createActivity: add template failed: $e');
+    rethrow;
+  }
   // Create initial activity instance
   try {
-    final activity = await ActivityRecord.getDocumentOnce(habitRef);
+    print('backend.dart/createActivity: fetching template snapshot...');
+    final activity = await ActivityRecord.getDocumentOnce(habitRef)
+        .timeout(const Duration(seconds: 10));
+    print('backend.dart/createActivity: creating initial instance...');
     final instanceRef = await ActivityInstanceService.createActivityInstance(
       templateId: habitRef.id,
       dueDate: InstanceDateCalculator.calculateInitialDueDate(
@@ -492,16 +523,26 @@ Future<DocumentReference> createActivity({
       dueTime: dueTime,
       template: activity,
       userId: uid,
-    );
+    ).timeout(const Duration(seconds: 10));
+    print('backend.dart/createActivity: instance created id=${instanceRef.id}');
     // Get the created instance and broadcast the event
     try {
+      print(
+          'backend.dart/createActivity: fetching created instance for broadcast...');
       final instance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instanceRef.id,
       );
       InstanceEvents.broadcastInstanceCreated(instance);
-    } catch (e) {}
+      print('backend.dart/createActivity: broadcasted instance created');
+    } catch (e) {
+      // Surface errors so callers can notify the user
+      print('createActivity: error fetching created instance: $e');
+      rethrow;
+    }
   } catch (e) {
-    // Don't fail the activity creation if instance creation fails
+    // Surface instance creation errors so UI can display them
+    print('createActivity: error creating initial instance: $e');
+    rethrow;
   }
   return habitRef;
 }

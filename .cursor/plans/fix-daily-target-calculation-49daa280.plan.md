@@ -1,4 +1,12 @@
-<!-- 49daa280-07b0-4709-b00e-be4fac8b51dc 06b256e1-0597-44a5-8fa8-21cd590d027e -->
+---
+name: Habit Completion Window System
+overview: ""
+todos:
+  - id: 278a2819-db4b-4f4d-a8fe-8b5c378ade6f
+    content: Test window system with day advancer for various frequencies
+    status: pending
+---
+
 # Habit Completion Window System
 
 ## Overview
@@ -245,14 +253,3 @@ Example flow:
 - Partial completions preserved until window expires
 - Maintains schedule rhythm even with skips
 - Works seamlessly with day advancer testing
-
-### To-dos
-
-- [ ] Add windowEndDate and windowDuration fields to ActivityInstanceRecord schema
-- [ ] Modify DayEndProcessor to check window expiry instead of day boundary
-- [ ] Add _generateNextInstance helper to create next habit after skip/complete
-- [ ] Update createActivityInstance to calculate and set window fields
-- [ ] Update completeActivityInstance to generate next instance immediately
-- [ ] Update Queue page to show habits in active window with countdown
-- [ ] Update DailyProgressRecord to use actual completion date
-- [ ] Test window system with day advancer for various frequencies

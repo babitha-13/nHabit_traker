@@ -1,41 +1,199 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/notification_service.dart';
+import 'package:habit_tracker/Helper/utils/alarm_service.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 /// Service for managing reminder scheduling for tasks and habits
 class ReminderScheduler {
-  /// Schedule a reminder for a specific instance
+  /// Schedule reminders for a specific instance based on template reminders
   static Future<void> scheduleReminderForInstance(
       ActivityInstanceRecord instance) async {
     if (!_shouldScheduleReminder(instance)) {
       return;
     }
     try {
-      // Calculate reminder time (10 minutes before due time)
-      final reminderTime = _calculateReminderTime(instance);
-      if (reminderTime == null) {
+      // Get the template to access reminder configurations
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+      final templateRef = ActivityRecord.collectionForUser(userId)
+          .doc(instance.templateId);
+      final templateDoc = await templateRef.get();
+      if (!templateDoc.exists) {
         return;
       }
-      // Only schedule if in the future
-      if (reminderTime.isAfter(DateTime.now())) {
-        await NotificationService.scheduleReminder(
-          id: instance.reference.id,
-          title: instance.templateName,
-          scheduledTime: reminderTime,
-          body: 'Due in 10 minutes',
-          payload: instance.reference.id,
+      final template = ActivityRecord.fromSnapshot(templateDoc);
+      
+      // Get reminders from template
+      List<ReminderConfig> reminders = [];
+      if (template.hasReminders()) {
+        reminders = ReminderConfigList.fromMapList(template.reminders);
+      }
+      
+      // If no reminders configured, use default (10 minutes before)
+      if (reminders.isEmpty) {
+        final reminderTime = _calculateReminderTime(instance);
+        if (reminderTime != null && reminderTime.isAfter(DateTime.now())) {
+          await NotificationService.scheduleReminder(
+            id: instance.reference.id,
+            title: instance.templateName,
+            scheduledTime: reminderTime,
+            body: 'Due in 10 minutes',
+            payload: instance.reference.id,
+          );
+        }
+        return;
+      }
+      
+      // Schedule each configured reminder
+      for (final reminder in reminders) {
+        if (!reminder.enabled) continue;
+        
+        final reminderTime = _calculateReminderTimeFromOffset(
+          instance: instance,
+          offsetMinutes: reminder.offsetMinutes,
         );
-      } else {}
-    } catch (e) {}
+        
+        if (reminderTime == null || !reminderTime.isAfter(DateTime.now())) {
+          continue;
+        }
+        
+        // Generate unique ID for this reminder
+        final reminderId = '${instance.reference.id}_${reminder.id}';
+        
+        if (reminder.type == 'alarm') {
+          // Schedule as system alarm
+          if (AlarmService.isSupported()) {
+            await AlarmService.scheduleAlarm(
+              id: reminderId.hashCode,
+              scheduledTime: reminderTime,
+              title: instance.templateName,
+              body: _getReminderBody(reminder.offsetMinutes),
+            );
+          } else {
+            // Fallback to notification if alarms not supported
+            await NotificationService.scheduleReminder(
+              id: reminderId,
+              title: instance.templateName,
+              scheduledTime: reminderTime,
+              body: _getReminderBody(reminder.offsetMinutes),
+              payload: instance.reference.id,
+            );
+          }
+        } else {
+          // Schedule as notification
+          await NotificationService.scheduleReminder(
+            id: reminderId,
+            title: instance.templateName,
+            scheduledTime: reminderTime,
+            body: _getReminderBody(reminder.offsetMinutes),
+            payload: instance.reference.id,
+          );
+        }
+      }
+    } catch (e) {
+      print('ReminderScheduler: Error scheduling reminders: $e');
+    }
+  }
+  
+  /// Calculate reminder time based on offset from due time
+  static DateTime? _calculateReminderTimeFromOffset({
+    required ActivityInstanceRecord instance,
+    required int offsetMinutes,
+  }) {
+    try {
+      if (instance.dueDate == null) return null;
+      
+      DateTime dueDateTime;
+      if (instance.hasDueTime()) {
+        final timeOfDay = TimeUtils.stringToTimeOfDay(instance.dueTime);
+        if (timeOfDay == null) return null;
+        dueDateTime = DateTime(
+          instance.dueDate!.year,
+          instance.dueDate!.month,
+          instance.dueDate!.day,
+          timeOfDay.hour,
+          timeOfDay.minute,
+        );
+      } else {
+        // If no due time, use start of day
+        dueDateTime = DateTime(
+          instance.dueDate!.year,
+          instance.dueDate!.month,
+          instance.dueDate!.day,
+        );
+      }
+      
+      // Calculate reminder time by adding offset
+      final reminderTime = dueDateTime.add(Duration(minutes: offsetMinutes));
+      return reminderTime;
+    } catch (e) {
+      return null;
+    }
+  }
+  
+  /// Get reminder body text based on offset
+  static String _getReminderBody(int offsetMinutes) {
+    if (offsetMinutes == 0) {
+      return 'Due now';
+    } else if (offsetMinutes < 0) {
+      final absMinutes = offsetMinutes.abs();
+      if (absMinutes < 60) {
+        return 'Due in ${absMinutes} minute${absMinutes == 1 ? '' : 's'}';
+      } else if (absMinutes < 1440) {
+        final hours = absMinutes ~/ 60;
+        return 'Due in ${hours} hour${hours == 1 ? '' : 's'}';
+      } else {
+        final days = absMinutes ~/ 1440;
+        return 'Due in ${days} day${days == 1 ? '' : 's'}';
+      }
+    } else {
+      return 'Reminder';
+    }
   }
 
-  /// Cancel reminder for a specific instance
+  /// Cancel all reminders for a specific instance
   static Future<void> cancelReminderForInstance(String instanceId) async {
     try {
+      // Cancel default notification
       await NotificationService.cancelNotification(instanceId);
-    } catch (e) {}
+      
+      // Cancel all reminder-specific notifications/alarms
+      // We need to get the template to know all reminder IDs
+      try {
+        final instances = await queryAllInstances(userId: currentUserUid);
+        final instance = instances.firstWhere(
+          (i) => i.reference.id == instanceId,
+          orElse: () => instances.first,
+        );
+        
+        final userId = currentUserUid;
+        if (userId.isEmpty) return;
+        final templateRef = ActivityRecord.collectionForUser(userId)
+            .doc(instance.templateId);
+        final templateDoc = await templateRef.get();
+        if (templateDoc.exists) {
+          final template = ActivityRecord.fromSnapshot(templateDoc);
+          if (template.hasReminders()) {
+            final reminders = ReminderConfigList.fromMapList(template.reminders);
+            for (final reminder in reminders) {
+              final reminderId = '${instanceId}_${reminder.id}';
+              await NotificationService.cancelNotification(reminderId);
+              if (reminder.type == 'alarm' && AlarmService.isSupported()) {
+                await AlarmService.cancelAlarm(reminderId.hashCode);
+              }
+            }
+          }
+        }
+      } catch (e) {
+        // If we can't get template, just cancel the main notification
+      }
+    } catch (e) {
+      print('ReminderScheduler: Error canceling reminders: $e');
+    }
   }
 
   /// Reschedule reminder for a specific instance
@@ -56,11 +214,9 @@ class ReminderScheduler {
       }
       // Get all active instances
       final instances = await queryAllInstances(userId: userId);
-      int scheduledCount = 0;
       for (final instance in instances) {
         if (_shouldScheduleReminder(instance)) {
           await scheduleReminderForInstance(instance);
-          scheduledCount++;
         }
       }
     } catch (e) {}
@@ -85,8 +241,8 @@ class ReminderScheduler {
     if (!instance.isActive) {
       return false;
     }
-    // Skip if no due date or time
-    if (instance.dueDate == null || !instance.hasDueTime()) {
+    // Skip if no due date
+    if (instance.dueDate == null) {
       return false;
     }
     return true;

@@ -46,6 +46,10 @@ class GoalRecord extends FirestoreRecord {
   bool? _isActive;
   bool get isActive => _isActive ?? true;
   bool hasIsActive() => _isActive != null;
+  // "completedAt" field.
+  DateTime? _completedAt;
+  DateTime? get completedAt => _completedAt;
+  bool hasCompletedAt() => _completedAt != null;
   void _initializeFields() {
     _whatToAchieve = snapshotData['whatToAchieve'] as String?;
     _byWhen = snapshotData['byWhen'] as String?;
@@ -56,6 +60,7 @@ class GoalRecord extends FirestoreRecord {
     _createdAt = snapshotData['createdAt'] as DateTime?;
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
     _isActive = snapshotData['isActive'] as bool?;
+    _completedAt = snapshotData['completedAt'] as DateTime?;
   }
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('goals');
@@ -97,6 +102,7 @@ Map<String, dynamic> createGoalRecordData({
   DateTime? createdAt,
   DateTime? lastUpdated,
   bool? isActive,
+  DateTime? completedAt,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -109,6 +115,7 @@ Map<String, dynamic> createGoalRecordData({
       'createdAt': createdAt,
       'lastUpdated': lastUpdated,
       'isActive': isActive,
+      'completedAt': completedAt,
     }.withoutNulls,
   );
   return firestoreData;
@@ -125,7 +132,8 @@ class GoalRecordDocumentEquality implements Equality<GoalRecord> {
         e1?.lastShownAt == e2?.lastShownAt &&
         e1?.createdAt == e2?.createdAt &&
         e1?.lastUpdated == e2?.lastUpdated &&
-        e1?.isActive == e2?.isActive;
+        e1?.isActive == e2?.isActive &&
+        e1?.completedAt == e2?.completedAt;
   }
   @override
   int hash(GoalRecord? e) => const ListEquality().hash([
@@ -138,6 +146,7 @@ class GoalRecordDocumentEquality implements Equality<GoalRecord> {
         e?.createdAt,
         e?.lastUpdated,
         e?.isActive,
+        e?.completedAt,
       ]);
   @override
   bool isValidKey(Object? o) => o is GoalRecord;

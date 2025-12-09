@@ -37,7 +37,7 @@ class ActivityInstanceService {
           template: template,
           explicitDueDate: null,
         );
-    // For habits, set belongsToDate to the actual due date (no 2 AM shifting for creation)
+    // For habits, set belongsToDate to the actual due date
     final normalizedDate = initialDueDate != null
         ? DateTime(
             initialDueDate.year, initialDueDate.month, initialDueDate.day)
@@ -457,17 +457,27 @@ class ActivityInstanceService {
         statusCounts[inst.status] = (statusCounts[inst.status] ?? 0) + 1;
       }
       // Separate tasks and habits for different filtering logic
-      // Exclude sequence_item types from normal queries
+      // Exclude non-productive/sequence_item types from normal queries
+      // (sequence_item is legacy, now all are non_productive)
+      // Also filter out inactive instances to match tasks page behavior
       final taskInstances = allInstances
-          .where((inst) => inst.templateCategoryType == 'task')
+          .where((inst) =>
+              inst.templateCategoryType == 'task' &&
+              inst.templateCategoryType != 'non_productive' &&
+              inst.templateCategoryType != 'sequence_item' &&
+              inst.isActive) // Filter inactive instances
           .toList();
       final habitInstances = allInstances
-          .where((inst) => inst.templateCategoryType == 'habit')
+          .where((inst) =>
+              inst.templateCategoryType == 'habit' &&
+              inst.isActive) // Filter inactive instances
           .toList();
       final List<ActivityInstanceRecord> finalInstanceList = [];
       // For tasks: use earliest-only logic with status priority
       final Map<String, ActivityInstanceRecord> earliestTasks = {};
       for (final instance in taskInstances) {
+        // Skip inactive instances (should already be filtered, but double-check)
+        if (!instance.isActive) continue;
         final templateId = instance.templateId;
         if (!earliestTasks.containsKey(templateId)) {
           earliestTasks[templateId] = instance;
@@ -527,14 +537,20 @@ class ActivityInstanceService {
             }
           }
         }
-        // ALWAYS include the next pending instance (for future planning)
-        final nextPending = instances.firstWhere(
-          (instance) => instance.status == 'pending',
-          orElse: () => instances.first,
-        );
-        if (!instancesToInclude.contains(nextPending)) {
-          instancesToInclude.add(nextPending);
+        // Find the next pending instance (for future planning)
+        final pendingInstances = instances
+            .where((instance) => instance.status == 'pending')
+            .toList();
+
+        if (pendingInstances.isNotEmpty) {
+          // Include the earliest pending instance if not already included
+          final nextPending = pendingInstances.first;
+          if (!instancesToInclude.contains(nextPending)) {
+            instancesToInclude.add(nextPending);
+          }
         }
+        // Note: If no pending instances exist, MorningCatchUpService will handle
+        // generating them at the appropriate time. Queries should not have side effects.
         finalInstanceList.addAll(instancesToInclude);
       }
       // Sort: instances with due dates first (oldest first), then nulls last
@@ -725,6 +741,25 @@ class ActivityInstanceService {
     String? notes,
     String? userId,
   }) async {
+    await completeInstanceWithBackdate(
+      instanceId: instanceId,
+      finalValue: finalValue,
+      finalAccumulatedTime: finalAccumulatedTime,
+      notes: notes,
+      userId: userId,
+      completedAt: null, // Use current time
+    );
+  }
+
+  /// Complete an activity instance with backdated completion time
+  static Future<void> completeInstanceWithBackdate({
+    required String instanceId,
+    dynamic finalValue,
+    int? finalAccumulatedTime,
+    String? notes,
+    String? userId,
+    DateTime? completedAt, // If null, uses current time
+  }) async {
     final uid = userId ?? _currentUserId;
     try {
       final instanceRef =
@@ -735,10 +770,11 @@ class ActivityInstanceService {
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
+      final completionTime = completedAt ?? now;
       // Update current instance as completed
       await instanceRef.update({
         'status': 'completed',
-        'completedAt': now,
+        'completedAt': completionTime,
         'currentValue': finalValue ?? instance.currentValue,
         'accumulatedTime': finalAccumulatedTime ?? instance.accumulatedTime,
         'notes': notes ?? instance.notes,
@@ -806,6 +842,24 @@ class ActivityInstanceService {
       if (!instanceDoc.exists) {
         throw Exception('Activity instance not found');
       }
+
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+
+      // For habits, delete any pending future instances that were auto-generated
+      if (instance.templateCategoryType == 'habit') {
+        final futureInstancesQuery =
+            ActivityInstanceRecord.collectionForUser(uid)
+                .where('templateId', isEqualTo: instance.templateId)
+                .where('status', isEqualTo: 'pending')
+                .where('belongsToDate', isGreaterThan: instance.belongsToDate);
+
+        final futureInstances = await futureInstancesQuery.get();
+        for (final doc in futureInstances.docs) {
+          await doc.reference.delete();
+          print('Deleted future instance: ${doc.id}');
+        }
+      }
+
       await instanceRef.update({
         'status': 'pending',
         'completedAt': null,
@@ -1029,6 +1083,9 @@ class ActivityInstanceService {
     required String instanceId,
     String? notes,
     String? userId,
+    DateTime? skippedAt, // Optional backdated skip time
+    bool skipAutoGeneration =
+        false, // NEW: Prevent automatic next instance creation
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -1040,54 +1097,245 @@ class ActivityInstanceService {
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
+      final skipTime = skippedAt ?? now;
+      print(
+          'ActivityInstanceService: Skipping instance ${instance.templateName} (instanceId: $instanceId, dueDate: ${instance.dueDate}, windowEndDate: ${instance.windowEndDate}, skippedAt: $skipTime, skipAutoGeneration: $skipAutoGeneration)');
       // Update current instance as skipped
       await instanceRef.update({
         'status': 'skipped',
-        'skippedAt': now,
+        'skippedAt': skipTime,
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
-      // For habits, generate next instance immediately using window system
-      if (instance.templateCategoryType == 'habit') {
-        await _generateNextHabitInstance(instance, uid);
-      } else {
-        // For tasks, use the existing recurring logic
-        final templateRef =
-            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-        final templateDoc = await templateRef.get();
-        if (templateDoc.exists) {
-          final template = ActivityRecord.fromSnapshot(templateDoc);
-          // Generate next instance if template is recurring and still active
-          if (template.isRecurring && template.isActive) {
-            final nextDueDate = _calculateNextDueDate(
-              currentDueDate: instance.dueDate!,
-              template: template,
-            );
-            if (nextDueDate != null) {
-              final newInstanceRef = await createActivityInstance(
-                templateId: instance.templateId,
-                dueDate: nextDueDate,
-                dueTime: template.dueTime,
+      // Only generate next instance if skipAutoGeneration is false
+      if (!skipAutoGeneration) {
+        // For habits, generate next instance immediately using window system
+        if (instance.templateCategoryType == 'habit') {
+          print(
+              'ActivityInstanceService: Generating next habit instance after skip for ${instance.templateName}');
+          await _generateNextHabitInstance(instance, uid);
+        } else {
+          // For tasks, use the existing recurring logic
+          final templateRef =
+              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+          final templateDoc = await templateRef.get();
+          if (templateDoc.exists) {
+            final template = ActivityRecord.fromSnapshot(templateDoc);
+            // Generate next instance if template is recurring and still active
+            if (template.isRecurring && template.isActive) {
+              final nextDueDate = _calculateNextDueDate(
+                currentDueDate: instance.dueDate!,
                 template: template,
-                userId: uid,
               );
-              // Broadcast the instance creation event for UI update
-              try {
-                final newInstance = await getUpdatedInstance(
-                  instanceId: newInstanceRef.id,
+              if (nextDueDate != null) {
+                final newInstanceRef = await createActivityInstance(
+                  templateId: instance.templateId,
+                  dueDate: nextDueDate,
+                  dueTime: template.dueTime,
+                  template: template,
                   userId: uid,
                 );
-                InstanceEvents.broadcastInstanceCreated(newInstance);
-              } catch (e) {}
+                // Broadcast the instance creation event for UI update
+                try {
+                  final newInstance = await getUpdatedInstance(
+                    instanceId: newInstanceRef.id,
+                    userId: uid,
+                  );
+                  InstanceEvents.broadcastInstanceCreated(newInstance);
+                } catch (e) {}
+              }
             }
           }
         }
+      } else {
+        print(
+            'ActivityInstanceService: Skipping next instance generation (skipAutoGeneration=true)');
       }
       // Cancel reminder for skipped instance
       try {
         await ReminderScheduler.cancelReminderForInstance(instanceId);
       } catch (e) {}
     } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Efficiently skip expired instances using batch writes
+  /// Handles frequency-aware date calculation to find the "yesterday" instance
+  /// Stops at yesterday (day before today) for manual user confirmation
+  static Future<DocumentReference?> bulkSkipExpiredInstancesWithBatches({
+    required ActivityInstanceRecord oldestInstance,
+    required ActivityRecord template,
+    required String userId,
+  }) async {
+    try {
+      final yesterday = DateService.yesterdayStart;
+      final now = DateService.currentDate;
+
+      print(
+          'bulkSkipExpiredInstancesWithBatches: Starting for ${template.name}');
+      print('  oldestInstance dueDate: ${oldestInstance.dueDate}');
+      print('  yesterday: $yesterday');
+
+      // Calculate all due dates from oldestInstance to find which one has window ending on yesterday
+      final List<DateTime> allDueDates = [];
+      DateTime currentDueDate = oldestInstance.dueDate ?? DateTime.now();
+
+      // Generate due dates based on frequency until we pass yesterday
+      while (currentDueDate.isBefore(yesterday.add(const Duration(days: 30)))) {
+        allDueDates.add(currentDueDate);
+        final nextDate = _calculateNextDueDate(
+          currentDueDate: currentDueDate,
+          template: template,
+        );
+        if (nextDate == null) break;
+        currentDueDate = nextDate;
+      }
+
+      print('  Generated ${allDueDates.length} due dates');
+
+      // Find which instance's window would end EXACTLY on yesterday
+      // We only want instances that expired yesterday, not ongoing windows
+      DocumentReference? yesterdayInstanceRef;
+      int yesterdayInstanceIndex = -1;
+
+      for (int i = 0; i < allDueDates.length; i++) {
+        final dueDate = allDueDates[i];
+        final windowDuration = await _calculateAdaptiveWindowDuration(
+          template: template,
+          userId: userId,
+          currentDate: dueDate,
+        );
+
+        if (windowDuration == 0) continue;
+
+        final windowEnd = dueDate.add(Duration(days: windowDuration - 1));
+        final windowEndNormalized =
+            DateTime(windowEnd.year, windowEnd.month, windowEnd.day);
+
+        // ONLY check if this window ends EXACTLY on yesterday
+        // Do NOT include ongoing windows (those ending in the future)
+        if (windowEndNormalized.isAtSameMomentAs(yesterday)) {
+          yesterdayInstanceIndex = i;
+          print(
+              '  Found yesterday instance at index $i (dueDate: $dueDate, windowEnd: $windowEndNormalized)');
+          break;
+        }
+
+        // Stop searching once we reach windows that end after yesterday
+        // This ensures we don't touch ongoing windows
+        if (windowEndNormalized.isAfter(yesterday)) {
+          print(
+              '  Reached future window at index $i (ends $windowEndNormalized), stopping search');
+          break;
+        }
+      }
+
+      if (yesterdayInstanceIndex == -1) {
+        print('  No instance found for yesterday, returning null');
+        return null;
+      }
+
+      // Step 1: Skip the oldest instance without auto-generation
+      print(
+          '  Step 1: Skipping oldest instance ${oldestInstance.reference.id}');
+      await skipInstance(
+        instanceId: oldestInstance.reference.id,
+        skippedAt: oldestInstance.windowEndDate ?? oldestInstance.dueDate,
+        skipAutoGeneration: true,
+        userId: userId,
+      );
+
+      // Step 2: Batch create and skip all instances between oldest and yesterday (excluding yesterday)
+      final instancesToSkip = allDueDates.sublist(1, yesterdayInstanceIndex);
+
+      if (instancesToSkip.isNotEmpty) {
+        print(
+            '  Step 2: Batch creating and skipping ${instancesToSkip.length} instances');
+
+        // Use Firestore batch writes (max 500 operations per batch)
+        final firestore = FirebaseFirestore.instance;
+        const batchSize =
+            250; // Conservative: 2 operations per instance (create + update)
+
+        for (int i = 0; i < instancesToSkip.length; i += batchSize) {
+          final batch = firestore.batch();
+          final end = (i + batchSize < instancesToSkip.length)
+              ? i + batchSize
+              : instancesToSkip.length;
+
+          for (int j = i; j < end; j++) {
+            final dueDate = instancesToSkip[j];
+            final windowDuration = await _calculateAdaptiveWindowDuration(
+              template: template,
+              userId: userId,
+              currentDate: dueDate,
+            );
+
+            if (windowDuration == 0) continue;
+
+            final windowEndDate =
+                dueDate.add(Duration(days: windowDuration - 1));
+            final normalizedDate =
+                DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+            // Create instance data
+            final instanceData = createActivityInstanceRecordData(
+              templateId: template.reference.id,
+              dueDate: dueDate,
+              dueTime: template.dueTime,
+              status: 'skipped', // Create as already skipped
+              skippedAt: windowEndDate,
+              createdTime: now,
+              lastUpdated: now,
+              isActive: true,
+              lastDayValue: 0,
+              belongsToDate: normalizedDate,
+              windowEndDate: windowEndDate,
+              windowDuration: windowDuration,
+              // Cache template data
+              templateName: template.name,
+              templateCategoryId: template.categoryId,
+              templateCategoryName: template.categoryName,
+              templateCategoryType: template.categoryType,
+              templatePriority: template.priority,
+              templateTrackingType: template.trackingType,
+              templateTarget: template.target,
+              templateUnit: template.unit,
+              templateDescription: template.description,
+              templateShowInFloatingTimer: template.showInFloatingTimer,
+              templateIsRecurring: template.isRecurring,
+              templateEveryXValue: template.everyXValue,
+              templateEveryXPeriodType: template.everyXPeriodType,
+              templateTimesPerPeriod: template.timesPerPeriod,
+              templatePeriodType: template.periodType,
+            );
+
+            final newDocRef =
+                ActivityInstanceRecord.collectionForUser(userId).doc();
+            batch.set(newDocRef, instanceData);
+          }
+
+          await batch.commit();
+          print('    Batch committed: ${end - i} instances');
+        }
+      }
+
+      // Step 3: Create yesterday instance as PENDING
+      print('  Step 3: Creating yesterday instance as PENDING');
+      final yesterdayDueDate = allDueDates[yesterdayInstanceIndex];
+      yesterdayInstanceRef = await createActivityInstance(
+        templateId: template.reference.id,
+        dueDate: yesterdayDueDate,
+        template: template,
+        userId: userId,
+      );
+
+      print(
+          '  Completed: yesterday instance created ${yesterdayInstanceRef.id}');
+      return yesterdayInstanceRef;
+    } catch (e) {
+      print('Error in bulkSkipExpiredInstancesWithBatches: $e');
       rethrow;
     }
   }
@@ -1593,14 +1841,30 @@ class ActivityInstanceService {
     String userId,
   ) async {
     try {
+      // Validate required fields
+      if (instance.windowEndDate == null) {
+        print(
+            'ActivityInstanceService: ERROR - Cannot generate next instance for ${instance.templateName}: windowEndDate is null');
+        return;
+      }
+
       // Get template for rate calculation
       final templateRef =
           ActivityRecord.collectionForUser(userId).doc(instance.templateId);
       final templateDoc = await templateRef.get();
       if (!templateDoc.exists) {
+        print(
+            'ActivityInstanceService: ERROR - Template ${instance.templateId} not found for ${instance.templateName}');
         return;
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
+
+      // Check if template is still active
+      if (!template.isActive) {
+        print(
+            'ActivityInstanceService: Template ${instance.templateName} is not active, skipping instance generation');
+        return;
+      }
 
       DateTime nextBelongsToDate;
       int nextWindowDuration;
@@ -1639,6 +1903,8 @@ class ActivityInstanceService {
         );
         // Handle case where target is already met
         if (nextWindowDuration == 0) {
+          print(
+              'ActivityInstanceService: Target already met for ${instance.templateName}, skipping instance generation');
           return;
         }
       } else {
@@ -1650,10 +1916,29 @@ class ActivityInstanceService {
           userId: userId,
           currentDate: nextBelongsToDate,
         );
+        // Handle case where target is already met
+        if (nextWindowDuration == 0) {
+          print(
+              'ActivityInstanceService: Target already met for ${instance.templateName}, skipping instance generation');
+          return;
+        }
       }
 
       final nextWindowEndDate =
           nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
+
+      // Check if instance already exists for this template and date
+      final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateId', isEqualTo: instance.templateId)
+          .where('belongsToDate', isEqualTo: nextBelongsToDate)
+          .where('status', isEqualTo: 'pending');
+      final existingInstances = await existingQuery.get();
+      if (existingInstances.docs.isNotEmpty) {
+        print(
+            'ActivityInstanceService: Instance already exists for ${instance.templateName} on ${nextBelongsToDate}, skipping creation');
+        return; // Instance already exists, don't create duplicate
+      }
+
       // Create next instance data
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,
@@ -1685,12 +1970,29 @@ class ActivityInstanceService {
         windowDuration: nextWindowDuration,
       );
       // Add to Firestore
-      await ActivityInstanceRecord.collectionForUser(userId)
-          .add(nextInstanceData);
+      final newInstanceRef =
+          await ActivityInstanceRecord.collectionForUser(userId)
+              .add(nextInstanceData);
       print(
-          'ActivityInstanceService: Generated next habit instance for ${instance.templateName} (${nextBelongsToDate} - ${nextWindowEndDate})');
-    } catch (e) {
-      // Don't rethrow - we don't want to fail the completion
+          'ActivityInstanceService: Generated next habit instance for ${instance.templateName} (${nextBelongsToDate} - ${nextWindowEndDate}), instanceId: ${newInstanceRef.id}');
+
+      // Broadcast instance creation event for UI update
+      try {
+        final newInstance = await getUpdatedInstance(
+          instanceId: newInstanceRef.id,
+          userId: userId,
+        );
+        InstanceEvents.broadcastInstanceCreated(newInstance);
+      } catch (e) {
+        print(
+            'ActivityInstanceService: Error broadcasting instance creation: $e');
+      }
+    } catch (e, stackTrace) {
+      // Log error with stack trace for debugging
+      print(
+          'ActivityInstanceService: ERROR generating next habit instance for ${instance.templateName} (templateId: ${instance.templateId}): $e');
+      print('Stack trace: $stackTrace');
+      // Don't rethrow - we don't want to fail the completion, but log the error
     }
   }
 

@@ -3,6 +3,7 @@ import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+
 class DailyProgressRecord extends FirestoreRecord {
   DailyProgressRecord._(
     super.reference,
@@ -90,6 +91,14 @@ class DailyProgressRecord extends FirestoreRecord {
   DateTime? _lastEditedAt;
   DateTime? get lastEditedAt => _lastEditedAt;
   bool hasLastEditedAt() => _lastEditedAt != null;
+  // "cumulativeScoreSnapshot" field - cumulative score at end of day
+  double? _cumulativeScoreSnapshot;
+  double get cumulativeScoreSnapshot => _cumulativeScoreSnapshot ?? 0.0;
+  bool hasCumulativeScoreSnapshot() => _cumulativeScoreSnapshot != null;
+  // "dailyScoreGain" field - points gained/lost on this day
+  double? _dailyScoreGain;
+  double get dailyScoreGain => _dailyScoreGain ?? 0.0;
+  bool hasDailyScoreGain() => _dailyScoreGain != null;
   void _initializeFields() {
     _userId = snapshotData['userId'] as String?;
     _date = snapshotData['date'] as DateTime?;
@@ -115,7 +124,11 @@ class DailyProgressRecord extends FirestoreRecord {
         (snapshotData['taskBreakdown'] as List?)?.cast<Map<String, dynamic>>();
     _createdAt = snapshotData['createdAt'] as DateTime?;
     _lastEditedAt = snapshotData['lastEditedAt'] as DateTime?;
+    _cumulativeScoreSnapshot =
+        (snapshotData['cumulativeScoreSnapshot'] as num?)?.toDouble();
+    _dailyScoreGain = (snapshotData['dailyScoreGain'] as num?)?.toDouble();
   }
+
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('daily_progress');
   static CollectionReference collectionForUser(String userId) =>
@@ -138,6 +151,7 @@ class DailyProgressRecord extends FirestoreRecord {
       rethrow;
     }
   }
+
   static DailyProgressRecord getDocumentFromData(
     Map<String, dynamic> data,
     DocumentReference reference,
@@ -153,6 +167,7 @@ class DailyProgressRecord extends FirestoreRecord {
       other is DailyProgressRecord &&
       reference.path.hashCode == other.reference.path.hashCode;
 }
+
 Map<String, dynamic> createDailyProgressRecordData({
   String? userId,
   DateTime? date,
@@ -174,6 +189,8 @@ Map<String, dynamic> createDailyProgressRecordData({
   List<Map<String, dynamic>>? taskBreakdown,
   DateTime? createdAt,
   DateTime? lastEditedAt,
+  double? cumulativeScoreSnapshot,
+  double? dailyScoreGain,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -197,10 +214,13 @@ Map<String, dynamic> createDailyProgressRecordData({
       'taskBreakdown': taskBreakdown,
       'createdAt': createdAt,
       'lastEditedAt': lastEditedAt,
+      'cumulativeScoreSnapshot': cumulativeScoreSnapshot,
+      'dailyScoreGain': dailyScoreGain,
     }.withoutNulls,
   );
   return firestoreData;
 }
+
 class DailyProgressRecordDocumentEquality
     implements Equality<DailyProgressRecord> {
   const DailyProgressRecordDocumentEquality();
@@ -226,8 +246,11 @@ class DailyProgressRecordDocumentEquality
         const MapEquality()
             .equals(e1?.categoryBreakdown, e2?.categoryBreakdown) &&
         e1?.createdAt == e2?.createdAt &&
-        e1?.lastEditedAt == e2?.lastEditedAt;
+        e1?.lastEditedAt == e2?.lastEditedAt &&
+        e1?.cumulativeScoreSnapshot == e2?.cumulativeScoreSnapshot &&
+        e1?.dailyScoreGain == e2?.dailyScoreGain;
   }
+
   @override
   int hash(DailyProgressRecord? e) => const ListEquality().hash([
         e?.userId,
@@ -248,5 +271,7 @@ class DailyProgressRecordDocumentEquality
         const MapEquality().hash(e?.categoryBreakdown),
         e?.createdAt,
         e?.lastEditedAt,
+        e?.cumulativeScoreSnapshot,
+        e?.dailyScoreGain,
       ]);
 }

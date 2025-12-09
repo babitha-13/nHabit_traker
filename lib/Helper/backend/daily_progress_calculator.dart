@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 
 /// Service to calculate daily progress for a specific date
 /// Used by both Queue page (for today) and DayEndProcessor (for historical dates)
@@ -21,9 +22,12 @@ class DailyProgressCalculator {
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     // Build instances within window for the target date (status-agnostic)
     // This set is used for target calculations and counts
+    // Exclude non-productive and legacy sequence_item types
     final inWindowHabits = allInstances
         .where((inst) =>
             inst.templateCategoryType == 'habit' &&
+            inst.templateCategoryType != 'non_productive' &&
+            inst.templateCategoryType != 'sequence_item' &&
             _isWithinWindow(inst, normalizedDate))
         .toList();
     // For UI/display list: pending + completed-on-date (unchanged behavior)
@@ -68,7 +72,11 @@ class DailyProgressCalculator {
     final displayTasks = [...pendingTasks, ...completedTasksOnDate];
     // For task target calculation: include all tasks that should be counted for this date
     // This includes pending tasks due on/before the date AND completed tasks completed on the date
+    // Exclude non-productive items and legacy sequence_items
     final allTasksForMath = taskInstances.where((task) {
+      // Skip non-productive items and legacy sequence_items
+      if (task.templateCategoryType == 'non_productive' ||
+          task.templateCategoryType == 'sequence_item') return false;
       // Include if completed on the target date
       if (task.status == 'completed' && task.completedAt != null) {
         final completedDate = DateTime(

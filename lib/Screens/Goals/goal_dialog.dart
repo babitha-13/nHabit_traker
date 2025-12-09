@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/goal_record.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
+import 'package:habit_tracker/Screens/Goals/goal_history_page.dart';
 
 /// Goal dialog for displaying and editing user goals
 /// Supports both view and edit modes
@@ -145,6 +146,45 @@ class _GoalDialogState extends State<GoalDialog> {
     });
   }
 
+  Future<void> _markAsCompleted() async {
+    try {
+      await GoalService.markGoalAsCompleted(users.uid ?? '');
+      // Clear current goal data
+      setState(() {
+        _currentGoal = null;
+        _whatController.clear();
+        _byWhenController.clear();
+        _whyController.clear();
+        _howController.clear();
+        _avoidController.clear();
+        _isEditMode = true; // Automatically switch to edit mode for new goal
+      });
+      // Reload goal (will be null now)
+      await _loadGoal();
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Goal marked as completed! 🎉'),
+          backgroundColor: Colors.green,
+        ),
+      );
+    } catch (e) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Error marking goal as completed. Please try again.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  void _navigateToHistory() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const GoalHistoryPage(),
+      ),
+    );
+  }
+
   Widget _buildFormField({
     required String label,
     required String helperText,
@@ -184,7 +224,6 @@ class _GoalDialogState extends State<GoalDialog> {
   }
 
   Widget _buildDisplayField({
-    required String question,
     required String answer,
   }) {
     final theme = FlutterFlowTheme.of(context);
@@ -192,22 +231,13 @@ class _GoalDialogState extends State<GoalDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          question,
-          style: theme.titleMedium.override(
-            fontFamily: 'Outfit',
-            fontWeight: FontWeight.w600,
-            color: Colors.black,
-          ),
-        ),
-        const SizedBox(height: 8),
-        Text(
           answer,
           style: theme.bodyLarge.override(
             fontFamily: 'Readex Pro',
             color: Colors.black,
           ),
         ),
-        const SizedBox(height: 24),
+        const SizedBox(height: 16),
       ],
     );
   }
@@ -257,13 +287,17 @@ class _GoalDialogState extends State<GoalDialog> {
                           ),
                         ),
                       ),
-                      if (!_isEditMode)
+                      if (!_isEditMode && _currentGoal != null)
+                        IconButton(
+                          onPressed: _navigateToHistory,
+                          icon: const Icon(Icons.history),
+                          tooltip: 'View Goal History',
+                        ),
+                      if (!_isEditMode && _currentGoal != null)
                         IconButton(
                           onPressed: _toggleEditMode,
                           icon: const Icon(Icons.edit),
-                          tooltip: _currentGoal == null
-                              ? 'Create Goal'
-                              : 'Edit Goal',
+                          tooltip: 'Edit Goal',
                         ),
                       IconButton(
                         onPressed: () => Navigator.of(context).pop(),
@@ -356,52 +390,70 @@ class _GoalDialogState extends State<GoalDialog> {
                                     ),
                                   ]
                                 : [
-                                    // View mode - clean text display
-                                    _buildDisplayField(
-                                      question: 'What do you want to achieve?',
-                                      answer: _whatController.text.isNotEmpty
-                                          ? _whatController.text
-                                          : 'Not specified',
-                                    ),
-                                    _buildDisplayField(
-                                      question:
-                                          'By when do you want to achieve this?',
-                                      answer: _byWhenController.text.isNotEmpty
-                                          ? _byWhenController.text
-                                          : 'Not specified',
-                                    ),
-                                    _buildDisplayField(
-                                      question:
-                                          'Why do you want to achieve this?',
-                                      answer: _whyController.text.isNotEmpty
-                                          ? _whyController.text
-                                          : 'Not specified',
-                                    ),
-                                    _buildDisplayField(
-                                      question: 'How will you achieve this?',
-                                      answer: _howController.text.isNotEmpty
-                                          ? _howController.text
-                                          : 'Not specified',
-                                    ),
-                                    _buildDisplayField(
-                                      question:
-                                          'Things I will avoid in order to achieve this',
-                                      answer: _avoidController.text.isNotEmpty
-                                          ? _avoidController.text
-                                          : 'Not specified',
-                                    ),
+                                    // View mode - show only answers
+                                    if (_whatController.text.isNotEmpty)
+                                      _buildDisplayField(
+                                        answer: _whatController.text,
+                                      ),
+                                    if (_byWhenController.text.isNotEmpty)
+                                      _buildDisplayField(
+                                        answer: _byWhenController.text,
+                                      ),
+                                    if (_whyController.text.isNotEmpty)
+                                      _buildDisplayField(
+                                        answer: _whyController.text,
+                                      ),
+                                    if (_howController.text.isNotEmpty)
+                                      _buildDisplayField(
+                                        answer: _howController.text,
+                                      ),
+                                    if (_avoidController.text.isNotEmpty)
+                                      _buildDisplayField(
+                                        answer: _avoidController.text,
+                                      ),
                                   ],
                           ),
                         ),
                       ),
                     ),
                   ),
-                  const SizedBox(height: 24),
                   // Action buttons
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      if (_isEditMode) ...[
+                  if (!_isEditMode && _currentGoal != null) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        OutlinedButton(
+                          onPressed: _markAsCompleted,
+                          style: OutlinedButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                          ),
+                          child: const Text('Mark as Completed'),
+                        ),
+                        ElevatedButton(
+                          onPressed: () async {
+                            Navigator.of(context).pop();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: theme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 24,
+                              vertical: 12,
+                            ),
+                          ),
+                          child: const Text('Yes, I will do it! 💪'),
+                        ),
+                      ],
+                    ),
+                  ] else if (_isEditMode) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
                         TextButton(
                           onPressed: _isSaving ? null : _cancelEdit,
                           child: const Text('Cancel'),
@@ -429,24 +481,25 @@ class _GoalDialogState extends State<GoalDialog> {
                                 )
                               : const Text('Save Goal'),
                         ),
-                      ] else ...[
-                        ElevatedButton(
-                          onPressed: () async {
-                            Navigator.of(context).pop();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
-                            ),
-                          ),
-                          child: const Text('Yes, I will do it! 💪'),
-                        ),
                       ],
-                    ],
-                  ),
+                    ),
+                  ] else ...[
+                    const SizedBox(height: 8),
+                    ElevatedButton(
+                      onPressed: () async {
+                        Navigator.of(context).pop();
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 12,
+                        ),
+                      ),
+                      child: const Text('Yes, I will do it! 💪'),
+                    ),
+                  ],
                 ],
               ),
       ),

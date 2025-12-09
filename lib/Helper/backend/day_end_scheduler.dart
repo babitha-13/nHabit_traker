@@ -2,11 +2,13 @@ import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/notification_service.dart';
+
 /// Service for managing day-end processing with snooze functionality
-/// Handles scheduling, notifications, and user snooze requests
+/// NOTE: Automatic processing is disabled - users must manually confirm status changes via Queue page
+/// Handles scheduling, notifications, and user snooze requests (currently disabled)
 class DayEndScheduler {
   static const int _maxSnoozeMinutes = 60; // 1 hour max snooze
-  static const int _defaultProcessHour = 2; // 2 AM default
+  static const int _defaultProcessHour = 0; // Midnight default
   static const String _scheduledTimeKey = 'day_end_scheduled_time';
   static const String _snoozeUsedKey = 'day_end_snooze_used';
   static const String _lastResetKey = 'day_end_last_reset';
@@ -14,6 +16,7 @@ class DayEndScheduler {
   static int _snoozeUsedMinutes = 0;
   static DateTime? _lastResetDate;
   static Timer? _dayEndTimer;
+
   /// Initialize the day-end scheduler
   /// Should be called when the app starts
   static Future<void> initialize() async {
@@ -24,6 +27,7 @@ class DayEndScheduler {
     // Schedule the next day-end processing
     await _scheduleNextDayEnd();
   }
+
   /// Load scheduler state from SharedPreferences
   static Future<void> _loadState() async {
     try {
@@ -40,9 +44,9 @@ class DayEndScheduler {
       if (lastResetString != null) {
         _lastResetDate = DateTime.parse(lastResetString);
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
+
   /// Save scheduler state to SharedPreferences
   static Future<void> _saveState() async {
     try {
@@ -55,9 +59,9 @@ class DayEndScheduler {
       if (_lastResetDate != null) {
         await prefs.setString(_lastResetKey, _lastResetDate!.toIso8601String());
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
+
   /// Check if snooze budget should be reset (new day)
   static Future<void> _checkAndResetSnoozeBudget() async {
     final today = DateTime.now();
@@ -69,6 +73,7 @@ class DayEndScheduler {
       await _saveState();
     }
   }
+
   /// Schedule the next day-end processing
   static Future<void> _scheduleNextDayEnd() async {
     // Cancel existing timer
@@ -80,8 +85,8 @@ class DayEndScheduler {
       // Use existing scheduled time (may be snoozed)
       nextProcessTime = _scheduledProcessTime!;
     } else {
-      // Calculate next 2 AM
-      nextProcessTime = _getNext2AM(now);
+      // Calculate next midnight
+      nextProcessTime = _getNextMidnight(now);
     }
     // If the scheduled time has already passed today, move to tomorrow
     if (nextProcessTime.isBefore(now)) {
@@ -89,27 +94,31 @@ class DayEndScheduler {
     }
     _scheduledProcessTime = nextProcessTime;
     await _saveState();
-    // Calculate time until processing
-    final timeUntilProcessing = nextProcessTime.difference(now);
-    // Schedule the timer
-    _dayEndTimer = Timer(timeUntilProcessing, () async {
-      await _processDayEnd();
-      // Reschedule for next day
-      await _scheduleNextDayEnd();
-    });
-    // Schedule notifications
-    await _scheduleDayEndNotifications();
+    // NOTE: Automatic timer disabled - day-end processing now requires manual user confirmation
+    // Users can process expired instances via the Queue page "Needs Processing" section
+    // The timer and automatic status changes have been disabled
+    // Schedule the timer (DISABLED)
+    // final timeUntilProcessing = nextProcessTime.difference(now);
+    // _dayEndTimer = Timer(timeUntilProcessing, () async {
+    //   await _processDayEnd();
+    //   // Reschedule for next day
+    //   await _scheduleNextDayEnd();
+    // });
+    // Schedule notifications (disabled since automatic processing is disabled)
+    // await _scheduleDayEndNotifications();
   }
-  /// Get the next 2 AM from the given time
-  static DateTime _getNext2AM(DateTime from) {
-    final today2AM =
+
+  /// Get the next midnight from the given time
+  static DateTime _getNextMidnight(DateTime from) {
+    final todayMidnight =
         DateTime(from.year, from.month, from.day, _defaultProcessHour);
-    if (from.isBefore(today2AM)) {
-      return today2AM;
+    if (from.isBefore(todayMidnight)) {
+      return todayMidnight;
     } else {
-      return today2AM.add(const Duration(days: 1));
+      return todayMidnight.add(const Duration(days: 1));
     }
   }
+
   /// Schedule day-end notifications (1hr, 30min, 15min before)
   static Future<void> _scheduleDayEndNotifications() async {
     if (_scheduledProcessTime == null) return;
@@ -153,6 +162,7 @@ class DayEndScheduler {
       }
     }
   }
+
   /// Process the day-end (called by timer)
   static Future<void> _processDayEnd() async {
     // Trigger the background scheduler to process day-end
@@ -162,6 +172,7 @@ class DayEndScheduler {
     _scheduledProcessTime = null;
     await _saveState();
   }
+
   /// Snooze the day-end processing
   /// Returns true if snooze was successful, false if max snooze reached
   static Future<bool> snooze(int minutes) async {
@@ -183,18 +194,23 @@ class DayEndScheduler {
     await _scheduleNextDayEnd();
     return true;
   }
+
   /// Get remaining snooze budget in minutes
   static int get remainingSnoozeMinutes {
     return _maxSnoozeMinutes - _snoozeUsedMinutes;
   }
+
   /// Get the currently scheduled process time
   static DateTime? get scheduledProcessTime => _scheduledProcessTime;
+
   /// Get snooze used so far
   static int get snoozeUsedMinutes => _snoozeUsedMinutes;
+
   /// Check if user can snooze for the given minutes
   static bool canSnooze(int minutes) {
     return _snoozeUsedMinutes + minutes <= _maxSnoozeMinutes;
   }
+
   /// Get snooze status for UI
   static Map<String, dynamic> getSnoozeStatus() {
     return {
@@ -207,11 +223,13 @@ class DayEndScheduler {
       'canSnooze60': canSnooze(60),
     };
   }
+
   /// Cancel all timers and clear state
   static void cancel() {
     _dayEndTimer?.cancel();
     _dayEndTimer = null;
   }
+
   /// Helper method to check if two dates are the same day
   static bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;

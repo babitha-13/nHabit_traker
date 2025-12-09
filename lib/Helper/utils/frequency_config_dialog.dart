@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_widget.dart';
+
 /// Frequency configuration data model
 class FrequencyConfig {
   final FrequencyType type;
@@ -25,6 +26,7 @@ class FrequencyConfig {
   String toString() {
     return 'FrequencyConfig(type: $type, selectedDays: $selectedDays, timesPerPeriod: $timesPerPeriod, everyXValue: $everyXValue, periodType: $periodType, everyXPeriodType: $everyXPeriodType, startDate: $startDate, endDate: $endDate)';
   }
+
   FrequencyConfig copyWith({
     FrequencyType? type,
     List<int>? selectedDays,
@@ -48,18 +50,21 @@ class FrequencyConfig {
     );
   }
 }
+
 enum FrequencyType {
   daily,
   specificDays,
   timesPerPeriod,
   everyXPeriod,
 }
+
 enum PeriodType {
   days,
   weeks,
   months,
   year,
 }
+
 /// Dialog for configuring task/habit frequency
 class FrequencyConfigDialog extends StatefulWidget {
   final FrequencyConfig initialConfig;
@@ -70,6 +75,7 @@ class FrequencyConfigDialog extends StatefulWidget {
   @override
   State<FrequencyConfigDialog> createState() => _FrequencyConfigDialogState();
 }
+
 class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
   late FrequencyConfig _config;
   @override
@@ -77,66 +83,91 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
     super.initState();
     _config = widget.initialConfig;
   }
+
   void _updateConfig(FrequencyConfig newConfig) {
     setState(() {
       _config = newConfig;
     });
   }
+
   void _save() {
     Navigator.pop(context, _config);
   }
+
   void _cancel() {
     Navigator.pop(context);
   }
+
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(16),
-      ),
+      backgroundColor: Colors.transparent,
+      elevation: 0,
       child: Container(
         constraints: const BoxConstraints(
           maxWidth: 500,
           maxHeight: 600,
         ),
-        padding: const EdgeInsets.all(24),
+        decoration: BoxDecoration(
+          gradient: theme.neumorphicGradient,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: theme.surfaceBorderColor,
+            width: 1,
+          ),
+          boxShadow: theme.neumorphicShadowsRaised,
+        ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // Header
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    'Frequency Configuration',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w600,
-                      color: theme.primaryText,
-                    ),
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 24, 16, 16),
+              decoration: BoxDecoration(
+                border: Border(
+                  bottom: BorderSide(
+                    color: theme.surfaceBorderColor,
+                    width: 1,
                   ),
                 ),
-                IconButton(
-                  onPressed: _cancel,
-                  icon: Icon(Icons.close, color: theme.secondaryText),
-                  padding: EdgeInsets.zero,
-                  constraints: const BoxConstraints(),
-                ),
-              ],
+              ),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Frequency Configuration',
+                      style: theme.titleLarge.override(
+                        fontFamily: 'Readex Pro',
+                        fontWeight: FontWeight.w600,
+                        color: theme.primaryText,
+                      ),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _cancel,
+                    icon: Icon(Icons.close, color: theme.secondaryText),
+                    padding: EdgeInsets.zero,
+                    constraints: const BoxConstraints(
+                      minWidth: 32,
+                      minHeight: 32,
+                    ),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 20),
             // Scrollable content
             Flexible(
-              child: SingleChildScrollView(
-                child: FrequencyConfigWidget(
-                  initialConfig: _config,
-                  onChanged: _updateConfig,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+                child: SingleChildScrollView(
+                  child: FrequencyConfigWidget(
+                    initialConfig: _config,
+                    onChanged: _updateConfig,
+                  ),
                 ),
               ),
             ),
-            const SizedBox(height: 24),
             // Action buttons
             _buildActionButtons(theme),
           ],
@@ -144,46 +175,62 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
       ),
     );
   }
+
   Widget _buildActionButtons(FlutterFlowTheme theme) {
-    return Row(
-      children: [
-        Expanded(
-          child: OutlinedButton(
-            onPressed: _cancel,
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              side: BorderSide(color: theme.alternate),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            child: Text(
-              'Cancel',
-              style: TextStyle(color: theme.secondaryText),
-            ),
+    return Container(
+      padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+      decoration: BoxDecoration(
+        border: Border(
+          top: BorderSide(
+            color: theme.surfaceBorderColor,
+            width: 1,
           ),
         ),
-        const SizedBox(width: 16),
-        Expanded(
-          child: ElevatedButton(
-            onPressed: _save,
-            style: ElevatedButton.styleFrom(
-              backgroundColor: theme.primary,
-              padding: const EdgeInsets.symmetric(vertical: 12),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _cancel,
+              style: OutlinedButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                side: BorderSide(color: theme.surfaceBorderColor),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(theme.buttonRadius),
+                ),
+              ),
+              child: Text(
+                'Cancel',
+                style: TextStyle(color: theme.secondaryText),
               ),
             ),
-            child: Text(
-              'Save',
-              style: TextStyle(color: Colors.white),
+          ),
+          const SizedBox(width: 16),
+          Expanded(
+            child: ElevatedButton(
+              onPressed: _save,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: theme.primary,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(theme.buttonRadius),
+                ),
+                elevation: 0,
+              ),
+              child: Text(
+                'Save',
+                style: const TextStyle(color: Colors.white),
+              ),
             ),
           ),
-        ),
-      ],
+        ],
+      ),
     );
   }
 }
+
 /// Helper function to show the frequency configuration dialog
 Future<FrequencyConfig?> showFrequencyConfigDialog({
   required BuildContext context,

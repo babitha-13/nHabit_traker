@@ -54,6 +54,29 @@ class UsersRecord extends FirestoreRecord {
   bool? _goalOnboardingCompleted;
   bool get goalOnboardingCompleted => _goalOnboardingCompleted ?? false;
   bool hasGoalOnboardingCompleted() => _goalOnboardingCompleted != null;
+  // "morning_notification_time" field.
+  String? _morningNotificationTime;
+  String get morningNotificationTime => _morningNotificationTime ?? '';
+  bool hasMorningNotificationTime() => _morningNotificationTime != null;
+  // "evening_notification_time" field.
+  String? _eveningNotificationTime;
+  String get eveningNotificationTime => _eveningNotificationTime ?? '';
+  bool hasEveningNotificationTime() => _eveningNotificationTime != null;
+  // "notification_preferences" field.
+  Map<String, dynamic>? _notificationPreferences;
+  Map<String, dynamic> get notificationPreferences =>
+      _notificationPreferences ?? {};
+  bool hasNotificationPreferences() => _notificationPreferences != null;
+  // "last_app_opened" field.
+  DateTime? _lastAppOpened;
+  DateTime? get lastAppOpened => _lastAppOpened;
+  bool hasLastAppOpened() => _lastAppOpened != null;
+  // "notification_onboarding_completed" field.
+  bool? _notificationOnboardingCompleted;
+  bool get notificationOnboardingCompleted =>
+      _notificationOnboardingCompleted ?? false;
+  bool hasNotificationOnboardingCompleted() =>
+      _notificationOnboardingCompleted != null;
   void _initializeFields() {
     _email = snapshotData['email'] as String?;
     _uid = snapshotData['uid'] as String?;
@@ -67,6 +90,15 @@ class UsersRecord extends FirestoreRecord {
     _goalPromptSkipped = snapshotData['goal_prompt_skipped'] as bool?;
     _goalOnboardingCompleted =
         snapshotData['goal_onboarding_completed'] as bool?;
+    _morningNotificationTime =
+        snapshotData['morning_notification_time'] as String?;
+    _eveningNotificationTime =
+        snapshotData['evening_notification_time'] as String?;
+    _notificationPreferences =
+        snapshotData['notification_preferences'] as Map<String, dynamic>?;
+    _lastAppOpened = snapshotData['last_app_opened'] as DateTime?;
+    _notificationOnboardingCompleted =
+        snapshotData['notification_onboarding_completed'] as bool?;
   }
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('users');
@@ -105,6 +137,11 @@ Map<String, dynamic> createUsersRecordData({
   DateTime? lastGoalShownDate,
   bool? goalPromptSkipped,
   bool? goalOnboardingCompleted,
+  String? morningNotificationTime,
+  String? eveningNotificationTime,
+  Map<String, dynamic>? notificationPreferences,
+  DateTime? lastAppOpened,
+  bool? notificationOnboardingCompleted,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -119,6 +156,11 @@ Map<String, dynamic> createUsersRecordData({
       'last_goal_shown_date': lastGoalShownDate,
       'goal_prompt_skipped': goalPromptSkipped,
       'goal_onboarding_completed': goalOnboardingCompleted,
+      'morning_notification_time': morningNotificationTime,
+      'evening_notification_time': eveningNotificationTime,
+      'notification_preferences': notificationPreferences,
+      'last_app_opened': lastAppOpened,
+      'notification_onboarding_completed': notificationOnboardingCompleted,
     }.withoutNulls,
   );
   return firestoreData;
@@ -137,7 +179,12 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e1?.currentGoalId == e2?.currentGoalId &&
         e1?.lastGoalShownDate == e2?.lastGoalShownDate &&
         e1?.goalPromptSkipped == e2?.goalPromptSkipped &&
-        e1?.goalOnboardingCompleted == e2?.goalOnboardingCompleted;
+        e1?.goalOnboardingCompleted == e2?.goalOnboardingCompleted &&
+        e1?.morningNotificationTime == e2?.morningNotificationTime &&
+        e1?.eveningNotificationTime == e2?.eveningNotificationTime &&
+        e1?.notificationPreferences == e2?.notificationPreferences &&
+        e1?.lastAppOpened == e2?.lastAppOpened &&
+        e1?.notificationOnboardingCompleted == e2?.notificationOnboardingCompleted;
   }
   @override
   int hash(UsersRecord? e) => const ListEquality().hash([
@@ -152,6 +199,11 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e?.lastGoalShownDate,
         e?.goalPromptSkipped,
         e?.goalOnboardingCompleted,
+        e?.morningNotificationTime,
+        e?.eveningNotificationTime,
+        e?.notificationPreferences,
+        e?.lastAppOpened,
+        e?.notificationOnboardingCompleted,
       ]);
   @override
   bool isValidKey(Object? o) => o is UsersRecord;

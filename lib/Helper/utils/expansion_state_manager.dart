@@ -1,63 +1,77 @@
+import 'dart:convert';
 import 'package:shared_preferences/shared_preferences.dart';
+
 /// Manages persistent expansion state for collapsible sections across pages
-/// Implements accordion behavior where only one section can be expanded at a time
+/// Supports multiple sections being expanded independently
 class ExpansionStateManager {
   static final ExpansionStateManager _instance =
       ExpansionStateManager._internal();
   factory ExpansionStateManager() => _instance;
   ExpansionStateManager._internal();
+  
   // State keys for each page
-  static const String _habitsKey = 'habits_expanded_section';
-  static const String _queueKey = 'queue_expanded_section';
-  static const String _taskKey = 'task_expanded_section';
-  static const String _weeklyKey = 'weekly_expanded_section';
+  static const String _habitsKey = 'habits_expanded_sections';
+  static const String _queueKey = 'queue_expanded_sections';
+  static const String _taskKey = 'task_expanded_sections';
+  static const String _weeklyKey = 'weekly_expanded_sections';
+  
   // App session tracking
   static const String _appSessionKey = 'app_session_id';
   static const String _lastSessionKey = 'last_app_session_id';
-  /// Set the expanded section for Habits page
-  /// Pass null to collapse all sections
-  Future<void> setHabitsExpandedSection(String? sectionName) async {
+  
+  /// Set the expanded sections for Habits page
+  Future<void> setHabitsExpandedSections(Set<String> sectionNames) async {
     final prefs = await SharedPreferences.getInstance();
-    if (sectionName == null) {
+    if (sectionNames.isEmpty) {
       await prefs.remove(_habitsKey);
     } else {
-      await prefs.setString(_habitsKey, sectionName);
+      await prefs.setString(_habitsKey, jsonEncode(sectionNames.toList()));
     }
   }
-  /// Set the expanded section for Queue page
-  /// Allows collapsing "Pending" section but defaults to "Pending" on new sessions
-  Future<void> setQueueExpandedSection(String? sectionName) async {
+  
+  /// Set the expanded sections for Queue page
+  Future<void> setQueueExpandedSections(Set<String> sectionNames) async {
     final prefs = await SharedPreferences.getInstance();
-    if (sectionName == null) {
+    if (sectionNames.isEmpty) {
       await prefs.remove(_queueKey);
     } else {
-      await prefs.setString(_queueKey, sectionName);
+      await prefs.setString(_queueKey, jsonEncode(sectionNames.toList()));
     }
   }
-  /// Set the expanded section for Task page
-  /// Allows collapsing "Today" section but defaults to "Today" on new sessions
-  Future<void> setTaskExpandedSection(String? sectionName) async {
+  
+  /// Set the expanded sections for Task page
+  Future<void> setTaskExpandedSections(Set<String> sectionNames) async {
     final prefs = await SharedPreferences.getInstance();
-    if (sectionName == null) {
+    if (sectionNames.isEmpty) {
       await prefs.remove(_taskKey);
     } else {
-      await prefs.setString(_taskKey, sectionName);
+      await prefs.setString(_taskKey, jsonEncode(sectionNames.toList()));
     }
   }
-  /// Get the currently expanded section for Weekly view
-  /// Returns null if no section is expanded (all collapsed)
-  Future<String?> getWeeklyExpandedSection() async {
+  
+  /// Get the currently expanded sections for Weekly view
+  /// Returns empty set if no sections are expanded
+  Future<Set<String>> getWeeklyExpandedSections() async {
     final prefs = await SharedPreferences.getInstance();
-    return prefs.getString(_weeklyKey);
+    final storedValue = prefs.getString(_weeklyKey);
+    if (storedValue == null) {
+      return {};
+    }
+    try {
+      final List<dynamic> decoded = jsonDecode(storedValue);
+      return decoded.cast<String>().toSet();
+    } catch (e) {
+      return {};
+    }
   }
-  /// Set the expanded section for Weekly view
-  /// Pass null to collapse all sections
-  Future<void> setWeeklyExpandedSection(String? sectionName) async {
+  
+  /// Set the expanded sections for Weekly view
+  Future<void> setWeeklyExpandedSections(Set<String> sectionNames) async {
     final prefs = await SharedPreferences.getInstance();
-    if (sectionName == null) {
+    if (sectionNames.isEmpty) {
       await prefs.remove(_weeklyKey);
     } else {
-      await prefs.setString(_weeklyKey, sectionName);
+      await prefs.setString(_weeklyKey, jsonEncode(sectionNames.toList()));
     }
   }
   /// Check if this is a new app session (app restart)
@@ -77,6 +91,7 @@ class ExpansionStateManager {
     }
     return false;
   }
+  
   /// Initialize app session
   Future<void> _initializeAppSession() async {
     final prefs = await SharedPreferences.getInstance();
@@ -84,39 +99,80 @@ class ExpansionStateManager {
     await prefs.setString(_appSessionKey, sessionId);
     await prefs.setString(_lastSessionKey, sessionId);
   }
-  /// Get the currently expanded section for Queue page
-  /// Returns "Pending" as default if no saved state or new app session
-  Future<String?> getQueueExpandedSection() async {
+  
+  /// Get the currently expanded sections for Queue page
+  /// Returns default sections if no saved state or new app session
+  Future<Set<String>> getQueueExpandedSections() async {
     final prefs = await SharedPreferences.getInstance();
     final isNewSession = await isNewAppSession();
+    
     if (isNewSession) {
-      // New app session - return default
-      return 'Pending';
+      // New app session - return default (empty or specific sections as needed)
+      return {};
     }
-    return prefs.getString(_queueKey) ?? 'Pending';
+    
+    final storedValue = prefs.getString(_queueKey);
+    if (storedValue == null) {
+      return {};
+    }
+    
+    try {
+      final List<dynamic> decoded = jsonDecode(storedValue);
+      return decoded.cast<String>().toSet();
+    } catch (e) {
+      return {};
+    }
   }
-  /// Get the currently expanded section for Task page
-  /// Returns "Today" as default if no saved state or new app session
-  Future<String?> getTaskExpandedSection() async {
+  
+  /// Get the currently expanded sections for Task page
+  /// Returns {"Overdue", "Today"} as default on new app session
+  Future<Set<String>> getTaskExpandedSections() async {
     final prefs = await SharedPreferences.getInstance();
     final isNewSession = await isNewAppSession();
+    
     if (isNewSession) {
-      // New app session - return default
-      return 'Today';
+      // New app session - return Overdue and Today as default
+      return {'Overdue', 'Today'};
     }
-    return prefs.getString(_taskKey) ?? 'Today';
+    
+    final storedValue = prefs.getString(_taskKey);
+    if (storedValue == null) {
+      // No saved state - use defaults
+      return {'Overdue', 'Today'};
+    }
+    
+    try {
+      final List<dynamic> decoded = jsonDecode(storedValue);
+      return decoded.cast<String>().toSet();
+    } catch (e) {
+      return {'Overdue', 'Today'};
+    }
   }
-  /// Get the currently expanded section for Habits page
-  /// Returns first category as default if no saved state or new app session
-  Future<String?> getHabitsExpandedSection() async {
+  
+  /// Get the currently expanded sections for Habits page
+  /// Returns empty set on new app session (will be handled by page logic)
+  Future<Set<String>> getHabitsExpandedSections() async {
     final prefs = await SharedPreferences.getInstance();
     final isNewSession = await isNewAppSession();
+    
     if (isNewSession) {
-      // New app session - return null (will be handled by page logic)
-      return null;
+      // New app session - return empty (will be handled by page logic)
+      return {};
     }
-    return prefs.getString(_habitsKey);
+    
+    final storedValue = prefs.getString(_habitsKey);
+    if (storedValue == null) {
+      return {};
+    }
+    
+    try {
+      final List<dynamic> decoded = jsonDecode(storedValue);
+      return decoded.cast<String>().toSet();
+    } catch (e) {
+      return {};
+    }
   }
+  
   /// Clear all expansion states (useful for testing or reset)
   Future<void> clearAllStates() async {
     final prefs = await SharedPreferences.getInstance();

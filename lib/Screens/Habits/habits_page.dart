@@ -30,7 +30,7 @@ class _HabitsPageState extends State<HabitsPage> {
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _habitInstances = [];
   List<CategoryRecord> _categories = [];
-  String? _expandedCategory;
+  Set<String> _expandedCategories = {};
   final Map<String, GlobalKey> _categoryKeys = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
@@ -112,11 +112,11 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   Future<void> _loadExpansionState() async {
-    final expandedSection =
-        await ExpansionStateManager().getHabitsExpandedSection();
+    final expandedSections =
+        await ExpansionStateManager().getHabitsExpandedSections();
     if (mounted) {
       setState(() {
-        _expandedCategory = expandedSection;
+        _expandedCategories = expandedSections;
       });
     }
   }
@@ -125,14 +125,13 @@ class _HabitsPageState extends State<HabitsPage> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
-        // Auto-expand first category with results when searching
+        // Auto-expand categories with results when searching
         if (_searchQuery.isNotEmpty) {
           final grouped = groupedByCategory;
-          // Expand first category with results
+          // Expand all categories with results
           for (final key in grouped.keys) {
             if (grouped[key]!.isNotEmpty) {
-              _expandedCategory = key;
-              break;
+              _expandedCategories.add(key);
             }
           }
         }
@@ -220,18 +219,18 @@ class _HabitsPageState extends State<HabitsPage> {
             _categories = categories;
             _isLoading = false;
           });
-          // Auto-expand first category only on initial load
+          // Auto-expand first category only on initial load if no sections are expanded
           if (!_hasAutoExpandedOnLoad && _habitInstances.isNotEmpty) {
             _hasAutoExpandedOnLoad = true;
             WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && _expandedCategory == null) {
+              if (mounted && _expandedCategories.isEmpty) {
                 final grouped = groupedByCategory;
                 if (grouped.isNotEmpty) {
                   setState(() {
-                    _expandedCategory = grouped.keys.first;
+                    _expandedCategories.add(grouped.keys.first);
                   });
                   ExpansionStateManager()
-                      .setHabitsExpandedSection(_expandedCategory);
+                      .setHabitsExpandedSections(_expandedCategories);
                 }
               }
             });
@@ -360,7 +359,7 @@ class _HabitsPageState extends State<HabitsPage> {
           FirebaseFirestore.instance.collection('categories').doc(),
         );
       }
-      final expanded = _expandedCategory == categoryName;
+      final expanded = _expandedCategories.contains(categoryName);
       // Get or create GlobalKey for this category
       if (!_categoryKeys.containsKey(categoryName)) {
         _categoryKeys[categoryName] = GlobalKey();
@@ -519,18 +518,18 @@ class _HabitsPageState extends State<HabitsPage> {
               if (mounted) {
                 setState(() {
                   if (expanded) {
-                    // Collapse current section
-                    _expandedCategory = null;
+                    // Collapse this section
+                    _expandedCategories.remove(categoryName);
                   } else {
-                    // Expand this section (accordion behavior)
-                    _expandedCategory = categoryName;
+                    // Expand this section
+                    _expandedCategories.add(categoryName);
                   }
                 });
                 // Save state persistently
                 ExpansionStateManager()
-                    .setHabitsExpandedSection(_expandedCategory);
+                    .setHabitsExpandedSections(_expandedCategories);
                 // Scroll to make the newly expanded section visible
-                if (_expandedCategory == categoryName) {
+                if (_expandedCategories.contains(categoryName)) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (headerKey.currentContext != null) {
                       Scrollable.ensureVisible(

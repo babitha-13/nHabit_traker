@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/main.dart';
 import 'package:habit_tracker/Screens/Queue/queue_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
-import 'package:habit_tracker/Helper/backend/day_end_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
+import 'package:habit_tracker/Helper/utils/constants.dart';
 
 /// Service for managing local notifications
 class NotificationService {
@@ -62,9 +62,24 @@ class NotificationService {
 
   /// Handle notification tap
   static void _onNotificationTapped(NotificationResponse response) {
+    final payload = response.payload;
+    if (payload == null) return;
+
     // Handle day-end notifications
-    if (response.payload == 'day_end_notification') {
+    if (payload == 'day_end_notification') {
       _handleDayEndNotificationTap();
+    }
+    // Handle morning reminder
+    else if (payload == 'morning_reminder') {
+      _handleMorningReminderTap();
+    }
+    // Handle evening reminder
+    else if (payload == 'evening_reminder') {
+      _handleEveningReminderTap();
+    }
+    // Handle engagement reminder
+    else if (payload == 'engagement_reminder') {
+      _handleEngagementReminderTap();
     }
   }
 
@@ -76,22 +91,12 @@ class NotificationService {
       // Show goal dialog first
       _showGoalDialogFromNotification(context);
 
-      // Then navigate to Queue page and show snooze bottom sheet
-      Navigator.of(context)
-          .push(
+      // Then navigate to Queue page
+      Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => const QueuePage(),
         ),
-      )
-          .then((_) {
-        // Show snooze bottom sheet after a short delay to ensure the page is loaded
-        Future.delayed(const Duration(milliseconds: 500), () {
-          final currentContext = navigatorKey.currentContext;
-          if (currentContext != null) {
-            _showSnoozeBottomSheet(currentContext);
-          }
-        });
-      });
+      );
     } else {}
   }
 
@@ -117,15 +122,62 @@ class NotificationService {
     }
   }
 
-  /// Show snooze bottom sheet
-  static void _showSnoozeBottomSheet(BuildContext context) {
-    // Show the snooze bottom sheet directly
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _SnoozeBottomSheet(),
-    );
+  /// Handle morning reminder notification tap
+  static void _handleMorningReminderTap() {
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      // Navigate to Queue page
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+      // Then navigate to Queue page after a short delay to ensure Home is loaded
+      Future.delayed(const Duration(milliseconds: 500), () {
+        final homeContext = navigatorKey.currentContext;
+        if (homeContext != null) {
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => const QueuePage(),
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  /// Handle evening reminder notification tap
+  static void _handleEveningReminderTap() {
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      // Navigate to Queue page
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+      // Then navigate to Queue page after a short delay to ensure Home is loaded
+      Future.delayed(const Duration(milliseconds: 500), () {
+        final homeContext = navigatorKey.currentContext;
+        if (homeContext != null) {
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => const QueuePage(),
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  /// Handle engagement reminder notification tap
+  static void _handleEngagementReminderTap() {
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      // Navigate to Home page
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+    }
   }
 
   /// Schedule a reminder notification
@@ -377,252 +429,5 @@ class NotificationService {
     required DateTime newProcessTime,
   }) async {
     await scheduleDayEndNotifications(processTime: newProcessTime);
-  }
-}
-
-/// Snooze bottom sheet widget for notification service
-class _SnoozeBottomSheet extends StatefulWidget {
-  @override
-  _SnoozeBottomSheetState createState() => _SnoozeBottomSheetState();
-}
-
-class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
-  bool _isLoading = false;
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final snoozeStatus = DayEndScheduler.getSnoozeStatus();
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.colorScheme.surface,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
-      ),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle bar
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.colorScheme.onSurface.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Title
-          Text(
-            'Day Ending Soon',
-            style: theme.textTheme.headlineSmall?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Description
-          Text(
-            'You have ${snoozeStatus['remainingSnooze']} minutes of snooze time remaining. Extend your day to finish more tasks!',
-            style: theme.textTheme.bodyMedium?.copyWith(
-              color: theme.colorScheme.onSurface.withOpacity(0.7),
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Current processing time
-          if (snoozeStatus['scheduledTime'] != null) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceVariant,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.colorScheme.outline),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.schedule,
-                    color: theme.colorScheme.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Current Processing Time',
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: theme.colorScheme.onSurface.withOpacity(0.7),
-                          ),
-                        ),
-                        Text(
-                          _formatTime(
-                              DateTime.parse(snoozeStatus['scheduledTime'])),
-                          style: theme.textTheme.bodyMedium?.copyWith(
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-          // Snooze buttons
-          Text(
-            'Snooze Options',
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _SnoozeButton(
-                  minutes: 15,
-                  label: '15 min',
-                  enabled: snoozeStatus['canSnooze15'],
-                  onPressed: () => _handleSnooze(15),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SnoozeButton(
-                  minutes: 30,
-                  label: '30 min',
-                  enabled: snoozeStatus['canSnooze30'],
-                  onPressed: () => _handleSnooze(30),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SnoozeButton(
-                  minutes: 60,
-                  label: '1 hr',
-                  enabled: snoozeStatus['canSnooze60'],
-                  onPressed: () => _handleSnooze(60),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // View Tasks button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.colorScheme.primary,
-                foregroundColor: theme.colorScheme.onPrimary,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Text(
-                'View Tasks',
-                style: theme.textTheme.titleMedium?.copyWith(
-                  color: theme.colorScheme.onPrimary,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
-
-  String _formatTime(DateTime dateTime) {
-    return '${dateTime.hour.toString().padLeft(2, '0')}:${dateTime.minute.toString().padLeft(2, '0')}';
-  }
-
-  Future<void> _handleSnooze(int minutes) async {
-    if (_isLoading) return;
-    setState(() => _isLoading = true);
-    try {
-      final success = await DayEndScheduler.snooze(minutes);
-      if (success) {
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Day-end processing snoozed for $minutes minutes'),
-              backgroundColor: Colors.green,
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Cannot snooze - maximum time limit reached'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error snoozing: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-}
-
-/// Snooze button widget for notification service
-class _SnoozeButton extends StatelessWidget {
-  final int minutes;
-  final String label;
-  final bool enabled;
-  final VoidCallback onPressed;
-  const _SnoozeButton({
-    required this.minutes,
-    required this.label,
-    required this.enabled,
-    required this.onPressed,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return ElevatedButton(
-      onPressed: enabled ? onPressed : null,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: enabled
-            ? theme.colorScheme.primary
-            : theme.colorScheme.surfaceVariant,
-        foregroundColor: enabled
-            ? theme.colorScheme.onPrimary
-            : theme.colorScheme.onSurface.withOpacity(0.5),
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        elevation: enabled ? 2 : 0,
-      ),
-      child: Text(
-        label,
-        style: theme.textTheme.bodyMedium?.copyWith(
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
   }
 }

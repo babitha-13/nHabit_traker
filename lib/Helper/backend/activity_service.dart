@@ -6,6 +6,7 @@ class ActivityService {
   static Future<void> copyActivity(ActivityRecord activity) async {
     await createActivity(
       name: activity.name,
+      categoryId: activity.categoryId,
       categoryName:
           activity.categoryName.isNotEmpty ? activity.categoryName : 'default',
       trackingType: activity.trackingType,

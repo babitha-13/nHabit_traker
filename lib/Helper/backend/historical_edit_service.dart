@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
+import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 
 /// Service for editing historical habit data
 /// Allows users to correct past day entries within a limited time window
@@ -142,6 +143,19 @@ class HistoricalEditService {
         .where('date', isEqualTo: normalizedDate);
     final progressSnapshot = await progressQuery.get();
     if (progressSnapshot.docs.isEmpty) {
+      // Calculate cumulative score for new record
+      Map<String, dynamic> cumulativeScoreData = {};
+      try {
+        cumulativeScoreData =
+            await CumulativeScoreService.updateCumulativeScore(
+          userId,
+          completionPercentage,
+          normalizedDate,
+        );
+      } catch (e) {
+        print('Error calculating cumulative score for new record: $e');
+      }
+
       // Create new record if it doesn't exist
       final progressData = createDailyProgressRecordData(
         userId: userId,
@@ -154,11 +168,26 @@ class HistoricalEditService {
         partialHabits: partialHabits,
         skippedHabits: skippedHabits,
         categoryBreakdown: categoryBreakdown,
+        cumulativeScoreSnapshot: cumulativeScoreData['cumulativeScore'] ?? 0.0,
+        dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
         createdAt: DateTime.now(),
         lastEditedAt: DateTime.now(),
       );
       await DailyProgressRecord.collectionForUser(userId).add(progressData);
     } else {
+      // Calculate cumulative score for updated record
+      Map<String, dynamic> cumulativeScoreData = {};
+      try {
+        cumulativeScoreData =
+            await CumulativeScoreService.updateCumulativeScore(
+          userId,
+          completionPercentage,
+          normalizedDate,
+        );
+      } catch (e) {
+        print('Error calculating cumulative score for updated record: $e');
+      }
+
       // Update existing record
       final progressDoc = progressSnapshot.docs.first;
       await progressDoc.reference.update({
@@ -170,6 +199,9 @@ class HistoricalEditService {
         'partialHabits': partialHabits,
         'skippedHabits': skippedHabits,
         'categoryBreakdown': categoryBreakdown,
+        'cumulativeScoreSnapshot':
+            cumulativeScoreData['cumulativeScore'] ?? 0.0,
+        'dailyScoreGain': cumulativeScoreData['dailyGain'] ?? 0.0,
         'lastEditedAt': DateTime.now(),
       });
     }

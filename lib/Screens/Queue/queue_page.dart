@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
-import 'package:habit_tracker/Helper/backend/day_end_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -20,37 +18,84 @@ import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
+import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
+import 'package:habit_tracker/Helper/utils/cumulative_score_line_painter.dart';
+import 'package:habit_tracker/Helper/utils/queue_filter_state_manager.dart'
+    show QueueFilterState, QueueFilterStateManager;
+import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
+    show QueueSortState, QueueSortStateManager, QueueSortType;
+import 'package:habit_tracker/Screens/Queue/queue_filter_dialog.dart';
+import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
+
 class QueuePage extends StatefulWidget {
   const QueuePage({super.key});
   @override
   _QueuePageState createState() => _QueuePageState();
 }
+
 class _QueuePageState extends State<QueuePage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _instances = [];
   List<CategoryRecord> _categories = [];
-  String? _expandedSection;
+  Set<String> _expandedSections = {};
   final Map<String, GlobalKey> _sectionKeys = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
+  bool _isLoadingData = false; // Guard against concurrent loads
+  bool _ignoreInstanceEvents = true; // Ignore events during initial load
   // Progress tracking variables
   double _dailyTarget = 0.0;
   double _pointsEarned = 0.0;
   double _dailyPercentage = 0.0;
+  // Cumulative score variables
+  double _cumulativeScore = 0.0;
+  double _dailyScoreGain = 0.0;
+  List<Map<String, dynamic>> _cumulativeScoreHistory = [];
+  bool _isLoadingCumulativeScore = false; // Guard against recursive loads
+  bool _pendingCumulativeScoreReload = false;
   // Removed legacy Recent Completions expansion state; now uses standard sections
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
+  // Filter and sort state
+  QueueFilterState _currentFilter = QueueFilterState();
+  QueueSortState _currentSort = QueueSortState();
   @override
   void initState() {
     super.initState();
     _loadExpansionState();
-    _loadData();
+    // Load filter and sort state first, then load data to ensure filters are applied correctly
+    _loadFilterAndSortState().then((_) {
+      _loadData().then((_) {
+        // Load cumulative score after main data finishes to avoid Firestore race conditions
+        _loadCumulativeScore();
+      });
+    });
+    // Listen for cumulative score updates from Progress page
+    NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
+      if (mounted && !_isLoadingCumulativeScore) {
+        setState(() {
+          final data = TodayProgressState().getCumulativeScoreData();
+          _cumulativeScore = data['cumulativeScore'] as double;
+          _dailyScoreGain = data['dailyGain'] as double;
+        });
+      }
+    });
+    // Listen for today's progress updates to recalculate cumulative score
+    NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
+      if (!mounted) return;
+      if (_isLoadingCumulativeScore) {
+        _pendingCumulativeScoreReload = true;
+        return;
+      }
+      _loadCumulativeScore();
+    });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
         setState(() {
@@ -66,26 +111,33 @@ class _QueuePageState extends State<QueuePage> {
     });
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
-    // Listen for instance events
+    // Listen for instance events (but ignore during initial load)
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
-      if (param is ActivityInstanceRecord && mounted) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          !_ignoreInstanceEvents) {
         _handleInstanceCreated(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
         (param) {
-      if (param is ActivityInstanceRecord && mounted) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          !_ignoreInstanceEvents) {
         _handleInstanceUpdated(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
         (param) {
-      if (param is ActivityInstanceRecord && mounted) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          !_ignoreInstanceEvents) {
         _handleInstanceDeleted(param);
       }
     });
   }
+
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
@@ -93,6 +145,7 @@ class _QueuePageState extends State<QueuePage> {
     _scrollController.dispose();
     super.dispose();
   }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -106,15 +159,28 @@ class _QueuePageState extends State<QueuePage> {
       _didInitialDependencies = true;
     }
   }
+
   Future<void> _loadExpansionState() async {
-    final expandedSection =
-        await ExpansionStateManager().getQueueExpandedSection();
+    final expandedSections =
+        await ExpansionStateManager().getQueueExpandedSections();
     if (mounted) {
       setState(() {
-        _expandedSection = expandedSection;
+        _expandedSections = expandedSections;
       });
     }
   }
+
+  Future<void> _loadFilterAndSortState() async {
+    final filterState = await QueueFilterStateManager().getFilterState();
+    final sortState = await QueueSortStateManager().getSortState();
+    if (mounted) {
+      setState(() {
+        _currentFilter = filterState;
+        _currentSort = sortState;
+      });
+    }
+  }
+
   void _onSearchChanged(String query) {
     if (mounted) {
       setState(() {
@@ -122,7 +188,12 @@ class _QueuePageState extends State<QueuePage> {
       });
     }
   }
+
   Future<void> _loadData() async {
+    // Prevent concurrent loads
+    if (_isLoadingData) return;
+    _isLoadingData = true;
+    _ignoreInstanceEvents = true; // Temporarily ignore events during load
     setState(() => _isLoading = true);
     try {
       final userId = currentUserUid;
@@ -131,31 +202,98 @@ class _QueuePageState extends State<QueuePage> {
         final habitCategories = await queryHabitCategoriesOnce(userId: userId);
         final taskCategories = await queryTaskCategoriesOnce(userId: userId);
         final allCategories = [...habitCategories, ...taskCategories];
+        // Deduplicate instances by reference ID to prevent duplicates
+        final uniqueInstances = <String, ActivityInstanceRecord>{};
+        for (final instance in allInstances) {
+          uniqueInstances[instance.reference.id] = instance;
+        }
+        final deduplicatedInstances = uniqueInstances.values.toList();
         // Count instances by type
         int taskCount = 0;
         int habitCount = 0;
-        for (final inst in allInstances) {
+        for (final inst in deduplicatedInstances) {
           if (inst.templateCategoryType == 'task') taskCount++;
           if (inst.templateCategoryType == 'habit') habitCount++;
         }
         print(
-            'QueuePage: Loaded ${allInstances.length} instances ($taskCount tasks, $habitCount habits)');
+            'QueuePage: Loaded ${deduplicatedInstances.length} instances ($taskCount tasks, $habitCount habits)');
         if (mounted) {
           setState(() {
-            _instances = allInstances;
+            _instances = deduplicatedInstances;
             _categories = allCategories;
+
+            // Initialize default filter state (all categories selected) if filter is empty
+            var updatedFilter = _currentFilter;
+            final allHabitNames =
+                habitCategories.map((cat) => cat.name).toSet();
+            final allTaskNames = taskCategories.map((cat) => cat.name).toSet();
+
+            // If filter state is empty (default), initialize with all categories selected
+            if (!_currentFilter.hasAnyFilter) {
+              updatedFilter = QueueFilterState(
+                allTasks: true,
+                allHabits: true,
+                selectedHabitCategoryNames: allHabitNames,
+                selectedTaskCategoryNames: allTaskNames,
+              );
+            } else {
+              // If filter has allHabits/allTasks true but selected sets are empty,
+              // populate them with all category names (handles old saved states)
+              if (_currentFilter.allHabits &&
+                  _currentFilter.selectedHabitCategoryNames.isEmpty &&
+                  habitCategories.isNotEmpty) {
+                updatedFilter = QueueFilterState(
+                  allTasks: updatedFilter.allTasks,
+                  allHabits: updatedFilter.allHabits,
+                  selectedHabitCategoryNames: allHabitNames,
+                  selectedTaskCategoryNames:
+                      updatedFilter.selectedTaskCategoryNames,
+                );
+              }
+              if (updatedFilter.allTasks &&
+                  updatedFilter.selectedTaskCategoryNames.isEmpty &&
+                  taskCategories.isNotEmpty) {
+                updatedFilter = QueueFilterState(
+                  allTasks: updatedFilter.allTasks,
+                  allHabits: updatedFilter.allHabits,
+                  selectedHabitCategoryNames:
+                      updatedFilter.selectedHabitCategoryNames,
+                  selectedTaskCategoryNames: allTaskNames,
+                );
+              }
+            }
+            _currentFilter = updatedFilter;
             _isLoading = false;
+            _isLoadingData = false;
           });
           // Calculate progress for today's habits
           _calculateProgress();
+          // Enable instance event listeners after initial load completes
+          _ignoreInstanceEvents = false;
+
+          // Initialize order values for instances that don't have them (run once after load)
+          InstanceOrderService.initializeOrderValues(
+              deduplicatedInstances, 'queue');
+        } else {
+          _isLoadingData = false;
+          _ignoreInstanceEvents = false;
         }
       } else {
-        if (mounted) setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+        _isLoadingData = false;
+        _ignoreInstanceEvents = false;
       }
     } catch (e) {
-      if (mounted) setState(() => _isLoading = false);
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+      _isLoadingData = false;
+      _ignoreInstanceEvents = false;
     }
   }
+
   /// Calculate progress for today's habits and tasks
   /// Uses shared DailyProgressCalculator for consistency with historical data
   void _calculateProgress() async {
@@ -190,6 +328,180 @@ class _QueuePageState extends State<QueuePage> {
       percentage: _dailyPercentage,
     );
   }
+
+  Future<void> _loadCumulativeScore() async {
+    // Prevent recursive calls
+    if (_isLoadingCumulativeScore) return;
+
+    try {
+      _isLoadingCumulativeScore = true;
+      final userId = currentUserUid;
+      if (userId.isEmpty) {
+        _isLoadingCumulativeScore = false;
+        return;
+      }
+
+      // Use local variables to track score values (setState is async)
+      double currentCumulativeScore = 0.0;
+      double currentDailyGain = 0.0;
+
+      // First check if the Progress page has already calculated the live score
+      final sharedData = TodayProgressState().getCumulativeScoreData();
+      if (sharedData['hasLiveScore'] as bool) {
+        currentCumulativeScore = sharedData['cumulativeScore'] as double;
+        currentDailyGain = sharedData['dailyGain'] as double;
+      } else {
+        // Calculate the live cumulative score ourselves
+        // Get today's progress
+        final progressData = TodayProgressState().getProgressData();
+        final todayPercentage = progressData['percentage'] ?? 0.0;
+
+        if (todayPercentage > 0) {
+          // Calculate projected score including today's progress
+          final projectionData =
+              await CumulativeScoreService.calculateProjectedDailyScore(
+            userId,
+            todayPercentage,
+          );
+
+          currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
+          currentDailyGain = projectionData['projectedGain'] ?? 0.0;
+
+          // Publish to shared state for other pages
+          TodayProgressState().updateCumulativeScore(
+            cumulativeScore: currentCumulativeScore,
+            dailyGain: currentDailyGain,
+            hasLiveScore: true,
+          );
+        } else {
+          // No progress today, use base score from Firestore
+          final userStats =
+              await CumulativeScoreService.getCumulativeScore(userId);
+          if (userStats != null) {
+            currentCumulativeScore = userStats.cumulativeScore;
+            currentDailyGain = userStats.lastDailyGain;
+
+            // Publish base cumulative score to shared state
+            TodayProgressState().updateCumulativeScore(
+              cumulativeScore: currentCumulativeScore,
+              dailyGain: currentDailyGain,
+              hasLiveScore: false,
+            );
+          }
+        }
+      }
+
+      // Update state with calculated values
+      if (mounted) {
+        setState(() {
+          _cumulativeScore = currentCumulativeScore;
+          _dailyScoreGain = currentDailyGain;
+        });
+      }
+
+      // Load cumulative score history for the last 7 days
+      final endDate = DateService.currentDate;
+      final startDate = endDate.subtract(const Duration(days: 7));
+
+      final query = await DailyProgressRecord.collectionForUser(userId)
+          .where('date', isGreaterThanOrEqualTo: startDate)
+          .where('date', isLessThanOrEqualTo: endDate)
+          .orderBy('date', descending: false)
+          .get();
+
+      final history = <Map<String, dynamic>>[];
+      final today = DateService.currentDate;
+      bool todayIncluded = false;
+
+      for (final doc in query.docs) {
+        final record = DailyProgressRecord.fromSnapshot(doc);
+        if (record.cumulativeScoreSnapshot > 0) {
+          history.add({
+            'date': record.date,
+            'score': record.cumulativeScoreSnapshot,
+            'gain': record.dailyScoreGain,
+          });
+          // Check if today's snapshot is already saved
+          if (record.date != null &&
+              record.date!.year == today.year &&
+              record.date!.month == today.month &&
+              record.date!.day == today.day) {
+            todayIncluded = true;
+          }
+        }
+      }
+
+      // Add today's live cumulative score if not already in history
+      if (!todayIncluded && currentCumulativeScore > 0) {
+        history.add({
+          'date': today,
+          'score': currentCumulativeScore,
+          'gain': currentDailyGain,
+        });
+      }
+
+      if (mounted) {
+        setState(() {
+          _cumulativeScoreHistory = history;
+        });
+      }
+    } catch (e) {
+      print('Error loading cumulative score: $e');
+    } finally {
+      _isLoadingCumulativeScore = false;
+      if (_pendingCumulativeScoreReload) {
+        _pendingCumulativeScoreReload = false;
+        Future.microtask(_loadCumulativeScore);
+      }
+    }
+  }
+
+  Widget _buildCumulativeScoreMiniGraph() {
+    if (_cumulativeScoreHistory.isEmpty) {
+      return Container(
+        decoration: BoxDecoration(
+          color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'No data',
+            style: FlutterFlowTheme.of(context).bodySmall.override(
+                  fontFamily: 'Readex Pro',
+                  color: FlutterFlowTheme.of(context).secondaryText,
+                ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: CustomPaint(
+        painter: CumulativeScoreLinePainter(
+          data: _cumulativeScoreHistory,
+          minScore: _cumulativeScoreHistory
+              .map((d) => d['score'] as double)
+              .reduce((a, b) => a < b ? a : b),
+          maxScore: _cumulativeScoreHistory
+              .map((d) => d['score'] as double)
+              .reduce((a, b) => a > b ? a : b),
+          scoreRange: _cumulativeScoreHistory
+                  .map((d) => d['score'] as double)
+                  .reduce((a, b) => a > b ? a : b) -
+              _cumulativeScoreHistory
+                  .map((d) => d['score'] as double)
+                  .reduce((a, b) => a < b ? a : b),
+          color: FlutterFlowTheme.of(context).primary,
+        ),
+        size: const Size(double.infinity, double.infinity),
+      ),
+    );
+  }
+
   /// Check if instance is due today or overdue
   bool _isTodayOrOverdue(ActivityInstanceRecord instance) {
     if (instance.dueDate == null) return true; // No due date = today
@@ -215,20 +527,209 @@ class _QueuePageState extends State<QueuePage> {
         dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
     return isTodayOrOverdue;
   }
+
   // Removed _wasCompletedToday - now handled by DailyProgressCalculator
   bool _isInstanceCompleted(ActivityInstanceRecord instance) {
     return instance.status == 'completed' || instance.status == 'skipped';
   }
+
+  /// Apply filter logic to instances
+  List<ActivityInstanceRecord> _applyFilters(
+      List<ActivityInstanceRecord> instances) {
+    // If in default state (all categories selected), show all items (no filtering)
+    if (_isDefaultFilterState()) {
+      return instances;
+    }
+
+    // Check if any categories are actually selected
+    final hasSelectedHabits =
+        _currentFilter.selectedHabitCategoryNames.isNotEmpty;
+    final hasSelectedTasks =
+        _currentFilter.selectedTaskCategoryNames.isNotEmpty;
+
+    // If filter was applied but no categories are selected, show nothing
+    // (This handles the case where user explicitly unchecks everything)
+    if (!hasSelectedHabits && !hasSelectedTasks) {
+      return []; // Nothing selected, show nothing
+    }
+
+    // Filter based ONLY on which sub-items (categories) are checked
+    // "All Habits" and "All Tasks" checkboxes only control checking/unchecking of sub-items,
+    // they don't directly affect filtering - filtering is purely based on selected category names
+    return instances.where((instance) {
+      // Skip instances with empty category name (shouldn't happen, but safety check)
+      if (instance.templateCategoryName.isEmpty) {
+        return false;
+      }
+      // Check habits
+      if (instance.templateCategoryType == 'habit' &&
+          hasSelectedHabits &&
+          _currentFilter.selectedHabitCategoryNames
+              .contains(instance.templateCategoryName)) {
+        return true;
+      }
+      // Check tasks
+      if (instance.templateCategoryType == 'task' &&
+          hasSelectedTasks &&
+          _currentFilter.selectedTaskCategoryNames
+              .contains(instance.templateCategoryName)) {
+        return true;
+      }
+      return false;
+    }).toList();
+  }
+
+  /// Parse time string (HH:mm) to minutes since midnight
+  /// Returns null if parsing fails
+  int? _parseTimeToMinutes(String? timeStr) {
+    if (timeStr == null) return null;
+    final timeValues = timeStr.split(':');
+    if (timeValues.length != 2) return null;
+    final hour = int.tryParse(timeValues[0]);
+    final minute = int.tryParse(timeValues[1]);
+    if (hour == null || minute == null) return null;
+    return hour * 60 + minute;
+  }
+
+  /// Compare two time strings (HH:mm format)
+  /// Returns: -1 if timeA < timeB, 0 if equal, 1 if timeA > timeB
+  /// Items without time are considered "larger" (go to end)
+  int _compareTimes(String? timeA, String? timeB) {
+    if (timeA == null && timeB == null) return 0;
+    if (timeA == null) return 1; // A has no time, put it after B
+    if (timeB == null) return -1; // B has no time, put it after A
+
+    final timeAInt = _parseTimeToMinutes(timeA);
+    final timeBInt = _parseTimeToMinutes(timeB);
+
+    if (timeAInt == null && timeBInt == null) return 0;
+    if (timeAInt == null) return 1;
+    if (timeBInt == null) return -1;
+
+    // Always ascending for time
+    return timeAInt.compareTo(timeBInt);
+  }
+
+  /// Sort items within a section based on sort state
+  List<ActivityInstanceRecord> _sortSectionItems(
+      List<ActivityInstanceRecord> items, String sectionKey) {
+    // Only sort expanded sections
+    if (!_expandedSections.contains(sectionKey) || !_currentSort.isActive) {
+      return items;
+    }
+
+    final sortedItems = List<ActivityInstanceRecord>.from(items);
+
+    if (_currentSort.sortType == QueueSortType.points) {
+      // Sort by daily target points - always descending (highest first)
+      sortedItems.sort((a, b) {
+        final categoryA = _categories
+            .firstWhereOrNull((c) => c.reference.id == a.templateCategoryId);
+        final categoryB = _categories
+            .firstWhereOrNull((c) => c.reference.id == b.templateCategoryId);
+
+        double pointsA = 0.0;
+        double pointsB = 0.0;
+
+        if (categoryA != null) {
+          pointsA = PointsService.calculateDailyTarget(a, categoryA);
+        }
+        if (categoryB != null) {
+          pointsB = PointsService.calculateDailyTarget(b, categoryB);
+        }
+
+        // Always descending for points
+        return pointsB.compareTo(pointsA);
+      });
+    } else if (_currentSort.sortType == QueueSortType.time) {
+      // Sort by time only - date-agnostic, always ascending (earliest time first)
+      sortedItems.sort((a, b) {
+        final timeA = a.dueTime;
+        final timeB = b.dueTime;
+
+        // Items with time come first, sorted by time
+        // Items without time go to the end
+        if (timeA == null && timeB == null) return 0;
+        if (timeA == null) return 1; // A has no time, put it after B
+        if (timeB == null) return -1; // B has no time, put it after A
+
+        // Both have time - parse and compare
+        final timeAInt = _parseTimeToMinutes(timeA);
+        final timeBInt = _parseTimeToMinutes(timeB);
+
+        if (timeAInt == null && timeBInt == null) return 0;
+        if (timeAInt == null) return 1;
+        if (timeBInt == null) return -1;
+
+        // Always ascending for time
+        return timeAInt.compareTo(timeBInt);
+      });
+    } else if (_currentSort.sortType == QueueSortType.urgency) {
+      // Sort by urgency - date (deadline) then time, always ascending (most urgent first)
+      sortedItems.sort((a, b) {
+        // For habits with windows, use windowEndDate (deadline)
+        // For tasks and habits without windows, use dueDate
+        DateTime? dateA;
+        DateTime? dateB;
+
+        if (WindowDisplayHelper.hasCompletionWindow(a)) {
+          dateA = a.windowEndDate;
+        } else {
+          dateA = a.dueDate;
+        }
+
+        if (WindowDisplayHelper.hasCompletionWindow(b)) {
+          dateB = b.windowEndDate;
+        } else {
+          dateB = b.dueDate;
+        }
+
+        // Handle null dates (put them at the end)
+        if (dateA == null && dateB == null) {
+          // Both have no date, compare by time
+          return _compareTimes(a.dueTime, b.dueTime);
+        }
+        if (dateA == null) return 1; // A has no date, put it after B
+        if (dateB == null) return -1; // B has no date, put it after A
+
+        // Compare dates - always ascending (earliest deadline first)
+        int dateComparison = dateA.compareTo(dateB);
+        if (dateComparison != 0) {
+          return dateComparison;
+        }
+
+        // If dates are equal, compare times
+        return _compareTimes(a.dueTime, b.dueTime);
+      });
+    }
+
+    // Note: We don't update _instances here to avoid triggering infinite loops
+    // The order will be persisted to the database for future loads
+    // Save the updated order to database (async, don't wait)
+    InstanceOrderService.reorderInstancesInSection(
+      sortedItems,
+      'queue',
+      0,
+      sortedItems.length - 1,
+    ).catchError((e) {
+      print('Error saving sorted order: $e');
+    });
+
+    return sortedItems;
+  }
+
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
     final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
       'Pending': [],
-      'Needs Processing': [],
-      'Completed/Skipped': [],
+      'Completed': [],
+      'Skipped/Snoozed': [],
     };
     final today = _todayDate();
+    // Apply filters first
+    final filteredInstances = _applyFilters(_instances);
     // Filter instances by search query if active
-    final instancesToProcess = _instances.where((instance) {
+    final instancesToProcess = filteredInstances.where((instance) {
       if (_searchQuery.isEmpty) return true;
       return instance.templateName
           .toLowerCase()
@@ -250,20 +751,6 @@ class _QueuePageState extends State<QueuePage> {
         continue;
       }
       final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      // Check for expired habit instances that need processing
-      if (instance.templateCategoryType == 'habit' &&
-          instance.windowEndDate != null &&
-          instance.status == 'pending') {
-        final windowEndDate = DateTime(
-          instance.windowEndDate!.year,
-          instance.windowEndDate!.month,
-          instance.windowEndDate!.day,
-        );
-        if (windowEndDate.isBefore(today)) {
-          buckets['Needs Processing']!.add(instance);
-          continue;
-        }
-      }
       // OVERDUE: Only tasks that are overdue
       if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
         buckets['Overdue']!.add(instance);
@@ -274,13 +761,10 @@ class _QueuePageState extends State<QueuePage> {
       }
       // Skip anything beyond today (no "Later" section)
     }
-    // Populate Completed/Skipped (completed or skipped TODAY only)
+    // Populate Completed bucket (completed TODAY only)
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     for (final instance in instancesToProcess) {
-      if (instance.status != 'completed' && instance.status != 'skipped')
-        continue;
-      // For completed items, check completion date
       if (instance.status == 'completed') {
         if (instance.completedAt == null) {
           continue;
@@ -290,11 +774,14 @@ class _QueuePageState extends State<QueuePage> {
             DateTime(completedAt.year, completedAt.month, completedAt.day);
         final isToday = completedDateOnly.isAtSameMomentAs(todayStart);
         if (isToday) {
-          buckets['Completed/Skipped']!.add(instance);
+          buckets['Completed']!.add(instance);
         }
       }
+    }
+    // Populate Skipped/Snoozed bucket (skipped TODAY or currently snoozed)
+    for (final instance in instancesToProcess) {
       // For skipped items, check skipped date
-      else if (instance.status == 'skipped') {
+      if (instance.status == 'skipped') {
         if (instance.skippedAt == null) {
           continue;
         }
@@ -303,11 +790,11 @@ class _QueuePageState extends State<QueuePage> {
             DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
         final isToday = skippedDateOnly.isAtSameMomentAs(todayStart);
         if (isToday) {
-          buckets['Completed/Skipped']!.add(instance);
+          buckets['Skipped/Snoozed']!.add(instance);
         }
       }
     }
-    // Add snoozed instances to Completed/Skipped section (only if due today)
+    // Add snoozed instances to Skipped/Snoozed section (only if due today)
     for (final instance in instancesToProcess) {
       if (instance.snoozedUntil != null &&
           DateTime.now().isBefore(instance.snoozedUntil!)) {
@@ -317,36 +804,54 @@ class _QueuePageState extends State<QueuePage> {
           final dueDateOnly =
               DateTime(dueDate.year, dueDate.month, dueDate.day);
           if (dueDateOnly.isAtSameMomentAs(todayStart)) {
-            buckets['Completed/Skipped']!.add(instance);
+            buckets['Skipped/Snoozed']!.add(instance);
           }
         }
       }
     }
-    // Sort items within each bucket by queue order
+    // Sort items within each bucket
     for (final key in buckets.keys) {
       final items = buckets[key]!;
       if (items.isNotEmpty) {
-        // Initialize order values for items that don't have them
-        InstanceOrderService.initializeOrderValues(items, 'queue');
-        // Sort by queue order
-        buckets[key] =
-            InstanceOrderService.sortInstancesByOrder(items, 'queue');
+        // Apply sort if active, otherwise use queue order
+        if (_currentSort.isActive && _expandedSections.contains(key)) {
+          buckets[key] = _sortSectionItems(items, key);
+        } else {
+          // Sort by queue order (manual order)
+          buckets[key] =
+              InstanceOrderService.sortInstancesByOrder(items, 'queue');
+        }
       }
     }
     // Auto-expand sections with search results
     if (_searchQuery.isNotEmpty) {
       for (final key in buckets.keys) {
         if (buckets[key]!.isNotEmpty) {
-          _expandedSection = key;
-          break; // Expand the first section with results
+          _expandedSections.add(key);
         }
       }
     }
     return buckets;
   }
+
   String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
-    if (bucketKey == 'Completed/Skipped') {
-      // For completed/skipped habits with completion windows, show next window info
+    if (bucketKey == 'Completed') {
+      // For completed habits with completion windows, show next window info
+      if (item.templateCategoryType == 'habit' &&
+          WindowDisplayHelper.hasCompletionWindow(item)) {
+        return WindowDisplayHelper.getNextWindowStartSubtitle(item);
+      }
+      final due = item.dueDate;
+      final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
+      final timeStr = item.hasDueTime()
+          ? ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}'
+          : '';
+      final subtitle =
+          'Completed • ${item.templateCategoryName} • Due: $dueStr$timeStr';
+      return subtitle;
+    }
+    if (bucketKey == 'Skipped/Snoozed') {
+      // For skipped/snoozed habits with completion windows, show next window info
       if (item.templateCategoryType == 'habit' &&
           WindowDisplayHelper.hasCompletionWindow(item)) {
         return WindowDisplayHelper.getNextWindowStartSubtitle(item);
@@ -356,8 +861,6 @@ class _QueuePageState extends State<QueuePage> {
       if (item.snoozedUntil != null &&
           DateTime.now().isBefore(item.snoozedUntil!)) {
         statusText = 'Snoozed';
-      } else if (item.status == 'completed') {
-        statusText = 'Completed';
       } else if (item.status == 'skipped') {
         statusText = 'Skipped';
       } else {
@@ -395,28 +898,95 @@ class _QueuePageState extends State<QueuePage> {
     }
     return item.templateCategoryName;
   }
+
   DateTime _todayDate() {
     return DateService.todayStart;
   }
+
   @override
   Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
     return DefaultTabController(
       length: 2,
-      child: SafeArea(
-        child: Column(
-          children: [
-            // Tab bar
-            TabBar(
-              tabs: [
-                Tab(
-                  text: 'Today',
+      child: Scaffold(
+        appBar: AppBar(
+          automaticallyImplyLeading: false,
+          backgroundColor: theme.primaryBackground,
+          elevation: 0,
+          title: TabBar(
+            dividerColor: Colors.transparent,
+            tabs: [
+              Tab(
+                text: 'Today',
+              ),
+              Tab(
+                text: 'This Week',
+              ),
+            ],
+          ),
+          actions: [
+            // Sort button
+            PopupMenuButton<String>(
+              icon: Icon(
+                Icons.sort,
+                color:
+                    _currentSort.isActive ? theme.primary : theme.secondaryText,
+              ),
+              tooltip: 'Sort',
+              onSelected: (String sortType) async {
+                if (sortType == QueueSortType.points) {
+                  final sort = QueueSortState(
+                    sortType: QueueSortType.points,
+                  );
+                  if (mounted) {
+                    await QueueSortStateManager().setSortState(sort);
+                    setState(() {
+                      _currentSort = sort;
+                    });
+                  }
+                } else if (sortType == QueueSortType.time) {
+                  final sort = QueueSortState(
+                    sortType: QueueSortType.time,
+                  );
+                  if (mounted) {
+                    await QueueSortStateManager().setSortState(sort);
+                    setState(() {
+                      _currentSort = sort;
+                    });
+                  }
+                } else if (sortType == QueueSortType.urgency) {
+                  final sort = QueueSortState(
+                    sortType: QueueSortType.urgency,
+                  );
+                  if (mounted) {
+                    await QueueSortStateManager().setSortState(sort);
+                    setState(() {
+                      _currentSort = sort;
+                    });
+                  }
+                }
+              },
+              itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(
+                  value: QueueSortType.points,
+                  child: Text('Sort by Max Points (per day)'),
                 ),
-                Tab(
-                  text: 'This Week',
+                PopupMenuItem<String>(
+                  value: QueueSortType.time,
+                  child: Text('Sort by Time'),
+                ),
+                PopupMenuItem<String>(
+                  value: QueueSortType.urgency,
+                  child: Text('Sort by Urgency'),
                 ),
               ],
             ),
-            const Divider(height: 1),
+            // Filter button with prominent active state
+            _buildFilterButton(theme),
+          ],
+        ),
+        body: Column(
+          children: [
             // Tab content
             Expanded(
               child: TabBarView(
@@ -431,6 +1001,7 @@ class _QueuePageState extends State<QueuePage> {
       ),
     );
   }
+
   Widget _buildDailyTabContent() {
     return Stack(
       children: [
@@ -449,35 +1020,44 @@ class _QueuePageState extends State<QueuePage> {
                       );
                     },
                     child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: 12, horizontal: 16),
+                      margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: FlutterFlowTheme.of(context).secondaryBackground,
+                        borderRadius: BorderRadius.circular(12),
+                        boxShadow: const [
+                          BoxShadow(
+                            blurRadius: 4,
+                            color: Color(0x33000000),
+                            offset: Offset(0, 2),
+                          )
+                        ],
+                      ),
                       child: Center(
                         child: Row(
-                          mainAxisAlignment: MainAxisAlignment.center,
+                          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                           children: [
-                            ProgressDonutChart(
-                              percentage: _dailyPercentage,
-                              totalTarget: _dailyTarget,
-                              pointsEarned: _pointsEarned,
-                              size: 90,
-                            ),
-                            const SizedBox(width: 16),
+                            // Daily Progress Donut Chart
                             Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              mainAxisAlignment: MainAxisAlignment.center,
                               children: [
+                                ProgressDonutChart(
+                                  percentage: _dailyPercentage,
+                                  totalTarget: _dailyTarget,
+                                  pointsEarned: _pointsEarned,
+                                  size: 80,
+                                ),
+                                const SizedBox(height: 8),
                                 Text(
                                   'Daily Progress',
                                   style: FlutterFlowTheme.of(context)
-                                      .titleMedium
+                                      .bodyMedium
                                       .override(
                                         fontFamily: 'Readex Pro',
                                         fontWeight: FontWeight.w600,
                                       ),
                                 ),
-                                const SizedBox(height: 4),
                                 Text(
-                                  '${_pointsEarned.toStringAsFixed(1)} / ${_dailyTarget.toStringAsFixed(1)} points',
+                                  '${_pointsEarned.toStringAsFixed(1)} / ${_dailyTarget.toStringAsFixed(1)}',
                                   style: FlutterFlowTheme.of(context)
                                       .bodySmall
                                       .override(
@@ -488,12 +1068,57 @@ class _QueuePageState extends State<QueuePage> {
                                 ),
                               ],
                             ),
+                            // Cumulative Score Graph
+                            Column(
+                              children: [
+                                Container(
+                                  width: 80,
+                                  height: 80,
+                                  child: _buildCumulativeScoreMiniGraph(),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  'Cumulative Score',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodyMedium
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                                Text(
+                                  '${_cumulativeScore.toStringAsFixed(0)} pts',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
+                                      ),
+                                ),
+                                if (_dailyScoreGain != 0)
+                                  Text(
+                                    _dailyScoreGain >= 0
+                                        ? '+${_dailyScoreGain.toStringAsFixed(1)}'
+                                        : _dailyScoreGain.toStringAsFixed(1),
+                                    style: FlutterFlowTheme.of(context)
+                                        .bodySmall
+                                        .override(
+                                          fontFamily: 'Readex Pro',
+                                          color: _dailyScoreGain >= 0
+                                              ? Colors.green
+                                              : Colors.red,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                  ),
+                              ],
+                            ),
                           ],
                         ),
                       ),
                     ),
                   ),
-                  const Divider(height: 1),
+                  const SizedBox(height: 16),
                   Expanded(
                     child: _buildDailyView(),
                   ),
@@ -507,18 +1132,14 @@ class _QueuePageState extends State<QueuePage> {
       ],
     );
   }
+
   // List<ActivityRecord> get _activeFloatingHabits {
   //   // TODO: Re-implement with instances
   //   return [];
   // }
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
-    final order = [
-      'Overdue',
-      'Pending',
-      'Needs Processing',
-      'Completed/Skipped'
-    ];
+    final order = ['Overdue', 'Pending', 'Completed', 'Skipped/Snoozed'];
     final theme = FlutterFlowTheme.of(context);
     final visibleSections =
         order.where((key) => buckets[key]!.isNotEmpty).toList();
@@ -545,7 +1166,7 @@ class _QueuePageState extends State<QueuePage> {
     final slivers = <Widget>[];
     for (final key in visibleSections) {
       final items = buckets[key]!;
-      final expanded = _expandedSection == key;
+      final expanded = _expandedSections.contains(key);
       // Get or create GlobalKey for this section
       if (!_sectionKeys.containsKey(key)) {
         _sectionKeys[key] = GlobalKey();
@@ -583,14 +1204,6 @@ class _QueuePageState extends State<QueuePage> {
                         fontWeight: FontWeight.w600,
                       ),
                     ),
-                    if (key == 'Needs Processing')
-                      Text(
-                        'These habits have expired windows and need processing',
-                        style: theme.bodySmall.override(
-                          fontFamily: 'Readex Pro',
-                          color: theme.error,
-                        ),
-                      ),
                   ],
                 ),
                 GestureDetector(
@@ -598,18 +1211,18 @@ class _QueuePageState extends State<QueuePage> {
                     if (mounted) {
                       setState(() {
                         if (expanded) {
-                          // Collapse current section
-                          _expandedSection = null;
+                          // Collapse this section
+                          _expandedSections.remove(key);
                         } else {
-                          // Expand this section (accordion behavior)
-                          _expandedSection = key;
+                          // Expand this section
+                          _expandedSections.add(key);
                         }
                       });
                       // Save state persistently
                       ExpansionStateManager()
-                          .setQueueExpandedSection(_expandedSection);
+                          .setQueueExpandedSections(_expandedSections);
                       // Scroll to make the newly expanded section visible
-                      if (_expandedSection == key) {
+                      if (_expandedSections.contains(key)) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (_sectionKeys[key]?.currentContext != null) {
                             Scrollable.ensureVisible(
@@ -635,33 +1248,6 @@ class _QueuePageState extends State<QueuePage> {
         ),
       );
       if (expanded) {
-        // Add Process Expired button for Needs Processing section
-        if (key == 'Needs Processing') {
-          slivers.add(
-            SliverToBoxAdapter(
-              child: Container(
-                margin: EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        onPressed: _processExpiredInstances,
-                        icon: Icon(Icons.refresh),
-                        label: Text('Process Expired Instances'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: theme.error,
-                          foregroundColor: theme.primaryBackground,
-                          padding: EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 12),
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          );
-        }
         slivers.add(
           SliverReorderableList(
             itemBuilder: (context, index) {
@@ -683,7 +1269,11 @@ class _QueuePageState extends State<QueuePage> {
                   isHabit: isHabit,
                   showTypeIcon: true,
                   showRecurringIcon: true,
-                  showCompleted: key == 'Completed/Skipped' ? true : null,
+                  showCompleted:
+                      (key == 'Completed' || key == 'Skipped/Snoozed')
+                          ? true
+                          : null,
+                  page: 'queue',
                 ),
               );
             },
@@ -704,13 +1294,172 @@ class _QueuePageState extends State<QueuePage> {
       ],
     );
   }
+
   String _getCategoryColor(ActivityInstanceRecord instance) {
     final category = _categories
         .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
-    if (category == null) {
-    }
+    if (category == null) {}
     return category?.color ?? '#000000';
   }
+
+  /// Check if filter is in default state (all categories selected)
+  bool _isDefaultFilterState() {
+    if (_categories.isEmpty) return true; // No categories = default state
+
+    final habitCategories = _categories
+        .where((c) => c.categoryType == 'habit')
+        .map((c) => c.name)
+        .toSet();
+    final taskCategories = _categories
+        .where((c) => c.categoryType == 'task')
+        .map((c) => c.name)
+        .toSet();
+
+    // Check if all habit categories are selected
+    final allHabitsSelected = habitCategories.isEmpty ||
+        (habitCategories.length ==
+                _currentFilter.selectedHabitCategoryNames.length &&
+            habitCategories.every((name) =>
+                _currentFilter.selectedHabitCategoryNames.contains(name)));
+
+    // Check if all task categories are selected
+    final allTasksSelected = taskCategories.isEmpty ||
+        (taskCategories.length ==
+                _currentFilter.selectedTaskCategoryNames.length &&
+            taskCategories.every((name) =>
+                _currentFilter.selectedTaskCategoryNames.contains(name)));
+
+    return allHabitsSelected && allTasksSelected;
+  }
+
+  /// Count the number of excluded categories (not selected)
+  int _getExcludedCategoryCount() {
+    if (_categories.isEmpty) return 0;
+
+    final habitCategories = _categories
+        .where((c) => c.categoryType == 'habit')
+        .map((c) => c.name)
+        .toSet();
+    final taskCategories = _categories
+        .where((c) => c.categoryType == 'task')
+        .map((c) => c.name)
+        .toSet();
+
+    final excludedHabits = habitCategories.length -
+        _currentFilter.selectedHabitCategoryNames.length;
+    final excludedTasks =
+        taskCategories.length - _currentFilter.selectedTaskCategoryNames.length;
+
+    return excludedHabits + excludedTasks;
+  }
+
+  /// Build a prominent filter button with badge and colored background when active
+  Widget _buildFilterButton(FlutterFlowTheme theme) {
+    final isFilterActive = !_isDefaultFilterState();
+    final excludedCount = _getExcludedCategoryCount();
+
+    return Stack(
+      clipBehavior: Clip.none,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            color: isFilterActive
+                ? theme.primary.withOpacity(0.15)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(8),
+            border: isFilterActive
+                ? Border.all(
+                    color: theme.primary.withOpacity(0.4),
+                    width: 1.5,
+                  )
+                : null,
+          ),
+          child: IconButton(
+            icon: Icon(
+              Icons.filter_list,
+              color: isFilterActive ? theme.primary : theme.secondaryText,
+            ),
+            onPressed: () async {
+              final result = await showQueueFilterDialog(
+                context: context,
+                categories: _categories,
+                initialFilter: _currentFilter,
+              );
+              if (result != null && mounted) {
+                setState(() {
+                  _currentFilter = result;
+                });
+                // Check if result is in default state (all categories selected)
+                // If so, clear stored state; otherwise save it
+                final habitCategories = _categories
+                    .where((c) => c.categoryType == 'habit')
+                    .map((c) => c.name)
+                    .toSet();
+                final taskCategories = _categories
+                    .where((c) => c.categoryType == 'task')
+                    .map((c) => c.name)
+                    .toSet();
+                final allHabitsSelected = habitCategories.isEmpty ||
+                    (habitCategories.length ==
+                            result.selectedHabitCategoryNames.length &&
+                        habitCategories.every((name) =>
+                            result.selectedHabitCategoryNames.contains(name)));
+                final allTasksSelected = taskCategories.isEmpty ||
+                    (taskCategories.length ==
+                            result.selectedTaskCategoryNames.length &&
+                        taskCategories.every((name) =>
+                            result.selectedTaskCategoryNames.contains(name)));
+
+                if (allHabitsSelected && allTasksSelected) {
+                  // Default state - clear stored filter
+                  await QueueFilterStateManager().clearFilterState();
+                } else {
+                  // Not default - save the filter state
+                  await QueueFilterStateManager().setFilterState(result);
+                }
+              }
+            },
+            tooltip: isFilterActive
+                ? 'Filter active ($excludedCount excluded)'
+                : 'Filter',
+          ),
+        ),
+        // Badge showing excluded category count when not in default state
+        if (isFilterActive && excludedCount > 0)
+          Positioned(
+            right: 4,
+            top: 4,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+              decoration: BoxDecoration(
+                color: theme.primary,
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(
+                  color: theme.primaryBackground,
+                  width: 1.5,
+                ),
+              ),
+              constraints: const BoxConstraints(
+                minWidth: 18,
+                minHeight: 18,
+              ),
+              child: Center(
+                child: Text(
+                  excludedCount > 99 ? '99+' : '$excludedCount',
+                  style: TextStyle(
+                    color: Colors.white,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    height: 1.0,
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
   // Recent Completions UI is now handled via standard sections and ItemComponent
   /// Update instance in local state and recalculate progress
   void _updateInstanceInLocalState(
@@ -720,13 +1469,13 @@ class _QueuePageState extends State<QueuePage> {
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _instances[index] = updatedInstance;
-      } else {
-      }
+      } else {}
     });
     // Recalculate progress for instant updates
     print('QueuePage: Triggering _calculateProgress() after instance update');
     _calculateProgress();
   }
+
   /// Remove instance from local state and recalculate progress
   void _removeInstanceFromLocalState(
       ActivityInstanceRecord deletedInstance) async {
@@ -737,14 +1486,21 @@ class _QueuePageState extends State<QueuePage> {
     // Recalculate progress for instant updates
     _calculateProgress();
   }
+
   // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     setState(() {
-      _instances.add(instance);
+      // Check if instance already exists to prevent duplicates
+      final exists =
+          _instances.any((inst) => inst.reference.id == instance.reference.id);
+      if (!exists) {
+        _instances.add(instance);
+      }
     });
     // Recalculate progress for instant updates
     _calculateProgress();
   }
+
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
     setState(() {
       final index = _instances
@@ -756,6 +1512,7 @@ class _QueuePageState extends State<QueuePage> {
     // Recalculate progress for instant updates
     _calculateProgress();
   }
+
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     setState(() {
       _instances
@@ -764,6 +1521,7 @@ class _QueuePageState extends State<QueuePage> {
     // Recalculate progress for instant updates
     _calculateProgress();
   }
+
   /// Silent refresh instances without loading indicator
   Future<void> _silentRefreshInstances() async {
     try {
@@ -773,74 +1531,45 @@ class _QueuePageState extends State<QueuePage> {
       final habitCategories = await queryHabitCategoriesOnce(userId: userId);
       final taskCategories = await queryTaskCategoriesOnce(userId: userId);
       final allCategories = [...habitCategories, ...taskCategories];
+      // Deduplicate instances by reference ID to prevent duplicates
+      final uniqueInstances = <String, ActivityInstanceRecord>{};
+      for (final instance in allInstances) {
+        uniqueInstances[instance.reference.id] = instance;
+      }
+      final deduplicatedInstances = uniqueInstances.values.toList();
       if (mounted) {
         setState(() {
-          _instances = allInstances;
+          _instances = deduplicatedInstances;
           _categories = allCategories;
           // Don't touch _isLoading
         });
         _calculateProgress();
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
-  Future<void> _processExpiredInstances() async {
-    try {
-      // Show loading indicator
-      setState(() => _isLoading = true);
-      // Find the oldest expired instance to determine the date to process
-      final buckets = _bucketedItems;
-      final expiredInstances = buckets['Needs Processing'] ?? [];
-      if (expiredInstances.isEmpty) {
-        setState(() => _isLoading = false);
-        return;
-      }
-      // Find the oldest window end date among expired instances
-      DateTime? oldestWindowEnd;
-      for (final instance in expiredInstances) {
-        if (instance.windowEndDate != null) {
-          final windowEndDate = DateTime(
-            instance.windowEndDate!.year,
-            instance.windowEndDate!.month,
-            instance.windowEndDate!.day,
-          );
-          if (oldestWindowEnd == null ||
-              windowEndDate.isBefore(oldestWindowEnd)) {
-            oldestWindowEnd = windowEndDate;
-          }
-        }
-      }
-      if (oldestWindowEnd != null) {
-        await BackgroundScheduler.triggerDayEndProcessing(
-            targetDate: oldestWindowEnd);
-        // Refresh the data
-        await _loadData();
-        // Show success message
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Successfully processed expired instances'),
-            backgroundColor: FlutterFlowTheme.of(context).success,
-          ),
-        );
-      }
-    } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Error processing expired instances: $e'),
-          backgroundColor: FlutterFlowTheme.of(context).error,
-        ),
-      );
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
+
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
     try {
+      // If a sort is active, clear it immediately so the manual order sticks
+      if (_currentSort.isActive) {
+        final clearedSort = QueueSortState();
+        await QueueSortStateManager().setSortState(clearedSort);
+        if (mounted) {
+          setState(() {
+            _currentSort = clearedSort;
+          });
+        }
+      }
+
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
-      if (oldIndex >= items.length || newIndex >= items.length) return;
+      // Allow dropping at the end (newIndex can equal items.length)
+      if (oldIndex < 0 ||
+          oldIndex >= items.length ||
+          newIndex < 0 ||
+          newIndex > items.length) return;
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
       // Adjust newIndex for the case where we're moving down
@@ -879,7 +1608,7 @@ class _QueuePageState extends State<QueuePage> {
         reorderedItems,
         'queue',
         oldIndex,
-        newIndex,
+        adjustedNewIndex,
       );
     } catch (e) {
       // Revert to correct state by refreshing data
@@ -891,260 +1620,5 @@ class _QueuePageState extends State<QueuePage> {
         );
       }
     }
-  }
-  /// Show snooze bottom sheet for day-end processing
-  void showSnoozeBottomSheet() {
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (context) => _SnoozeBottomSheet(),
-    );
-  }
-}
-/// Snooze bottom sheet widget
-class _SnoozeBottomSheet extends StatefulWidget {
-  @override
-  _SnoozeBottomSheetState createState() => _SnoozeBottomSheetState();
-}
-class _SnoozeBottomSheetState extends State<_SnoozeBottomSheet> {
-  bool _isLoading = false;
-  @override
-  Widget build(BuildContext context) {
-    final theme = FlutterFlowTheme.of(context);
-    final snoozeStatus = DayEndScheduler.getSnoozeStatus();
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.primaryBackground,
-        borderRadius: const BorderRadius.only(
-          topLeft: Radius.circular(20),
-          topRight: Radius.circular(20),
-        ),
-      ),
-      padding: const EdgeInsets.all(24),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Handle bar
-          Center(
-            child: Container(
-              width: 40,
-              height: 4,
-              decoration: BoxDecoration(
-                color: theme.secondaryText,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Title
-          Text(
-            'Day Ending Soon',
-            style: theme.headlineSmall.override(
-              fontFamily: 'Outfit',
-              fontSize: 24,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 8),
-          // Description
-          Text(
-            'You have ${snoozeStatus['remainingSnooze']} minutes of snooze time remaining. Extend your day to finish more tasks!',
-            style: theme.bodyMedium.override(
-              fontFamily: 'Readex Pro',
-              color: theme.secondaryText,
-            ),
-          ),
-          const SizedBox(height: 24),
-          // Current processing time
-          if (snoozeStatus['scheduledTime'] != null) ...[
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.secondaryBackground,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.alternate),
-              ),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.schedule,
-                    color: theme.primary,
-                    size: 20,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Current Processing Time',
-                          style: theme.bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            color: theme.secondaryText,
-                          ),
-                        ),
-                        Text(
-                          _formatTime(
-                              DateTime.parse(snoozeStatus['scheduledTime'])),
-                          style: theme.bodyMedium.override(
-                            fontFamily: 'Readex Pro',
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 20),
-          ],
-          // Snooze buttons
-          Text(
-            'Snooze Options',
-            style: theme.titleMedium.override(
-              fontFamily: 'Readex Pro',
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              Expanded(
-                child: _SnoozeButton(
-                  minutes: 15,
-                  label: '15 min',
-                  enabled: snoozeStatus['canSnooze15'],
-                  onPressed: () => _handleSnooze(15),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SnoozeButton(
-                  minutes: 30,
-                  label: '30 min',
-                  enabled: snoozeStatus['canSnooze30'],
-                  onPressed: () => _handleSnooze(30),
-                ),
-              ),
-              const SizedBox(width: 12),
-              Expanded(
-                child: _SnoozeButton(
-                  minutes: 60,
-                  label: '1 hr',
-                  enabled: snoozeStatus['canSnooze60'],
-                  onPressed: () => _handleSnooze(60),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 20),
-          // View Tasks button
-          SizedBox(
-            width: double.infinity,
-            child: ElevatedButton(
-              onPressed: () => Navigator.pop(context),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: theme.primary,
-                foregroundColor: theme.primaryText,
-                padding: const EdgeInsets.symmetric(vertical: 16),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: Text(
-                'View Tasks',
-                style: theme.titleMedium.override(
-                  fontFamily: 'Readex Pro',
-                  color: theme.primaryText,
-                ),
-              ),
-            ),
-          ),
-          const SizedBox(height: 12),
-        ],
-      ),
-    );
-  }
-  String _formatTime(DateTime dateTime) {
-    return DateFormat('h:mm a').format(dateTime);
-  }
-  Future<void> _handleSnooze(int minutes) async {
-    if (_isLoading) return;
-    setState(() => _isLoading = true);
-    try {
-      final success = await DayEndScheduler.snooze(minutes);
-      if (success) {
-        if (mounted) {
-          Navigator.pop(context);
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Day-end processing snoozed for $minutes minutes'),
-              backgroundColor: FlutterFlowTheme.of(context).success,
-            ),
-          );
-        }
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Cannot snooze - maximum time limit reached'),
-              backgroundColor: FlutterFlowTheme.of(context).error,
-            ),
-          );
-        }
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error snoozing: $e'),
-            backgroundColor: FlutterFlowTheme.of(context).error,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
-    }
-  }
-}
-/// Snooze button widget
-class _SnoozeButton extends StatelessWidget {
-  final int minutes;
-  final String label;
-  final bool enabled;
-  final VoidCallback onPressed;
-  const _SnoozeButton({
-    required this.minutes,
-    required this.label,
-    required this.enabled,
-    required this.onPressed,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final theme = FlutterFlowTheme.of(context);
-    return ElevatedButton(
-      onPressed: enabled ? onPressed : null,
-      style: ElevatedButton.styleFrom(
-        backgroundColor: enabled ? theme.primary : theme.secondaryBackground,
-        foregroundColor: enabled ? theme.primaryText : theme.secondaryText,
-        padding: const EdgeInsets.symmetric(vertical: 12),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-        ),
-        elevation: enabled ? 2 : 0,
-      ),
-      child: Text(
-        label,
-        style: theme.bodyMedium.override(
-          fontFamily: 'Readex Pro',
-          fontWeight: FontWeight.w500,
-        ),
-      ),
-    );
   }
 }

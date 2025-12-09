@@ -43,14 +43,7 @@ class InstanceOrderService {
     const retryDelay = Duration(milliseconds: 500);
     for (int attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        // Adjust newIndex for the case where we're moving down
-        if (oldIndex < newIndex) {
-          newIndex -= 1;
-        }
-        // Get the item being moved
-        final movedItem = instances.removeAt(oldIndex);
-        instances.insert(newIndex, movedItem);
-        // Update orders for all affected instances
+        // instances is already in the desired order; just persist the order
         final batch = FirebaseFirestore.instance.batch();
         final userId = currentUserUid;
         final List<String> instanceIds = [];

@@ -10,12 +10,18 @@ import 'package:habit_tracker/Screens/Progress/progress_breakdown_dialog.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Helper/utils/cumulative_score_line_painter.dart';
+import 'package:habit_tracker/Screens/Progress/habit_statistics_tab.dart';
+import 'package:habit_tracker/Screens/Progress/category_statistics_tab.dart';
 import 'package:flutter/foundation.dart';
+
 class ProgressPage extends StatefulWidget {
   const ProgressPage({Key? key}) : super(key: key);
   @override
   State<ProgressPage> createState() => _ProgressPageState();
 }
+
 class _ProgressPageState extends State<ProgressPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   List<DailyProgressRecord> _progressHistory = [];
@@ -24,6 +30,15 @@ class _ProgressPageState extends State<ProgressPage> {
   double _todayTarget = 0.0;
   double _todayEarned = 0.0;
   double _todayPercentage = 0.0;
+  // Cumulative score data
+  double _cumulativeScore = 0.0;
+  double _dailyScoreGain = 0.0;
+  List<Map<String, dynamic>> _cumulativeScoreHistory = [];
+  bool _show30Days = false;
+  // Projected score data for today
+  double _projectedCumulativeScore = 0.0;
+  double _projectedDailyGain = 0.0;
+  bool _hasProjection = false;
   @override
   void initState() {
     super.initState();
@@ -37,16 +52,22 @@ class _ProgressPageState extends State<ProgressPage> {
           _todayEarned = data['earned']!;
           _todayPercentage = data['percentage']!;
         });
+        // Recalculate projected score when today's progress updates
+        _updateProjectedScore();
       }
     });
     // Load initial today's progress
     _loadInitialTodayProgress();
+    // Load cumulative score data
+    _loadCumulativeScore();
   }
+
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
     super.dispose();
   }
+
   void _showProgressBreakdown(BuildContext context, DateTime date) {
     // Check if it's today
     final today = DateService.currentDate;
@@ -58,24 +79,45 @@ class _ProgressPageState extends State<ProgressPage> {
       _showHistoricalBreakdown(context, date);
     }
   }
+
   void _showTodayBreakdown(BuildContext context) {
-    // For today, we need to calculate the breakdown using the current data
-    // This would require calling the daily progress calculator
-    // For now, show a placeholder
+    // Show loading dialog while calculating today's breakdown
     showDialog(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Today\'s Progress'),
-        content: const Text('Today\'s breakdown feature coming soon!'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('OK'),
-          ),
-        ],
+      barrierDismissible: false,
+      builder: (context) => const AlertDialog(
+        content: Row(
+          children: [
+            CircularProgressIndicator(),
+            SizedBox(width: 16),
+            Text('Calculating today\'s breakdown...'),
+          ],
+        ),
       ),
     );
+
+    // Calculate today's breakdown on-demand
+    _calculateTodayBreakdown().then((breakdown) {
+      Navigator.of(context).pop(); // Close loading dialog
+      showDialog(
+        context: context,
+        builder: (context) => ProgressBreakdownDialog(
+          date: DateService.currentDate,
+          totalEarned: _todayEarned,
+          totalTarget: _todayTarget,
+          percentage: _todayPercentage,
+          habitBreakdown: breakdown['habitBreakdown'] ?? [],
+          taskBreakdown: breakdown['taskBreakdown'] ?? [],
+        ),
+      );
+    }).catchError((error) {
+      Navigator.of(context).pop(); // Close loading dialog
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Error calculating today\'s breakdown: $error')),
+      );
+    });
   }
+
   void _showHistoricalBreakdown(BuildContext context, DateTime date) {
     final dayData = _getProgressForDate(date);
     if (dayData == null) {
@@ -86,10 +128,8 @@ class _ProgressPageState extends State<ProgressPage> {
     }
     // Debug logging
     print('ProgressPage: Showing breakdown for ${date.toIso8601String()}');
-    if (dayData.habitBreakdown.isNotEmpty) {
-    }
-    if (dayData.taskBreakdown.isNotEmpty) {
-    }
+    if (dayData.habitBreakdown.isNotEmpty) {}
+    if (dayData.taskBreakdown.isNotEmpty) {}
     // If no breakdown data exists, calculate it on-demand
     if (dayData.habitBreakdown.isEmpty && dayData.taskBreakdown.isEmpty) {
       _showCalculatedBreakdown(context, date, dayData);
@@ -107,6 +147,7 @@ class _ProgressPageState extends State<ProgressPage> {
       );
     }
   }
+
   void _showCalculatedBreakdown(
       BuildContext context, DateTime date, DailyProgressRecord dayData) {
     // Show loading dialog while calculating
@@ -144,6 +185,70 @@ class _ProgressPageState extends State<ProgressPage> {
       );
     });
   }
+
+  Future<Map<String, dynamic>> _calculateTodayBreakdown() async {
+    try {
+      final userId = currentUserUid;
+      final today = DateService.currentDate;
+
+      // Get all habit instances for today
+      final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit');
+      final habitSnapshot = await habitQuery.get();
+      final allHabits = habitSnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      // Get all task instances for today
+      final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'task');
+      final taskSnapshot = await taskQuery.get();
+      final allTasks = taskSnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      // Get categories
+      final categoryQuery = CategoryRecord.collectionForUser(userId)
+          .where('categoryType', isEqualTo: 'habit');
+      final categorySnapshot = await categoryQuery.get();
+      final categories = categorySnapshot.docs
+          .map((doc) => CategoryRecord.fromSnapshot(doc))
+          .toList();
+
+      // Calculate breakdown using the daily progress calculator
+      final result = await DailyProgressCalculator.calculateDailyProgress(
+        userId: userId,
+        targetDate: today,
+        allInstances: allHabits,
+        categories: categories,
+        taskInstances: allTasks,
+      );
+
+      // Debug logging to understand the 153% issue
+      print('=== TODAY\'S PROGRESS DEBUG ===');
+      print('Total Target: ${result['target']}');
+      print('Total Earned: ${result['earned']}');
+      print('Percentage: ${result['percentage']}%');
+      print('Habit Target: ${result['habitTarget']}');
+      print('Habit Earned: ${result['habitEarned']}');
+      print('Task Target: ${result['taskTarget']}');
+      print('Task Earned: ${result['taskEarned']}');
+
+      return {
+        'habitBreakdown':
+            result['habitBreakdown'] as List<Map<String, dynamic>>? ?? [],
+        'taskBreakdown':
+            result['taskBreakdown'] as List<Map<String, dynamic>>? ?? [],
+      };
+    } catch (e) {
+      print('Error calculating today\'s breakdown: $e');
+      return {
+        'habitBreakdown': <Map<String, dynamic>>[],
+        'taskBreakdown': <Map<String, dynamic>>[],
+      };
+    }
+  }
+
   Future<Map<String, dynamic>> _calculateBreakdownForDate(DateTime date) async {
     try {
       final userId = currentUserUid;
@@ -189,6 +294,7 @@ class _ProgressPageState extends State<ProgressPage> {
       };
     }
   }
+
   Future<void> _loadProgressHistory() async {
     if (!mounted) return;
     setState(() {
@@ -229,6 +335,7 @@ class _ProgressPageState extends State<ProgressPage> {
       }
     }
   }
+
   void _loadInitialTodayProgress() {
     final data = TodayProgressState().getProgressData();
     setState(() {
@@ -237,54 +344,183 @@ class _ProgressPageState extends State<ProgressPage> {
       _todayPercentage = data['percentage']!;
     });
   }
+
+  Future<void> _loadCumulativeScore() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+
+      final userStats = await CumulativeScoreService.getCumulativeScore(userId);
+      if (userStats != null && mounted) {
+        setState(() {
+          _cumulativeScore = userStats.cumulativeScore;
+          _dailyScoreGain = userStats.lastDailyGain;
+        });
+      }
+
+      // Calculate projected score for today
+      await _updateProjectedScore();
+
+      // Load cumulative score history
+      await _loadCumulativeScoreHistory();
+    } catch (e) {
+      print('Error loading cumulative score: $e');
+    }
+  }
+
+  Future<void> _updateProjectedScore() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+
+      // Only show projection if today has progress
+      if (_todayPercentage > 0) {
+        final projectionData =
+            await CumulativeScoreService.calculateProjectedDailyScore(
+          userId,
+          _todayPercentage,
+        );
+
+        if (mounted) {
+          setState(() {
+            _projectedCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
+            _projectedDailyGain = projectionData['projectedGain'] ?? 0.0;
+            _hasProjection = true;
+          });
+          
+          // Publish cumulative score to shared state
+          TodayProgressState().updateCumulativeScore(
+            cumulativeScore: _projectedCumulativeScore,
+            dailyGain: _projectedDailyGain,
+            hasLiveScore: true,
+          );
+        }
+      } else {
+        if (mounted) {
+          setState(() {
+            _hasProjection = false;
+          });
+          
+          // Publish base cumulative score (without projection)
+          TodayProgressState().updateCumulativeScore(
+            cumulativeScore: _cumulativeScore,
+            dailyGain: _dailyScoreGain,
+            hasLiveScore: false,
+          );
+        }
+      }
+    } catch (e) {
+      print('Error updating projected score: $e');
+    }
+  }
+
+  Future<void> _loadCumulativeScoreHistory() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+
+      final endDate = DateService.currentDate;
+      final startDate = endDate.subtract(const Duration(days: 30));
+
+      final query = await DailyProgressRecord.collectionForUser(userId)
+          .where('date', isGreaterThanOrEqualTo: startDate)
+          .where('date', isLessThanOrEqualTo: endDate)
+          .orderBy('date', descending: false)
+          .get();
+
+      final history = <Map<String, dynamic>>[];
+      for (final doc in query.docs) {
+        final record = DailyProgressRecord.fromSnapshot(doc);
+        if (record.cumulativeScoreSnapshot > 0) {
+          history.add({
+            'date': record.date,
+            'score': record.cumulativeScoreSnapshot,
+            'gain': record.dailyScoreGain,
+          });
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _cumulativeScoreHistory = history;
+        });
+      }
+    } catch (e) {
+      print('Error loading cumulative score history: $e');
+    }
+  }
+
   // Removed manual progress generation to avoid unintended side effects.
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: scaffoldKey,
-      backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
-      appBar: AppBar(
-        backgroundColor: FlutterFlowTheme.of(context).primary,
-        automaticallyImplyLeading: false,
-        title: Text(
-          'Progress History',
-          style: FlutterFlowTheme.of(context).headlineMedium.override(
-                fontFamily: 'Readex Pro',
-                color: Colors.white,
-                fontSize: 22.0,
-              ),
-        ),
-        centerTitle: false,
-        elevation: 0.0,
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh, color: Colors.white),
-            onPressed: _loadProgressHistory,
+    return DefaultTabController(
+      length: 3,
+      child: Scaffold(
+        key: scaffoldKey,
+        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        appBar: AppBar(
+          backgroundColor: FlutterFlowTheme.of(context).primary,
+          automaticallyImplyLeading: false,
+          title: Text(
+            'Progress History',
+            style: FlutterFlowTheme.of(context).headlineMedium.override(
+                  fontFamily: 'Readex Pro',
+                  color: Colors.white,
+                  fontSize: 22.0,
+                ),
           ),
-          // Development/Testing only - show in debug mode
-          if (kDebugMode)
+          centerTitle: false,
+          elevation: 0.0,
+          actions: [
             IconButton(
-              icon: const Icon(Icons.science, color: Colors.white),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const SimpleTestingPage(),
-                  ),
-                );
-              },
-              tooltip: 'Testing Tools',
+              icon: const Icon(Icons.refresh, color: Colors.white),
+              onPressed: _loadProgressHistory,
             ),
-        ],
-      ),
-      body: SafeArea(
-        top: true,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _buildProgressContent(),
+            // Development/Testing only - show in debug mode
+            if (kDebugMode)
+              IconButton(
+                icon: const Icon(Icons.science, color: Colors.white),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const SimpleTestingPage(),
+                    ),
+                  );
+                },
+                tooltip: 'Testing Tools',
+              ),
+          ],
+          bottom: TabBar(
+            labelColor: Colors.white,
+            unselectedLabelColor: Colors.white70,
+            indicatorColor: Colors.white,
+            tabs: const [
+              Tab(icon: Icon(Icons.dashboard), text: 'Overview'),
+              Tab(icon: Icon(Icons.list_alt), text: 'Habits'),
+              Tab(icon: Icon(Icons.category), text: 'Categories'),
+            ],
+          ),
+        ),
+        body: SafeArea(
+          top: true,
+          child: TabBarView(
+            children: [
+              // Overview tab (existing content)
+              _isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _buildProgressContent(),
+              // Habits tab
+              const HabitStatisticsTab(),
+              // Categories tab
+              const CategoryStatisticsTab(),
+            ],
+          ),
+        ),
       ),
     );
   }
+
   Widget _buildProgressContent() {
     // Show content even if no historical data - we have today's live progress
     return SingleChildScrollView(
@@ -292,6 +528,8 @@ class _ProgressPageState extends State<ProgressPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          _buildCumulativeScoreCard(),
+          const SizedBox(height: 16),
           _buildSummaryCards(),
           const SizedBox(height: 24),
           _buildTrendChart(),
@@ -299,6 +537,7 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
+
   // Removed _buildEmptyState - we always show progress (at least today's live data)
   Widget _buildSummaryCards() {
     final last7Days = _getLastNDays(7);
@@ -333,6 +572,7 @@ class _ProgressPageState extends State<ProgressPage> {
       ],
     );
   }
+
   Widget _buildSummaryCard(
       String title, String value, String subtitle, IconData icon, Color color) {
     return Container(
@@ -379,6 +619,216 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
+
+  Widget _buildCumulativeScoreCard() {
+    // Use live score if today has progress, otherwise use stored cumulative score
+    final showLive = _hasProjection && _todayPercentage > 0;
+    final displayScore = showLive ? _projectedCumulativeScore : _cumulativeScore;
+    final displayGain = showLive ? _projectedDailyGain : _dailyScoreGain;
+    
+    final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
+    final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;
+    final gainText = displayGain >= 0
+        ? '+${displayGain.toStringAsFixed(1)}'
+        : displayGain.toStringAsFixed(1);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          colors: [
+            FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+            FlutterFlowTheme.of(context).secondaryBackground,
+          ],
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+        ),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).primary.withOpacity(0.3),
+          width: 2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.emoji_events,
+                color: FlutterFlowTheme.of(context).primary,
+                size: 24,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                'Cumulative Score',
+                style: FlutterFlowTheme.of(context).titleLarge.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.bold,
+                      color: FlutterFlowTheme.of(context).primary,
+                    ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      displayScore.toStringAsFixed(0),
+                      style: FlutterFlowTheme.of(context).displaySmall.override(
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.bold,
+                            color: FlutterFlowTheme.of(context).primaryText,
+                          ),
+                    ),
+                    Text(
+                      'Total Points',
+                      style: FlutterFlowTheme.of(context).bodySmall.override(
+                            fontFamily: 'Readex Pro',
+                            color: FlutterFlowTheme.of(context).secondaryText,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Row(
+                    children: [
+                      Icon(gainIcon, color: gainColor, size: 16),
+                      const SizedBox(width: 4),
+                      Text(
+                        gainText,
+                        style: FlutterFlowTheme.of(context).bodyMedium.override(
+                              fontFamily: 'Readex Pro',
+                              color: gainColor,
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                    ],
+                  ),
+                  Text(
+                    'Today',
+                    style: FlutterFlowTheme.of(context).bodySmall.override(
+                          fontFamily: 'Readex Pro',
+                          color: FlutterFlowTheme.of(context).secondaryText,
+                        ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildCumulativeScoreGraph(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCumulativeScoreGraph() {
+    final displayData = _show30Days
+        ? _cumulativeScoreHistory
+        : _cumulativeScoreHistory.take(7).toList();
+
+    if (displayData.isEmpty) {
+      return Container(
+        height: 120,
+        decoration: BoxDecoration(
+          color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'No score history yet',
+            style: FlutterFlowTheme.of(context).bodyMedium.override(
+                  fontFamily: 'Readex Pro',
+                  color: FlutterFlowTheme.of(context).secondaryText,
+                ),
+          ),
+        ),
+      );
+    }
+
+    return Container(
+      height: 120,
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                _show30Days ? '30-Day Score Trend' : '7-Day Score Trend',
+                style: FlutterFlowTheme.of(context).bodyMedium.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              GestureDetector(
+                onTap: () {
+                  setState(() {
+                    _show30Days = !_show30Days;
+                  });
+                },
+                child: Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color:
+                        FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                  child: Text(
+                    _show30Days ? '7D' : '30D',
+                    style: FlutterFlowTheme.of(context).bodySmall.override(
+                          fontFamily: 'Readex Pro',
+                          color: FlutterFlowTheme.of(context).primary,
+                          fontWeight: FontWeight.w600,
+                        ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Expanded(
+            child: _buildLineChart(displayData),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLineChart(List<Map<String, dynamic>> data) {
+    if (data.isEmpty) return const SizedBox();
+
+    final minScore =
+        data.map((d) => d['score'] as double).reduce((a, b) => a < b ? a : b);
+    final maxScore =
+        data.map((d) => d['score'] as double).reduce((a, b) => a > b ? a : b);
+    final scoreRange = maxScore - minScore;
+
+    return CustomPaint(
+      painter: CumulativeScoreLinePainter(
+        data: data,
+        minScore: minScore,
+        maxScore: maxScore,
+        scoreRange: scoreRange,
+        color: FlutterFlowTheme.of(context).primary,
+      ),
+      size: const Size(double.infinity, double.infinity),
+    );
+  }
+
   Widget _buildTrendChart() {
     // Get last 7 days of progress data
     final last7Days = _getLastNDays(7);
@@ -411,6 +861,7 @@ class _ProgressPageState extends State<ProgressPage> {
       ),
     );
   }
+
   // Helper methods
   List<DailyProgressRecord> _getLastNDays(int n) {
     final endDate = DateService.currentDate;
@@ -421,50 +872,77 @@ class _ProgressPageState extends State<ProgressPage> {
           record.date!.isBefore(endDate.add(const Duration(days: 1)));
     }).toList();
   }
+
   double _calculateAveragePercentage(List<DailyProgressRecord> records) {
-    if (records.isEmpty) {
+    final today = DateService.currentDate;
+    // Filter out today's record if it exists in historical data
+    final historicalRecords = records.where((record) {
+      if (record.date == null) return false;
+      return !_isSameDay(record.date!, today);
+    }).toList();
+
+    if (historicalRecords.isEmpty) {
       // If no historical data, return today's percentage
       return _todayPercentage;
     }
     // Include today's live data in average
-    final total =
-        records.fold(0.0, (sum, record) => sum + record.completionPercentage) +
-            _todayPercentage;
-    final count = records.length + 1; // +1 for today
+    final total = historicalRecords.fold(
+            0.0, (sum, record) => sum + record.completionPercentage) +
+        _todayPercentage;
+    final count = historicalRecords.length + 1; // +1 for today
     return total / count;
   }
+
   double _calculateAverageTarget(List<DailyProgressRecord> records) {
-    if (records.isEmpty) {
+    final today = DateService.currentDate;
+    // Filter out today's record if it exists in historical data
+    final historicalRecords = records.where((record) {
+      if (record.date == null) return false;
+      return !_isSameDay(record.date!, today);
+    }).toList();
+
+    if (historicalRecords.isEmpty) {
       // If no historical data, return today's target
       return _todayTarget;
     }
     // Include today's live data in average
-    final total =
-        records.fold(0.0, (sum, record) => sum + record.targetPoints) +
-            _todayTarget;
-    final count = records.length + 1; // +1 for today
+    final total = historicalRecords.fold(
+            0.0, (sum, record) => sum + record.targetPoints) +
+        _todayTarget;
+    final count = historicalRecords.length + 1; // +1 for today
     return total / count;
   }
+
   double _calculateAverageEarned(List<DailyProgressRecord> records) {
-    if (records.isEmpty) {
+    final today = DateService.currentDate;
+    // Filter out today's record if it exists in historical data
+    final historicalRecords = records.where((record) {
+      if (record.date == null) return false;
+      return !_isSameDay(record.date!, today);
+    }).toList();
+
+    if (historicalRecords.isEmpty) {
       // If no historical data, return today's earned
       return _todayEarned;
     }
     // Include today's live data in average
-    final total =
-        records.fold(0.0, (sum, record) => sum + record.earnedPoints) +
-            _todayEarned;
-    final count = records.length + 1; // +1 for today
+    final total = historicalRecords.fold(
+            0.0, (sum, record) => sum + record.earnedPoints) +
+        _todayEarned;
+    final count = historicalRecords.length + 1; // +1 for today
     return total / count;
   }
+
   Color _getPerformanceColor(double percentage) {
     if (percentage < 30) return Colors.red;
     if (percentage < 70) return Colors.orange;
     return Colors.green;
   }
+
   bool _isSameDay(DateTime a, DateTime b) {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
+
   // Get progress data for a specific date
   DailyProgressRecord? _getProgressForDate(DateTime date) {
     final normalizedDate = DateTime(date.year, date.month, date.day);
@@ -477,6 +955,7 @@ class _ProgressPageState extends State<ProgressPage> {
       return null;
     }
   }
+
   // Build 7-day column chart
   Widget _build7DayColumnChart(List<DailyProgressRecord> data) {
     // Don't show empty state - we always have today's live data
@@ -637,6 +1116,7 @@ class _ProgressPageState extends State<ProgressPage> {
       ],
     );
   }
+
   String _getDayName(DateTime date) {
     final now = DateService.currentDate;
     if (_isSameDay(date, now)) {
@@ -649,6 +1129,7 @@ class _ProgressPageState extends State<ProgressPage> {
     }
   }
 }
+
 /// Custom painter for simple line chart
 class LineChartPainter extends CustomPainter {
   final List<DailyProgressRecord> data;
@@ -682,6 +1163,7 @@ class LineChartPainter extends CustomPainter {
       canvas.drawCircle(point, 3, pointPaint);
     }
   }
+
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }

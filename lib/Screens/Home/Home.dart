@@ -6,10 +6,10 @@ import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
-import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
+import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
@@ -18,6 +18,13 @@ import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
+import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog.dart';
+import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
+import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
+import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
+import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
+import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
+import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
@@ -53,11 +60,13 @@ class _HomeState extends State<Home> {
         systemNavigationBarDividerColor: Colors.transparent,
       ),
     );
-    // Check for goal onboarding after the frame is built
+    // Check for goal onboarding and morning catch-up after the frame is built
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkMorningCatchUp();
       _checkGoalOnboarding();
       _checkDailyGoal();
-      _triggerCatchUpMechanism();
+      _checkNotificationOnboarding();
+      _initializeNotifications();
     });
   }
 
@@ -249,6 +258,20 @@ class _HomeState extends State<Home> {
                                   Navigator.pop(context);
                                 },
                               ),
+                              _DrawerItem(
+                                icon: Icons.access_time,
+                                label: 'Non-Productive Items',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const NonProductiveTemplatesPage(),
+                                    ),
+                                  );
+                                },
+                              ),
                               // Development/Testing only - show in debug mode
                               if (kDebugMode) ...[
                                 _DrawerItem(
@@ -270,7 +293,16 @@ class _HomeState extends State<Home> {
                               _DrawerItem(
                                 icon: Icons.person,
                                 label: 'Profile',
-                                onTap: () {},
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const NotificationSettingsPage(),
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -304,6 +336,14 @@ class _HomeState extends State<Home> {
               ],
             ),
           ),
+          // DEBUG: FAB for testing catch-up dialog (remove after testing)
+          floatingActionButton: FloatingActionButton(
+            onPressed: showCatchUpDialogManually,
+            backgroundColor: FlutterFlowTheme.of(context).primary,
+            child: const Icon(Icons.history, color: Colors.white),
+            tooltip: 'Test Catch-Up Dialog',
+          ),
+          floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
           bottomNavigationBar: Container(
             decoration: BoxDecoration(
               color: FlutterFlowTheme.of(context).secondaryBackground,
@@ -478,10 +518,96 @@ class _HomeState extends State<Home> {
     } catch (e) {}
   }
 
-  Future<void> _triggerCatchUpMechanism() async {
+  Future<void> _checkMorningCatchUp() async {
     try {
-      await BackgroundScheduler.forceCheckForMissedProcessing();
-    } catch (e) {}
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      // Check if morning catch-up dialog should be shown
+      // Now uses optimized batch writes to handle expired instances efficiently
+      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+      if (shouldShow && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const MorningCatchUpDialog(),
+        );
+      }
+    } catch (e) {
+      print('Error checking morning catch-up: $e');
+    }
+  }
+
+  /// Manually trigger the catch-up dialog (for testing/debugging)
+  /// Call this method from Flutter DevTools console or add a button that calls it
+  Future<void> showCatchUpDialogManually() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        print('No user ID available');
+        return;
+      }
+      // First, auto-skip all expired items to bring everything up to date
+      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
+      // Reset dialog state to allow showing
+      await MorningCatchUpService.resetDialogState();
+      // Force show the dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const MorningCatchUpDialog(),
+        );
+      }
+    } catch (e) {
+      print('Error showing catch-up dialog manually: $e');
+    }
+  }
+
+  Future<void> _checkNotificationOnboarding() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      // Only show if goal onboarding is completed
+      final goalOnboardingCompleted =
+          await GoalService.isGoalOnboardingCompleted(userId);
+      if (!goalOnboardingCompleted) {
+        return; // Wait for goal onboarding first
+      }
+      final isCompleted = await NotificationPreferencesService
+          .isNotificationOnboardingCompleted(userId);
+      if (!isCompleted && mounted) {
+        // Add a small delay to avoid showing multiple dialogs at once
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => const NotificationOnboardingDialog(),
+          );
+        }
+      }
+    } catch (e) {
+      print('Error checking notification onboarding: $e');
+    }
+  }
+
+  Future<void> _initializeNotifications() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      // Initialize daily notifications
+      await DailyNotificationScheduler.initializeDailyNotifications();
+      // Initialize engagement reminders
+      await EngagementReminderScheduler.initializeEngagementReminders();
+    } catch (e) {
+      print('Error initializing notifications: $e');
+    }
   }
 
   Future<void> _handleHabitsMenuAction(String value) async {

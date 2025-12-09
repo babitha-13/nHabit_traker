@@ -154,6 +154,10 @@ class ActivityRecord extends FirestoreRecord {
   String? _categoryType;
   String get categoryType => _categoryType ?? 'habit';
   bool hasCategoryType() => _categoryType != null;
+  // "reminders" field for reminder configurations (list of maps).
+  List<Map<String, dynamic>>? _reminders;
+  List<Map<String, dynamic>> get reminders => _reminders ?? [];
+  bool hasReminders() => _reminders != null && _reminders!.isNotEmpty;
   void _initializeFields() {
     _name = snapshotData['name'] as String?;
     _categoryId = snapshotData['categoryId'] as String?;
@@ -193,6 +197,17 @@ class ActivityRecord extends FirestoreRecord {
     _everyXPeriodType = snapshotData['everyXPeriodType'] as String?;
     _timesPerPeriod = snapshotData['timesPerPeriod'] as int?;
     _periodType = snapshotData['periodType'] as String?;
+    // Handle reminders - convert List<dynamic> to List<Map<String, dynamic>>
+    final remindersData = snapshotData['reminders'];
+    if (remindersData != null && remindersData is List) {
+      _reminders = remindersData
+          .map((item) => item is Map ? Map<String, dynamic>.from(item) : null)
+          .where((item) => item != null)
+          .cast<Map<String, dynamic>>()
+          .toList();
+    } else {
+      _reminders = null;
+    }
   }
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('activities');
@@ -269,6 +284,7 @@ Map<String, dynamic> createActivityRecordData({
   String? everyXPeriodType,
   int? timesPerPeriod,
   String? periodType,
+  List<Map<String, dynamic>>? reminders,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -309,6 +325,7 @@ Map<String, dynamic> createActivityRecordData({
       'everyXPeriodType': everyXPeriodType,
       'timesPerPeriod': timesPerPeriod,
       'periodType': periodType,
+      'reminders': reminders,
     }.withoutNulls,
   );
   return firestoreData;
@@ -350,7 +367,8 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e1?.everyXValue == e2?.everyXValue &&
         e1?.everyXPeriodType == e2?.everyXPeriodType &&
         e1?.timesPerPeriod == e2?.timesPerPeriod &&
-        e1?.periodType == e2?.periodType;
+        e1?.periodType == e2?.periodType &&
+        listEquals(e1?.reminders, e2?.reminders);
   }
   @override
   int hash(ActivityRecord? e) => const ListEquality().hash([
@@ -387,7 +405,8 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e?.everyXValue,
         e?.everyXPeriodType,
         e?.timesPerPeriod,
-        e?.periodType
+        e?.periodType,
+        e?.reminders
       ]);
   @override
   bool isValidKey(Object? o) => o is ActivityRecord;

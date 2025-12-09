@@ -8,6 +8,11 @@ import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
+import 'package:intl/intl.dart';
 
 class EditTask extends StatefulWidget {
   final ActivityRecord task;
@@ -28,11 +33,13 @@ class EditTask extends StatefulWidget {
 class _EditTaskState extends State<EditTask> {
   late TextEditingController _titleController;
   late TextEditingController _unitController;
+  late TextEditingController _descriptionController;
   String? _selectedCategoryId;
   String? _selectedTrackingType;
   int _targetNumber = 1;
   Duration _targetDuration = const Duration(hours: 1);
   String _unit = '';
+  int _priority = 1;
   DateTime? _dueDate;
   DateTime? _instanceDueDate;
   DateTime? _endDate;
@@ -44,12 +51,15 @@ class _EditTaskState extends State<EditTask> {
   DateTime? _originalStartDate; // Track original start date for comparison
   FrequencyConfig?
       _originalFrequencyConfig; // Track original frequency config for comparison
+  List<ReminderConfig> _reminders = [];
   @override
   void initState() {
     super.initState();
     final t = widget.task;
     _titleController = TextEditingController(text: t.name);
     _unitController = TextEditingController(text: t.unit);
+    _descriptionController = TextEditingController(text: t.description);
+    _priority = t.priority;
     // Set the category ID - try both categoryId and categoryName matching
     String? matchingCategoryId;
     if (t.categoryId.isNotEmpty &&
@@ -94,6 +104,10 @@ class _EditTaskState extends State<EditTask> {
     }
     // Store original start date for comparison
     _originalStartDate = t.startDate;
+    // Load reminders if they exist
+    if (t.hasReminders()) {
+      _reminders = ReminderConfigList.fromMapList(t.reminders);
+    }
     // Check if start date should be read-only
     _checkStartDateReadOnly();
   }
@@ -102,6 +116,7 @@ class _EditTaskState extends State<EditTask> {
   void dispose() {
     _titleController.dispose();
     _unitController.dispose();
+    _descriptionController.dispose();
     super.dispose();
   }
 
@@ -279,6 +294,11 @@ class _EditTaskState extends State<EditTask> {
           : null,
       lastUpdated: DateTime.now(),
       categoryType: 'task',
+      priority: _priority,
+      description: _descriptionController.text.trim().isNotEmpty
+          ? _descriptionController.text.trim()
+          : null,
+      isActive: true,
       startDate: quickIsTaskRecurring && _frequencyConfig != null
           ? _frequencyConfig!.startDate
           : DateTime.now(),
@@ -299,6 +319,9 @@ class _EditTaskState extends State<EditTask> {
               _frequencyConfig != null &&
               _frequencyConfig!.type == FrequencyType.everyXPeriod
           ? _frequencyConfig!.everyXPeriodType.toString().split('.').last
+          : null,
+      reminders: _reminders.isNotEmpty
+          ? ReminderConfigList.toMapList(_reminders)
           : null,
       // Only store timesPerPeriod fields if frequency type is timesPerPeriod
       timesPerPeriod: quickIsTaskRecurring &&
@@ -577,341 +600,648 @@ class _EditTaskState extends State<EditTask> {
   }
 
   @override
-  @override
   Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
     return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-        side: BorderSide(
-          color: Theme.of(context).dividerColor,
-          width: 1,
-        ),
-      ),
+      backgroundColor: Colors.transparent,
       insetPadding: const EdgeInsets.all(16),
-      child: ConstrainedBox(
+      child: Container(
         constraints: const BoxConstraints(maxWidth: 400),
-        child: Padding(
-          padding: const EdgeInsets.all(16.0),
-          child: SingleChildScrollView(
+        decoration: BoxDecoration(
+          gradient: theme.neumorphicGradient,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(
+            color: theme.surfaceBorderColor,
+            width: 1,
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              offset: const Offset(0, 2),
+              blurRadius: 4,
+              spreadRadius: 0,
+            ),
+          ],
+        ),
+        child: SingleChildScrollView(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
             child: Column(
               mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
                   'Edit Task',
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.bold,
-                      ),
+                  style: theme.titleMedium.override(
+                    fontFamily: 'Readex Pro',
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 const SizedBox(height: 16),
-                TextField(
-                  controller: _titleController,
-                  decoration: InputDecoration(
-                    labelText: 'Task name',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: theme.tertiary.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.surfaceBorderColor,
+                      width: 1,
                     ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                   ),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: () {
-                    if (_selectedCategoryId == null) return null;
-                    final isValid = widget.categories
-                        .any((c) => c.reference.id == _selectedCategoryId);
-                    return isValid ? _selectedCategoryId : null;
-                  }(),
-                  decoration: InputDecoration(
-                    labelText: 'Category',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  ),
-                  items: () {
-                    // Debug: Check for duplicate IDs
-                    final categoryIds =
-                        widget.categories.map((c) => c.reference.id).toList();
-                    final duplicateIds = categoryIds
-                        .where((id) =>
-                            categoryIds.indexOf(id) !=
-                            categoryIds.lastIndexOf(id))
-                        .toList();
-                    if (duplicateIds.isNotEmpty) {}
-                    print(
-                        'DEBUG: Category dropdown items: ${widget.categories.map((c) => '${c.name} -> ${c.reference.id}').toList()}');
-                    return widget.categories
-                        .map((c) => DropdownMenuItem(
-                            value: c.reference.id, child: Text(c.name)))
-                        .toList();
-                  }(),
-                  onChanged: (v) => setState(() => _selectedCategoryId = v),
-                ),
-                const SizedBox(height: 12),
-                DropdownButtonFormField<String>(
-                  value: _selectedTrackingType,
-                  decoration: InputDecoration(
-                    labelText: 'Type',
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                  ),
-                  items: const [
-                    DropdownMenuItem(value: 'binary', child: Text('To-do')),
-                    DropdownMenuItem(value: 'quantitative', child: Text('Qty')),
-                    DropdownMenuItem(value: 'time', child: Text('Time')),
-                  ],
-                  onChanged: (v) => setState(() => _selectedTrackingType = v),
-                ),
-                const SizedBox(height: 12),
-                if (_selectedTrackingType == 'quantitative') ...[
-                  TextField(
-                    keyboardType: TextInputType.number,
+                  child: TextField(
+                    controller: _titleController,
+                    style: theme.bodyMedium,
+                    maxLength: 200,
                     decoration: InputDecoration(
-                      labelText: 'Target',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
+                      hintText: 'Task name',
+                      hintStyle: TextStyle(
+                        color: theme.secondaryText,
+                        fontSize: 14,
                       ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      counterText: '',
                     ),
-                    controller:
-                        TextEditingController(text: _targetNumber.toString()),
-                    onChanged: (v) => _targetNumber = int.tryParse(v) ?? 1,
                   ),
-                  const SizedBox(height: 8),
-                  TextField(
-                    controller: _unitController,
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: theme.tertiary.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.surfaceBorderColor,
+                      width: 1,
+                    ),
+                  ),
+                  child: DropdownButtonFormField<String>(
+                    value: () {
+                      if (_selectedCategoryId == null) return null;
+                      final isValid = widget.categories
+                          .any((c) => c.reference.id == _selectedCategoryId);
+                      return isValid ? _selectedCategoryId : null;
+                    }(),
                     decoration: InputDecoration(
-                      labelText: 'Unit',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12, vertical: 8),
+                      labelText: 'Category',
+                      labelStyle: TextStyle(color: theme.secondaryText),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
                     ),
-                    onChanged: (v) => _unit = v,
+                    dropdownColor: theme.secondaryBackground,
+                    items: () {
+                      return widget.categories
+                          .map((c) => DropdownMenuItem(
+                              value: c.reference.id, child: Text(c.name)))
+                          .toList();
+                    }(),
+                    onChanged: (v) => setState(() => _selectedCategoryId = v),
                   ),
-                ],
-                if (_selectedTrackingType == 'time') ...[
-                  const SizedBox(height: 8),
-                  Row(
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: theme.tertiary.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.surfaceBorderColor,
+                      width: 1,
+                    ),
+                  ),
+                  child: TextField(
+                    controller: _descriptionController,
+                    style: theme.bodyMedium,
+                    maxLines: 2,
+                    maxLength: 500,
+                    decoration: InputDecoration(
+                      hintText: 'Description (optional)',
+                      hintStyle: TextStyle(
+                        color: theme.secondaryText,
+                        fontSize: 14,
+                      ),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                      counterText: '',
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: theme.tertiary.withOpacity(0.3),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: theme.surfaceBorderColor,
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
                     children: [
-                      Expanded(
-                        child: TextField(
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: 'Hours',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                          ),
-                          controller: TextEditingController(
-                              text: _targetDuration.inHours.toString()),
-                          onChanged: (v) {
-                            final h = int.tryParse(v) ?? 1;
-                            setState(() => _targetDuration = Duration(
-                                hours: h,
-                                minutes: _targetDuration.inMinutes % 60));
-                          },
-                        ),
+                      Text(
+                        'Priority:',
+                        style: theme.bodyMedium,
                       ),
-                      const SizedBox(width: 8),
+                      const SizedBox(width: 12),
                       Expanded(
-                        child: TextField(
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            labelText: 'Minutes',
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                                horizontal: 12, vertical: 8),
-                          ),
-                          controller: TextEditingController(
-                              text:
-                                  (_targetDuration.inMinutes % 60).toString()),
-                          onChanged: (v) {
-                            final m = int.tryParse(v) ?? 0;
-                            setState(() => _targetDuration = Duration(
-                                hours: _targetDuration.inHours, minutes: m));
+                        child: Slider(
+                          value: _priority.toDouble(),
+                          min: 1.0,
+                          max: 3.0,
+                          divisions: 2,
+                          label: _priority.toString(),
+                          activeColor: theme.primary,
+                          onChanged: (value) {
+                            setState(() => _priority = value.round());
                           },
                         ),
                       ),
                     ],
                   ),
-                ],
-                const SizedBox(height: 12),
-                // Date fields - different layout for recurring vs one-time tasks
-                if (quickIsTaskRecurring) ...[
-                  // Recurring tasks: Show start date, end date, and next due date
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Start Date: ${widget.task.startDate != null ? "${widget.task.startDate!.day}/${widget.task.startDate!.month}/${widget.task.startDate!.year}" : "None"}',
-                          style: TextStyle(
-                            color: _isStartDateReadOnly ? Colors.grey : null,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: _isStartDateReadOnly ? null : _pickStartDate,
-                      ),
-                    ],
-                  ),
-                  if (_isStartDateReadOnly)
-                    const Padding(
-                      padding: EdgeInsets.only(left: 16, bottom: 8),
-                      child: Text(
-                        'Start date cannot be changed after instances are completed',
-                        style: TextStyle(fontSize: 12, color: Colors.grey),
-                      ),
-                    ),
-                  const SizedBox(height: 8),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'End Date: ${_endDate != null ? "${_endDate!.day}/${_endDate!.month}/${_endDate!.year}" : "Perpetual"}',
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: _pickEndDate,
-                      ),
-                    ],
-                  ),
-                  if (widget.instance != null) ...[
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Move this instance to: ${_instanceDueDate != null ? "${_instanceDueDate!.day}/${_instanceDueDate!.month}/${_instanceDueDate!.year}" : "None"}',
-                          ),
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.calendar_today),
-                          onPressed: _pickInstanceDueDate,
-                        ),
-                      ],
-                    ),
-                  ],
-                ] else ...[
-                  // One-time tasks: Show simple due date
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Due Date: ${_dueDate != null ? "${_dueDate!.day}/${_dueDate!.month}/${_dueDate!.year}" : "None"}',
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.calendar_today),
-                        onPressed: _pickDueDate,
-                      ),
-                    ],
-                  ),
-                ],
-                const SizedBox(height: 12),
-                // Due Time field
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        'Due Time: ${_selectedDueTime != null ? TimeUtils.formatTimeOfDayForDisplay(_selectedDueTime!) : "None"}',
-                      ),
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.access_time),
-                      onPressed: _pickDueTime,
-                    ),
-                  ],
                 ),
                 const SizedBox(height: 12),
-                Row(
+                Wrap(
+                  spacing: 10,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
                   children: [
-                    Expanded(
-                      child: Text(
-                        'Recurring: ${quickIsTaskRecurring ? "Yes" : "No"}',
-                      ),
+                    IconTaskTypeDropdown(
+                      selectedValue: _selectedTrackingType ?? 'binary',
+                      onChanged: (value) {
+                        setState(() {
+                          _selectedTrackingType = value;
+                          if (value == 'binary') {
+                            _targetNumber = 1;
+                            _targetDuration = const Duration(hours: 1);
+                            _unitController.clear();
+                          }
+                        });
+                      },
+                      tooltip: 'Select task type',
                     ),
-                    Transform.scale(
-                      scale: 0.7,
-                      child: Switch(
-                        value: quickIsTaskRecurring,
-                        onChanged: (val) async {
-                          if (val) {
-                            // Opening recurring - show frequency config
-                            final config = await showFrequencyConfigDialog(
-                              context: context,
-                              initialConfig: _frequencyConfig,
-                            );
-                            if (config != null) {
-                              setState(() {
-                                _frequencyConfig = config;
-                                quickIsTaskRecurring = true;
-                              });
-                            }
-                          } else {
-                            // Closing recurring - clear config
+                    // Date icon or chip
+                    if (quickIsTaskRecurring) ...[
+                      // For recurring tasks, show start date chip
+                      if (_frequencyConfig?.startDate == null &&
+                          widget.task.startDate == null)
+                        _buildDateIconChip(
+                          theme: theme,
+                          onTap: _isStartDateReadOnly ? null : _pickStartDate,
+                        )
+                      else
+                        _buildDateChip(
+                          theme: theme,
+                          date: _frequencyConfig?.startDate ??
+                              widget.task.startDate!,
+                          label:
+                              'Start: ${DateFormat('MMM dd').format(_frequencyConfig?.startDate ?? widget.task.startDate!)}',
+                          onTap: _isStartDateReadOnly ? null : _pickStartDate,
+                          onClear: null, // Start date shouldn't be cleared
+                        ),
+                      // End date chip
+                      if (_endDate == null)
+                        _buildDateIconChip(
+                          theme: theme,
+                          onTap: _pickEndDate,
+                          icon: Icons.event_busy,
+                        )
+                      else
+                        _buildDateChip(
+                          theme: theme,
+                          date: _endDate!,
+                          label:
+                              'End: ${DateFormat('MMM dd').format(_endDate!)}',
+                          onTap: _pickEndDate,
+                          onClear: () {
+                            setState(() => _endDate = null);
+                          },
+                        ),
+                    ] else ...[
+                      // For one-time tasks, show due date chip
+                      if (_dueDate == null)
+                        _buildDateIconChip(
+                          theme: theme,
+                          onTap: _pickDueDate,
+                        )
+                      else
+                        _buildDateChip(
+                          theme: theme,
+                          date: _dueDate!,
+                          label: DateFormat('MMM dd').format(_dueDate!),
+                          onTap: _pickDueDate,
+                          onClear: () {
+                            setState(() => _dueDate = null);
+                          },
+                        ),
+                    ],
+                    // Time icon or chip
+                    if (_selectedDueTime == null)
+                      _buildTimeIconChip(
+                        theme: theme,
+                        onTap: _pickDueTime,
+                      )
+                    else
+                      _buildTimeChip(
+                        theme: theme,
+                        time: _selectedDueTime!,
+                        onTap: _pickDueTime,
+                        onClear: () {
+                          setState(() => _selectedDueTime = null);
+                        },
+                      ),
+                    // Reminder icon or chip
+                    if (_reminders.isEmpty)
+                      _buildReminderIconChip(
+                        theme: theme,
+                        onTap: () async {
+                          final reminders = await ReminderConfigDialog.show(
+                            context: context,
+                            initialReminders: _reminders,
+                            dueTime: _selectedDueTime,
+                          );
+                          if (reminders != null) {
+                            setState(() => _reminders = reminders);
+                          }
+                        },
+                      )
+                    else
+                      _buildReminderChip(
+                        theme: theme,
+                        count: _reminders.length,
+                        onTap: () async {
+                          final reminders = await ReminderConfigDialog.show(
+                            context: context,
+                            initialReminders: _reminders,
+                            dueTime: _selectedDueTime,
+                          );
+                          if (reminders != null) {
+                            setState(() => _reminders = reminders);
+                          }
+                        },
+                        onClear: () {
+                          setState(() => _reminders = []);
+                        },
+                      ),
+                    // Recurring icon or chip
+                    if (!quickIsTaskRecurring || _frequencyConfig == null)
+                      _buildRecurringIconChip(
+                        theme: theme,
+                        onTap: () async {
+                          final config = await showFrequencyConfigDialog(
+                            context: context,
+                            initialConfig: _frequencyConfig ??
+                                FrequencyConfig(
+                                  type: FrequencyType.everyXPeriod,
+                                  startDate: _dueDate ?? DateTime.now(),
+                                ),
+                          );
+                          if (config != null) {
                             setState(() {
-                              quickIsTaskRecurring = false;
-                              _frequencyConfig = null;
+                              _frequencyConfig = config;
+                              quickIsTaskRecurring = true;
+                              if (_dueDate == null) {
+                                _dueDate = config.startDate;
+                              }
                             });
                           }
                         },
+                      )
+                    else
+                      _buildRecurringChip(
+                        theme: theme,
+                        description: _getFrequencyDescription(),
+                        onTap: () async {
+                          final config = await showFrequencyConfigDialog(
+                            context: context,
+                            initialConfig: _frequencyConfig,
+                          );
+                          if (config != null) {
+                            setState(() {
+                              _frequencyConfig = config;
+                            });
+                          } else {
+                            final shouldDisable = await showDialog<bool>(
+                              context: context,
+                              builder: (context) => AlertDialog(
+                                title: const Text('Disable Recurring?'),
+                                content: const Text(
+                                    'Do you want to disable recurring for this task?'),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, false),
+                                    child: const Text('Cancel'),
+                                  ),
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.pop(context, true),
+                                    child: const Text('Disable'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (shouldDisable == true) {
+                              setState(() {
+                                quickIsTaskRecurring = false;
+                                _frequencyConfig = null;
+                              });
+                            }
+                          }
+                        },
+                        onClear: () {
+                          setState(() {
+                            quickIsTaskRecurring = false;
+                            _frequencyConfig = null;
+                          });
+                        },
                       ),
-                    ),
                   ],
                 ),
-                if (quickIsTaskRecurring && _frequencyConfig != null) ...[
-                  const SizedBox(height: 8),
-                  InkWell(
-                    onTap: () async {
-                      // Reopen frequency config dialog to edit
-                      final config = await showFrequencyConfigDialog(
-                        context: context,
-                        initialConfig: _frequencyConfig,
-                      );
-                      if (config != null) {
-                        setState(() {
-                          _frequencyConfig = config;
-                        });
-                      }
-                    },
-                    borderRadius: BorderRadius.circular(8),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color: Colors.blue.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.blue.shade200),
+                if (_isStartDateReadOnly)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, left: 8),
+                    child: Text(
+                      'Start date cannot be changed after instances are completed',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: theme.secondaryText,
                       ),
-                      child: Row(
-                        children: [
-                          Icon(Icons.repeat,
-                              size: 16, color: Colors.blue.shade700),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _getFrequencyDescription(),
-                              style: TextStyle(
-                                fontSize: 12,
-                                color: Colors.blue.shade700,
-                              ),
-                            ),
+                    ),
+                  ),
+                Container(
+                  height: 1,
+                  margin: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      colors: [
+                        Colors.transparent,
+                        theme.surfaceBorderColor,
+                        Colors.transparent,
+                      ],
+                    ),
+                  ),
+                ),
+                if (_selectedTrackingType == 'quantitative') ...[
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.accent2,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.surfaceBorderColor),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.primary.withOpacity(0.05),
+                          offset: const Offset(0, 1),
+                          blurRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.track_changes,
+                            size: 16, color: theme.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Target:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.primary,
+                            fontWeight: FontWeight.w500,
                           ),
-                        ],
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: TextEditingController(
+                                text: _targetNumber.toString()),
+                            style: theme.bodyMedium,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.accent1, width: 2),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              isDense: true,
+                              filled: true,
+                              fillColor: theme.secondaryBackground,
+                            ),
+                            keyboardType: TextInputType.number,
+                            onChanged: (value) {
+                              _targetNumber = int.tryParse(value) ?? 1;
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Unit:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _unitController,
+                            style: theme.bodyMedium,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.accent1, width: 2),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              hintText: 'e.g., pages, reps',
+                              hintStyle: TextStyle(color: theme.secondaryText),
+                              isDense: true,
+                              filled: true,
+                              fillColor: theme.secondaryBackground,
+                            ),
+                            onChanged: (value) => _unit = value,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (_selectedTrackingType == 'time') ...[
+                  Container(
+                    margin: const EdgeInsets.only(top: 8),
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.accent2,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: theme.surfaceBorderColor),
+                      boxShadow: [
+                        BoxShadow(
+                          color: theme.primary.withOpacity(0.05),
+                          offset: const Offset(0, 1),
+                          blurRadius: 2,
+                        ),
+                      ],
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.timer, size: 16, color: theme.primary),
+                        const SizedBox(width: 8),
+                        Text(
+                          'Target Duration:',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: theme.primary,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: TextEditingController(
+                                text: _targetDuration.inHours.toString()),
+                            style: theme.bodyMedium,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.accent1, width: 2),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              labelText: 'Hours',
+                              labelStyle: TextStyle(color: theme.secondaryText),
+                              isDense: true,
+                              filled: true,
+                              fillColor: theme.secondaryBackground,
+                            ),
+                            keyboardType: TextInputType.number,
+                            onChanged: (value) {
+                              final hours = int.tryParse(value) ?? 1;
+                              setState(() => _targetDuration = Duration(
+                                    hours: hours,
+                                    minutes: _targetDuration.inMinutes % 60,
+                                  ));
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: TextFormField(
+                            controller: TextEditingController(
+                                text: (_targetDuration.inMinutes % 60)
+                                    .toString()),
+                            style: theme.bodyMedium,
+                            decoration: InputDecoration(
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(8),
+                                borderSide:
+                                    BorderSide(color: theme.accent1, width: 2),
+                              ),
+                              contentPadding: const EdgeInsets.symmetric(
+                                  horizontal: 12, vertical: 8),
+                              labelText: 'Minutes',
+                              labelStyle: TextStyle(color: theme.secondaryText),
+                              isDense: true,
+                              filled: true,
+                              fillColor: theme.secondaryBackground,
+                            ),
+                            keyboardType: TextInputType.number,
+                            onChanged: (value) {
+                              final minutes = int.tryParse(value) ?? 0;
+                              setState(() => _targetDuration = Duration(
+                                    hours: _targetDuration.inHours,
+                                    minutes: minutes,
+                                  ));
+                            },
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                if (widget.instance != null && _instanceDueDate != null) ...[
+                  const SizedBox(height: 8),
+                  Container(
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: theme.tertiary.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: theme.surfaceBorderColor,
+                        width: 1,
                       ),
+                    ),
+                    child: Row(
+                      children: [
+                        Icon(Icons.event, size: 16, color: theme.secondary),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Move this instance to: ${DateFormat('MMM dd').format(_instanceDueDate!)}',
+                            style: theme.bodySmall,
+                          ),
+                        ),
+                        IconButton(
+                          icon: Icon(Icons.calendar_today,
+                              size: 18, color: theme.secondary),
+                          onPressed: _pickInstanceDueDate,
+                          padding: EdgeInsets.zero,
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -920,12 +1250,412 @@ class _EditTaskState extends State<EditTask> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     TextButton(
-                        onPressed: () => Navigator.pop(context, false),
-                        child: const Text('Cancel')),
+                      onPressed: () => Navigator.pop(context, false),
+                      style: TextButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 12),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: theme.bodyMedium,
+                      ),
+                    ),
                     const SizedBox(width: 8),
-                    ElevatedButton(onPressed: _save, child: const Text('Save')),
+                    Container(
+                      decoration: BoxDecoration(
+                        gradient: theme.primaryButtonGradient,
+                        borderRadius: BorderRadius.circular(theme.buttonRadius),
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.primary.withOpacity(0.15),
+                            offset: const Offset(0, 2),
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          borderRadius:
+                              BorderRadius.circular(theme.buttonRadius),
+                          onTap: _save,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            child: Text(
+                              'Save',
+                              style: theme.bodyMedium.override(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
                   ],
                 )
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateIconChip({
+    required FlutterFlowTheme theme,
+    required VoidCallback? onTap,
+    IconData? icon,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.tertiary,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              icon ?? Icons.calendar_today_outlined,
+              color: theme.secondary,
+              size: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDateChip({
+    required FlutterFlowTheme theme,
+    required DateTime date,
+    required String label,
+    required VoidCallback? onTap,
+    VoidCallback? onClear,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.accent1.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.accent1, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: theme.accent1.withOpacity(0.1),
+            offset: const Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.calendar_today, size: 14, color: theme.accent1),
+                const SizedBox(width: 6),
+                Text(
+                  label,
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.accent1,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (onClear != null) ...[
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: onClear,
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: theme.accent1,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeIconChip({
+    required FlutterFlowTheme theme,
+    required VoidCallback? onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.tertiary,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              Icons.access_time_outlined,
+              color: theme.secondary,
+              size: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTimeChip({
+    required FlutterFlowTheme theme,
+    required TimeOfDay time,
+    required VoidCallback? onTap,
+    VoidCallback? onClear,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.accent1.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.accent1, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: theme.accent1.withOpacity(0.1),
+            offset: const Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.access_time, size: 14, color: theme.accent1),
+                const SizedBox(width: 6),
+                Text(
+                  TimeUtils.formatTimeOfDayForDisplay(time),
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.accent1,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (onClear != null) ...[
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: onClear,
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: theme.accent1,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReminderIconChip({
+    required FlutterFlowTheme theme,
+    required VoidCallback? onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.tertiary,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              Icons.notifications_outlined,
+              color: theme.secondary,
+              size: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildReminderChip({
+    required FlutterFlowTheme theme,
+    required int count,
+    required VoidCallback? onTap,
+    VoidCallback? onClear,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.accent1.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.accent1, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: theme.accent1.withOpacity(0.1),
+            offset: const Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.notifications, size: 14, color: theme.accent1),
+                const SizedBox(width: 6),
+                Text(
+                  '$count reminder${count == 1 ? '' : 's'}',
+                  style: TextStyle(
+                    fontSize: 11,
+                    color: theme.accent1,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+                if (onClear != null) ...[
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: onClear,
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: theme.accent1,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecurringIconChip({
+    required FlutterFlowTheme theme,
+    required VoidCallback? onTap,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.tertiary,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              Icons.repeat_outlined,
+              color: theme.secondary,
+              size: 18,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRecurringChip({
+    required FlutterFlowTheme theme,
+    required String description,
+    required VoidCallback? onTap,
+    VoidCallback? onClear,
+  }) {
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.accent1.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.accent1, width: 1),
+        boxShadow: [
+          BoxShadow(
+            color: theme.accent1.withOpacity(0.1),
+            offset: const Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ],
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: onTap,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(Icons.repeat, size: 14, color: theme.accent1),
+                const SizedBox(width: 6),
+                Flexible(
+                  child: Text(
+                    description,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: theme.accent1,
+                      fontWeight: FontWeight.w500,
+                    ),
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+                if (onClear != null) ...[
+                  const SizedBox(width: 6),
+                  InkWell(
+                    onTap: onClear,
+                    child: Icon(
+                      Icons.close,
+                      size: 14,
+                      color: theme.accent1,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),

@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/custom_tab_decorator.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
@@ -19,7 +20,14 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabNames.length, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _loadCategories();
+  }
+
+  void _onTabChanged() {
+    setState(() {
+      // Trigger rebuild to update tab styling
+    });
   }
 
   Future<void> _loadCategories() async {
@@ -41,13 +49,16 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     setState(() {
       _categories = updatedFetched;
       _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
+      _tabController.removeListener(_onTabChanged);
       _tabController.dispose();
       _tabController = TabController(length: _tabNames.length, vsync: this);
+      _tabController.addListener(_onTabChanged);
     });
   }
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
@@ -59,7 +70,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            padding: EdgeInsets.zero,
             color: Colors.white,
             child: Row(
               children: [
@@ -67,11 +78,23 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   child: _tabNames.isEmpty
                       ? const SizedBox()
                       : TabBar(
-                          indicatorColor: Colors.black,
+                          indicator: const BoxDecoration(),
+                          indicatorColor: Colors.transparent,
                           controller: _tabController,
                           isScrollable: true,
-                          tabs:
-                              _tabNames.map((name) => Tab(text: name)).toList(),
+                          labelPadding: EdgeInsets.zero,
+                          padding: EdgeInsets.zero,
+                          tabAlignment: TabAlignment.start,
+                          tabs: _tabNames.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final name = entry.value;
+                            return Tab(
+                              child: CustomTabDecorator(
+                                isActive: _tabController.index == index,
+                                child: Text(name),
+                              ),
+                            );
+                          }).toList(),
                         ),
                 ),
                 IconButton(

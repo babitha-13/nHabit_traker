@@ -79,7 +79,7 @@ class GoalService {
   /// Check if goal should be shown to user
   /// Returns true if:
   /// 1. First login of day (lastGoalShownDate != today)
-  /// 2. Near day-end (within 1 hour before 2 AM)
+  /// 2. Near day-end (between 11:00 PM - 12:00 AM)
   static Future<bool> shouldShowGoal(String userId) async {
     try {
       final now = DateTime.now();
@@ -96,8 +96,8 @@ class GoalService {
           DateTime(
                   lastShownDate.year, lastShownDate.month, lastShownDate.day) !=
               today;
-      // Check if it's near day-end (between 1:00 AM - 2:00 AM)
-      final isNearDayEnd = now.hour == 1; // Between 1:00 AM - 2:00 AM
+      // Check if it's near day-end (between 11:00 PM - 12:00 AM)
+      final isNearDayEnd = now.hour == 23; // Between 11:00 PM - 12:00 AM
       // Check if user has a goal
       final hasGoal = userData.currentGoalId.isNotEmpty;
       final shouldShow = hasGoal && (isFirstLoginToday || isNearDayEnd);
@@ -186,6 +186,65 @@ class GoalService {
     }
   }
 
+  /// Mark the current goal as completed
+  /// Sets isActive to false, sets completedAt to now, and clears currentGoalId
+  static Future<void> markGoalAsCompleted(String userId) async {
+    try {
+      final userDoc = await UsersRecord.collection.doc(userId).get();
+      if (!userDoc.exists) {
+        return;
+      }
+      final userData = UsersRecord.fromSnapshot(userDoc);
+      final goalId = userData.currentGoalId;
+      if (goalId.isEmpty) {
+        return;
+      }
+      // Get the current goal
+      final goalDoc =
+          await GoalRecord.collectionForUser(userId).doc(goalId).get();
+      if (!goalDoc.exists) {
+        return;
+      }
+      final goal = GoalRecord.fromSnapshot(goalDoc);
+      // Update goal to mark as completed
+      final now = DateTime.now();
+      final goalData = createGoalRecordData(
+        whatToAchieve: goal.whatToAchieve,
+        byWhen: goal.byWhen,
+        why: goal.why,
+        how: goal.how,
+        thingsToAvoid: goal.thingsToAvoid,
+        lastShownAt: goal.lastShownAt,
+        createdAt: goal.createdAt,
+        lastUpdated: now,
+        isActive: false,
+        completedAt: now,
+      );
+      await GoalRecord.collectionForUser(userId).doc(goalId).update(goalData);
+      // Clear the current goal ID from user
+      await UsersRecord.collection.doc(userId).update({
+        'current_goal_id': null,
+      });
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Get all goals for a user (active and completed)
+  /// Returns goals sorted by createdAt descending (newest first)
+  static Future<List<GoalRecord>> getAllGoals(String userId) async {
+    try {
+      final query = await GoalRecord.collectionForUser(userId)
+          .orderBy('createdAt', descending: true)
+          .get();
+      return query.docs
+          .map((doc) => GoalRecord.fromSnapshot(doc))
+          .toList();
+    } catch (e) {
+      return [];
+    }
+  }
+
   /// Check if onboarding goal should be shown to user
   /// Returns true if: not skipped AND not completed AND no current goal
   static Future<bool> shouldShowOnboardingGoal(String userId) async {
@@ -232,6 +291,20 @@ class GoalService {
       });
     } catch (e) {
       rethrow;
+    }
+  }
+
+  /// Check if goal onboarding is completed
+  static Future<bool> isGoalOnboardingCompleted(String userId) async {
+    try {
+      final userDoc = await UsersRecord.collection.doc(userId).get();
+      if (!userDoc.exists) {
+        return false;
+      }
+      final userData = UsersRecord.fromSnapshot(userDoc);
+      return userData.goalOnboardingCompleted;
+    } catch (e) {
+      return false;
     }
   }
 }

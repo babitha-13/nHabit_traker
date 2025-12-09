@@ -74,7 +74,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Sequence item "${activity.name}" created successfully!'),
+                  'Non-productive item "${activity.name}" created successfully!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -84,7 +84,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error creating sequence item: $e'),
+            content: Text('Error creating non-productive item: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -100,7 +100,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Create Sequence Item'),
+      title: const Text('Create Non-Productive Item'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -206,7 +206,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
               ],
               const SizedBox(height: 16),
               Text(
-                'Note: This item will only appear in sequences, not in your regular habits or tasks.',
+                'Note: This item is non-productive and will only appear in sequences. It tracks time but does not earn points.',
                 style: FlutterFlowTheme.of(context).bodySmall.override(
                       color: FlutterFlowTheme.of(context).secondaryText,
                     ),

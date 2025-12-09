@@ -4,8 +4,37 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 class SequenceService {
+  /// Check if instance is due today or overdue (mirrors Queue page logic)
+  static bool _isInstanceForToday(ActivityInstanceRecord instance) {
+    if (instance.dueDate == null) return true; // No due date = today
+    final today = DateService.todayStart;
+    final dueDate = DateTime(
+        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
+
+    // For habits: include if today is within the window [dueDate, windowEndDate]
+    if (instance.templateCategoryType == 'habit') {
+      final windowEnd = instance.windowEndDate;
+      if (windowEnd != null) {
+        // Today should be >= dueDate AND <= windowEnd
+        final isWithinWindow = !today.isBefore(dueDate) &&
+            !today.isAfter(
+                DateTime(windowEnd.year, windowEnd.month, windowEnd.day));
+        return isWithinWindow;
+      }
+      // Fallback to due date check if no window
+      final isDueToday = dueDate.isAtSameMomentAs(today);
+      return isDueToday;
+    }
+
+    // For tasks and sequence_items: only if due today or overdue
+    final isTodayOrOverdue =
+        dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
+    return isTodayOrOverdue;
+  }
+
   /// Create a new sequence with items and order
   static Future<DocumentReference> createSequence({
     required String name,
@@ -148,58 +177,40 @@ class SequenceService {
         }
       }
 
-      // Apply "latest instance per template" logic
+      // Apply "today's instance per template" logic (mirrors Queue page behavior)
       final instancesMap = <String, List<ActivityInstanceRecord>>{};
       for (final instance in allInstances) {
         final templateId = instance.templateId;
         (instancesMap[templateId] ??= []).add(instance);
       }
 
-      // For each template, find the latest actionable instance
-      final latestInstances = <String, ActivityInstanceRecord>{};
+      // For each template, find today's instance
+      final todayInstances = <String, ActivityInstanceRecord>{};
       for (final itemId in sequence.itemIds) {
         final instances = instancesMap[itemId] ?? [];
         if (instances.isNotEmpty) {
-          // Sort instances by due date (earliest first, nulls last)
-          instances.sort((a, b) {
-            if (a.dueDate == null && b.dueDate == null) return 0;
-            if (a.dueDate == null) return 1;
-            if (b.dueDate == null) return -1;
-            return a.dueDate!.compareTo(b.dueDate!);
-          });
+          // Filter to only instances due today or overdue
+          final todayInstancesForTemplate =
+              instances.where((inst) => _isInstanceForToday(inst)).toList();
 
-          // Find the latest actionable instance (prefer pending, fallback to completed)
-          ActivityInstanceRecord? latestInstance;
-          for (final instance in instances) {
-            if (instance.status == 'pending') {
-              latestInstance = instance;
-              break;
-            }
-          }
-          // If no pending instance found, use the latest completed/skipped instance
-          if (latestInstance == null) {
-            for (final instance in instances.reversed) {
-              if (instance.status == 'completed' ||
-                  instance.status == 'skipped') {
-                latestInstance = instance;
-                break;
-              }
-            }
-          }
-          // If still no instance found, use the first one (fallback)
-          if (latestInstance == null && instances.isNotEmpty) {
-            latestInstance = instances.first;
-          }
+          if (todayInstancesForTemplate.isNotEmpty) {
+            // Sort by due date (earliest first, nulls last)
+            todayInstancesForTemplate.sort((a, b) {
+              if (a.dueDate == null && b.dueDate == null) return 0;
+              if (a.dueDate == null) return 1;
+              if (b.dueDate == null) return -1;
+              return a.dueDate!.compareTo(b.dueDate!);
+            });
 
-          if (latestInstance != null) {
-            latestInstances[itemId] = latestInstance;
+            // Take the first one (should only be one per template for today)
+            todayInstances[itemId] = todayInstancesForTemplate.first;
           }
         }
       }
 
       return SequenceWithInstances(
         sequence: sequence,
-        instances: latestInstances,
+        instances: todayInstances,
       );
     } catch (e) {
       return null;
@@ -207,6 +218,7 @@ class SequenceService {
   }
 
   /// Create a new sequence item (untracked activity)
+  /// Creates items as non-productive by nature
   static Future<DocumentReference> createSequenceItem({
     required String name,
     String? description,
@@ -217,10 +229,10 @@ class SequenceService {
   }) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = userId ?? currentUser?.uid ?? '';
-    // Create activity with categoryType='sequence_item'
+    // Create activity with categoryType='non_productive' (sequence items are non-productive)
     final activityData = createActivityRecordData(
       name: name,
-      categoryName: 'Sequence Items', // Default category for sequence items
+      categoryName: 'Non-Productive', // Default category for sequence items
       trackingType: trackingType,
       target: target,
       description: description,
@@ -228,12 +240,13 @@ class SequenceService {
       isActive: true,
       createdTime: DateTime.now(),
       lastUpdated: DateTime.now(),
-      categoryType: 'sequence_item', // Special type
+      categoryType: 'non_productive', // Sequence items are non-productive
     );
     return await ActivityRecord.collectionForUser(uid).add(activityData);
   }
 
   /// Create an instance for a sequence item on-the-fly
+  /// Returns null for non-productive items (UI should show time log dialog instead)
   static Future<ActivityInstanceRecord?> createInstanceForSequenceItem({
     required String itemId,
     String? userId,
@@ -250,6 +263,11 @@ class SequenceService {
       final activityData = activityDoc.data() as Map<String, dynamic>?;
       if (activityData == null) {
         return null;
+      }
+      // For non-productive items (including legacy sequence_item), return null - UI should show time log dialog
+      final categoryType = activityData['categoryType'] ?? 'habit';
+      if (categoryType == 'non_productive' || categoryType == 'sequence_item') {
+        return null; // Signal to UI to show time log dialog
       }
       final trackingType = activityData['trackingType'] ?? 'binary';
       final target = activityData['target'];
@@ -303,8 +321,8 @@ class SequenceService {
     }
   }
 
-  /// Reset all completed sequence_item instances in a sequence
-  /// Creates new pending instances for sequence_items only
+  /// Reset all completed non-productive (sequence item) instances in a sequence
+  /// Creates new pending instances for non-productive items only
   /// Leaves habits and tasks untouched
   static Future<int> resetSequenceItems({
     required String sequenceId,
@@ -319,13 +337,14 @@ class SequenceService {
     int resetCount = 0;
 
     try {
-      // Iterate through items and reset only sequence_items that are completed
+      // Iterate through items and reset only non-productive items that are completed
+      // (sequence_item is legacy, now all are non_productive)
       for (int i = 0; i < itemIds.length; i++) {
         final itemId = itemIds[i];
         final itemType = i < itemTypes.length ? itemTypes[i] : 'habit';
 
-        // Only process sequence_items
-        if (itemType != 'sequence_item') continue;
+        // Only process non-productive items (including legacy sequence_item)
+        if (itemType != 'non_productive' && itemType != 'sequence_item') continue;
 
         final instance = currentInstances[itemId];
 

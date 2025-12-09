@@ -1051,4 +1051,39 @@ class TaskInstanceService {
       return [];
     }
   }
+
+  /// Get all non-productive instances with time logs for calendar display
+  static Future<List<ActivityInstanceRecord>> getNonProductiveInstances({
+    String? userId,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'non_productive')
+          .where('totalTimeLogged', isGreaterThan: 0);
+      final result = await query.get();
+      final instances = result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .where((instance) => instance.isActive && instance.timeLogSessions.isNotEmpty)
+          .toList();
+      // Filter by date range if provided
+      if (startDate != null || endDate != null) {
+        return instances.where((instance) {
+          final sessions = instance.timeLogSessions;
+          return sessions.any((session) {
+            final sessionStart = session['startTime'] as DateTime;
+            if (startDate != null && sessionStart.isBefore(startDate))
+              return false;
+            if (endDate != null && sessionStart.isAfter(endDate)) return false;
+            return true;
+          });
+        }).toList();
+      }
+      return instances;
+    } catch (e) {
+      return [];
+    }
+  }
 }

@@ -14,6 +14,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Edit%20Task/edit_task.dart';
 import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
+import 'package:habit_tracker/Screens/Progress/habit_detail_statistics_page.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
@@ -69,6 +70,7 @@ class _ItemComponentState extends State<ItemComponent>
   Timer? _timer;
   num? _quantProgressOverride;
   bool? _timerStateOverride;
+  bool _isExpanded = false;
   @override
   void initState() {
     super.initState();
@@ -136,6 +138,7 @@ class _ItemComponentState extends State<ItemComponent>
       // Create the new activity template
       final newTemplateRef = await createActivity(
         name: newTemplateName,
+        categoryId: template.categoryId,
         categoryName: template.categoryName,
         trackingType: template.trackingType,
         target: template.target,
@@ -311,7 +314,7 @@ class _ItemComponentState extends State<ItemComponent>
       ),
       child: Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-        padding: const EdgeInsets.fromLTRB(6, 8, 6, 8),
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
         decoration: BoxDecoration(
           gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
           borderRadius: BorderRadius.circular(12),
@@ -320,136 +323,237 @@ class _ItemComponentState extends State<ItemComponent>
             width: 1,
           ),
         ),
-        child: Column(
-          children: [
-            const SizedBox(height: 6),
-            IntrinsicHeight(
-              child: Row(
-                children: [
-                  Container(
-                    width: 3,
-                    decoration: BoxDecoration(
-                      color: _leftStripeColor,
-                      borderRadius: BorderRadius.circular(2),
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  SizedBox(
-                    width: 36,
-                    child: Center(child: _buildLeftControlsCompact()),
-                  ),
-                  const SizedBox(width: 5),
-                  Expanded(
-                    child: Row(
+        child: IntrinsicHeight(
+          child: Row(
+            children: [
+              Container(
+                width: 3,
+                decoration: BoxDecoration(
+                  color: _leftStripeColor,
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+              const SizedBox(width: 5),
+              SizedBox(
+                width: 36,
+                child: Center(child: _buildLeftControlsCompact()),
+              ),
+              const SizedBox(width: 5),
+              Expanded(
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    setState(() {
+                      _isExpanded = !_isExpanded;
+                    });
+                  },
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 50),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
                       children: [
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-                            // Only show type icon if enabled
-                            if (widget.showTypeIcon)
+                        Text(
+                          widget.instance.templateName,
+                          maxLines: _isExpanded ? null : 1,
+                          overflow: _isExpanded
+                              ? TextOverflow.visible
+                              : TextOverflow.ellipsis,
+                          style: FlutterFlowTheme.of(context)
+                              .bodyMedium
+                              .override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                                decoration: _isCompleted
+                                    ? TextDecoration.lineThrough
+                                    : TextDecoration.none,
+                                color: _isCompleted
+                                    ? FlutterFlowTheme.of(context).secondaryText
+                                    : FlutterFlowTheme.of(context).primaryText,
+                              ),
+                        ),
+                        if (_getEnhancedSubtitle(includeProgress: _isExpanded)
+                            .isNotEmpty) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _getEnhancedSubtitle(includeProgress: _isExpanded),
+                            maxLines: _isExpanded ? null : 1,
+                            overflow: _isExpanded
+                                ? TextOverflow.visible
+                                : TextOverflow.ellipsis,
+                            style:
+                                FlutterFlowTheme.of(context).bodySmall.override(
+                                      fontFamily: 'Readex Pro',
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                      fontSize: 12,
+                                    ),
+                          ),
+                        ],
+                        if (_isExpanded) ...[
+                          const SizedBox(height: 4),
+                          Row(
+                            children: [
+                              // Show habit/task icon in expanded view
                               Icon(
                                 widget.isHabit ? Icons.flag : Icons.assignment,
-                                size: 16,
-                                color:
-                                    FlutterFlowTheme.of(context).secondaryText,
+                                size: 12,
+                                color: FlutterFlowTheme.of(context)
+                                    .secondaryText
+                                    .withOpacity(0.7),
                               ),
-                            // Only show recurring icon if enabled and item is recurring
-                            if (widget.showRecurringIcon && _isRecurringItem())
-                              Icon(
-                                Icons.repeat,
-                                size: 16,
-                                color:
-                                    FlutterFlowTheme.of(context).secondaryText,
-                              ),
-                          ],
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisAlignment: MainAxisAlignment.center,
-                            children: [
-                              Text(
-                                widget.instance.templateName,
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: FlutterFlowTheme.of(context)
-                                    .bodyMedium
-                                    .override(
-                                      fontFamily: 'Readex Pro',
-                                      fontWeight: FontWeight.w600,
-                                      decoration: _isCompleted
-                                          ? TextDecoration.lineThrough
-                                          : TextDecoration.none,
-                                      color: _isCompleted
-                                          ? FlutterFlowTheme.of(context)
-                                              .secondaryText
-                                          : FlutterFlowTheme.of(context)
-                                              .primaryText,
-                                    ),
-                              ),
-                              if (widget.subtitle != null &&
-                                  widget.subtitle!.isNotEmpty) ...[
-                                const SizedBox(height: 2),
+                              const SizedBox(width: 4),
+                              // Show category name (for queue page)
+                              if ((widget.page == 'queue' ||
+                                      _isQueuePageSubtitle(
+                                          widget.subtitle ?? '')) &&
+                                  widget.instance.templateCategoryName
+                                      .isNotEmpty) ...[
                                 Text(
-                                  widget.subtitle!,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
+                                  widget.instance.templateCategoryName,
                                   style: FlutterFlowTheme.of(context)
                                       .bodySmall
                                       .override(
                                         fontFamily: 'Readex Pro',
                                         color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
-                                        fontSize: 12,
+                                            .secondaryText
+                                            .withOpacity(0.7),
+                                        fontSize: 11,
                                       ),
                                 ),
-                              ]
+                                const SizedBox(width: 4),
+                                // Add bullet separator if there's frequency or "one time" text to follow
+                                if ((_isRecurringItem() &&
+                                        _getFrequencyDisplay().isNotEmpty) ||
+                                    (!_isRecurringItem())) ...[
+                                  Text(
+                                    '•',
+                                    style: FlutterFlowTheme.of(context)
+                                        .bodySmall
+                                        .override(
+                                          fontFamily: 'Readex Pro',
+                                          color: FlutterFlowTheme.of(context)
+                                              .secondaryText
+                                              .withOpacity(0.7),
+                                          fontSize: 11,
+                                        ),
+                                  ),
+                                  const SizedBox(width: 4),
+                                ],
+                              ],
+                              // Show frequency if recurring, or "one time" if not recurring
+                              if (_isRecurringItem() &&
+                                  _getFrequencyDisplay().isNotEmpty) ...[
+                                Text(
+                                  _getFrequencyDisplay(),
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText
+                                            .withOpacity(0.7),
+                                        fontSize: 11,
+                                      ),
+                                ),
+                              ] else if (_isRecurringItem()) ...[
+                                // Just show recurring indicator if no frequency text
+                                Icon(
+                                  Icons.repeat,
+                                  size: 12,
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryText
+                                      .withOpacity(0.7),
+                                ),
+                              ] else ...[
+                                // Show "one time" for non-recurring tasks
+                                Text(
+                                  'one time',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText
+                                            .withOpacity(0.7),
+                                        fontSize: 11,
+                                      ),
+                                ),
+                              ],
                             ],
                           ),
-                        ),
+                        ],
+                        // Progress bar inside the text container for proper vertical centering
                         if (widget.instance.templateTrackingType !=
                             'binary') ...[
-                          const SizedBox(width: 5),
-                          Align(
-                            alignment: Alignment.center,
-                            child: Container(
-                              constraints: const BoxConstraints(maxWidth: 160),
-                              padding: const EdgeInsets.symmetric(
-                                  horizontal: 8, vertical: 2),
-                              decoration: BoxDecoration(
-                                color: FlutterFlowTheme.of(context)
-                                    .secondaryBackground,
-                                border: Border.all(
-                                  color: FlutterFlowTheme.of(context).alternate,
-                                  width: 1,
+                          const SizedBox(height: 4),
+                          Container(
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: _leftStripeColor,
+                                width: 1,
+                              ),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                            child: Stack(
+                              children: [
+                                Container(
+                                  width: double.infinity,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
                                 ),
-                                borderRadius: BorderRadius.circular(10),
-                              ),
-                              child: Text(
-                                _getProgressDisplayText(),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: FlutterFlowTheme.of(context)
-                                    .bodySmall
-                                    .override(
-                                      fontFamily: 'Readex Pro',
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                      lineHeight: 1.05,
+                                FractionallySizedBox(
+                                  alignment: Alignment.centerLeft,
+                                  widthFactor: _progressPercentClamped,
+                                  child: Container(
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      color: _leftStripeColor,
+                                      borderRadius: BorderRadius.circular(2),
                                     ),
-                              ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],
                       ],
                     ),
                   ),
+                ),
+              ),
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
                   Row(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
                       const SizedBox(width: 5),
-                      _buildHabitPriorityStars(),
-                      const SizedBox(width: 5),
+                      if (_isExpanded && widget.isHabit) ...[
+                        GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => HabitDetailStatisticsPage(
+                                  habitName: widget.instance.templateName,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Icon(
+                            Icons.bar_chart,
+                            size: 20,
+                            color: FlutterFlowTheme.of(context).primary,
+                          ),
+                        ),
+                        const SizedBox(width: 5),
+                      ],
                       Builder(
                         builder: (btnCtx) => GestureDetector(
                           onTap: () {
@@ -469,51 +573,14 @@ class _ItemComponentState extends State<ItemComponent>
                       ),
                     ],
                   ),
+                  if (_isExpanded) ...[
+                    const SizedBox(height: 10),
+                    _buildHabitPriorityStars(),
+                  ],
                 ],
               ),
-            ),
-            if (widget.instance.templateTrackingType != 'binary') ...[
-              const SizedBox(height: 3),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 11),
-                child: Container(
-                  height: 3,
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    border: Border.all(
-                      color: _leftStripeColor,
-                      width: 1,
-                    ),
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                  child: Stack(
-                    children: [
-                      Container(
-                        width: double.infinity,
-                        height: 3,
-                        decoration: BoxDecoration(
-                          color: Colors.white,
-                          borderRadius: BorderRadius.circular(2),
-                        ),
-                      ),
-                      FractionallySizedBox(
-                        alignment: Alignment.centerLeft,
-                        widthFactor: _progressPercentClamped,
-                        child: Container(
-                          height: 3,
-                          decoration: BoxDecoration(
-                            color: _leftStripeColor,
-                            borderRadius: BorderRadius.circular(2),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ] else
-              const SizedBox(height: 6),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -521,15 +588,14 @@ class _ItemComponentState extends State<ItemComponent>
 
   Widget _buildHabitPriorityStars() {
     final current = widget.instance.templatePriority;
+    final nextPriority = current >= 3 ? 1 : current + 1;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
         final level = i + 1;
         final filled = current >= level;
         return GestureDetector(
-          onTap: () async {
-            await _updateTemplatePriority(level);
-          },
+          onTap: () async => _updateTemplatePriority(nextPriority),
           child: Icon(
             filled ? Icons.star : Icons.star_border,
             size: 16,
@@ -623,7 +689,17 @@ class _ItemComponentState extends State<ItemComponent>
     final templateRef =
         ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
     if (selected == 'edit') {
-      final template = await ActivityRecord.getDocumentOnce(templateRef);
+      ActivityRecord template;
+      try {
+        template = await ActivityRecord.getDocumentOnce(templateRef);
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error loading activity: ${e.toString()}')),
+          );
+        }
+        return;
+      }
       if (widget.instance.templateCategoryType == 'task') {
         showDialog(
           context: context,
@@ -1079,6 +1155,11 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Color get _leftStripeColor {
+    // Always use dark charcoal color for tasks
+    if (widget.instance.templateCategoryType == 'task') {
+      return const Color(0xFF2F4F4F); // Dark Slate Gray (charcoal) for tasks
+    }
+    // For habits, use category color
     final hex = widget.categoryColorHex;
     if (hex != null && hex.isNotEmpty) {
       try {
@@ -1097,7 +1178,7 @@ class _ItemComponentState extends State<ItemComponent>
         final target = widget.instance.templateTarget;
         return '$progress/$target ${widget.instance.templateUnit}';
       case 'time':
-        final target = widget.instance.templateTarget ?? 0;
+        final target = _getTemplateTargetMinutes();
         final currentTime = _getTimerDisplayWithSeconds();
         // For completed tasks, show max(actual, target) / target
         if (widget.instance.status == 'completed') {
@@ -1123,28 +1204,176 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
+  int _getTemplateTargetMinutes() {
+    final targetValue = widget.instance.templateTarget;
+    if (targetValue == null) return 0;
+    if (targetValue is num) return targetValue.toInt();
+    if (targetValue is String) {
+      return int.tryParse(targetValue) ?? 0;
+    }
+    return 0;
+  }
+
+  String _getEnhancedSubtitle({bool includeProgress = true}) {
+    final baseSubtitle = widget.subtitle ?? '';
+    final progressText = _getProgressDisplayText();
+
+    // For queue page, always remove category name from subtitle (it's shown next to icon in expanded view)
+    String processedSubtitle = baseSubtitle;
+    if (widget.page == 'queue' || _isQueuePageSubtitle(baseSubtitle)) {
+      processedSubtitle = _removeCategoryNameFromSubtitle(baseSubtitle);
+    }
+
+    if (processedSubtitle.isEmpty && progressText.isEmpty) {
+      return '';
+    }
+
+    if (processedSubtitle.isEmpty) {
+      return includeProgress ? progressText : '';
+    }
+
+    if (progressText.isEmpty) {
+      return processedSubtitle;
+    }
+
+    // Due date first, then progress stats (only if includeProgress is true)
+    if (includeProgress) {
+      return '$processedSubtitle • $progressText';
+    } else {
+      return processedSubtitle;
+    }
+  }
+
+  bool _isQueuePageSubtitle(String subtitle) {
+    // Check if subtitle contains category name pattern (common in queue page)
+    final categoryName = widget.instance.templateCategoryName;
+    if (categoryName.isEmpty) return false;
+    // Queue page subtitles often have category name with bullet separators or at start/end
+    return subtitle.contains(' • $categoryName') ||
+        subtitle.contains('$categoryName •') ||
+        subtitle.startsWith('$categoryName ') ||
+        subtitle == categoryName;
+  }
+
+  String _removeCategoryNameFromSubtitle(String subtitle) {
+    final categoryName = widget.instance.templateCategoryName;
+    if (categoryName.isEmpty) return subtitle;
+
+    // Handle different subtitle formats from queue page
+    // Format 1: "categoryName" or "categoryName @ time"
+    if (subtitle.startsWith('$categoryName ')) {
+      final remaining = subtitle.substring(categoryName.length).trim();
+      // If it starts with "@", keep it, otherwise it might be just category name
+      if (remaining.startsWith('@')) {
+        return remaining;
+      }
+      return remaining.isEmpty ? '' : remaining;
+    }
+    if (subtitle == categoryName) {
+      return '';
+    }
+
+    // Format 2: "statusText • categoryName • Due: date @ time"
+    if (subtitle.contains(' • $categoryName • ')) {
+      return subtitle.replaceAll(' • $categoryName • ', ' • ');
+    }
+    if (subtitle.contains(' • $categoryName')) {
+      return subtitle.replaceAll(' • $categoryName', '');
+    }
+
+    // Format 3: "date @ time • categoryName"
+    if (subtitle.endsWith(' • $categoryName')) {
+      return subtitle
+          .substring(0, subtitle.length - categoryName.length - 3)
+          .trim();
+    }
+
+    return subtitle;
+  }
+
+  String _getFrequencyDisplay() {
+    final instance = widget.instance;
+
+    // Only show frequency for recurring items
+    if (!_isRecurringItem()) return '';
+
+    // Check for "every X period" pattern
+    if (instance.templateEveryXValue > 0 &&
+        instance.templateEveryXPeriodType.isNotEmpty) {
+      final value = instance.templateEveryXValue;
+      final period = instance.templateEveryXPeriodType;
+
+      if (value == 1) {
+        switch (period) {
+          case 'days':
+            return 'Every day';
+          case 'weeks':
+            return 'Every week';
+          case 'months':
+            return 'Every month';
+          default:
+            return 'Every $value ${period}';
+        }
+      } else {
+        final periodName = period == 'days'
+            ? 'days'
+            : period == 'weeks'
+                ? 'weeks'
+                : 'months';
+        return 'Every $value $periodName';
+      }
+    }
+
+    // Check for "times per period" pattern
+    if (instance.templateTimesPerPeriod > 0 &&
+        instance.templatePeriodType.isNotEmpty) {
+      final times = instance.templateTimesPerPeriod;
+      final period = instance.templatePeriodType;
+
+      final periodName = period == 'weeks'
+          ? (times == 1 ? 'week' : 'weeks')
+          : (times == 1 ? 'month' : 'months');
+
+      return '$times time${times == 1 ? '' : 's'} per $periodName';
+    }
+
+    // Default fallback
+    return '';
+  }
+
   Widget _buildLeftControlsCompact() {
     // TODO: Phase 3 - Re-implement completion logic for each type
     switch (widget.instance.templateTrackingType) {
       case 'binary':
-        return Material(
-          type: MaterialType.transparency,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(
-              minWidth: 24,
-              minHeight: 24,
-              maxWidth: 24,
-              maxHeight: 24,
-            ),
-            child: Checkbox(
-              value: _isCompleted,
-              onChanged: _isUpdating
+        return Container(
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: _isCompleted ? _impactLevelColor : Colors.transparent,
+            borderRadius: BorderRadius.circular(4),
+            border: _isCompleted
+                ? null
+                : Border.all(
+                    color: _leftStripeColor,
+                    width: 2,
+                  ),
+          ),
+          child: Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(4),
+              onTap: _isUpdating
                   ? null
-                  : (value) async {
-                      await _handleBinaryCompletion(value ?? false);
+                  : () async {
+                      await _handleBinaryCompletion(!_isCompleted);
                     },
-              activeColor: _impactLevelColor,
-              materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+              child: _isCompleted
+                  ? const Icon(
+                      Icons.check,
+                      size: 16,
+                      color: Colors.white,
+                    )
+                  : null,
             ),
           ),
         );
@@ -1158,18 +1387,22 @@ class _ItemComponentState extends State<ItemComponent>
               width: 24,
               height: 24,
               decoration: BoxDecoration(
-                color: FlutterFlowTheme.of(context).primaryText,
+                color: Colors.transparent,
                 borderRadius: BorderRadius.circular(4),
+                border: Border.all(
+                  color: _leftStripeColor,
+                  width: 2,
+                ),
               ),
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
                   borderRadius: BorderRadius.circular(4),
                   onTap: _isUpdating ? null : () => _updateProgress(1),
-                  child: const Icon(
+                  child: Icon(
                     Icons.add,
-                    size: 16,
-                    color: Colors.white,
+                    size: 18,
+                    color: _leftStripeColor,
                   ),
                 ),
               ),
@@ -1184,8 +1417,14 @@ class _ItemComponentState extends State<ItemComponent>
           decoration: BoxDecoration(
             color: isActive
                 ? FlutterFlowTheme.of(context).error
-                : FlutterFlowTheme.of(context).primaryText,
+                : Colors.transparent,
             borderRadius: BorderRadius.circular(4),
+            border: isActive
+                ? null
+                : Border.all(
+                    color: _leftStripeColor,
+                    width: 2,
+                  ),
           ),
           child: Material(
             color: Colors.transparent,
@@ -1197,7 +1436,7 @@ class _ItemComponentState extends State<ItemComponent>
               child: Icon(
                 isActive ? Icons.stop : Icons.play_arrow,
                 size: 16,
-                color: Colors.white,
+                color: isActive ? Colors.white : _leftStripeColor,
               ),
             ),
           ),
@@ -1484,7 +1723,9 @@ class _ItemComponentState extends State<ItemComponent>
     final target = widget.instance.templateTarget ?? 0;
     final targetMs = target * 60000; // Convert minutes to milliseconds
     final remainingMs = targetMs - realTimeAccumulated;
-    final canMarkComplete = remainingMs > 0;
+    // Enable mark complete if: (target > 0 AND remaining > 0) OR (target == 0 AND accumulated > 0)
+    final canMarkComplete = (target > 0 && remainingMs > 0) ||
+        (target == 0 && realTimeAccumulated > 0);
     final selected = await showMenu<String>(
       context: anchorContext,
       position: RelativeRect.fromLTRB(
@@ -1510,6 +1751,18 @@ class _ItemComponentState extends State<ItemComponent>
           ),
         ),
         const PopupMenuDivider(height: 6),
+        const PopupMenuItem<String>(
+          value: 'custom',
+          height: 36,
+          child: Row(
+            children: [
+              Icon(Icons.edit, size: 18),
+              SizedBox(width: 8),
+              Text('Set Custom Time')
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 6),
         PopupMenuItem<String>(
           value: 'complete',
           enabled: canMarkComplete,
@@ -1519,7 +1772,7 @@ class _ItemComponentState extends State<ItemComponent>
               const Icon(Icons.check_circle, size: 18),
               const SizedBox(width: 8),
               Text(
-                  'Mark as Complete${canMarkComplete ? ' (+${_formatRemainingTime(remainingMs)})' : ''}')
+                  'Mark as Complete${canMarkComplete ? (target > 0 ? ' (+${_formatRemainingTime(remainingMs)})' : ' (${_formatTimeFromMs(realTimeAccumulated)})') : ''}')
             ],
           ),
         ),
@@ -1528,6 +1781,8 @@ class _ItemComponentState extends State<ItemComponent>
     if (selected == null) return;
     if (selected == 'reset') {
       await _resetTimer();
+    } else if (selected == 'custom') {
+      await _showCustomTimeDialog();
     } else if (selected == 'complete' && canMarkComplete) {
       await _markTimerComplete();
     }
@@ -1635,21 +1890,50 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Step 3: Get target amount for completion
       final target = updatedInstance.templateTarget ?? 0;
-      final targetMs = target * 60000; // Convert minutes to milliseconds
+      int newAccumulatedTime;
 
-      // Step 4: Complete with target amount (ensures 100% progress)
-      final newAccumulatedTime = targetMs.toInt();
+      // Step 4: Handle completion based on whether target exists
+      if (target == 0) {
+        // No target set: use accumulated time as target
+        final realTimeAccumulated =
+            TimerLogicHelper.getRealTimeAccumulated(updatedInstance);
+        if (realTimeAccumulated <= 0) {
+          throw Exception('No time recorded to complete task');
+        }
+        newAccumulatedTime = realTimeAccumulated;
+
+        // Convert accumulated time to minutes for target
+        final targetInMinutes = realTimeAccumulated ~/ 60000;
+
+        // Update instance's templateTarget
+        final instanceRef =
+            ActivityInstanceRecord.collectionForUser(currentUserUid)
+                .doc(updatedInstance.reference.id);
+        await instanceRef.update({
+          'templateTarget': targetInMinutes,
+          'lastUpdated': DateTime.now(),
+        });
+
+        // Update template's target
+        final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+            .doc(updatedInstance.templateId);
+        await templateRef.update({
+          'target': targetInMinutes,
+          'lastUpdated': DateTime.now(),
+        });
+      } else {
+        // Target exists: use target amount (ensures 100% progress)
+        final targetMs = target * 60000; // Convert minutes to milliseconds
+        newAccumulatedTime = targetMs.toInt();
+      }
+
+      // Step 5: Complete with the determined accumulated time
       await ActivityInstanceService.completeInstance(
         instanceId: widget.instance.reference.id,
         finalValue:
             newAccumulatedTime, // Ensure currentValue matches accumulatedTime
         finalAccumulatedTime: newAccumulatedTime,
       );
-
-      // Step 5: Also update totalTimeLogged to match target for UI consistency
-      await widget.instance.reference.update({
-        'totalTimeLogged': newAccumulatedTime,
-      });
 
       // Get the final updated instance data
       final finalInstance = await ActivityInstanceService.getUpdatedInstance(
@@ -1669,6 +1953,190 @@ class _ItemComponentState extends State<ItemComponent>
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error completing task: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
+  Future<void> _showCustomTimeDialog() async {
+    // Get current accumulated time
+    final realTimeAccumulated =
+        TimerLogicHelper.getRealTimeAccumulated(widget.instance);
+    final currentHours = realTimeAccumulated ~/ 3600000;
+    final currentMinutes = (realTimeAccumulated % 3600000) ~/ 60000;
+    final target = widget.instance.templateTarget ?? 0;
+    final targetHours = target ~/ 60;
+    final targetMinutes = (target % 60).toInt();
+
+    // Initialize controllers with current values
+    final hoursController = TextEditingController(
+        text: currentHours > 0 ? currentHours.toString() : '');
+    final minutesController = TextEditingController(
+        text: currentMinutes > 0 ? currentMinutes.toString() : '0');
+
+    final result = await showDialog<Map<String, int>>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Set Custom Time'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (target > 0) ...[
+              Text(
+                'Target: ${targetHours > 0 ? '${targetHours}h ' : ''}${targetMinutes}m',
+                style: FlutterFlowTheme.of(context).bodySmall,
+              ),
+              const SizedBox(height: 8),
+            ],
+            Text(
+              'Current: ${_formatTimeFromMs(realTimeAccumulated)}',
+              style: FlutterFlowTheme.of(context).bodySmall,
+            ),
+            const SizedBox(height: 16),
+            Row(
+              children: [
+                Expanded(
+                  child: TextField(
+                    controller: hoursController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Hours',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: TextField(
+                    controller: minutesController,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                      labelText: 'Minutes',
+                      border: OutlineInputBorder(),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              final hours = int.tryParse(hoursController.text) ?? 0;
+              final minutes = int.tryParse(minutesController.text) ?? 0;
+              if (hours < 0 || minutes < 0 || minutes >= 60) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(
+                      content: Text(
+                          'Invalid input. Hours must be >= 0, minutes must be 0-59')),
+                );
+                return;
+              }
+              Navigator.of(context).pop({'hours': hours, 'minutes': minutes});
+            },
+            child: const Text('Set'),
+          ),
+        ],
+      ),
+    );
+
+    hoursController.dispose();
+    minutesController.dispose();
+
+    if (result != null) {
+      await _setCustomTime(result['hours'] ?? 0, result['minutes'] ?? 0);
+    }
+  }
+
+  Future<void> _setCustomTime(int hours, int minutes) async {
+    if (_isUpdating) return;
+    setState(() {
+      _isUpdating = true;
+    });
+    try {
+      // Step 1: Stop any active timer session first
+      if (widget.instance.isTimeLogging &&
+          widget.instance.currentSessionStartTime != null) {
+        await TaskInstanceService.stopTimeLogging(
+          activityInstanceRef: widget.instance.reference,
+          markComplete: false, // Don't mark complete yet, just stop the session
+        );
+      }
+
+      // Step 2: Get fresh instance data after stopping timer
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Step 3: Convert hours and minutes to milliseconds
+      final customTimeMs = (hours * 3600000) + (minutes * 60000);
+
+      // Step 4: Update accumulated time and current value
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(widget.instance.reference.id);
+      await instanceRef.update({
+        'accumulatedTime': customTimeMs,
+        'currentValue': customTimeMs,
+        'totalTimeLogged':
+            customTimeMs, // Update totalTimeLogged for session-based tasks
+        'lastUpdated': DateTime.now(),
+      });
+
+      // Step 5: Check if target is met and optionally complete
+      final target = updatedInstance.templateTarget ?? 0;
+      final targetMs = target * 60000;
+      final shouldComplete = target > 0 && customTimeMs >= targetMs;
+
+      if (shouldComplete && updatedInstance.status != 'completed') {
+        await ActivityInstanceService.completeInstance(
+          instanceId: widget.instance.reference.id,
+          finalValue: customTimeMs,
+          finalAccumulatedTime: customTimeMs,
+        );
+      } else if (!shouldComplete &&
+          (updatedInstance.status == 'completed' ||
+              updatedInstance.status == 'skipped')) {
+        // If custom time is less than target and was previously completed, uncomplete it
+        await ActivityInstanceService.uncompleteInstance(
+          instanceId: widget.instance.reference.id,
+        );
+      }
+
+      // Get the final updated instance data
+      final finalInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(finalInstance);
+      // Broadcast the instance update event
+      InstanceEvents.broadcastInstanceUpdated(finalInstance);
+      if (mounted) {
+        final timeDisplay = hours > 0
+            ? '${hours}h ${minutes}m'
+            : minutes > 0
+                ? '${minutes}m'
+                : '0m';
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Time set to $timeDisplay')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error setting custom time: $e')),
         );
       }
     } finally {

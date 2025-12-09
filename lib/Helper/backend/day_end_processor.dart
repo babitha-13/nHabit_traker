@@ -3,28 +3,35 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
+import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 /// Service for processing day-end operations on habits
-/// Auto-closes pending habits and creates daily progress snapshots
+/// Creates daily progress snapshots (status changes now require manual user confirmation)
 class DayEndProcessor {
   /// Process day-end for a specific user
-  /// This should be called at the shifted boundary (2 AM local) or on app start
+  /// [closeInstances] - If true, marks expired habit instances as skipped (requires user confirmation)
+  /// Set to false to disable automatic status changes (automatic processing is disabled)
   static Future<void> processDayEnd({
     required String userId,
     DateTime? targetDate,
+    bool closeInstances = false,
   }) async {
-    // Use targetDate if provided, otherwise use latest processable shifted date
-    final processDate = targetDate ?? DateService.latestProcessableShiftedDate;
+    // Use targetDate if provided, otherwise use yesterday's date
+    final processDate = targetDate ?? DateService.yesterdayStart;
     try {
       // Step 1: Update lastDayValue for active windowed habits
       await _updateLastDayValues(userId, processDate);
       // Step 2: Create daily progress record BEFORE closing instances
       // This preserves the exact values shown in Queue page
       await _createDailyProgressRecord(userId, processDate);
-      // Step 3: Close all open habit instances for the target date
-      await _closeOpenHabitInstances(userId, processDate);
+      // Step 3: Close all open habit instances for the target date (only if explicitly requested)
+      // NOTE: Automatic status changes disabled - instances are now only marked as skipped
+      // when user manually confirms via the Queue page "Needs Processing" section
+      if (closeInstances) {
+        await _closeOpenHabitInstances(userId, processDate);
+      }
     } catch (e) {
       rethrow;
     }
@@ -77,11 +84,9 @@ class DayEndProcessor {
     final instances = querySnapshot.docs
         .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
         .toList();
-    // Debug: Log each instance being processed
-    for (final instance in instances) {}
     final batch = FirebaseFirestore.instance.batch();
     // Use the targetDate being processed (normalizedDate) for skippedAt
-    // With shifted boundary, Oct 15 window closes at Oct 16 2 AM
+    // Oct 15 window closes at Oct 16 midnight
     final skippedAtDate = normalizedDate;
     for (final instance in instances) {
       // Mark as skipped (preserve currentValue for partial completions)
@@ -305,6 +310,19 @@ class DayEndProcessor {
             [];
     final taskBreakdown =
         calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
+    // Calculate cumulative score
+    Map<String, dynamic> cumulativeScoreData = {};
+    try {
+      cumulativeScoreData = await CumulativeScoreService.updateCumulativeScore(
+        userId,
+        completionPercentage,
+        normalizedDate,
+      );
+    } catch (e) {
+      print('Error calculating cumulative score: $e');
+      // Continue without cumulative score if calculation fails
+    }
+
     // Create the daily progress record
     final progressData = createDailyProgressRecordData(
       userId: userId,
@@ -325,6 +343,8 @@ class DayEndProcessor {
       categoryBreakdown: categoryBreakdown,
       habitBreakdown: habitBreakdown,
       taskBreakdown: taskBreakdown,
+      cumulativeScoreSnapshot: cumulativeScoreData['cumulativeScore'] ?? 0.0,
+      dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
       createdAt: DateTime.now(),
     );
     await DailyProgressRecord.collectionForUser(userId).add(progressData);
@@ -357,12 +377,19 @@ class DayEndProcessor {
 
   /// Get the next day-end processing time for a user
   static DateTime getNextDayEndTime() {
-    return DateService.nextShiftedBoundary(DateTime.now());
+    final now = DateTime.now();
+    final todayMidnight = DateTime(now.year, now.month, now.day);
+    if (now.isBefore(todayMidnight)) {
+      return todayMidnight;
+    } else {
+      final tomorrow = now.add(const Duration(days: 1));
+      return DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
+    }
   }
 
   /// Check if we're within the grace period after midnight
   static bool isWithinGracePeriod() {
-    // With shifted boundary, grace handling is no longer needed
+    // Grace handling is no longer needed
     return false;
   }
 }

@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence_detail_page.dart';
+import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
 
 class Sequences extends StatefulWidget {
   const Sequences({super.key});
@@ -126,11 +127,44 @@ class _SequencesState extends State<Sequences> {
     }).toList();
   }
 
+  void _navigateToNonProductiveTemplates() {
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (context) => const NonProductiveTemplatesPage(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       key: scaffoldKey,
       backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+      appBar: AppBar(
+        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        title: const Text('Sequences'),
+        actions: [
+          PopupMenuButton<String>(
+            onSelected: (value) {
+              if (value == 'non_productive') {
+                _navigateToNonProductiveTemplates();
+              }
+            },
+            itemBuilder: (context) => [
+              const PopupMenuItem<String>(
+                value: 'non_productive',
+                child: Row(
+                  children: [
+                    Icon(Icons.access_time, size: 20),
+                    SizedBox(width: 8),
+                    Text('Manage Non-Productive Items'),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
       body: SafeArea(
         top: true,
         child: _isLoading

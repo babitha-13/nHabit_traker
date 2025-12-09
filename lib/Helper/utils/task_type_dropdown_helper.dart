@@ -68,49 +68,93 @@ class IconTaskTypeDropdown extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     final selectedInfo = TaskTypeDropdownHelper.getTaskTypeInfo(selectedValue);
-    return SizedBox(
-      width: 40,
-      height: 40,
-      child: PopupMenuButton<String>(
-        tooltip: tooltip ?? 'Select task type',
-        icon: Icon(
-          selectedInfo?.icon ?? Icons.task_alt,
-          color: theme.primaryText,
-          size: 20,
+    // Always highlight when a value is selected (including 'binary')
+    final isSelected = selectedValue != null;
+    
+    return Container(
+      decoration: BoxDecoration(
+        color: isSelected 
+            ? theme.accent1.withOpacity(0.1)
+            : theme.tertiary,
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: isSelected ? theme.accent1 : theme.surfaceBorderColor,
+          width: 1,
         ),
-        onSelected: onChanged,
-        itemBuilder: (BuildContext context) {
-          return TaskTypeDropdownHelper.getAllTaskTypes().map((taskType) {
-            return PopupMenuItem<String>(
-              value: taskType.value,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    taskType.icon,
-                    size: 18,
-                    color: selectedValue == taskType.value
-                        ? theme.primary
-                        : theme.secondaryText,
-                  ),
-                  const SizedBox(width: 12),
-                  Text(
-                    taskType.label,
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: selectedValue == taskType.value
-                          ? theme.primary
-                          : theme.primaryText,
-                      fontWeight: selectedValue == taskType.value
-                          ? FontWeight.w600
-                          : FontWeight.normal,
+        boxShadow: isSelected ? [
+          BoxShadow(
+            color: theme.accent1.withOpacity(0.2),
+            offset: const Offset(0, 1),
+            blurRadius: 2,
+          ),
+        ] : null,
+      ),
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(10),
+          onTap: () {
+            // Show popup menu manually
+            final RenderBox? renderBox = context.findRenderObject() as RenderBox?;
+            final Offset? offset = renderBox?.localToGlobal(Offset.zero);
+            if (offset != null && renderBox != null) {
+              showMenu<String>(
+                context: context,
+                position: RelativeRect.fromLTRB(
+                  offset.dx,
+                  offset.dy + renderBox.size.height,
+                  offset.dx + renderBox.size.width,
+                  offset.dy + renderBox.size.height + 200,
+                ),
+                items: TaskTypeDropdownHelper.getAllTaskTypes().map((taskType) {
+                  return PopupMenuItem<String>(
+                    value: taskType.value,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          taskType.icon,
+                          size: 18,
+                          color: selectedValue == taskType.value
+                              ? theme.primary
+                              : theme.secondaryText,
+                        ),
+                        const SizedBox(width: 12),
+                        Text(
+                          taskType.label,
+                          style: TextStyle(
+                            fontSize: 14,
+                            color: selectedValue == taskType.value
+                                ? theme.primary
+                                : theme.primaryText,
+                            fontWeight: selectedValue == taskType.value
+                                ? FontWeight.w600
+                                : FontWeight.normal,
+                          ),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
-              ),
-            );
-          }).toList();
-        },
+                  );
+                }).toList(),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+              ).then((value) {
+                if (value != null) {
+                  onChanged(value);
+                }
+              });
+            }
+          },
+          child: Container(
+            padding: const EdgeInsets.all(8),
+            child: Icon(
+              selectedInfo?.icon ?? Icons.task_alt,
+              color: isSelected ? theme.accent1 : theme.secondary,
+              size: 18,
+            ),
+          ),
+        ),
       ),
     );
   }

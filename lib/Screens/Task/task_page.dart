@@ -16,13 +16,17 @@ import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
 import 'package:intl/intl.dart';
+
 class TaskPage extends StatefulWidget {
   final String? categoryName;
   const TaskPage({super.key, this.categoryName});
   @override
   State<TaskPage> createState() => _TaskPageState();
 }
+
 class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickAddController = TextEditingController();
   final TextEditingController _quickTargetNumberController =
@@ -43,7 +47,8 @@ class _TaskPageState extends State<TaskPage> {
   final TextEditingController _quickUnitController = TextEditingController();
   bool quickIsRecurring = false;
   FrequencyConfig? _quickFrequencyConfig;
-  String? _expandedSection;
+  List<ReminderConfig> _quickReminders = [];
+  Set<String> _expandedSections = {};
   final Map<String, GlobalKey> _sectionKeys = {};
   int _completionTimeFrame = 2; // 2 = 2 days, 7 = 7 days, 30 = 30 days
   // Search functionality
@@ -80,6 +85,7 @@ class _TaskPageState extends State<TaskPage> {
       }
     });
   }
+
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
@@ -91,6 +97,7 @@ class _TaskPageState extends State<TaskPage> {
     _quickUnitController.dispose();
     super.dispose();
   }
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -103,15 +110,17 @@ class _TaskPageState extends State<TaskPage> {
       _didInitialDependencies = true;
     }
   }
+
   Future<void> _loadExpansionState() async {
-    final expandedSection =
-        await ExpansionStateManager().getTaskExpandedSection();
+    final expandedSections =
+        await ExpansionStateManager().getTaskExpandedSections();
     if (mounted) {
       setState(() {
-        _expandedSection = expandedSection;
+        _expandedSections = expandedSections;
       });
     }
   }
+
   void _onSearchChanged(String query) {
     if (mounted) {
       setState(() {
@@ -119,8 +128,10 @@ class _TaskPageState extends State<TaskPage> {
       });
     }
   }
+
   @override
   Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
     final returnedWidget = _isLoading
         ? const Center(child: CircularProgressIndicator())
         : Stack(
@@ -129,12 +140,6 @@ class _TaskPageState extends State<TaskPage> {
                 onRefresh: _loadData,
                 child: CustomScrollView(
                   slivers: [
-                    SliverToBoxAdapter(
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: _buildQuickAdd(),
-                      ),
-                    ),
                     ..._buildSections(),
                   ],
                 ),
@@ -144,10 +149,20 @@ class _TaskPageState extends State<TaskPage> {
                 onRefresh: _loadData,
                 onInstanceUpdated: _updateInstanceInLocalState,
               ),
+              Positioned(
+                right: 16,
+                bottom: 16,
+                child: FloatingActionButton(
+                  onPressed: _showQuickAddBottomSheet,
+                  backgroundColor: theme.primary,
+                  child: const Icon(Icons.add, color: Colors.white),
+                ),
+              ),
             ],
           );
     return returnedWidget;
   }
+
   List<ActivityInstanceRecord> get _activeFloatingInstances {
     return _taskInstances.where((inst) {
       return inst.templateShowInFloatingTimer == true &&
@@ -156,6 +171,7 @@ class _TaskPageState extends State<TaskPage> {
           inst.status != 'completed';
     }).toList();
   }
+
   Future<void> _loadData() async {
     setState(() => _isLoading = true);
     try {
@@ -167,8 +183,8 @@ class _TaskPageState extends State<TaskPage> {
       final instances = await queryAllTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
       // DEBUG: Print instance details
-      for (final inst in instances) {
-      }
+      // for (final inst in instances) {
+      // }
       for (final cat in categories) {
         print('  - ${cat.name} (${cat.reference.id})');
       }
@@ -207,64 +223,129 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
-  Widget _buildQuickAdd() {
+
+  Widget _buildQuickAddWithState(StateSetter setModalState) {
+    // Helper to update both modal and parent state
+    void updateState(VoidCallback fn) {
+      setState(fn);
+      setModalState(() {}); // Trigger modal rebuild
+    }
+
+    return _buildQuickAdd(updateState);
+  }
+
+  Widget _buildQuickAdd([void Function(VoidCallback)? updateStateFn]) {
+    final theme = FlutterFlowTheme.of(context);
+    // Use provided updater or default to setState
+    final updateState = updateStateFn ?? ((VoidCallback fn) => setState(fn));
     final quickAddWidget = Container(
+      margin: EdgeInsets.zero,
       decoration: BoxDecoration(
-        color: FlutterFlowTheme.of(context).secondaryBackground,
-        borderRadius: BorderRadius.circular(8),
+        gradient: theme.neumorphicGradient,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: FlutterFlowTheme.of(context).alternate,
+          color: theme.surfaceBorderColor,
           width: 1,
         ),
+        boxShadow: theme.neumorphicShadowsRaised,
       ),
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
             child: Row(
               children: [
                 Expanded(
-                  child: TextField(
-                    key: ValueKey(_quickAddController.hashCode),
-                    controller: _quickAddController,
-                    decoration: const InputDecoration(
-                      hintText: 'Quick add task…',
-                      border: InputBorder.none,
-                      isDense: true,
-                      contentPadding: EdgeInsets.zero,
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: theme.tertiary.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: theme.surfaceBorderColor,
+                        width: 1,
+                      ),
                     ),
-                    onSubmitted: (_) => _submitQuickAdd(),
+                    child: TextField(
+                      key: ValueKey(_quickAddController.hashCode),
+                      controller: _quickAddController,
+                      style: theme.bodyMedium,
+                      maxLength: 200,
+                      decoration: InputDecoration(
+                        hintText: 'Quick add task…',
+                        hintStyle: TextStyle(
+                          color: theme.secondaryText,
+                          fontSize: 14,
+                        ),
+                        border: InputBorder.none,
+                        isDense: true,
+                        contentPadding: EdgeInsets.zero,
+                        counterText: '',
+                      ),
+                      onSubmitted: (_) => _submitQuickAdd(),
+                    ),
                   ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.send),
-                  onPressed: _submitQuickAdd,
-                  padding: const EdgeInsets.all(4),
-                  constraints:
-                      const BoxConstraints(minWidth: 32, minHeight: 32),
+                const SizedBox(width: 12),
+                Container(
+                  decoration: BoxDecoration(
+                    gradient: theme.primaryButtonGradient,
+                    borderRadius: BorderRadius.circular(theme.buttonRadius),
+                    boxShadow: [
+                      BoxShadow(
+                        color: theme.primary.withOpacity(0.3),
+                        offset: const Offset(0, 2),
+                        blurRadius: 4,
+                      ),
+                    ],
+                  ),
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(theme.buttonRadius),
+                      onTap: _submitQuickAdd,
+                      child: Container(
+                        padding: const EdgeInsets.all(12),
+                        child: const Icon(
+                          Icons.send,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                    ),
+                  ),
                 ),
               ],
             ),
           ),
           ...[
-            Divider(
+            Container(
               height: 1,
-              thickness: 1,
-              color: FlutterFlowTheme.of(context).alternate,
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  colors: [
+                    Colors.transparent,
+                    theme.surfaceBorderColor,
+                    Colors.transparent,
+                  ],
+                ),
+              ),
             ),
             Padding(
-              padding: const EdgeInsets.fromLTRB(8, 6, 8, 6),
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
               child: Column(
                 children: [
                   Wrap(
-                    spacing: 12,
+                    spacing: 10,
                     runSpacing: 8,
                     crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
                       IconTaskTypeDropdown(
                         selectedValue: _selectedQuickTrackingType ?? 'binary',
                         onChanged: (value) {
-                          setState(() {
+                          updateState(() {
                             _selectedQuickTrackingType = value;
                             if (value == 'binary') {
                               _quickTargetNumber = 1;
@@ -277,212 +358,401 @@ class _TaskPageState extends State<TaskPage> {
                       ),
                       // Date icon or chip
                       if (_selectedQuickDueDate == null)
-                        IconButton(
-                          icon: Icon(
-                            Icons.calendar_today_outlined,
-                            color: FlutterFlowTheme.of(context).secondaryText,
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.tertiary,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: theme.surfaceBorderColor,
+                              width: 1,
+                            ),
                           ),
-                          onPressed: _selectQuickDueDate,
-                          tooltip: 'Set due date',
-                          padding: const EdgeInsets.all(4),
-                          constraints:
-                              const BoxConstraints(minWidth: 32, minHeight: 32),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _selectQuickDueDate(updateState),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.calendar_today_outlined,
+                                  color: theme.secondary,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ),
                         )
                       else
-                        InkWell(
-                          onTap: _selectQuickDueDate,
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.green.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.green.shade200),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.calendar_today,
-                                    size: 14, color: Colors.green.shade700),
-                                const SizedBox(width: 6),
-                                Text(
-                                  quickIsRecurring
-                                      ? 'From ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
-                                      : DateFormat('MMM dd')
-                                          .format(_selectedQuickDueDate!),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.green.shade700,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.accent1.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: theme.accent1, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.accent1.withOpacity(0.2),
+                                offset: const Offset(0, 1),
+                                blurRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _selectQuickDueDate(updateState),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.calendar_today,
+                                        size: 14, color: theme.accent1),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      quickIsRecurring
+                                          ? 'From ${DateFormat('MMM dd').format(_selectedQuickDueDate!)}'
+                                          : DateFormat('MMM dd')
+                                              .format(_selectedQuickDueDate!),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: theme.accent1,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () {
+                                        // Clear due date without opening picker
+                                        updateState(() {
+                                          _selectedQuickDueDate = null;
+                                        });
+                                      },
+                                      child: Icon(
+                                        Icons.close,
+                                        size: 14,
+                                        color: theme.accent1,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () {
-                                    // Clear due date without opening picker
-                                    setState(() {
-                                      _selectedQuickDueDate = null;
-                                    });
-                                  },
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: Colors.green.shade700,
-                                  ),
-                                ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       // Time icon or chip
                       if (_selectedQuickDueTime == null)
-                        IconButton(
-                          icon: Icon(
-                            Icons.access_time,
-                            color: FlutterFlowTheme.of(context).secondaryText,
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.tertiary,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: theme.surfaceBorderColor,
+                              width: 1,
+                            ),
                           ),
-                          onPressed: _selectQuickDueTime,
-                          tooltip: 'Set due time',
-                          padding: const EdgeInsets.all(4),
-                          constraints:
-                              const BoxConstraints(minWidth: 32, minHeight: 32),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _selectQuickDueTime(updateState),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.access_time_outlined,
+                                  color: theme.secondary,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
+                          ),
                         )
                       else
-                        InkWell(
-                          onTap: _selectQuickDueTime,
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.blue.shade200),
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.accent1.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: theme.accent1, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.accent1.withOpacity(0.2),
+                                offset: const Offset(0, 1),
+                                blurRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _selectQuickDueTime(updateState),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.access_time,
+                                        size: 14, color: theme.accent1),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      TimeUtils.formatTimeOfDayForDisplay(
+                                          _selectedQuickDueTime!),
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: theme.accent1,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () {
+                                        // Clear due time without opening picker
+                                        updateState(() {
+                                          _selectedQuickDueTime = null;
+                                        });
+                                      },
+                                      child: Icon(
+                                        Icons.close,
+                                        size: 14,
+                                        color: theme.accent1,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.access_time,
-                                    size: 14, color: Colors.blue.shade700),
-                                const SizedBox(width: 6),
-                                Text(
-                                  TimeUtils.formatTimeOfDayForDisplay(
-                                      _selectedQuickDueTime!),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.blue.shade700,
-                                    fontWeight: FontWeight.w500,
-                                  ),
+                          ),
+                        ),
+                      // Reminder icon or chip
+                      if (_quickReminders.isEmpty)
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.tertiary,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: theme.surfaceBorderColor,
+                              width: 1,
+                            ),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _selectQuickReminders(updateState),
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.notifications_outlined,
+                                  color: theme.secondary,
+                                  size: 18,
                                 ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () {
-                                    // Clear due time without opening picker
-                                    setState(() {
-                                      _selectedQuickDueTime = null;
-                                    });
-                                  },
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: Colors.blue.shade700,
-                                  ),
+                              ),
+                            ),
+                          ),
+                        )
+                      else
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.accent1.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: theme.accent1, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.accent1.withOpacity(0.2),
+                                offset: const Offset(0, 1),
+                                blurRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => _selectQuickReminders(updateState),
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.notifications,
+                                        size: 14, color: theme.accent1),
+                                    const SizedBox(width: 6),
+                                    Text(
+                                      '${_quickReminders.length} reminder${_quickReminders.length == 1 ? '' : 's'}',
+                                      style: TextStyle(
+                                        fontSize: 11,
+                                        color: theme.accent1,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () {
+                                        // Clear reminders without opening dialog
+                                        updateState(() {
+                                          _quickReminders = [];
+                                        });
+                                      },
+                                      child: Icon(
+                                        Icons.close,
+                                        size: 14,
+                                        color: theme.accent1,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
                       // Recurring icon or chip
                       if (!quickIsRecurring || _quickFrequencyConfig == null)
-                        SizedBox(
-                          width: 32,
-                          child: IconButton(
-                            icon: Icon(
-                              Icons.repeat_outlined,
-                              color: FlutterFlowTheme.of(context).secondaryText,
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.tertiary,
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: theme.surfaceBorderColor,
+                              width: 1,
                             ),
-                            onPressed: () async {
-                              // Opening recurring - show frequency config
-                              final config = await showFrequencyConfigDialog(
-                                context: context,
-                                initialConfig: _quickFrequencyConfig ??
-                                    FrequencyConfig(
-                                      type: FrequencyType.everyXPeriod,
-                                      startDate: _selectedQuickDueDate ??
-                                          DateTime.now(),
-                                    ),
-                              );
-                              if (config != null) {
-                                setState(() {
-                                  _quickFrequencyConfig = config;
-                                  quickIsRecurring = true;
-                                  // Sync start date to due date
-                                  _selectedQuickDueDate = config.startDate;
-                                });
-                              }
-                            },
-                            tooltip: 'Make recurring',
-                            padding: const EdgeInsets.all(4),
-                            constraints: const BoxConstraints(
-                                minWidth: 32, minHeight: 32),
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () async {
+                                // Opening recurring - show frequency config
+                                final config = await showFrequencyConfigDialog(
+                                  context: context,
+                                  initialConfig: _quickFrequencyConfig ??
+                                      FrequencyConfig(
+                                        type: FrequencyType.everyXPeriod,
+                                        startDate: _selectedQuickDueDate ??
+                                            DateTime.now(),
+                                      ),
+                                );
+                                if (config != null) {
+                                  updateState(() {
+                                    _quickFrequencyConfig = config;
+                                    quickIsRecurring = true;
+                                    // Sync start date to due date
+                                    _selectedQuickDueDate = config.startDate;
+                                  });
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(8),
+                                child: Icon(
+                                  Icons.repeat_outlined,
+                                  color: theme.secondary,
+                                  size: 18,
+                                ),
+                              ),
+                            ),
                           ),
                         )
                       else
-                        InkWell(
-                          onTap: () async {
-                            // Reopen frequency config dialog to edit
-                            final config = await showFrequencyConfigDialog(
-                              context: context,
-                              initialConfig: _quickFrequencyConfig,
-                            );
-                            if (config != null) {
-                              setState(() {
-                                _quickFrequencyConfig = config;
-                                // Sync start date to due date
-                                _selectedQuickDueDate = config.startDate;
-                              });
-                            }
-                          },
-                          borderRadius: BorderRadius.circular(6),
-                          child: Container(
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 8, vertical: 6),
-                            decoration: BoxDecoration(
-                              color: Colors.blue.shade50,
-                              borderRadius: BorderRadius.circular(6),
-                              border: Border.all(color: Colors.blue.shade200),
-                            ),
-                            child: Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.repeat,
-                                    size: 14, color: Colors.blue.shade700),
-                                const SizedBox(width: 6),
-                                Text(
-                                  _getQuickFrequencyDescription(),
-                                  style: TextStyle(
-                                    fontSize: 11,
-                                    color: Colors.blue.shade700,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                                ),
-                                const SizedBox(width: 6),
-                                InkWell(
-                                  onTap: () {
-                                    // Clear recurrence without opening dialog
-                                    setState(() {
+                        Container(
+                          decoration: BoxDecoration(
+                            color: theme.accent1.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(color: theme.accent1, width: 1),
+                            boxShadow: [
+                              BoxShadow(
+                                color: theme.accent1.withOpacity(0.2),
+                                offset: const Offset(0, 1),
+                                blurRadius: 2,
+                              ),
+                            ],
+                          ),
+                          child: Material(
+                            color: Colors.transparent,
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () async {
+                                // Reopen frequency config dialog to edit
+                                final config = await showFrequencyConfigDialog(
+                                  context: context,
+                                  initialConfig: _quickFrequencyConfig,
+                                );
+                                if (config != null) {
+                                  updateState(() {
+                                    _quickFrequencyConfig = config;
+                                    // Sync start date to due date
+                                    _selectedQuickDueDate = config.startDate;
+                                  });
+                                } else {
+                                  // User cancelled - check if they want to disable recurring
+                                  final shouldDisable = await showDialog<bool>(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                      title: const Text('Disable Recurring?'),
+                                      content: const Text(
+                                          'Do you want to disable recurring for this task?'),
+                                      actions: [
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context, false),
+                                          child: const Text('Cancel'),
+                                        ),
+                                        TextButton(
+                                          onPressed: () =>
+                                              Navigator.pop(context, true),
+                                          child: const Text('Disable'),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                  if (shouldDisable == true) {
+                                    updateState(() {
                                       quickIsRecurring = false;
                                       _quickFrequencyConfig = null;
                                     });
-                                  },
-                                  child: Icon(
-                                    Icons.close,
-                                    size: 14,
-                                    color: Colors.blue.shade700,
-                                  ),
+                                  }
+                                }
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 10, vertical: 8),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.repeat,
+                                        size: 14, color: theme.accent1),
+                                    const SizedBox(width: 6),
+                                    Flexible(
+                                      child: Text(
+                                        _getQuickFrequencyDescription(),
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: theme.accent1,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 6),
+                                    InkWell(
+                                      onTap: () {
+                                        // Clear recurring without opening dialog
+                                        updateState(() {
+                                          quickIsRecurring = false;
+                                          _quickFrequencyConfig = null;
+                                        });
+                                      },
+                                      child: Icon(
+                                        Icons.close,
+                                        size: 14,
+                                        color: theme.accent1,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                              ],
+                              ),
                             ),
                           ),
                         ),
@@ -490,22 +760,30 @@ class _TaskPageState extends State<TaskPage> {
                   ),
                   if (_selectedQuickTrackingType == 'quantitative') ...[
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.orange.shade200),
+                        color: theme.accent2,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: theme.surfaceBorderColor),
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.primary.withOpacity(0.1),
+                            offset: const Offset(0, 1),
+                            blurRadius: 3,
+                          ),
+                        ],
                       ),
                       child: Row(
                         children: [
                           Icon(Icons.track_changes,
-                              size: 16, color: Colors.orange.shade700),
+                              size: 16, color: theme.primary),
                           const SizedBox(width: 8),
                           Text(
                             'Target:',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.orange.shade700,
+                              color: theme.primary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -513,25 +791,28 @@ class _TaskPageState extends State<TaskPage> {
                           Expanded(
                             child: TextFormField(
                               controller: _quickTargetNumberController,
+                              style: theme.bodyMedium,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.orange.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.orange.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(8),
                                   borderSide: BorderSide(
-                                      color: Colors.orange.shade500, width: 2),
+                                      color: theme.accent1, width: 2),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 6),
+                                    horizontal: 12, vertical: 8),
                                 isDense: true,
+                                filled: true,
+                                fillColor: theme.secondaryBackground,
                               ),
                               keyboardType: TextInputType.number,
                               onChanged: (value) {
@@ -544,7 +825,7 @@ class _TaskPageState extends State<TaskPage> {
                             'Unit:',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.orange.shade700,
+                              color: theme.primary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -552,26 +833,31 @@ class _TaskPageState extends State<TaskPage> {
                           Expanded(
                             child: TextFormField(
                               controller: _quickUnitController,
+                              style: theme.bodyMedium,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.orange.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.orange.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(8),
                                   borderSide: BorderSide(
-                                      color: Colors.orange.shade500, width: 2),
+                                      color: theme.accent1, width: 2),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 6),
+                                    horizontal: 12, vertical: 8),
                                 hintText: 'e.g., pages, reps',
+                                hintStyle:
+                                    TextStyle(color: theme.secondaryText),
                                 isDense: true,
+                                filled: true,
+                                fillColor: theme.secondaryBackground,
                               ),
                               onChanged: (value) {},
                             ),
@@ -583,22 +869,29 @@ class _TaskPageState extends State<TaskPage> {
                   ],
                   if (_selectedQuickTrackingType == 'time') ...[
                     Container(
-                      padding: const EdgeInsets.all(12),
+                      margin: const EdgeInsets.only(top: 8),
+                      padding: const EdgeInsets.all(16),
                       decoration: BoxDecoration(
-                        color: Colors.purple.shade50,
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: Colors.purple.shade200),
+                        color: theme.accent2,
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(color: theme.surfaceBorderColor),
+                        boxShadow: [
+                          BoxShadow(
+                            color: theme.primary.withOpacity(0.1),
+                            offset: const Offset(0, 1),
+                            blurRadius: 3,
+                          ),
+                        ],
                       ),
                       child: Row(
                         children: [
-                          Icon(Icons.timer,
-                              size: 16, color: Colors.purple.shade700),
+                          Icon(Icons.timer, size: 16, color: theme.primary),
                           const SizedBox(width: 8),
                           Text(
                             'Target Duration:',
                             style: TextStyle(
                               fontSize: 12,
-                              color: Colors.purple.shade700,
+                              color: theme.primary,
                               fontWeight: FontWeight.w500,
                             ),
                           ),
@@ -606,26 +899,31 @@ class _TaskPageState extends State<TaskPage> {
                           Expanded(
                             child: TextFormField(
                               controller: _quickHoursController,
+                              style: theme.bodyMedium,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.purple.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.purple.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(8),
                                   borderSide: BorderSide(
-                                      color: Colors.purple.shade500, width: 2),
+                                      color: theme.accent1, width: 2),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 6),
+                                    horizontal: 12, vertical: 8),
                                 labelText: 'Hours',
+                                labelStyle:
+                                    TextStyle(color: theme.secondaryText),
                                 isDense: true,
+                                filled: true,
+                                fillColor: theme.secondaryBackground,
                               ),
                               keyboardType: TextInputType.number,
                               onChanged: (value) {
@@ -637,30 +935,35 @@ class _TaskPageState extends State<TaskPage> {
                               },
                             ),
                           ),
-                          const SizedBox(width: 4),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: TextFormField(
                               controller: _quickMinutesController,
+                              style: theme.bodyMedium,
                               decoration: InputDecoration(
                                 border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.purple.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 enabledBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
-                                  borderSide:
-                                      BorderSide(color: Colors.purple.shade300),
+                                  borderRadius: BorderRadius.circular(8),
+                                  borderSide: BorderSide(
+                                      color: theme.surfaceBorderColor),
                                 ),
                                 focusedBorder: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(6),
+                                  borderRadius: BorderRadius.circular(8),
                                   borderSide: BorderSide(
-                                      color: Colors.purple.shade500, width: 2),
+                                      color: theme.accent1, width: 2),
                                 ),
                                 contentPadding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 6),
+                                    horizontal: 12, vertical: 8),
                                 labelText: 'Minutes',
+                                labelStyle:
+                                    TextStyle(color: theme.secondaryText),
                                 isDense: true,
+                                filled: true,
+                                fillColor: theme.secondaryBackground,
                               ),
                               keyboardType: TextInputType.number,
                               onChanged: (value) {
@@ -686,9 +989,11 @@ class _TaskPageState extends State<TaskPage> {
     );
     return quickAddWidget;
   }
+
   bool _isTaskCompleted(ActivityInstanceRecord instance) {
     return instance.status == 'completed';
   }
+
   String _getQuickFrequencyDescription() {
     if (_quickFrequencyConfig == null) return '';
     switch (_quickFrequencyConfig!.type) {
@@ -741,6 +1046,7 @@ class _TaskPageState extends State<TaskPage> {
         return 'Recurring';
     }
   }
+
   List<Widget> _buildSections() {
     final theme = FlutterFlowTheme.of(context);
     final buckets = _bucketedItems;
@@ -768,7 +1074,7 @@ class _TaskPageState extends State<TaskPage> {
       }).toList();
       if (visibleItems.isEmpty) continue;
       _applySort(visibleItems);
-      final isExpanded = _expandedSection == key;
+      final isExpanded = _expandedSections.contains(key);
       // Get or create GlobalKey for this section
       if (!_sectionKeys.containsKey(key)) {
         _sectionKeys[key] = GlobalKey();
@@ -826,6 +1132,7 @@ class _TaskPageState extends State<TaskPage> {
     // Recent Completions will be handled via buckets like other sections
     return widgets;
   }
+
   Widget _buildSectionHeader(
       String title, int count, bool isExpanded, GlobalKey headerKey) {
     final theme = FlutterFlowTheme.of(context);
@@ -851,21 +1158,17 @@ class _TaskPageState extends State<TaskPage> {
         onTap: () {
           setState(() {
             if (isExpanded) {
-              // If trying to collapse "Today", keep it expanded
-              if (title == 'Today') {
-                return;
-              }
-              // Collapse current section
-              _expandedSection = null;
+              // Collapse this section
+              _expandedSections.remove(title);
             } else {
-              // Expand this section (accordion behavior)
-              _expandedSection = title;
+              // Expand this section
+              _expandedSections.add(title);
             }
           });
           // Save state persistently
-          ExpansionStateManager().setTaskExpandedSection(_expandedSection);
+          ExpansionStateManager().setTaskExpandedSections(_expandedSections);
           // Scroll to make the newly expanded section visible
-          if (_expandedSection == title) {
+          if (_expandedSections.contains(title)) {
             WidgetsBinding.instance.addPostFrameCallback((_) {
               if (headerKey.currentContext != null) {
                 Scrollable.ensureVisible(
@@ -904,6 +1207,7 @@ class _TaskPageState extends State<TaskPage> {
       ),
     );
   }
+
   String _getSubtitle(ActivityInstanceRecord instance, String bucketKey) {
     if (bucketKey == 'Recent Completions') {
       final completedAt = instance.completedAt!;
@@ -938,6 +1242,38 @@ class _TaskPageState extends State<TaskPage> {
     }
     return '';
   }
+
+  void _showQuickAddBottomSheet() {
+    final theme = FlutterFlowTheme.of(context);
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => StatefulBuilder(
+        builder: (BuildContext context, StateSetter setModalState) {
+          return Padding(
+            padding: EdgeInsets.only(
+              bottom: MediaQuery.of(context).viewInsets.bottom,
+            ),
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.primaryBackground,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+              ),
+              child: SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: _buildQuickAddWithState(setModalState),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   Future<void> _submitQuickAdd() async {
     final title = _quickAddController.text.trim();
     if (title.isEmpty) {
@@ -961,6 +1297,7 @@ class _TaskPageState extends State<TaskPage> {
       );
       return;
     }
+    print('--- task_page.dart: calling createActivity (quick add task) ...');
     try {
       dynamic targetValue;
       switch (_selectedQuickTrackingType) {
@@ -978,6 +1315,7 @@ class _TaskPageState extends State<TaskPage> {
       }
       await createActivity(
         name: title,
+        categoryId: categoryId,
         categoryName:
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
         trackingType: _selectedQuickTrackingType!,
@@ -1016,18 +1354,31 @@ class _TaskPageState extends State<TaskPage> {
             : null,
         startDate: quickIsRecurring ? _quickFrequencyConfig!.startDate : null,
         endDate: quickIsRecurring ? _quickFrequencyConfig!.endDate : null,
+        reminders: _quickReminders.isNotEmpty
+            ? ReminderConfigList.toMapList(_quickReminders)
+            : null,
       );
+      print('--- task_page.dart: createActivity completed successfully');
       // Reset the form immediately after creating the task
       _resetQuickAdd();
+      // Close the bottom sheet
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Task created successfully')),
+        );
+        Navigator.pop(context);
+      }
       // The createActivity function already broadcasts the instance creation event
       // No need to manually broadcast or refresh - the event handler will handle it
     } catch (e) {
+      print('--- task_page.dart: createActivity failed: $e');
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Error adding task: $e')),
       );
     }
   }
+
   void _resetQuickAdd() {
     setState(() {
       _quickAddController.clear();
@@ -1037,6 +1388,7 @@ class _TaskPageState extends State<TaskPage> {
       _selectedQuickDueDate = null;
       _selectedQuickDueTime = null;
       _quickFrequencyConfig = null;
+      _quickReminders = [];
       quickIsRecurring = false;
       _quickUnitController.clear();
       _quickTargetNumberController.text = '1';
@@ -1044,7 +1396,10 @@ class _TaskPageState extends State<TaskPage> {
       _quickMinutesController.text = '0';
     });
   }
-  Future<void> _selectQuickDueDate() async {
+
+  Future<void> _selectQuickDueDate(
+      [void Function(VoidCallback)? updateStateFn]) async {
+    final updateState = updateStateFn ?? ((VoidCallback fn) => setState(fn));
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: _selectedQuickDueDate ?? DateTime.now(),
@@ -1052,7 +1407,7 @@ class _TaskPageState extends State<TaskPage> {
       lastDate: DateTime.now().add(const Duration(days: 365)),
     );
     if (picked != null && picked != _selectedQuickDueDate) {
-      setState(() {
+      updateState(() {
         _selectedQuickDueDate = picked;
         if (quickIsRecurring && _quickFrequencyConfig != null) {
           _quickFrequencyConfig =
@@ -1061,17 +1416,36 @@ class _TaskPageState extends State<TaskPage> {
       });
     }
   }
-  Future<void> _selectQuickDueTime() async {
+
+  Future<void> _selectQuickDueTime(
+      [void Function(VoidCallback)? updateStateFn]) async {
+    final updateState = updateStateFn ?? ((VoidCallback fn) => setState(fn));
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: _selectedQuickDueTime ?? TimeUtils.getCurrentTime(),
     );
     if (picked != null && picked != _selectedQuickDueTime) {
-      setState(() {
+      updateState(() {
         _selectedQuickDueTime = picked;
       });
     }
   }
+
+  Future<void> _selectQuickReminders(
+      [void Function(VoidCallback)? updateStateFn]) async {
+    final updateState = updateStateFn ?? ((VoidCallback fn) => setState(fn));
+    final reminders = await ReminderConfigDialog.show(
+      context: context,
+      initialReminders: _quickReminders,
+      dueTime: _selectedQuickDueTime,
+    );
+    if (reminders != null) {
+      updateState(() {
+        _quickReminders = reminders;
+      });
+    }
+  }
+
   Map<String, List<dynamic>> get _bucketedItems {
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
@@ -1243,15 +1617,14 @@ class _TaskPageState extends State<TaskPage> {
     if (_searchQuery.isNotEmpty) {
       for (final key in buckets.keys) {
         if (buckets[key]!.isNotEmpty) {
-          _expandedSection = key;
-          break; // Expand the first section with results
+          _expandedSections.add(key);
         }
       }
     }
-    buckets.forEach((key, value) {
-    });
+    buckets.forEach((key, value) {});
     return buckets;
   }
+
   // Recent Completions UI is now handled via standard sections and ItemComponent
   // Removed legacy actions for custom Recent Completions UI
   Widget _buildItemTile(dynamic item, String bucketKey) {
@@ -1260,6 +1633,7 @@ class _TaskPageState extends State<TaskPage> {
     }
     return const SizedBox.shrink();
   }
+
   bool _isSameDay(DateTime a, DateTime b) =>
       a.year == b.year && a.month == b.month && a.day == b.day;
   Widget _buildTaskTile(ActivityInstanceRecord instance, String bucketKey) {
@@ -1279,6 +1653,7 @@ class _TaskPageState extends State<TaskPage> {
       showCompleted: bucketKey == 'Recent Completions' ? true : null,
     );
   }
+
   Widget _buildShowOlderButtons(FlutterFlowTheme theme) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -1372,6 +1747,7 @@ class _TaskPageState extends State<TaskPage> {
       ),
     );
   }
+
   void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
     setState(() {
       final index = _taskInstances.indexWhere(
@@ -1388,6 +1764,7 @@ class _TaskPageState extends State<TaskPage> {
     // Background refresh to sync with server
     _loadDataSilently();
   }
+
   void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
     setState(() {
       _taskInstances.removeWhere(
@@ -1396,6 +1773,7 @@ class _TaskPageState extends State<TaskPage> {
     // Background refresh to sync with server
     _loadDataSilently();
   }
+
   Future<void> _loadDataSilently() async {
     try {
       final uid = currentUserUid;
@@ -1416,6 +1794,7 @@ class _TaskPageState extends State<TaskPage> {
       // Silent error handling - don't disrupt UI
     }
   }
+
   void _applySort(List<dynamic> items) {
     if (sortMode != 'importance') return;
     int cmpTask(ActivityInstanceRecord a, ActivityInstanceRecord b) {
@@ -1431,6 +1810,7 @@ class _TaskPageState extends State<TaskPage> {
           .toLowerCase()
           .compareTo(b.templateName.toLowerCase());
     }
+
     items.sort((x, y) {
       final xt = x is ActivityInstanceRecord;
       final yt = y is ActivityInstanceRecord;
@@ -1440,6 +1820,7 @@ class _TaskPageState extends State<TaskPage> {
       return 0;
     });
   }
+
   // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     // Only add task instances to this page
@@ -1454,6 +1835,7 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
+
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
@@ -1471,6 +1853,7 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
+
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
@@ -1485,6 +1868,7 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
+
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {

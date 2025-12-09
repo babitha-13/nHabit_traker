@@ -3,7 +3,6 @@
 class DateService {
   static bool _isTestMode = false;
   static DateTime? _testDate;
-  static const int shiftMinutes = 120; // 2 AM shifted boundary
   /// Get the current date (real or test)
   static DateTime get currentDate {
     if (_isTestMode && _testDate != null) {
@@ -55,52 +54,16 @@ class DateService {
       'testDate': _testDate?.toIso8601String(),
     };
   }
-  // ================= Shifted-day helpers (2 AM boundary) =================
-  /// Start of the given day at the shifted boundary (2:00 AM local time)
-  static DateTime shiftedStartOfDay(DateTime date) {
-    final base = DateTime(date.year, date.month, date.day);
-    return base.add(const Duration(hours: 2));
-  }
-  /// Start of the current shifted day (today at 2:00 AM)
-  static DateTime get todayShiftedStart => shiftedStartOfDay(currentDate);
-  /// Start of tomorrow's shifted day (tomorrow at 2:00 AM)
-  static DateTime get tomorrowShiftedStart =>
-      shiftedStartOfDay(currentDate.add(const Duration(days: 1)));
-  /// Start of yesterday's shifted day (yesterday at 2:00 AM)
-  static DateTime get yesterdayShiftedStart =>
-      shiftedStartOfDay(currentDate.subtract(const Duration(days: 1)));
-  /// Returns the calendar date (at midnight) whose 2 AM window contains dt
-  static DateTime belongsToShiftedDate(DateTime dt) {
-    final todayStartShifted =
-        shiftedStartOfDay(DateTime(dt.year, dt.month, dt.day));
-    final dateOnlyToday = DateTime(dt.year, dt.month, dt.day);
-    // DEBUG: Log the calculation
-    print(
-        '  - dt.isBefore(todayStartShifted): ${dt.isBefore(todayStartShifted)}');
-    if (dt.isBefore(todayStartShifted)) {
-      final prev = dateOnlyToday.subtract(const Duration(days: 1));
-      final result = DateTime(prev.year, prev.month, prev.day);
-      print('  - Result (previous day): $result');
-      return result;
-    }
-    print('  - Result (same day): $dateOnlyToday');
-    return dateOnlyToday;
-  }
-  /// Latest processable shifted date (yesterday by shifted boundary)
-  /// If now is before 2 AM, latest processable is day-before-yesterday.
+  /// Latest processable date (yesterday at midnight)
   static DateTime get latestProcessableShiftedDate {
-    final now = currentDate;
-    final boundaryToday = shiftedStartOfDay(now);
-    final offsetDays = now.isBefore(boundaryToday) ? 2 : 1;
-    final target = now.subtract(Duration(days: offsetDays));
-    return DateTime(target.year, target.month, target.day);
+    return yesterdayStart;
   }
-  /// Compute the next occurrence of the 2 AM boundary after 'from'
+  /// Compute the next occurrence of midnight after 'from'
   static DateTime nextShiftedBoundary(DateTime from) {
-    final todayBoundary = shiftedStartOfDay(from);
-    if (from.isBefore(todayBoundary)) return todayBoundary;
+    final todayMidnight = DateTime(from.year, from.month, from.day);
+    if (from.isBefore(todayMidnight)) return todayMidnight;
     final tomorrow = from.add(const Duration(days: 1));
-    return shiftedStartOfDay(tomorrow);
+    return DateTime(tomorrow.year, tomorrow.month, tomorrow.day);
   }
   // ================= Week range helpers =================
   /// Get the start of the current week (Sunday at 00:00:00)

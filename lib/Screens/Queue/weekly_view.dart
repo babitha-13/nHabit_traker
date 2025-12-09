@@ -23,7 +23,7 @@ class _WeeklyViewState extends State<WeeklyView> {
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _instances = [];
   List<CategoryRecord> _categories = [];
-  String? _expandedSection;
+  Set<String> _expandedSections = {};
   final Map<String, GlobalKey> _sectionKeys = {};
   bool _isLoading = true;
   // Weekly progress data
@@ -76,11 +76,11 @@ class _WeeklyViewState extends State<WeeklyView> {
     super.dispose();
   }
   Future<void> _loadExpansionState() async {
-    final expandedSection =
-        await ExpansionStateManager().getWeeklyExpandedSection();
+    final expandedSections =
+        await ExpansionStateManager().getWeeklyExpandedSections();
     if (mounted) {
       setState(() {
-        _expandedSection = expandedSection;
+        _expandedSections = expandedSections;
       });
     }
   }
@@ -173,14 +173,14 @@ class _WeeklyViewState extends State<WeeklyView> {
     // Add Tasks section
     if (_tasks.isNotEmpty) {
       slivers.add(_buildSectionHeader('Tasks', _tasks.length, 'Tasks'));
-      if (_expandedSection == 'Tasks') {
+      if (_expandedSections.contains('Tasks')) {
         slivers.add(_buildTasksList());
       }
     }
     // Add Habits section
     if (_habits.isNotEmpty) {
       slivers.add(_buildSectionHeader('Habits', _habits.length, 'Habits'));
-      if (_expandedSection == 'Habits') {
+      if (_expandedSections.contains('Habits')) {
         slivers.add(_buildHabitsList());
       }
     }
@@ -226,7 +226,7 @@ class _WeeklyViewState extends State<WeeklyView> {
     );
   }
   Widget _buildSectionHeader(String title, int count, String sectionKey) {
-    final expanded = _expandedSection == sectionKey;
+    final expanded = _expandedSections.contains(sectionKey);
     final theme = FlutterFlowTheme.of(context);
     // Get or create GlobalKey for this section
     if (!_sectionKeys.containsKey(sectionKey)) {
@@ -271,16 +271,18 @@ class _WeeklyViewState extends State<WeeklyView> {
                 if (mounted) {
                   setState(() {
                     if (expanded) {
-                      _expandedSection = null;
+                      // Collapse this section
+                      _expandedSections.remove(sectionKey);
                     } else {
-                      _expandedSection = sectionKey;
+                      // Expand this section
+                      _expandedSections.add(sectionKey);
                     }
                   });
                   // Save state persistently
                   ExpansionStateManager()
-                      .setWeeklyExpandedSection(_expandedSection);
+                      .setWeeklyExpandedSections(_expandedSections);
                   // Scroll to make the newly expanded section visible
-                  if (_expandedSection == sectionKey) {
+                  if (_expandedSections.contains(sectionKey)) {
                     WidgetsBinding.instance.addPostFrameCallback((_) {
                       if (_sectionKeys[sectionKey]?.currentContext != null) {
                         Scrollable.ensureVisible(
