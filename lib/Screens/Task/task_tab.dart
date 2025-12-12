@@ -70,7 +70,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       body: Column(
         children: [
           Container(
-            padding: EdgeInsets.zero,
+            // Add breathing room so the first tab isn't glued to the edge
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             color: Colors.white,
             child: Row(
               children: [
@@ -82,7 +83,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                           indicatorColor: Colors.transparent,
                           controller: _tabController,
                           isScrollable: true,
-                          labelPadding: EdgeInsets.zero,
+                          labelPadding:
+                              const EdgeInsets.symmetric(horizontal: 8),
                           padding: EdgeInsets.zero,
                           tabAlignment: TabAlignment.start,
                           tabs: _tabNames.asMap().entries.map((entry) {

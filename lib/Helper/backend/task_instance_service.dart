@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart'
     as habit_schema;
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
+import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/time_validation_helper.dart';
 
@@ -727,9 +728,13 @@ class TaskInstanceService {
     required String taskName,
     String? categoryId,
     String? categoryName,
+    String? activityType, // 'task' or 'non_productive'
     String? userId,
   }) async {
     try {
+      final uid = userId ?? _currentUserId;
+      final isNonProductive = activityType == 'non_productive';
+      
       // Get current instance to check for existing sessions
       final currentInstance =
           await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
@@ -747,51 +752,108 @@ class TaskInstanceService {
       // Calculate total cumulative time
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-      final updateData = <String, dynamic>{
-        'status': 'completed',
-        'completedAt': DateTime.now(),
-        'isTimerActive': false,
-        'timeLogSessions': existingSessions,
-        'totalTimeLogged': totalTime,
-        'accumulatedTime': totalTime,
-        'currentValue': totalTime,
-        'templateTarget':
-            totalTime / 60000.0, // Convert milliseconds to minutes
-        'templateName': taskName,
-        'currentSessionStartTime': null,
-        'lastUpdated': DateTime.now(),
-      };
-      // Update category if provided
-      if (categoryId != null) {
-        updateData['templateCategoryId'] = categoryId;
-      }
-      if (categoryName != null) {
-        updateData['templateCategoryName'] = categoryName;
-      }
-      await taskInstanceRef.update(updateData);
+      
+      // Handle non-productive vs productive differently
+      if (isNonProductive) {
+        // For non-productive: find or create template, then update instance
+        final templates = await NonProductiveService.getNonProductiveTemplates(
+          userId: uid,
+        );
+        ActivityRecord? matchingTemplate;
+        for (final template in templates) {
+          if (template.name.toLowerCase() == taskName.toLowerCase()) {
+            matchingTemplate = template;
+            break;
+          }
+        }
+        
+        // Create template if it doesn't exist
+        DocumentReference templateRef;
+        if (matchingTemplate == null) {
+          templateRef = await NonProductiveService.createNonProductiveTemplate(
+            name: taskName,
+            trackingType: 'time',
+            userId: uid,
+          );
+        } else {
+          templateRef = matchingTemplate.reference;
+        }
+        
+        // Update instance with non-productive data
+        final updateData = <String, dynamic>{
+          'status': 'completed',
+          'completedAt': DateTime.now(),
+          'isTimerActive': false,
+          'timeLogSessions': existingSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'templateId': templateRef.id,
+          'templateName': taskName,
+          'templateCategoryType': 'non_productive',
+          'templateCategoryName': 'Non-Productive',
+          'templateTrackingType': 'time',
+          'currentSessionStartTime': null,
+          'lastUpdated': DateTime.now(),
+        };
+        await taskInstanceRef.update(updateData);
+        
+        // Delete the old timer task template (cleanup)
+        try {
+          final oldTemplateRef = ActivityRecord.collectionForUser(uid)
+              .doc(currentInstance.templateId);
+          await oldTemplateRef.delete();
+        } catch (e) {
+          // Best effort cleanup, don't fail if it doesn't exist
+        }
+      } else {
+        // For productive tasks: existing logic
+        final updateData = <String, dynamic>{
+          'status': 'completed',
+          'completedAt': DateTime.now(),
+          'isTimerActive': false,
+          'timeLogSessions': existingSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'templateTarget':
+              totalTime / 60000.0, // Convert milliseconds to minutes
+          'templateName': taskName,
+          'templateCategoryType': 'task', // Ensure it's marked as task
+          'currentSessionStartTime': null,
+          'lastUpdated': DateTime.now(),
+        };
+        // Update category if provided
+        if (categoryId != null) {
+          updateData['templateCategoryId'] = categoryId;
+        }
+        if (categoryName != null) {
+          updateData['templateCategoryName'] = categoryName;
+        }
+        await taskInstanceRef.update(updateData);
 
-      // Update the template name as well
-      final uid = userId ?? _currentUserId;
-      final templateRef =
-          ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
-      final templateUpdateData = <String, dynamic>{
-        'name': taskName,
-        'lastUpdated': DateTime.now(),
-      };
+        // Update the template name as well
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
+        final templateUpdateData = <String, dynamic>{
+          'name': taskName,
+          'lastUpdated': DateTime.now(),
+        };
 
-      // Update template category if provided
-      if (categoryId != null) {
-        templateUpdateData['categoryId'] = categoryId;
+        // Update template category if provided
+        if (categoryId != null) {
+          templateUpdateData['categoryId'] = categoryId;
+        }
+        if (categoryName != null) {
+          templateUpdateData['categoryName'] = categoryName;
+        }
+
+        await templateRef.update(templateUpdateData);
+
+        // Mark template as inactive - timer tasks are one-time use only
+        // Keep template for editing purposes but prevent it from appearing in task lists
+        await templateRef.update({'isActive': false});
       }
-      if (categoryName != null) {
-        templateUpdateData['categoryName'] = categoryName;
-      }
-
-      await templateRef.update(templateUpdateData);
-
-      // Mark template as inactive - timer tasks are one-time use only
-      // Keep template for editing purposes but prevent it from appearing in task lists
-      await templateRef.update({'isActive': false});
     } catch (e) {
       rethrow;
     }
@@ -804,9 +866,13 @@ class TaskInstanceService {
     required String taskName,
     String? categoryId,
     String? categoryName,
+    String? activityType, // 'task' or 'non_productive'
     String? userId,
   }) async {
     try {
+      final uid = userId ?? _currentUserId;
+      final isNonProductive = activityType == 'non_productive';
+      
       // Get current instance to check for existing sessions
       final currentInstance =
           await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
@@ -824,49 +890,106 @@ class TaskInstanceService {
       // Calculate total cumulative time
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-      final updateData = <String, dynamic>{
-        'status': 'pending',
-        'isTimerActive': false,
-        'isTimeLogging': false, // Stop time logging session
-        'timeLogSessions': existingSessions,
-        'totalTimeLogged': totalTime,
-        'accumulatedTime': totalTime,
-        'currentValue': totalTime,
-        'templateName': taskName,
-        'currentSessionStartTime': null,
-        'lastUpdated': DateTime.now(),
-      };
-      // Update category if provided
-      if (categoryId != null) {
-        updateData['templateCategoryId'] = categoryId;
-      }
-      if (categoryName != null) {
-        updateData['templateCategoryName'] = categoryName;
-      }
-      await taskInstanceRef.update(updateData);
+      
+      // Handle non-productive vs productive differently
+      if (isNonProductive) {
+        // For non-productive: find or create template, then update instance
+        final templates = await NonProductiveService.getNonProductiveTemplates(
+          userId: uid,
+        );
+        ActivityRecord? matchingTemplate;
+        for (final template in templates) {
+          if (template.name.toLowerCase() == taskName.toLowerCase()) {
+            matchingTemplate = template;
+            break;
+          }
+        }
+        
+        // Create template if it doesn't exist
+        DocumentReference templateRef;
+        if (matchingTemplate == null) {
+          templateRef = await NonProductiveService.createNonProductiveTemplate(
+            name: taskName,
+            trackingType: 'time',
+            userId: uid,
+          );
+        } else {
+          templateRef = matchingTemplate.reference;
+        }
+        
+        // Update instance with non-productive data (status remains pending)
+        final updateData = <String, dynamic>{
+          'status': 'pending',
+          'isTimerActive': false,
+          'isTimeLogging': false, // Stop time logging session
+          'timeLogSessions': existingSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'templateId': templateRef.id,
+          'templateName': taskName,
+          'templateCategoryType': 'non_productive',
+          'templateCategoryName': 'Non-Productive',
+          'templateTrackingType': 'time',
+          'currentSessionStartTime': null,
+          'lastUpdated': DateTime.now(),
+        };
+        await taskInstanceRef.update(updateData);
+        
+        // Delete the old timer task template (cleanup)
+        try {
+          final oldTemplateRef = ActivityRecord.collectionForUser(uid)
+              .doc(currentInstance.templateId);
+          await oldTemplateRef.delete();
+        } catch (e) {
+          // Best effort cleanup, don't fail if it doesn't exist
+        }
+      } else {
+        // For productive tasks: existing logic
+        final updateData = <String, dynamic>{
+          'status': 'pending',
+          'isTimerActive': false,
+          'isTimeLogging': false, // Stop time logging session
+          'timeLogSessions': existingSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'templateName': taskName,
+          'templateCategoryType': 'task', // Ensure it's marked as task
+          'currentSessionStartTime': null,
+          'lastUpdated': DateTime.now(),
+        };
+        // Update category if provided
+        if (categoryId != null) {
+          updateData['templateCategoryId'] = categoryId;
+        }
+        if (categoryName != null) {
+          updateData['templateCategoryName'] = categoryName;
+        }
+        await taskInstanceRef.update(updateData);
 
-      // Update the template name as well
-      final uid = userId ?? _currentUserId;
-      final templateRef =
-          ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
-      final templateUpdateData = <String, dynamic>{
-        'name': taskName,
-        'lastUpdated': DateTime.now(),
-      };
+        // Update the template name as well
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
+        final templateUpdateData = <String, dynamic>{
+          'name': taskName,
+          'lastUpdated': DateTime.now(),
+        };
 
-      // Update template category if provided
-      if (categoryId != null) {
-        templateUpdateData['categoryId'] = categoryId;
+        // Update template category if provided
+        if (categoryId != null) {
+          templateUpdateData['categoryId'] = categoryId;
+        }
+        if (categoryName != null) {
+          templateUpdateData['categoryName'] = categoryName;
+        }
+
+        await templateRef.update(templateUpdateData);
+
+        // Mark template as inactive - timer tasks are one-time use only
+        // Keep template for editing purposes but prevent it from appearing in task lists
+        await templateRef.update({'isActive': false});
       }
-      if (categoryName != null) {
-        templateUpdateData['categoryName'] = categoryName;
-      }
-
-      await templateRef.update(templateUpdateData);
-
-      // Mark template as inactive - timer tasks are one-time use only
-      // Keep template for editing purposes but prevent it from appearing in task lists
-      await templateRef.update({'isActive': false});
     } catch (e) {
       rethrow;
     }

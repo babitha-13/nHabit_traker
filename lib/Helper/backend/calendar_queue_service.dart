@@ -6,63 +6,82 @@ import 'package:habit_tracker/Helper/utils/date_service.dart';
 /// Service to fetch tasks and habits from the queue that are due today
 /// for display in the calendar
 class CalendarQueueService {
-  /// Get today's date at midnight
-  static DateTime _todayDate() {
-    return DateService.todayStart;
+  /// Get start of date (midnight)
+  static DateTime _startOfDay(DateTime? date) {
+    if (date == null) return DateService.todayStart;
+    return DateTime(date.year, date.month, date.day);
   }
 
-  /// Check if instance is due today or overdue (same logic as queue_page)
-  static bool _isTodayOrOverdue(ActivityInstanceRecord instance) {
-    if (instance.dueDate == null) return true; // No due date = today
-    final today = _todayDate();
+  /// Check if instance is due on target date
+  /// For today: includes overdue tasks
+  /// For other dates: strict due date check
+  static bool _isDueOnDate(ActivityInstanceRecord instance, DateTime targetDate) {
+    final targetStart = _startOfDay(targetDate);
+    final todayStart = DateService.todayStart;
+    final isTargetToday = targetStart.isAtSameMomentAs(todayStart);
+
+    if (instance.dueDate == null) {
+      // No due date = today only (backlog/unscheduled)
+      return isTargetToday; 
+    }
+    
     final dueDate = DateTime(
         instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
-    // For habits: include if today is within the window [dueDate, windowEndDate]
+        
+    // For habits: include if targetDate is within the window [dueDate, windowEndDate]
     if (instance.templateCategoryType == 'habit') {
       final windowEnd = instance.windowEndDate;
       if (windowEnd != null) {
-        // Today should be >= dueDate AND <= windowEnd
-        final isWithinWindow = !today.isBefore(dueDate) &&
-            !today.isAfter(
-                DateTime(windowEnd.year, windowEnd.month, windowEnd.day));
+        // targetDate should be >= dueDate AND <= windowEnd
+        final windowEndDate = DateTime(windowEnd.year, windowEnd.month, windowEnd.day);
+        final isWithinWindow = !targetStart.isBefore(dueDate) &&
+            !targetStart.isAfter(windowEndDate);
         return isWithinWindow;
       }
       // Fallback to due date check if no window
-      final isDueToday = dueDate.isAtSameMomentAs(today);
-      return isDueToday;
+      final isDueOnTarget = dueDate.isAtSameMomentAs(targetStart);
+      return isDueOnTarget;
     }
-    // For tasks: only if due today or overdue
-    final isTodayOrOverdue =
-        dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
-    return isTodayOrOverdue;
+    
+    // For tasks:
+    if (isTargetToday) {
+       // If today, include overdue
+       return dueDate.isAtSameMomentAs(targetStart) || dueDate.isBefore(targetStart);
+    } else {
+       // Specific date: only items due strictly on that date
+       return dueDate.isAtSameMomentAs(targetStart);
+    }
   }
 
-  /// Check if instance was completed today
-  static bool _wasCompletedToday(ActivityInstanceRecord instance) {
+  /// Check if instance was completed on target date
+  static bool _wasCompletedOnDate(ActivityInstanceRecord instance, DateTime targetDate) {
     if (instance.status != 'completed' || instance.completedAt == null) {
       return false;
     }
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
+    
+    final targetStart = _startOfDay(targetDate);
     final completedAt = instance.completedAt!;
     final completedDateOnly =
         DateTime(completedAt.year, completedAt.month, completedAt.day);
-    return completedDateOnly.isAtSameMomentAs(todayStart);
+    return completedDateOnly.isAtSameMomentAs(targetStart);
   }
 
-  /// Get planned tasks/habits due today (pending status)
-  /// Returns list of ActivityInstanceRecord that are due today and not completed
-  static Future<List<ActivityInstanceRecord>> getPlannedItemsToday({
+  /// Get planned tasks/habits due on date (pending status)
+  /// Returns list of ActivityInstanceRecord that are due on date and not completed
+  static Future<List<ActivityInstanceRecord>> getPlannedItems({
     String? userId,
+    DateTime? date,
   }) async {
     final uid = userId ?? currentUserUid;
     if (uid.isEmpty) return [];
+    
+    final targetDate = _startOfDay(date);
 
     try {
       // Get all instances
       final allInstances = await queryAllInstances(userId: uid);
 
-      // Filter for items due today that are pending
+      // Filter for items due on targetDate that are pending
       final plannedItems = allInstances.where((instance) {
         // Must be active
         if (!instance.isActive) return false;
@@ -70,13 +89,17 @@ class CalendarQueueService {
         // Must be pending (not completed or skipped)
         if (instance.status != 'pending') return false;
 
-        // Must be due today or overdue
-        if (!_isTodayOrOverdue(instance)) return false;
+        // Must be due on targetDate (or overdue if targetDate is today)
+        if (!_isDueOnDate(instance, targetDate)) return false;
 
-        // Skip snoozed instances
+        // Skip snoozed instances (only if snoozed until AFTER target date?)
+        // If viewing past, snoozed status might be irrelevant or we assume it was snoozed.
+        // But logic relies on current state.
         if (instance.snoozedUntil != null &&
             DateTime.now().isBefore(instance.snoozedUntil!)) {
-          return false;
+            // If snoozed until future, don't show?
+            // Existing logic: hide if snoozed.
+            return false;
         }
 
         return true;
@@ -89,25 +112,27 @@ class CalendarQueueService {
     }
   }
 
-  /// Get completed tasks/habits that were completed today
-  /// Returns list of ActivityInstanceRecord that were completed today
-  static Future<List<ActivityInstanceRecord>> getCompletedItemsToday({
+  /// Get completed tasks/habits that were completed on date
+  static Future<List<ActivityInstanceRecord>> getCompletedItems({
     String? userId,
+    DateTime? date,
   }) async {
     final uid = userId ?? currentUserUid;
     if (uid.isEmpty) return [];
+    
+    final targetDate = _startOfDay(date);
 
     try {
       // Get all instances
       final allInstances = await queryAllInstances(userId: uid);
 
-      // Filter for items completed today
+      // Filter for items completed on targetDate
       final completedItems = allInstances.where((instance) {
         // Must be active
         if (!instance.isActive) return false;
 
-        // Must be completed today
-        return _wasCompletedToday(instance);
+        // Must be completed on targetDate
+        return _wasCompletedOnDate(instance, targetDate);
       }).toList();
 
       return completedItems;
@@ -117,19 +142,36 @@ class CalendarQueueService {
     }
   }
 
+  // Deprecated/Alias methods for backward compatibility
+  static Future<List<ActivityInstanceRecord>> getPlannedItemsToday({String? userId}) {
+    return getPlannedItems(userId: userId);
+  }
+  
+  static Future<List<ActivityInstanceRecord>> getCompletedItemsToday({String? userId}) {
+    return getCompletedItems(userId: userId);
+  }
+
   /// Get both planned and completed items in one call
   /// Returns a map with 'planned' and 'completed' keys
   static Future<Map<String, List<ActivityInstanceRecord>>>
-      getTodayQueueItems({
+      getQueueItems({
     String? userId,
+    DateTime? date,
   }) async {
-    final planned = await getPlannedItemsToday(userId: userId);
-    final completed = await getCompletedItemsToday(userId: userId);
+    final planned = await getPlannedItems(userId: userId, date: date);
+    final completed = await getCompletedItems(userId: userId, date: date);
 
     return {
       'planned': planned,
       'completed': completed,
     };
   }
+  
+  static Future<Map<String, List<ActivityInstanceRecord>>>
+      getTodayQueueItems({
+    String? userId,
+    DateTime? date, // Optional date override
+  }) async {
+      return getQueueItems(userId: userId, date: date);
+  }
 }
-

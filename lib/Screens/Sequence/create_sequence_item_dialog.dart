@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/sequence_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+
 class CreateSequenceItemDialog extends StatefulWidget {
   final Function(ActivityRecord) onItemCreated;
   const CreateSequenceItemDialog({
@@ -13,6 +14,7 @@ class CreateSequenceItemDialog extends StatefulWidget {
   _CreateSequenceItemDialogState createState() =>
       _CreateSequenceItemDialogState();
 }
+
 class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
@@ -29,6 +31,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
     _unitController.dispose();
     super.dispose();
   }
+
   void _updateTargetValue() {
     setState(() {
       switch (_selectedTrackingType) {
@@ -44,6 +47,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
       }
     });
   }
+
   Future<void> _createSequenceItem() async {
     if (!_formKey.currentState!.validate()) return;
     setState(() {
@@ -97,6 +101,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
@@ -145,13 +150,13 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
                   String displayName;
                   switch (type) {
                     case 'binary':
-                      displayName = 'Yes/No (Binary)';
+                      displayName = 'To Do';
                       break;
                     case 'quantitative':
                       displayName = 'Quantity';
                       break;
                     case 'time':
-                      displayName = 'Time Duration';
+                      displayName = 'Timer';
                       break;
                     default:
                       displayName = type;

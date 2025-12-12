@@ -9,7 +9,7 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Screens/CreateHabit/create_habit.dart';
+import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
@@ -197,7 +197,7 @@ class _HabitsPageState extends State<HabitsPage> {
     } else if (dueDate.isAtSameMomentAs(tomorrow)) {
       dateStr = 'Tomorrow';
     } else {
-      dateStr = DateFormat.yMMMd().format(instance.dueDate!);
+      dateStr = DateFormat.MMMd().format(instance.dueDate!);
     }
     // Add due time if available
     final timeStr = instance.hasDueTime()
@@ -279,16 +279,18 @@ class _HabitsPageState extends State<HabitsPage> {
           FloatingActionButton(
             heroTag: 'fab_add_habit',
             onPressed: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => const createActivityPage(),
+              showDialog(
+                context: context,
+                builder: (context) => ActivityEditorDialog(
+                  isHabit: true,
+                  categories: _categories,
+                  onSave: (record) {
+                    if (record != null) {
+                      NotificationCenter.post("loadHabits", "");
+                    }
+                  },
                 ),
-              ).then((value) {
-                if (value) {
-                  NotificationCenter.post("loadHabits", "");
-                }
-              });
+              );
             },
             tooltip: 'Add Habit',
             backgroundColor: FlutterFlowTheme.of(context).primary,

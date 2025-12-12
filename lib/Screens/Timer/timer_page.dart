@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -13,11 +14,13 @@ class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;
   final String? taskTitle;
   final bool fromSwipe;
+  final bool isNonProductive; // Indicates if this is a non-productive activity
   const TimerPage({
     super.key,
     this.initialTimerLogRef,
     this.taskTitle,
     this.fromSwipe = false,
+    this.isNonProductive = false,
   });
   @override
   State<TimerPage> createState() => _TimerPageState();
@@ -118,16 +121,50 @@ class _TimerPageState extends State<TimerPage> {
       _stopwatch.stop();
     }
     _timer.cancel();
-    // Stop time logging session if we have an existing task
-    if (_taskInstanceRef != null) {
-      try {
-        await TaskInstanceService.pauseTimeLogging(
-          activityInstanceRef: _taskInstanceRef!,
-        );
-      } catch (e) {}
-    }
-    // Show dialog to get task name and category (skip if from swipe)
-    if (!widget.fromSwipe) {
+
+    // Handle auto-complete for swipe or non-productive timers
+    if (widget.fromSwipe || widget.isNonProductive) {
+      if (_taskInstanceRef != null) {
+        try {
+          if (widget.isNonProductive) {
+            // For non-productive: update with pre-filled name and activity type
+            await TaskInstanceService.updateTimerTaskOnPause(
+              taskInstanceRef: _taskInstanceRef!,
+              duration: duration,
+              taskName: widget.taskTitle ?? 'Non-Productive Activity',
+              categoryId: null,
+              categoryName: null,
+              activityType: 'non_productive',
+            );
+          } else {
+            // For swipe: pause time logging
+            // Instance already has all template info, just need to pause logging
+            await TaskInstanceService.pauseTimeLogging(
+              activityInstanceRef: _taskInstanceRef!,
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error saving timer: $e')),
+            );
+          }
+        }
+      }
+      // Auto-return to previous page
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } else {
+      // Stop time logging session if we have an existing task
+      if (_taskInstanceRef != null) {
+        try {
+          await TaskInstanceService.pauseTimeLogging(
+            activityInstanceRef: _taskInstanceRef!,
+          );
+        } catch (e) {}
+      }
+      // Show dialog to get task name and category
       _showTaskNameDialog(isStop: false, duration: duration);
     }
   }
@@ -142,21 +179,53 @@ class _TimerPageState extends State<TimerPage> {
       _stopwatch.stop();
     }
     _timer.cancel();
-    // Stop time logging session and mark complete if we have an existing task
-    if (_taskInstanceRef != null) {
-      try {
-        await TaskInstanceService.stopTimeLogging(
-          activityInstanceRef: _taskInstanceRef!,
-          markComplete: true,
-        );
-      } catch (e) {}
-    }
-    // Show dialog to get task name and category (skip if from swipe)
-    if (!widget.fromSwipe) {
-      _showTaskNameDialog(isStop: true, duration: duration);
+
+    // Handle auto-complete for swipe or non-productive timers
+    if (widget.fromSwipe || widget.isNonProductive) {
+      if (_taskInstanceRef != null) {
+        try {
+          if (widget.isNonProductive) {
+            // For non-productive: update with pre-filled name and activity type
+            await TaskInstanceService.updateTimerTaskOnStop(
+              taskInstanceRef: _taskInstanceRef!,
+              duration: duration,
+              taskName: widget.taskTitle ?? 'Non-Productive Activity',
+              categoryId: null,
+              categoryName: null,
+              activityType: 'non_productive',
+            );
+          } else {
+            // For swipe: stop time logging and mark complete
+            // Instance already has all template info, just need to stop logging and mark complete
+            await TaskInstanceService.stopTimeLogging(
+              activityInstanceRef: _taskInstanceRef!,
+              markComplete: true,
+            );
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(content: Text('Error saving timer: $e')),
+            );
+          }
+        }
+      }
+      // Auto-return to previous page
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
     } else {
-      // Auto-return to previous page when coming from swipe
-      Navigator.of(context).pop();
+      // Stop time logging session and mark complete if we have an existing task
+      if (_taskInstanceRef != null) {
+        try {
+          await TaskInstanceService.stopTimeLogging(
+            activityInstanceRef: _taskInstanceRef!,
+            markComplete: true,
+          );
+        } catch (e) {}
+      }
+      // Show dialog to get task name and category
+      _showTaskNameDialog(isStop: true, duration: duration);
     }
   }
 
@@ -222,9 +291,15 @@ class _TimerPageState extends State<TimerPage> {
   }
 
   void _showTaskNameDialog({required bool isStop, required Duration duration}) {
-    final taskNameController = TextEditingController();
+    final taskNameController =
+        TextEditingController(text: widget.taskTitle ?? '');
     String? selectedCategoryId;
     String? selectedCategoryName;
+    final bool isNonProductiveMode =
+        widget.isNonProductive; // Lock if started from non-productive
+    bool isProductive =
+        !isNonProductiveMode; // Pre-select based on widget parameter
+
     // Pre-populate with Inbox category if available
     if (_categories.isNotEmpty) {
       final inboxCategory = _categories.firstWhere(
@@ -234,122 +309,288 @@ class _TimerPageState extends State<TimerPage> {
       selectedCategoryId = inboxCategory.reference.id;
       selectedCategoryName = inboxCategory.name;
     }
+
+    // Load non-productive templates for autocomplete
+    Future<List<String>> loadNonProductiveTemplates() async {
+      try {
+        final templates = await NonProductiveService.getNonProductiveTemplates(
+          userId: currentUserUid,
+        );
+        return templates.map((t) => t.name).toList();
+      } catch (e) {
+        return [];
+      }
+    }
+
     showDialog(
       context: context,
       builder: (BuildContext context) {
         return StatefulBuilder(
-          builder: (context, setState) {
-            return AlertDialog(
-              title: Text(isStop ? 'Stop Timer' : 'Pause Timer'),
-              content: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  TextField(
-                    controller: taskNameController,
-                    decoration: const InputDecoration(
-                      labelText: 'Task Name',
-                      hintText: 'Enter task name',
+          builder: (context, setDialogState) {
+            return FutureBuilder<List<String>>(
+              future: loadNonProductiveTemplates(),
+              builder: (context, snapshot) {
+                final suggestions = snapshot.data ?? [];
+
+                return AlertDialog(
+                  title: Text(isStop ? 'Stop Timer' : 'Pause Timer'),
+                  content: SingleChildScrollView(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        // Activity Type Toggle - Only show if not locked to non-productive
+                        if (!isNonProductiveMode) ...[
+                          Text(
+                            'Activity Type',
+                            style: Theme.of(context).textTheme.labelLarge,
+                          ),
+                          const SizedBox(height: 8),
+                          Column(
+                            children: [
+                              RadioListTile<bool>(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Productive Task'),
+                                value: true,
+                                groupValue: isProductive,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    isProductive = value!;
+                                  });
+                                },
+                              ),
+                              RadioListTile<bool>(
+                                contentPadding: EdgeInsets.zero,
+                                title: const Text('Non-Productive'),
+                                value: false,
+                                groupValue: isProductive,
+                                onChanged: (value) {
+                                  setDialogState(() {
+                                    isProductive = value!;
+                                  });
+                                },
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+                        ],
+                        // Task/Activity Name Field with Autocomplete for non-productive
+                        if (!isProductive && suggestions.isNotEmpty)
+                          Autocomplete<String>(
+                            initialValue:
+                                TextEditingValue(text: widget.taskTitle ?? ''),
+                            optionsBuilder:
+                                (TextEditingValue textEditingValue) {
+                              if (textEditingValue.text.isEmpty) {
+                                return suggestions;
+                              }
+                              return suggestions.where((String option) {
+                                return option.toLowerCase().contains(
+                                    textEditingValue.text.toLowerCase());
+                              });
+                            },
+                            onSelected: (String selection) {
+                              taskNameController.text = selection;
+                            },
+                            fieldViewBuilder: (
+                              BuildContext context,
+                              TextEditingController fieldTextEditingController,
+                              FocusNode fieldFocusNode,
+                              VoidCallback onFieldSubmitted,
+                            ) {
+                              // Initialize with task name if available
+                              if (widget.taskTitle != null &&
+                                  fieldTextEditingController.text.isEmpty) {
+                                fieldTextEditingController.text =
+                                    widget.taskTitle!;
+                                taskNameController.text = widget.taskTitle!;
+                              }
+                              // Sync changes from autocomplete field to our controller
+                              fieldTextEditingController.addListener(() {
+                                taskNameController.text =
+                                    fieldTextEditingController.text;
+                              });
+
+                              return TextField(
+                                controller: fieldTextEditingController,
+                                focusNode: fieldFocusNode,
+                                decoration: const InputDecoration(
+                                  labelText: 'Activity Name',
+                                  hintText: 'Enter activity name',
+                                ),
+                                autofocus: true,
+                                onSubmitted: (String value) {
+                                  onFieldSubmitted();
+                                },
+                              );
+                            },
+                            optionsViewBuilder: (
+                              BuildContext context,
+                              AutocompleteOnSelected<String> onSelected,
+                              Iterable<String> options,
+                            ) {
+                              return Align(
+                                alignment: Alignment.topLeft,
+                                child: Material(
+                                  elevation: 4.0,
+                                  borderRadius: BorderRadius.circular(4),
+                                  child: ConstrainedBox(
+                                    constraints:
+                                        const BoxConstraints(maxHeight: 200),
+                                    child: ListView.builder(
+                                      padding: EdgeInsets.zero,
+                                      shrinkWrap: true,
+                                      itemCount: options.length,
+                                      itemBuilder:
+                                          (BuildContext context, int index) {
+                                        final String option =
+                                            options.elementAt(index);
+                                        return InkWell(
+                                          onTap: () {
+                                            onSelected(option);
+                                          },
+                                          child: Container(
+                                            padding: const EdgeInsets.all(16.0),
+                                            child: Text(option),
+                                          ),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          )
+                        else
+                          TextField(
+                            controller: taskNameController,
+                            decoration: InputDecoration(
+                              labelText:
+                                  isProductive ? 'Task Name' : 'Activity Name',
+                              hintText: isProductive
+                                  ? 'Enter task name'
+                                  : 'Enter activity name',
+                            ),
+                            autofocus: true,
+                          ),
+                        const SizedBox(height: 16),
+                        // Category Dropdown (only for productive tasks)
+                        if (isProductive)
+                          DropdownButtonFormField<String>(
+                            value: selectedCategoryId,
+                            decoration: const InputDecoration(
+                              labelText: 'Category (optional)',
+                            ),
+                            items: _categories.map((category) {
+                              return DropdownMenuItem<String>(
+                                value: category.reference.id,
+                                child: Text(category.name),
+                              );
+                            }).toList(),
+                            onChanged: (value) {
+                              setDialogState(() {
+                                selectedCategoryId = value;
+                                selectedCategoryName = _categories
+                                    .firstWhere((c) => c.reference.id == value)
+                                    .name;
+                              });
+                            },
+                          ),
+                      ],
                     ),
-                    autofocus: true,
                   ),
-                  const SizedBox(height: 16),
-                  DropdownButtonFormField<String>(
-                    value: selectedCategoryId,
-                    decoration: const InputDecoration(
-                      labelText: 'Category (optional)',
+                  actions: [
+                    TextButton(
+                      onPressed: () async {
+                        // Clean up template and instance if they exist
+                        if (_taskInstanceRef != null) {
+                          try {
+                            final instance =
+                                await ActivityInstanceRecord.getDocumentOnce(
+                                    _taskInstanceRef!);
+                            // Delete the template
+                            final templateRef =
+                                ActivityRecord.collectionForUser(currentUserUid)
+                                    .doc(instance.templateId);
+                            await templateRef.delete();
+                            // Delete the instance
+                            await _taskInstanceRef!.delete();
+                          } catch (e) {
+                            // Handle error silently - cleanup is best effort
+                          }
+                        }
+                        Navigator.of(context).pop();
+                        // Reset timer state
+                        _resetTimer();
+                      },
+                      child: const Text('Cancel'),
                     ),
-                    items: _categories.map((category) {
-                      return DropdownMenuItem<String>(
-                        value: category.reference.id,
-                        child: Text(category.name),
-                      );
-                    }).toList(),
-                    onChanged: (value) {
-                      setState(() {
-                        selectedCategoryId = value;
-                        selectedCategoryName = _categories
-                            .firstWhere((c) => c.reference.id == value)
-                            .name;
-                      });
-                    },
-                  ),
-                ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () async {
-                    // Clean up template and instance if they exist
-                    if (_taskInstanceRef != null) {
-                      try {
-                        final instance =
-                            await ActivityInstanceRecord.getDocumentOnce(
-                                _taskInstanceRef!);
-                        // Delete the template
-                        final templateRef =
-                            ActivityRecord.collectionForUser(currentUserUid)
-                                .doc(instance.templateId);
-                        await templateRef.delete();
-                        // Delete the instance
-                        await _taskInstanceRef!.delete();
-                      } catch (e) {
-                        // Handle error silently - cleanup is best effort
-                      }
-                    }
-                    Navigator.of(context).pop();
-                    // Reset timer state
-                    _resetTimer();
-                  },
-                  child: const Text('Cancel'),
-                ),
-                ElevatedButton(
-                  onPressed: () async {
-                    final taskName = taskNameController.text.trim();
-                    if (taskName.isEmpty) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                            content: Text('Please enter a task name')),
-                      );
-                      return;
-                    }
-                    try {
-                      if (_taskInstanceRef != null) {
-                        if (isStop) {
-                          await TaskInstanceService.updateTimerTaskOnStop(
-                            taskInstanceRef: _taskInstanceRef!,
-                            duration: duration,
-                            taskName: taskName,
-                            categoryId: selectedCategoryId,
-                            categoryName: selectedCategoryName,
+                    ElevatedButton(
+                      onPressed: () async {
+                        final taskName = taskNameController.text.trim();
+                        if (taskName.isEmpty) {
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(isProductive
+                                  ? 'Please enter a task name'
+                                  : 'Please enter an activity name'),
+                            ),
                           );
-                        } else {
-                          await TaskInstanceService.updateTimerTaskOnPause(
-                            taskInstanceRef: _taskInstanceRef!,
-                            duration: duration,
-                            taskName: taskName,
-                            categoryId: selectedCategoryId,
-                            categoryName: selectedCategoryName,
+                          return;
+                        }
+                        try {
+                          if (_taskInstanceRef != null) {
+                            final activityType =
+                                isProductive ? 'task' : 'non_productive';
+                            if (isStop) {
+                              await TaskInstanceService.updateTimerTaskOnStop(
+                                taskInstanceRef: _taskInstanceRef!,
+                                duration: duration,
+                                taskName: taskName,
+                                categoryId:
+                                    isProductive ? selectedCategoryId : null,
+                                categoryName:
+                                    isProductive ? selectedCategoryName : null,
+                                activityType: activityType,
+                              );
+                            } else {
+                              await TaskInstanceService.updateTimerTaskOnPause(
+                                taskInstanceRef: _taskInstanceRef!,
+                                duration: duration,
+                                taskName: taskName,
+                                categoryId:
+                                    isProductive ? selectedCategoryId : null,
+                                categoryName:
+                                    isProductive ? selectedCategoryName : null,
+                                activityType: activityType,
+                              );
+                            }
+                          }
+                          Navigator.of(context).pop();
+                          _resetTimer();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(
+                              content: Text(isStop
+                                  ? (isProductive
+                                      ? 'Timer stopped and task created!'
+                                      : 'Timer stopped and activity logged!')
+                                  : (isProductive
+                                      ? 'Timer paused and task created!'
+                                      : 'Timer paused and activity logged!')),
+                            ),
+                          );
+                        } catch (e) {
+                          Navigator.of(context).pop();
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            SnackBar(content: Text('Error: $e')),
                           );
                         }
-                      }
-                      Navigator.of(context).pop();
-                      _resetTimer();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(
-                          content: Text(isStop
-                              ? 'Timer stopped and task created!'
-                              : 'Timer paused and task created!'),
-                        ),
-                      );
-                    } catch (e) {
-                      Navigator.of(context).pop();
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Error: $e')),
-                      );
-                    }
-                  },
-                  child: Text(isStop ? 'Stop' : 'Pause'),
-                ),
-              ],
+                      },
+                      child: Text(isStop ? 'Stop' : 'Pause'),
+                    ),
+                  ],
+                );
+              },
             );
           },
         );
@@ -357,13 +598,79 @@ class _TimerPageState extends State<TimerPage> {
     );
   }
 
+  Future<void> _discardTimer() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard Timer?'),
+        content: const Text(
+          'Are you sure you want to discard this timer session? All progress will be lost.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true) {
+      // Stop timer if running
+      if (_isRunning) {
+        if (_isStopwatch) {
+          _stopwatch.stop();
+        }
+        try {
+          if (_timer.isActive) {
+            _timer.cancel();
+          }
+        } catch (e) {
+          // Timer not initialized yet, ignore
+        }
+      }
+
+      // Clean up template and instance if they exist
+      if (_taskInstanceRef != null) {
+        try {
+          final instance =
+              await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
+          // Delete the template
+          final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+              .doc(instance.templateId);
+          await templateRef.delete();
+          // Delete the instance
+          await _taskInstanceRef!.delete();
+        } catch (e) {
+          // Handle error silently - cleanup is best effort
+        }
+      }
+
+      // Reset timer state and go back (only if still mounted)
+      if (mounted) {
+        _resetTimer();
+        Navigator.of(context).pop();
+      }
+    }
+  }
+
   void _resetTimer() {
-    setState(() {
-      _isRunning = false;
-      _stopwatch.reset();
-      _remainingTime = Duration.zero;
-      _taskInstanceRef = null;
-    });
+    if (mounted) {
+      setState(() {
+        _isRunning = false;
+        _stopwatch.reset();
+        _remainingTime = Duration.zero;
+        _taskInstanceRef = null;
+      });
+    }
   }
 
   @override
@@ -444,6 +751,17 @@ class _TimerPageState extends State<TimerPage> {
                 ),
               ],
             ),
+            const SizedBox(height: 16),
+            // Discard button - only show if timer has been started
+            if (_taskInstanceRef != null)
+              TextButton.icon(
+                onPressed: _discardTimer,
+                icon: const Icon(Icons.delete_outline, size: 18),
+                label: const Text('Discard Timer'),
+                style: TextButton.styleFrom(
+                  foregroundColor: Colors.red,
+                ),
+              ),
             const SizedBox(height: 20),
             Row(
               mainAxisAlignment: MainAxisAlignment.center,

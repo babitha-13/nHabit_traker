@@ -32,7 +32,8 @@ import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 
 class QueuePage extends StatefulWidget {
-  const QueuePage({super.key});
+  final bool expandCompleted;
+  const QueuePage({super.key, this.expandCompleted = false});
   @override
   _QueuePageState createState() => _QueuePageState();
 }
@@ -75,6 +76,14 @@ class _QueuePageState extends State<QueuePage> {
       _loadData().then((_) {
         // Load cumulative score after main data finishes to avoid Firestore race conditions
         _loadCumulativeScore();
+        // Handle auto-expand request from widget constructor
+        if (widget.expandCompleted) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted) {
+                NotificationCenter.post('expandQueueSection', 'Completed');
+              }
+            });
+        }
       });
     });
     // Listen for cumulative score updates from Progress page
@@ -134,6 +143,26 @@ class _QueuePageState extends State<QueuePage> {
           mounted &&
           !_ignoreInstanceEvents) {
         _handleInstanceDeleted(param);
+      }
+    });
+    // Listen for section expansion requests
+    NotificationCenter.addObserver(this, 'expandQueueSection', (param) {
+      if (mounted && param is String) {
+        setState(() {
+          _expandedSections.add(param);
+          ExpansionStateManager().setQueueExpandedSections(_expandedSections);
+        });
+        // Scroll to the section after a delay to ensure it's rendered
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_sectionKeys[param]?.currentContext != null) {
+            Scrollable.ensureVisible(
+              _sectionKeys[param]!.currentContext!,
+              duration: const Duration(milliseconds: 300),
+              alignment: 0.0,
+              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+            );
+          }
+        });
       }
     });
   }
@@ -969,7 +998,7 @@ class _QueuePageState extends State<QueuePage> {
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                 PopupMenuItem<String>(
                   value: QueueSortType.points,
-                  child: Text('Sort by Max Points (per day)'),
+                  child: Text('Sort by Points'),
                 ),
                 PopupMenuItem<String>(
                   value: QueueSortType.time,
@@ -1007,10 +1036,19 @@ class _QueuePageState extends State<QueuePage> {
       children: [
         _isLoading
             ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  // Progress indicator
-                  GestureDetector(
+            : _buildDailyView(),
+        // FloatingTimer(
+        //   activeHabits: _activeFloatingHabits,
+        //   onRefresh: _loadData,
+        //   onHabitUpdated: (updated) => {},
+        // ),
+      ],
+    );
+  }
+
+  /// Build the progress charts widget (used in scrollable view)
+  Widget _buildProgressCharts() {
+    return GestureDetector(
                     onTap: () {
                       Navigator.push(
                         context,
@@ -1062,8 +1100,7 @@ class _QueuePageState extends State<QueuePage> {
                                       .bodySmall
                                       .override(
                                         fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
+                          color: FlutterFlowTheme.of(context).secondaryText,
                                       ),
                                 ),
                               ],
@@ -1092,8 +1129,7 @@ class _QueuePageState extends State<QueuePage> {
                                       .bodySmall
                                       .override(
                                         fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
+                          color: FlutterFlowTheme.of(context).secondaryText,
                                       ),
                                 ),
                                 if (_dailyScoreGain != 0)
@@ -1117,19 +1153,6 @@ class _QueuePageState extends State<QueuePage> {
                         ),
                       ),
                     ),
-                  ),
-                  const SizedBox(height: 16),
-                  Expanded(
-                    child: _buildDailyView(),
-                  ),
-                ],
-              ),
-        // FloatingTimer(
-        //   activeHabits: _activeFloatingHabits,
-        //   onRefresh: _loadData,
-        //   onHabitUpdated: (updated) => {},
-        // ),
-      ],
     );
   }
 
@@ -1287,6 +1310,13 @@ class _QueuePageState extends State<QueuePage> {
     return CustomScrollView(
       controller: _scrollController,
       slivers: [
+        // Progress charts as first scrollable item
+        SliverToBoxAdapter(
+          child: _buildProgressCharts(),
+        ),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: 16),
+        ),
         ...slivers,
         const SliverToBoxAdapter(
           child: SizedBox(height: 140),

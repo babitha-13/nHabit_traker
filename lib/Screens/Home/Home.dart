@@ -25,6 +25,7 @@ import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
 import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
@@ -605,6 +606,10 @@ class _HomeState extends State<Home> {
       await DailyNotificationScheduler.initializeDailyNotifications();
       // Initialize engagement reminders
       await EngagementReminderScheduler.initializeEngagementReminders();
+      // Schedule all pending task/habit reminders (after user is authenticated)
+      await ReminderScheduler.scheduleAllPendingReminders();
+      // Check for expired snoozes and reschedule
+      await ReminderScheduler.checkExpiredSnoozes();
     } catch (e) {
       print('Error initializing notifications: $e');
     }

@@ -110,13 +110,20 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
           maxHeight: 600,
         ),
         decoration: BoxDecoration(
-          gradient: theme.neumorphicGradient,
+          color: theme.secondaryBackground,
           borderRadius: BorderRadius.circular(20),
           border: Border.all(
             color: theme.surfaceBorderColor,
             width: 1,
           ),
-          boxShadow: theme.neumorphicShadowsRaised,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              offset: const Offset(0, 2),
+              blurRadius: 4,
+              spreadRadius: 0,
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,

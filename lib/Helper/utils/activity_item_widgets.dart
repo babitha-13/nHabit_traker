@@ -3,8 +3,7 @@ import 'package:habit_tracker/Helper/backend/activity_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Edit Task/edit_task.dart';
-import 'package:habit_tracker/Screens/CreateHabit/create_habit.dart';
+import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
 import 'package:intl/intl.dart';
 class ActivityControls extends StatefulWidget {
   final ActivityRecord activity;
@@ -261,40 +260,30 @@ class ActivityOverflowMenu extends StatelessWidget {
     }
   }
   void _editHabit(BuildContext context) {
-    if (showTaskEdit) {
-      showDialog(
-        context: context,
-        builder: (_) => EditTask(
-          task: activity,
-          categories: categories ?? [],
-          onSave: (updatedHabit) {
-            if (tasks != null) {
-              final index = tasks!.indexWhere(
-                  (t) => t.reference.id == updatedHabit.reference.id);
-              if (index != -1) {
-                tasks![index] = updatedHabit;
-              }
+    showDialog(
+      context: context,
+      builder: (_) => ActivityEditorDialog(
+        activity: activity,
+        isHabit: activity.categoryType == 'habit',
+        categories: categories ?? [],
+        onSave: (updatedHabit) {
+          if (showTaskEdit && tasks != null && updatedHabit != null) {
+            final index = tasks!.indexWhere(
+                (t) => t.reference.id == updatedHabit.reference.id);
+            if (index != -1) {
+              tasks![index] = updatedHabit;
             }
-          },
-        ),
-      ).then((value) {
-        if (value) {
+          }
+        },
+      ),
+    ).then((value) {
+      if (value == true) {
+        if (showTaskEdit) {
           onHabitUpdated?.call(activity);
-          onRefresh?.call();
         }
-      });
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => createActivityPage(habitToEdit: activity),
-        ),
-      ).then((value) {
-        if (value == true) {
-          onRefresh?.call();
-        }
-      });
-    }
+        onRefresh?.call();
+      }
+    });
   }
   Future<void> _copyHabit(BuildContext context) async {
     try {

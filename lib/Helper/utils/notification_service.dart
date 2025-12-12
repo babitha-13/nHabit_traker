@@ -7,6 +7,9 @@ import 'package:habit_tracker/Screens/Queue/queue_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
+import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
 
 /// Service for managing local notifications
 class NotificationService {
@@ -39,6 +42,7 @@ class NotificationService {
     await _notificationsPlugin.initialize(
       initSettings,
       onDidReceiveNotificationResponse: _onNotificationTapped,
+      onDidReceiveBackgroundNotificationResponse: _onNotificationTapped,
     );
     // Create notification channel for Android
     await _createNotificationChannel();
@@ -47,12 +51,13 @@ class NotificationService {
   /// Create notification channel for Android
   static Future<void> _createNotificationChannel() async {
     const AndroidNotificationChannel channel = AndroidNotificationChannel(
-      'reminders',
-      'Reminders',
-      description: 'Notifications for task and habit reminders',
-      importance: Importance.high,
+      'habit_alarms_v1', // Updated ID
+      'Alarms',
+      description: 'Full screen alarms for habits',
+      importance: Importance.max, // Max importance
       playSound: true,
       enableVibration: true,
+      audioAttributesUsage: AudioAttributesUsage.alarm,
     );
     await _notificationsPlugin
         .resolvePlatformSpecificImplementation<
@@ -60,8 +65,16 @@ class NotificationService {
         ?.createNotificationChannel(channel);
   }
 
-  /// Handle notification tap
+  /// Handle notification tap or action
+  @pragma('vm:entry-point')
   static void _onNotificationTapped(NotificationResponse response) {
+    // Handle action button clicks
+    if (response.actionId != null && response.actionId!.isNotEmpty) {
+      _handleNotificationAction(response.actionId!, response.payload);
+      return;
+    }
+
+    // Handle notification tap
     final payload = response.payload;
     if (payload == null) return;
 
@@ -80,6 +93,182 @@ class NotificationService {
     // Handle engagement reminder
     else if (payload == 'engagement_reminder') {
       _handleEngagementReminderTap();
+    }
+    // Handle alarm ringing
+    else if (payload.startsWith('ALARM_RINGING:')) {
+      _handleAlarmRingingTap(payload);
+    }
+    // Handle reminder notifications (open Queue page)
+    else if (payload.isNotEmpty && !payload.startsWith('ALARM_RINGING:')) {
+      _handleReminderNotificationTap(payload);
+    }
+  }
+
+  /// Handle notification action button clicks
+  static void _handleNotificationAction(String actionId, String? payload) {
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    // Parse action ID format: "ACTION_TYPE:instanceId" or "SNOOZE:reminderId"
+    final parts = actionId.split(':');
+    if (parts.length < 2) return;
+
+    final actionType = parts[0];
+    final identifier = parts[1];
+
+    switch (actionType) {
+      case 'COMPLETE':
+        _handleCompleteAction(identifier, context);
+        break;
+      case 'ADD':
+        _handleAddAction(identifier, context);
+        break;
+      case 'TIMER':
+        _handleTimerAction(identifier, context);
+        break;
+      case 'SNOOZE':
+        _handleSnoozeAction(identifier, context);
+        break;
+    }
+  }
+
+  /// Handle complete action
+  static Future<void> _handleCompleteAction(String instanceId, BuildContext context) async {
+    try {
+      await ActivityInstanceService.completeInstance(instanceId: instanceId);
+      
+      // Navigate to Queue page
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+      Future.delayed(const Duration(milliseconds: 500), () {
+        final homeContext = navigatorKey.currentContext;
+        if (homeContext != null) {
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => const QueuePage(),
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      print('NotificationService: Error completing instance: $e');
+    }
+  }
+
+  /// Handle add action (increment quantitative value)
+  static Future<void> _handleAddAction(String instanceId, BuildContext context) async {
+    try {
+      final instance = await ActivityInstanceService.getUpdatedInstance(instanceId: instanceId);
+      
+      // Increment current value by 1
+      final currentValue = instance.currentValue ?? 0;
+      final newValue = (currentValue is num) ? (currentValue + 1) : 1;
+      
+      await ActivityInstanceService.updateInstanceProgress(
+        instanceId: instanceId,
+        currentValue: newValue,
+      );
+      
+      // Navigate to Queue page
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+      Future.delayed(const Duration(milliseconds: 500), () {
+        final homeContext = navigatorKey.currentContext;
+        if (homeContext != null) {
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => const QueuePage(),
+            ),
+          );
+        }
+      });
+    } catch (e) {
+      print('NotificationService: Error adding to instance: $e');
+    }
+  }
+
+  /// Handle timer action
+  static void _handleTimerAction(String instanceId, BuildContext context) {
+    // Navigate to Queue page - timer logic will be handled there
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      home,
+      (route) => false,
+    );
+    Future.delayed(const Duration(milliseconds: 500), () {
+      final homeContext = navigatorKey.currentContext;
+      if (homeContext != null) {
+        Navigator.of(homeContext).push(
+          MaterialPageRoute(
+            builder: (context) => const QueuePage(),
+          ),
+        );
+      }
+    });
+  }
+
+  /// Handle snooze action
+  static void _handleSnoozeAction(String reminderId, BuildContext context) {
+    // Show snooze dialog - will be imported when SnoozeDialog is created
+    _showSnoozeDialog(context, reminderId);
+  }
+
+  /// Show snooze dialog
+  static Future<void> _showSnoozeDialog(BuildContext context, String reminderId) async {
+    try {
+      await SnoozeDialog.show(context: context, reminderId: reminderId);
+    } catch (e) {
+      print('NotificationService: Error showing snooze dialog: $e');
+      // Fallback: just navigate to Queue page
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+    }
+  }
+
+  /// Handle reminder notification tap (open Queue page)
+  static void _handleReminderNotificationTap(String payload) {
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+      Future.delayed(const Duration(milliseconds: 500), () {
+        final homeContext = navigatorKey.currentContext;
+        if (homeContext != null) {
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => const QueuePage(),
+            ),
+          );
+        }
+      });
+    }
+  }
+
+  /// Handle alarm ringing notification tap
+  static void _handleAlarmRingingTap(String payload) {
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      final parts = payload.substring('ALARM_RINGING:'.length).split('|');
+      final title = parts.isNotEmpty ? parts[0] : 'Alarm';
+      final body = parts.length > 1 ? parts[1] : null;
+      final originalPayload = parts.length > 2 ? parts[2] : null;
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (context) => AlarmRingingPage(
+            title: title,
+            body: body,
+            payload: originalPayload,
+          ),
+        ),
+      );
     }
   }
 
@@ -187,6 +376,8 @@ class NotificationService {
     required DateTime scheduledTime,
     String? body,
     String? payload,
+    DateTimeComponents? matchDateTimeComponents,
+    List<AndroidNotificationAction>? actions,
   }) async {
     try {
       // Create TZDateTime directly from the scheduled time components
@@ -206,7 +397,7 @@ class NotificationService {
           title,
           body ?? 'Due in 10 minutes',
           tzDateTime,
-          const NotificationDetails(
+          NotificationDetails(
             android: AndroidNotificationDetails(
               'reminders',
               'Reminders',
@@ -215,6 +406,7 @@ class NotificationService {
               priority: Priority.high,
               playSound: true,
               enableVibration: true,
+              actions: actions,
             ),
             iOS: DarwinNotificationDetails(
               presentAlert: true,
@@ -226,6 +418,7 @@ class NotificationService {
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
           androidScheduleMode: AndroidScheduleMode.exactAllowWhileIdle,
+          matchDateTimeComponents: matchDateTimeComponents,
         );
       } catch (e) {
         // Fallback to approximate scheduling if exact fails
@@ -234,7 +427,7 @@ class NotificationService {
           title,
           body ?? 'Due in 10 minutes',
           tzDateTime,
-          const NotificationDetails(
+          NotificationDetails(
             android: AndroidNotificationDetails(
               'reminders',
               'Reminders',
@@ -243,6 +436,7 @@ class NotificationService {
               priority: Priority.high,
               playSound: true,
               enableVibration: true,
+              actions: actions,
             ),
             iOS: DarwinNotificationDetails(
               presentAlert: true,
@@ -254,6 +448,7 @@ class NotificationService {
           uiLocalNotificationDateInterpretation:
               UILocalNotificationDateInterpretation.absoluteTime,
           androidScheduleMode: AndroidScheduleMode.exact,
+          matchDateTimeComponents: matchDateTimeComponents,
         );
       }
       print(
@@ -330,23 +525,28 @@ class NotificationService {
     required String title,
     String? body,
     String? payload,
+    List<AndroidNotificationAction>? actions,
   }) async {
     try {
       await _notificationsPlugin.show(
         id.hashCode,
         title,
         body ?? 'Notification',
-        const NotificationDetails(
+        NotificationDetails(
           android: AndroidNotificationDetails(
-            'reminders',
-            'Reminders',
-            channelDescription: 'Notifications for task and habit reminders',
-            importance: Importance.high,
-            priority: Priority.high,
+            'habit_alarms_v1', // CHANGED ID to force update
+            'Alarms',
+            channelDescription: 'Full screen alarms for habits',
+            importance: Importance.max, // Max importance for heads-up/full-screen
+            priority: Priority.max,
             playSound: true,
             enableVibration: true,
+            fullScreenIntent: true,
+            audioAttributesUsage: AudioAttributesUsage.alarm, // Treat as alarm
+            category: AndroidNotificationCategory.alarm, // System treats as alarm
+            actions: actions,
           ),
-          iOS: DarwinNotificationDetails(
+          iOS: const DarwinNotificationDetails(
             presentAlert: true,
             presentBadge: true,
             presentSound: true,

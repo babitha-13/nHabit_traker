@@ -5,23 +5,27 @@ import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 class ReminderConfigDialog extends StatefulWidget {
   final List<ReminderConfig> initialReminders;
   final TimeOfDay? dueTime; // Used to default reminder time
+  final VoidCallback? onRequestDueTime;
 
   const ReminderConfigDialog({
     super.key,
     this.initialReminders = const [],
     this.dueTime,
+    this.onRequestDueTime,
   });
 
   static Future<List<ReminderConfig>?> show({
     required BuildContext context,
     List<ReminderConfig>? initialReminders,
     TimeOfDay? dueTime,
+    VoidCallback? onRequestDueTime,
   }) async {
     return await showDialog<List<ReminderConfig>>(
       context: context,
       builder: (context) => ReminderConfigDialog(
         initialReminders: initialReminders ?? [],
         dueTime: dueTime,
+        onRequestDueTime: onRequestDueTime,
       ),
     );
   }
@@ -37,7 +41,7 @@ class _ReminderConfigDialogState extends State<ReminderConfigDialog> {
   void initState() {
     super.initState();
     _reminders = List.from(widget.initialReminders);
-    
+
     // Automatically add a reminder if the list is empty when dialog opens
     if (_reminders.isEmpty) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -51,7 +55,7 @@ class _ReminderConfigDialogState extends State<ReminderConfigDialog> {
     if (widget.dueTime == null) {
       // Habit Mode: Create a fixed time reminder
       final initialTime = const TimeOfDay(hour: 9, minute: 0);
-      
+
       setState(() {
         final id = 'reminder_${DateTime.now().millisecondsSinceEpoch}';
         _reminders.add(ReminderConfig(
@@ -68,8 +72,8 @@ class _ReminderConfigDialogState extends State<ReminderConfigDialog> {
       setState(() {
         // Generate unique ID
         final id = 'reminder_${DateTime.now().millisecondsSinceEpoch}';
-        // Default to due time (0 offset) or 15 minutes before if no due time
-        final defaultOffset = widget.dueTime != null ? 0 : -15;
+        // Default to due time for all task reminders
+        final defaultOffset = 0;
         _reminders.add(ReminderConfig(
           id: id,
           type: 'notification',
@@ -155,6 +159,7 @@ class _ReminderConfigDialogState extends State<ReminderConfigDialog> {
                             onUpdate: (updated) =>
                                 _updateReminder(index, updated),
                             onRemove: () => _removeReminder(index),
+                            onRequestDueTime: widget.onRequestDueTime,
                           );
                         },
                       ),
@@ -196,12 +201,14 @@ class _ReminderItem extends StatefulWidget {
   final TimeOfDay? dueTime;
   final Function(ReminderConfig) onUpdate;
   final VoidCallback onRemove;
+  final VoidCallback? onRequestDueTime;
 
   const _ReminderItem({
     required this.reminder,
     required this.dueTime,
     required this.onUpdate,
     required this.onRemove,
+    this.onRequestDueTime,
   });
 
   @override
@@ -210,95 +217,46 @@ class _ReminderItem extends StatefulWidget {
 
 class _ReminderItemState extends State<_ReminderItem> {
   late ReminderConfig _reminder;
+  late bool _isRelativeMode;
+  late TextEditingController _relativeValueController;
+  String _relativeUnit = 'minutes'; // minutes, hours, days
+  final GlobalKey _unitSelectorKey = GlobalKey();
+  static const List<String> _relativeUnits = ['minutes', 'hours', 'days'];
 
   @override
   void initState() {
     super.initState();
     _reminder = widget.reminder;
+    _isRelativeMode = _inferInitialMode();
+    _relativeValueController = TextEditingController(
+      text: _getRelativeValue().toString(),
+    );
   }
 
   Future<void> _selectOffset() async {
-    if (widget.dueTime == null) {
-      // For habits, select absolute time
-      final initialTime = _reminder.time;
-      final picked = await showTimePicker(
-        context: context,
-        initialTime: initialTime,
-      );
-      if (picked != null) {
-        setState(() {
-          _reminder = _reminder.copyWith(
-            fixedTimeMinutes: picked.hour * 60 + picked.minute,
-          );
-        });
-        widget.onUpdate(_reminder);
-      }
-    } else {
-      // Show dialog to select offset
-      final result = await showDialog<Map<String, dynamic>>(
-        context: context,
-        builder: (context) => _OffsetSelectionDialog(
-          currentOffset: _reminder.offsetMinutes,
-          dueTime: widget.dueTime,
-        ),
-      );
+    _ensureExactModeActive();
+    final initialTime = _reminder.fixedTimeMinutes != null
+        ? TimeOfDay(
+            hour: _reminder.fixedTimeMinutes! ~/ 60,
+            minute: _reminder.fixedTimeMinutes! % 60,
+          )
+        : widget.dueTime ?? const TimeOfDay(hour: 9, minute: 0);
 
-      if (result != null) {
-        setState(() {
-          _reminder = _reminder.copyWith(
-            offsetMinutes: result['offsetMinutes'] as int,
-          );
-        });
-        widget.onUpdate(_reminder);
-      }
-    }
-  }
-
-  Future<void> _selectDays() async {
-    final days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-    final currentDays = _reminder.days;
-    
-    await showDialog(
+    final picked = await showTimePicker(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select Days'),
-        content: Wrap(
-          spacing: 8,
-          children: List.generate(7, (index) {
-            final dayIndex = index + 1;
-            final isSelected = currentDays.contains(dayIndex);
-            return FilterChip(
-              label: Text(days[index]),
-              selected: isSelected,
-              onSelected: (selected) {
-                List<int> newDays = List.from(currentDays);
-                if (selected) {
-                  newDays.add(dayIndex);
-                } else {
-                  newDays.remove(dayIndex);
-                }
-                newDays.sort();
-                // If all deselected, maybe prevent or leave empty? 
-                // Let's update immediately as this is inside a dialog but we need to update state of parent
-                // Actually FilterChip in AlertDialog needs stateful builder or parent update.
-                // Since we are in a separate dialog, we need StatefulBuilder inside dialog or just close and update.
-                // Let's use a StatefulBuilder wrapper for the content if we want live updates, 
-                // but simplified approach:
-                Navigator.pop(context, newDays); 
-              },
-            );
-          }),
-        ),
-      ),
-    ).then((result) {
-      if (result != null && result is List<int>) {
-         // This interaction is clunky (closes on one selection). 
-         // Better implementation requires a proper multi-select dialog.
-         // For now, let's skip the day selection implementation detail and just focus on the time.
-         // The user query didn't explicitly ask for day selection UI in the dialog, just "separate section for reminder options".
-         // I'll stick to time for now to avoid over-engineering the dialog in this step.
-      }
+      initialTime: initialTime,
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      _reminder = _reminder.copyWith(
+        fixedTimeMinutes: picked.hour * 60 + picked.minute,
+        offsetMinutes: 0,
+      );
+      _isRelativeMode = false;
     });
+    widget.onUpdate(_reminder);
   }
 
   void _toggleType() {
@@ -317,6 +275,207 @@ class _ReminderItemState extends State<_ReminderItem> {
     widget.onUpdate(_reminder);
   }
 
+  void _selectMode(bool relativeSelected) {
+    if (relativeSelected) {
+      if (widget.dueTime == null) {
+        _showMissingDueTimeWarning();
+        return;
+      }
+      setState(() {
+        _isRelativeMode = true;
+        if (_reminder.fixedTimeMinutes != null) {
+          // Manually recreate to ensure fixedTimeMinutes is null (copyWith ignores nulls)
+          _reminder = ReminderConfig(
+            id: _reminder.id,
+            type: _reminder.type,
+            offsetMinutes: _reminder.offsetMinutes,
+            enabled: _reminder.enabled,
+            fixedTimeMinutes: null,
+            specificDays: _reminder.specificDays,
+          );
+        }
+        // Keep zero offset as "at due time" by default
+        _relativeValueController.text =
+            _reminder.offsetMinutes.abs().toString();
+        _relativeUnit = 'minutes';
+      });
+      widget.onUpdate(_reminder);
+    } else {
+      final fallbackTime =
+          widget.dueTime ?? const TimeOfDay(hour: 9, minute: 0);
+      final time = _reminder.fixedTimeMinutes != null
+          ? TimeOfDay(
+              hour: _reminder.fixedTimeMinutes! ~/ 60,
+              minute: _reminder.fixedTimeMinutes! % 60,
+            )
+          : fallbackTime;
+      setState(() {
+        _isRelativeMode = false;
+        _reminder = _reminder.copyWith(
+          fixedTimeMinutes: time.hour * 60 + time.minute,
+          offsetMinutes: 0,
+        );
+      });
+      widget.onUpdate(_reminder);
+    }
+  }
+
+  Future<void> _showMissingDueTimeWarning() async {
+    final reminderContext = context;
+    await showDialog<void>(
+      context: context,
+      builder: (alertContext) {
+        return AlertDialog(
+          title: const Text('Set due time first'),
+          content: const Text(
+            'A due time is required before you can set a relative reminder.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(alertContext),
+              child: const Text('Cancel'),
+            ),
+            ElevatedButton(
+              onPressed: () {
+                final callback = widget.onRequestDueTime;
+                Navigator.pop(alertContext);
+                Navigator.pop(reminderContext, null);
+                callback?.call();
+              },
+              child: const Text('Set due time'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted) return;
+    setState(() => _isRelativeMode = false);
+  }
+
+  bool _inferInitialMode() {
+    if (widget.dueTime == null) {
+      return false;
+    }
+    if (_reminder.fixedTimeMinutes != null) {
+      return false;
+    }
+    // Use relative mode for offset reminders (even zero offset)
+    return _reminder.fixedTimeMinutes == null;
+  }
+
+  int _getRelativeValue() {
+    int minutes = _reminder.offsetMinutes.abs();
+    if (minutes % 1440 == 0 && minutes != 0) {
+      _relativeUnit = 'days';
+      return minutes ~/ 1440;
+    }
+    if (minutes % 60 == 0 && minutes != 0) {
+      _relativeUnit = 'hours';
+      return minutes ~/ 60;
+    }
+    _relativeUnit = 'minutes';
+    return minutes; // Allow zero to represent "at due time"
+  }
+
+  void _onRelativeChanged() {
+    final raw = int.tryParse(_relativeValueController.text) ?? 0;
+    final value = raw < 0 ? 0 : raw;
+    int minutes;
+    switch (_relativeUnit) {
+      case 'hours':
+        minutes = value * 60;
+        break;
+      case 'days':
+        minutes = value * 1440;
+        break;
+      default:
+        minutes = value;
+    }
+    setState(() {
+      // Manually recreate to ensure fixedTimeMinutes is null (copyWith ignores nulls)
+      _reminder = ReminderConfig(
+        id: _reminder.id,
+        type: _reminder.type,
+        offsetMinutes: -minutes,
+        enabled: _reminder.enabled,
+        fixedTimeMinutes: null,
+        specificDays: _reminder.specificDays,
+      );
+    });
+    widget.onUpdate(_reminder);
+  }
+
+  void _ensureExactModeActive() {
+    if (!_isRelativeMode) return;
+    setState(() {
+      _isRelativeMode = false;
+    });
+  }
+
+  Future<void> _showRelativeUnitMenu() async {
+    final contextKey = _unitSelectorKey.currentContext;
+    if (contextKey == null) return;
+    final renderObject = contextKey.findRenderObject();
+    if (renderObject is! RenderBox) return;
+    final renderBox = renderObject;
+    final mediaSize = MediaQuery.of(context).size;
+    final offset = renderBox.localToGlobal(Offset.zero);
+    final size = renderBox.size;
+    final result = await showMenu<String>(
+      context: context,
+      position: RelativeRect.fromLTRB(
+        offset.dx,
+        offset.dy + size.height,
+        mediaSize.width - offset.dx - size.width,
+        mediaSize.height - offset.dy - size.height,
+      ),
+      items: _relativeUnits.map((unit) {
+        final isSelected = unit == _relativeUnit;
+        return PopupMenuItem<String>(
+          value: unit,
+          height: 36,
+          child: Text(
+            '${unit[0].toUpperCase()}${unit.substring(1)}',
+            style: TextStyle(
+              fontSize: 14,
+              color: isSelected
+                  ? Theme.of(context).colorScheme.primary
+                  : Colors.black87,
+              fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+            ),
+          ),
+        );
+      }).toList(),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+      ),
+    );
+
+    if (result != null && result != _relativeUnit) {
+      setState(() {
+        _relativeUnit = result;
+      });
+      _onRelativeChanged();
+    }
+  }
+
+  TimeOfDay _effectiveExactTime() {
+    if (_reminder.fixedTimeMinutes != null) {
+      return TimeOfDay(
+        hour: _reminder.fixedTimeMinutes! ~/ 60,
+        minute: _reminder.fixedTimeMinutes! % 60,
+      );
+    }
+    return widget.dueTime ?? const TimeOfDay(hour: 9, minute: 0);
+  }
+
+  String _timeButtonLabel(BuildContext context) {
+    final time = _effectiveExactTime();
+    final formatted = MaterialLocalizations.of(context).formatTimeOfDay(time);
+    final hasExactTime = _reminder.fixedTimeMinutes != null;
+    return hasExactTime ? formatted : 'Pick time';
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -329,198 +488,278 @@ class _ReminderItemState extends State<_ReminderItem> {
             Row(
               children: [
                 Expanded(
-                  child: Row(
-                    children: [
-                      Icon(
-                        _reminder.type == 'alarm'
-                            ? Icons.alarm
-                            : Icons.notifications,
-                        size: 20,
-                        color: _reminder.enabled
-                            ? (_reminder.type == 'alarm'
-                                ? Colors.orange
-                                : Colors.blue)
-                            : Colors.grey,
-                      ),
-                      const SizedBox(width: 8),
-                      Expanded(
-                        child: Text(
-                          _reminder.getOffsetDescription(),
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
+                  child: Material(
+                    color: Colors.transparent,
+                    child: InkWell(
+                      onTap: _reminder.enabled ? _toggleType : null,
+                      borderRadius: BorderRadius.circular(14),
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                          horizontal: 12,
+                        ),
+                        decoration: BoxDecoration(
+                          color: _reminder.enabled
+                              ? Theme.of(context)
+                                  .colorScheme
+                                  .primary
+                                  .withOpacity(0.08)
+                              : Colors.grey.shade100,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
                             color: _reminder.enabled
-                                ? Colors.black87
-                                : Colors.grey,
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey.shade300,
+                            width: 1.2,
                           ),
                         ),
-                      ),
-                    ],
-                  ),
-                ),
-                Switch(
-                  value: _reminder.enabled,
-                  onChanged: (_) => _toggleEnabled(),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton.icon(
-                    onPressed: _reminder.enabled ? _selectOffset : null,
-                    icon: const Icon(Icons.access_time, size: 16),
-                    label: Text(
-                      _reminder.getOffsetDescription(),
-                    ),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
+                        child: Row(
+                          children: [
+                            Icon(
+                              _reminder.type == 'alarm'
+                                  ? Icons.alarm
+                                  : Icons.notifications,
+                              size: 20,
+                              color: _reminder.enabled
+                                  ? (_reminder.type == 'alarm'
+                                      ? Colors.orange
+                                      : Colors.blue)
+                                  : Colors.grey,
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                _reminder.type == 'alarm'
+                                    ? 'Alarm reminder'
+                                    : 'Notification reminder',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w600,
+                                  color: _reminder.enabled
+                                      ? Colors.black87
+                                      : Colors.grey,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              Icons.swap_horiz,
+                              size: 18,
+                              color: _reminder.enabled
+                                  ? Theme.of(context).colorScheme.primary
+                                  : Colors.grey,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
                   ),
                 ),
                 const SizedBox(width: 8),
-                if (widget.dueTime == null) ...[
-                  // For habits, show day selection button
-                  IconButton(
-                    icon: const Icon(Icons.calendar_today, size: 20),
-                    onPressed: _reminder.enabled ? _selectDays : null,
-                    tooltip: 'Select Days',
-                  ),
-                  const SizedBox(width: 8),
-                ],
-                OutlinedButton.icon(
-                  onPressed: _reminder.enabled ? _toggleType : null,
-                  icon: Icon(
-                    _reminder.type == 'alarm'
-                        ? Icons.alarm
-                        : Icons.notifications,
-                    size: 16,
-                  ),
-                  label: Text(
-                    _reminder.type == 'alarm' ? 'Alarm' : 'Notification',
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
+                Transform.scale(
+                  scale: 0.8,
+                  child: Switch(
+                    value: _reminder.enabled,
+                    onChanged: (_) => _toggleEnabled(),
+                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
                   ),
                 ),
-                const SizedBox(width: 8),
+                const SizedBox(width: 4),
                 IconButton(
                   icon: const Icon(Icons.delete_outline),
                   color: Colors.red,
                   onPressed: widget.onRemove,
+                  tooltip: 'Delete reminder',
+                  splashRadius: 20,
                 ),
               ],
             ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-class _OffsetSelectionDialog extends StatefulWidget {
-  final int currentOffset;
-  final TimeOfDay? dueTime;
-
-  const _OffsetSelectionDialog({
-    required this.currentOffset,
-    this.dueTime,
-  });
-
-  @override
-  State<_OffsetSelectionDialog> createState() => _OffsetSelectionDialogState();
-}
-
-class _OffsetSelectionDialogState extends State<_OffsetSelectionDialog> {
-  late int _selectedOffset;
-
-  @override
-  void initState() {
-    super.initState();
-    _selectedOffset = widget.currentOffset;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // Predefined offset options
-    final offsetOptions = [
-      {'label': 'At due time', 'minutes': 0},
-      {'label': '5 minutes before', 'minutes': -5},
-      {'label': '15 minutes before', 'minutes': -15},
-      {'label': '30 minutes before', 'minutes': -30},
-      {'label': '1 hour before', 'minutes': -60},
-      {'label': '2 hours before', 'minutes': -120},
-      {'label': '1 day before', 'minutes': -1440},
-      {'label': '2 days before', 'minutes': -2880},
-      {'label': '1 week before', 'minutes': -10080},
-    ];
-
-    return Dialog(
-      child: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Select Reminder Time',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Flexible(
-              child: ListView.builder(
-                shrinkWrap: true,
-                itemCount: offsetOptions.length,
-                itemBuilder: (context, index) {
-                  final option = offsetOptions[index];
-                  final minutes = option['minutes'] as int;
-                  final isSelected = _selectedOffset == minutes;
-                  return RadioListTile<int>(
-                    title: Text(option['label'] as String),
-                    value: minutes,
-                    groupValue: _selectedOffset,
-                    onChanged: (value) {
-                      setState(() {
-                        _selectedOffset = value!;
-                      });
-                    },
-                    selected: isSelected,
-                  );
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            const SizedBox(height: 8),
+            Column(
               children: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context),
-                  child: const Text('Cancel'),
-                ),
-                const SizedBox(width: 8),
-                ElevatedButton(
-                  onPressed: () => Navigator.pop(
-                    context,
-                    {'offsetMinutes': _selectedOffset},
+                InkWell(
+                  onTap: _reminder.enabled && !_isRelativeMode
+                      ? () => _selectMode(true)
+                      : null,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: _isRelativeMode
+                          ? Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.08)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: _isRelativeMode
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey.shade300,
+                        width: _isRelativeMode ? 1.5 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            SizedBox(
+                              width: 60,
+                              child: TextField(
+                                controller: _relativeValueController,
+                                enabled: _isRelativeMode && _reminder.enabled,
+                                keyboardType: TextInputType.number,
+                                onChanged: _isRelativeMode
+                                    ? (_) => _onRelativeChanged()
+                                    : null,
+                                decoration: const InputDecoration(
+                                  isDense: true,
+                                  hintText: '',
+                                  border: OutlineInputBorder(),
+                                  contentPadding: EdgeInsets.symmetric(
+                                    vertical: 8,
+                                    horizontal: 8,
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            InkWell(
+                              onTap: _isRelativeMode && _reminder.enabled
+                                  ? _showRelativeUnitMenu
+                                  : null,
+                              borderRadius: BorderRadius.circular(8),
+                              child: Container(
+                                key: _unitSelectorKey,
+                                height: 28,
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 8),
+                                decoration: BoxDecoration(
+                                  color: _isRelativeMode
+                                      ? Colors.white
+                                      : Colors.grey.shade100,
+                                  borderRadius: BorderRadius.circular(8),
+                                  border: Border.all(
+                                    color: _isRelativeMode
+                                        ? Theme.of(context).dividerColor
+                                        : Colors.grey.shade300,
+                                    width: 1,
+                                  ),
+                                ),
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Text(
+                                      '${_relativeUnit[0].toUpperCase()}${_relativeUnit.substring(1)}',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: _isRelativeMode
+                                            ? Colors.black87
+                                            : Colors.grey.shade500,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 4),
+                                    Icon(
+                                      Icons.arrow_drop_down,
+                                      size: 18,
+                                      color: _isRelativeMode
+                                          ? Colors.black54
+                                          : Colors.grey.shade500,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'before due time',
+                              style: TextStyle(
+                                fontSize: 12,
+                                color: _isRelativeMode
+                                    ? Colors.black87
+                                    : Colors.grey.shade600,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
                   ),
-                  child: const Text('Select'),
+                ),
+                const SizedBox(height: 6),
+                InkWell(
+                  onTap: _reminder.enabled && _isRelativeMode
+                      ? () => _selectMode(false)
+                      : null,
+                  borderRadius: BorderRadius.circular(10),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(
+                      vertical: 10,
+                      horizontal: 12,
+                    ),
+                    decoration: BoxDecoration(
+                      color: !_isRelativeMode
+                          ? Theme.of(context)
+                              .colorScheme
+                              .primary
+                              .withOpacity(0.08)
+                          : Colors.transparent,
+                      border: Border.all(
+                        color: !_isRelativeMode
+                            ? Theme.of(context).colorScheme.primary
+                            : Colors.grey.shade300,
+                        width: !_isRelativeMode ? 1.5 : 1,
+                      ),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Set time',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: !_isRelativeMode
+                                ? Theme.of(context).colorScheme.primary
+                                : Colors.grey.shade600,
+                          ),
+                        ),
+                        const SizedBox(height: 6),
+                        TextButton.icon(
+                          onPressed: _reminder.enabled ? _selectOffset : null,
+                          icon: const Icon(Icons.schedule),
+                          label: Text(
+                            _timeButtonLabel(context),
+                            style: TextStyle(
+                              color: !_isRelativeMode
+                                  ? Colors.black87
+                                  : Colors.grey.shade600,
+                            ),
+                          ),
+                          style: TextButton.styleFrom(
+                            padding: EdgeInsets.zero,
+                            minimumSize: const Size(0, 0),
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
               ],
             ),
+            const SizedBox(height: 4),
           ],
         ),
       ),
     );
   }
 }
-

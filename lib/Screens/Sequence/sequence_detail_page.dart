@@ -303,7 +303,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
     final theme = FlutterFlowTheme.of(context);
     return Container(
       margin: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       decoration: BoxDecoration(
         gradient: theme.neumorphicGradient,
         border: Border.all(
@@ -321,14 +321,31 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
             size: 24,
           ),
           const SizedBox(width: 12),
-          Text(
-            title,
-            style: theme.titleMedium.override(
-              fontWeight: FontWeight.w600,
-              color: theme.primary,
+          Expanded(
+            child: Text(
+              title,
+              style: theme.titleMedium.override(
+                fontWeight: FontWeight.w600,
+                color: theme.primary,
+              ),
+              overflow: TextOverflow.ellipsis,
             ),
           ),
-          const Spacer(),
+          IconButton(
+            onPressed: _resetSequenceItems,
+            icon: const Icon(Icons.refresh_outlined),
+            tooltip: 'Reset Non-Productive Items',
+            color: theme.secondaryText,
+            iconSize: 20,
+          ),
+          IconButton(
+            onPressed: _editSequence,
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit Sequence',
+            color: theme.secondaryText,
+            iconSize: 20,
+          ),
+          const SizedBox(width: 4),
           Container(
             padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
             decoration: BoxDecoration(
@@ -402,21 +419,9 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
       appBar: AppBar(
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
         title: Text(
-          widget.sequence.name,
+          'Sequence',
           style: FlutterFlowTheme.of(context).headlineMedium,
         ),
-        actions: [
-          IconButton(
-            onPressed: _resetSequenceItems,
-            icon: const Icon(Icons.refresh_outlined),
-            tooltip: 'Reset Non-Productive Items',
-          ),
-          IconButton(
-            onPressed: _editSequence,
-            icon: const Icon(Icons.edit),
-            tooltip: 'Edit Sequence',
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())

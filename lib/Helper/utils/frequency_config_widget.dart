@@ -49,15 +49,7 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        gradient: theme.neumorphicGradientSubtle,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: theme.surfaceBorderColor,
-          width: 1,
-        ),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
       child: Text(
         title,
         style: theme.titleMedium.override(
@@ -110,42 +102,54 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         decoration: BoxDecoration(
-          color: theme.tertiary.withOpacity(0.3),
-          borderRadius: BorderRadius.circular(10),
+          color: theme.secondaryBackground,
+          borderRadius: BorderRadius.circular(12),
           border: Border.all(
-            color: theme.surfaceBorderColor,
+            color: theme.surfaceBorderColor.withOpacity(0.8),
             width: 1,
           ),
+          boxShadow: [
+            BoxShadow(
+              color: theme.primary.withOpacity(0.03),
+              blurRadius: 8,
+              offset: const Offset(0, 2),
+            ),
+          ],
         ),
         child: Row(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    label,
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: theme.secondaryText,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 12,
+                color: theme.secondaryText,
+              ),
+            ),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                if (value.isNotEmpty &&
+                    value != 'No end date' &&
+                    value != 'Not set')
                   Text(
                     value,
                     style: theme.bodyMedium.override(
                       fontFamily: 'Readex Pro',
                       fontWeight: FontWeight.w500,
                     ),
+                  )
+                else
+                  Text(
+                    value,
+                    style: TextStyle(
+                      color: theme.secondaryText,
+                      fontSize: 14,
+                    ),
                   ),
-                ],
-              ),
-            ),
-            Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+                const SizedBox(width: 8),
                 if (onClear != null)
                   Padding(
                     padding: const EdgeInsets.only(right: 8),
@@ -160,7 +164,7 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
                   ),
                 Icon(
                   icon,
-                  color: theme.primary,
+                  color: theme.secondaryText,
                   size: 20,
                 ),
               ],
@@ -490,12 +494,19 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
   }) {
     return Container(
       decoration: BoxDecoration(
-        color: theme.tertiary.withOpacity(0.3),
+        color: theme.secondaryBackground,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(
-          color: theme.surfaceBorderColor,
+          color: theme.surfaceBorderColor.withOpacity(0.8),
           width: 1,
         ),
+        boxShadow: [
+          BoxShadow(
+            color: theme.primary.withOpacity(0.03),
+            blurRadius: 4,
+            offset: const Offset(0, 1),
+          ),
+        ],
       ),
       child: TextFormField(
         initialValue: initialValue,
@@ -523,12 +534,19 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
         child: Container(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
           decoration: BoxDecoration(
-            color: theme.tertiary.withOpacity(0.3),
+            color: theme.secondaryBackground,
             borderRadius: BorderRadius.circular(8),
             border: Border.all(
-              color: theme.surfaceBorderColor,
+              color: theme.surfaceBorderColor.withOpacity(0.8),
               width: 1,
             ),
+            boxShadow: [
+              BoxShadow(
+                color: theme.primary.withOpacity(0.03),
+                blurRadius: 4,
+                offset: const Offset(0, 1),
+              ),
+            ],
           ),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,

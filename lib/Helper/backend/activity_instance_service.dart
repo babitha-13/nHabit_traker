@@ -1013,6 +1013,37 @@ class ActivityInstanceService {
     }
   }
 
+  /// Update instance timer state
+  static Future<void> updateInstanceTimer({
+    required String instanceId,
+    required bool isActive,
+    DateTime? startTime,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+      final instanceDoc = await instanceRef.get();
+      if (!instanceDoc.exists) {
+        throw Exception('Activity instance not found');
+      }
+
+      await instanceRef.update({
+        'isTimerActive': isActive,
+        'timerStartTime': startTime ?? (isActive ? DateService.currentDate : null),
+        'lastUpdated': DateService.currentDate,
+      });
+
+      // Broadcast the instance update event
+      final updatedInstance =
+          await getUpdatedInstance(instanceId: instanceId, userId: uid);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   /// Toggle timer for time tracking using session-based logic
   static Future<void> toggleInstanceTimer({
     required String instanceId,

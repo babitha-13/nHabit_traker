@@ -958,15 +958,47 @@ class _ProgressPageState extends State<ProgressPage> {
 
   // Build 7-day column chart
   Widget _build7DayColumnChart(List<DailyProgressRecord> data) {
-    // Don't show empty state - we always have today's live data
-    // Create data for last 7 days (including today)
+    // Pre-calculate chart data to simplify widget tree for compiler
+    final chartData = _prepareChartData();
+    
+    // Find max target for scaling
+    double maxTarget = 100.0;
+    if (chartData.isNotEmpty) {
+      final maxVal = chartData
+          .map((d) => d['target'] as double)
+          .reduce((a, b) => a > b ? a : b);
+      if (maxVal > 0) maxTarget = maxVal;
+    }
+
+    return Column(
+      children: [
+        // Chart area
+        Expanded(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: chartData.map((dayData) {
+              return _buildSingleDayColumn(dayData, maxTarget);
+            }).toList(),
+          ),
+        ),
+        const SizedBox(height: 12),
+        // Legend
+        _buildChartLegend(),
+      ],
+    );
+  }
+
+  List<Map<String, dynamic>> _prepareChartData() {
     final List<Map<String, dynamic>> chartData = [];
     final today = DateService.currentDate;
+    
     for (int i = 6; i >= 0; i--) {
+      // Use explicit Duration constant to avoid optimization issues
       final date = today.subtract(Duration(days: i));
       final isToday = _isSameDay(date, today);
+      
       if (isToday) {
-        // Use live data from shared state
         chartData.add({
           'date': date,
           'target': _todayTarget,
@@ -975,7 +1007,6 @@ class _ProgressPageState extends State<ProgressPage> {
           'dayName': 'Today',
         });
       } else {
-        // Use historical snapshot from DailyProgressRecord
         final dayData = _getProgressForDate(date);
         chartData.add({
           'date': date,
@@ -986,132 +1017,118 @@ class _ProgressPageState extends State<ProgressPage> {
         });
       }
     }
-    // Find max target for scaling
-    final maxTarget = chartData
-        .map((d) => d['target'] as double)
-        .reduce((a, b) => a > b ? a : b);
-    final maxHeight =
-        maxTarget > 0 ? maxTarget : 100.0; // Fallback to 100 if no data
-    return Column(
-      children: [
-        // Chart area
-        Expanded(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: chartData.map((dayData) {
-              final target = dayData['target'] as double;
-              final earned = dayData['earned'] as double;
-              final percentage = dayData['percentage'] as double;
-              final dayName = dayData['dayName'] as String;
-              // Calculate heights
-              final targetHeight = (target / maxHeight) * 100;
-              final earnedHeight =
-                  target > 0 ? (earned / target) * targetHeight : 0.0;
-              return Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 2),
-                  child: Column(
-                    children: [
-                      // Column
-                      Expanded(
-                        child: GestureDetector(
-                          onTap: () => _showProgressBreakdown(
-                              context, dayData['date'] as DateTime),
-                          child: Stack(
-                            alignment: Alignment.bottomCenter,
-                            children: [
-                              // Target bar (background)
-                              Container(
-                                width: 20,
-                                height: targetHeight,
-                                decoration: BoxDecoration(
-                                  color: FlutterFlowTheme.of(context).alternate,
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                              ),
-                              // Earned bar (foreground)
-                              if (earnedHeight > 0)
-                                Container(
-                                  width: 20,
-                                  height: earnedHeight,
-                                  decoration: BoxDecoration(
-                                    color: _getPerformanceColor(percentage),
-                                    borderRadius: BorderRadius.circular(10),
-                                  ),
-                                ),
-                            ],
-                          ),
+    return chartData;
+  }
+
+  Widget _buildSingleDayColumn(Map<String, dynamic> dayData, double maxTarget) {
+    final target = dayData['target'] as double;
+    final earned = dayData['earned'] as double;
+    final percentage = dayData['percentage'] as double;
+    final dayName = dayData['dayName'] as String;
+    
+    final targetHeight = (target / maxTarget) * 100;
+    final earnedHeight = target > 0 ? (earned / target) * targetHeight : 0.0;
+
+    return Expanded(
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 2),
+        child: Column(
+          children: [
+            // Column
+            Expanded(
+              child: GestureDetector(
+                onTap: () => _showProgressBreakdown(
+                    context, dayData['date'] as DateTime),
+                child: Stack(
+                  alignment: Alignment.bottomCenter,
+                  children: [
+                    // Target bar
+                    Container(
+                      width: 20,
+                      height: targetHeight,
+                      decoration: BoxDecoration(
+                        color: FlutterFlowTheme.of(context).alternate,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                    ),
+                    // Earned bar
+                    if (earnedHeight > 0)
+                      Container(
+                        width: 20,
+                        height: earnedHeight,
+                        decoration: BoxDecoration(
+                          color: _getPerformanceColor(percentage),
+                          borderRadius: BorderRadius.circular(10),
                         ),
                       ),
-                      const SizedBox(height: 8),
-                      // Day label
-                      Text(
-                        dayName,
-                        style: FlutterFlowTheme.of(context).bodySmall.override(
-                              fontFamily: 'Readex Pro',
-                              fontSize: 10,
-                              color: FlutterFlowTheme.of(context).secondaryText,
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                      // Percentage
-                      Text(
-                        '${percentage.toStringAsFixed(0)}%',
-                        style: FlutterFlowTheme.of(context).bodySmall.override(
-                              fontFamily: 'Readex Pro',
-                              fontSize: 9,
-                              fontWeight: FontWeight.w600,
-                              color: _getPerformanceColor(percentage),
-                            ),
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
+                  ],
                 ),
-              );
-            }).toList(),
-          ),
-        ),
-        const SizedBox(height: 12),
-        // Legend
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: FlutterFlowTheme.of(context).alternate,
-                borderRadius: BorderRadius.circular(2),
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(height: 8),
+            // Day label
             Text(
-              'Target',
+              dayName,
               style: FlutterFlowTheme.of(context).bodySmall.override(
                     fontFamily: 'Readex Pro',
+                    fontSize: 10,
                     color: FlutterFlowTheme.of(context).secondaryText,
                   ),
+              textAlign: TextAlign.center,
             ),
-            const SizedBox(width: 16),
-            Container(
-              width: 12,
-              height: 12,
-              decoration: BoxDecoration(
-                color: Colors.green,
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            const SizedBox(width: 8),
+            // Percentage
             Text(
-              'Completed',
+              '${percentage.toStringAsFixed(0)}%',
               style: FlutterFlowTheme.of(context).bodySmall.override(
                     fontFamily: 'Readex Pro',
-                    color: FlutterFlowTheme.of(context).secondaryText,
+                    fontSize: 9,
+                    fontWeight: FontWeight.w600,
+                    color: _getPerformanceColor(percentage),
                   ),
+              textAlign: TextAlign.center,
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildChartLegend() {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: FlutterFlowTheme.of(context).alternate,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          'Target',
+          style: FlutterFlowTheme.of(context).bodySmall.override(
+                fontFamily: 'Readex Pro',
+                color: FlutterFlowTheme.of(context).secondaryText,
+              ),
+        ),
+        const SizedBox(width: 16),
+        Container(
+          width: 12,
+          height: 12,
+          decoration: BoxDecoration(
+            color: Colors.green,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(
+          'Completed',
+          style: FlutterFlowTheme.of(context).bodySmall.override(
+                fontFamily: 'Readex Pro',
+                color: FlutterFlowTheme.of(context).secondaryText,
+              ),
         ),
       ],
     );

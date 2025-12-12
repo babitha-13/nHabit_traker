@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/utils/non_productive_template_dialog.dart';
-import 'package:habit_tracker/Helper/utils/time_log_dialog.dart';
+import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
+import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
 class NonProductiveTemplatesPage extends StatefulWidget {
@@ -81,21 +81,6 @@ class _NonProductiveTemplatesPageState
     }
   }
 
-  Future<void> _showTimeLogDialog(ActivityRecord template) async {
-    final result = await showDialog<bool>(
-      context: context,
-      builder: (context) => TimeLogDialog(template: template),
-    );
-    if (result == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Time logged successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
-    }
-  }
-
   Future<void> _deleteTemplate(ActivityRecord template) async {
     final confirmed = await showDialog<bool>(
       context: context,
@@ -155,13 +140,6 @@ class _NonProductiveTemplatesPageState
       appBar: AppBar(
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
         title: const Text('Non-Productive Items'),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.refresh),
-            onPressed: _loadTemplates,
-            tooltip: 'Refresh',
-          ),
-        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -198,78 +176,96 @@ class _NonProductiveTemplatesPageState
                       final template = _templates[index];
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
-                        child: ListTile(
-                          leading: Container(
-                            width: 48,
-                            height: 48,
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade400,
-                              shape: BoxShape.circle,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: ListTile(
+                            leading: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // Play button to start timer
+                                IconButton(
+                                  icon: const Icon(Icons.play_arrow, color: Colors.green),
+                                  onPressed: () {
+                                    // Navigate to Timer Page with this template
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) => TimerPage(
+                                          taskTitle: template.name,
+                                          isNonProductive: true,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                  tooltip: 'Start Timer',
+                                ),
+                                const SizedBox(width: 8),
+                                // Icon for non-productive item
+                                Container(
+                                  width: 40,
+                                  height: 40,
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: Colors.grey.shade400,
+                                    shape: BoxShape.circle,
+                                  ),
+                                  alignment: Alignment.center,
+                                  child: const Icon(
+                                    Icons.access_time,
+                                    color: Colors.white,
+                                    size: 20,
+                                  ),
+                                ),
+                              ],
                             ),
-                            child: const Icon(
-                              Icons.access_time,
-                              color: Colors.white,
+                            title: Text(
+                              template.name,
+                              style: FlutterFlowTheme.of(context).titleMedium,
+                            ),
+                            subtitle: template.description.isNotEmpty
+                                ? Text(
+                                    template.description,
+                                    maxLines: 2,
+                                    overflow: TextOverflow.ellipsis,
+                                  )
+                                : null,
+                            trailing: PopupMenuButton<String>(
+                              onSelected: (value) {
+                                switch (value) {
+                                  case 'edit':
+                                    _showEditDialog(template);
+                                    break;
+                                  case 'delete':
+                                    _deleteTemplate(template);
+                                    break;
+                                }
+                              },
+                              itemBuilder: (context) => [
+                                const PopupMenuItem(
+                                  value: 'edit',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.edit, size: 20),
+                                      SizedBox(width: 8),
+                                      Text('Edit'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'delete',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.delete,
+                                          size: 20, color: Colors.red),
+                                      SizedBox(width: 8),
+                                      Text('Delete',
+                                          style: TextStyle(color: Colors.red)),
+                                    ],
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                          title: Text(
-                            template.name,
-                            style: FlutterFlowTheme.of(context).titleMedium,
-                          ),
-                          subtitle: template.description.isNotEmpty
-                              ? Text(
-                                  template.description,
-                                  maxLines: 2,
-                                  overflow: TextOverflow.ellipsis,
-                                )
-                              : null,
-                          trailing: PopupMenuButton<String>(
-                            onSelected: (value) {
-                              switch (value) {
-                                case 'log':
-                                  _showTimeLogDialog(template);
-                                  break;
-                                case 'edit':
-                                  _showEditDialog(template);
-                                  break;
-                                case 'delete':
-                                  _deleteTemplate(template);
-                                  break;
-                              }
-                            },
-                            itemBuilder: (context) => [
-                              const PopupMenuItem(
-                                value: 'log',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.access_time, size: 20),
-                                    SizedBox(width: 8),
-                                    Text('Quick Log'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'edit',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.edit, size: 20),
-                                    SizedBox(width: 8),
-                                    Text('Edit'),
-                                  ],
-                                ),
-                              ),
-                              const PopupMenuItem(
-                                value: 'delete',
-                                child: Row(
-                                  children: [
-                                    Icon(Icons.delete, size: 20, color: Colors.red),
-                                    SizedBox(width: 8),
-                                    Text('Delete', style: TextStyle(color: Colors.red)),
-                                  ],
-                                ),
-                              ),
-                            ],
-                          ),
-                          onTap: () => _showTimeLogDialog(template),
                         ),
                       );
                     },
@@ -283,4 +279,3 @@ class _NonProductiveTemplatesPageState
     );
   }
 }
-

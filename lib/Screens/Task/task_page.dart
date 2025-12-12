@@ -428,6 +428,10 @@ class _TaskPageState extends State<TaskPage> {
                                         // Clear due date without opening picker
                                         updateState(() {
                                           _selectedQuickDueDate = null;
+                                          // Auto-remove reminders if due date is cleared
+                                          if (!quickIsRecurring) {
+                                            _quickReminders = [];
+                                          }
                                         });
                                       },
                                       child: Icon(
@@ -582,7 +586,9 @@ class _TaskPageState extends State<TaskPage> {
                                         size: 14, color: theme.accent1),
                                     const SizedBox(width: 6),
                                     Text(
-                                      '${_quickReminders.length} reminder${_quickReminders.length == 1 ? '' : 's'}',
+                                      _quickReminders.length == 1
+                                          ? _quickReminders.first.getDescription()
+                                          : '${_quickReminders.length} reminders',
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: theme.accent1,
@@ -1251,9 +1257,17 @@ class _TaskPageState extends State<TaskPage> {
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (BuildContext context, StateSetter setModalState) {
+          // Get safe area insets for bottom navigation bar
+          final bottomPadding = MediaQuery.of(context).padding.bottom;
+          final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
+          // Use the larger of keyboard height or safe area padding
+          final totalBottomPadding = keyboardHeight > 0 
+              ? keyboardHeight 
+              : bottomPadding;
+          
           return Padding(
             padding: EdgeInsets.only(
-              bottom: MediaQuery.of(context).viewInsets.bottom,
+              bottom: totalBottomPadding,
             ),
             child: Container(
               decoration: BoxDecoration(
@@ -1438,10 +1452,17 @@ class _TaskPageState extends State<TaskPage> {
       context: context,
       initialReminders: _quickReminders,
       dueTime: _selectedQuickDueTime,
+      onRequestDueTime: () => _selectQuickDueTime(updateState),
     );
     if (reminders != null) {
       updateState(() {
         _quickReminders = reminders;
+        // Auto-set due date to today if reminders are added and no due date exists
+        if (_quickReminders.isNotEmpty &&
+            !quickIsRecurring &&
+            _selectedQuickDueDate == null) {
+          _selectedQuickDueDate = DateTime.now();
+        }
       });
     }
   }

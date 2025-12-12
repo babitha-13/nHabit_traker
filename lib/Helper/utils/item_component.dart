@@ -11,13 +11,15 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Edit%20Task/edit_task.dart';
-import 'package:habit_tracker/Screens/createHabit/create_habit.dart';
+import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Progress/habit_detail_statistics_page.dart';
 import 'package:intl/intl.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Screens/Components/item_expanded_details.dart';
 
 class ItemComponent extends StatefulWidget {
   final ActivityInstanceRecord instance;
@@ -71,6 +73,8 @@ class _ItemComponentState extends State<ItemComponent>
   num? _quantProgressOverride;
   bool? _timerStateOverride;
   bool _isExpanded = false;
+  bool? _hasReminders; // Cache for reminder check
+  String? _reminderDisplayText; // Cache for reminder display text
   @override
   void initState() {
     super.initState();
@@ -325,14 +329,9 @@ class _ItemComponentState extends State<ItemComponent>
         ),
         child: IntrinsicHeight(
           child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              Container(
-                width: 3,
-                decoration: BoxDecoration(
-                  color: _leftStripeColor,
-                  borderRadius: BorderRadius.circular(2),
-                ),
-              ),
+              _buildLeftStripe(),
               const SizedBox(width: 5),
               SizedBox(
                 width: 36,
@@ -345,6 +344,10 @@ class _ItemComponentState extends State<ItemComponent>
                   onTap: () {
                     setState(() {
                       _isExpanded = !_isExpanded;
+                      // Check for reminders when expanding
+                      if (_isExpanded && _hasReminders == null) {
+                        _checkForReminders();
+                      }
                     });
                   },
                   child: ConstrainedBox(
@@ -392,95 +395,16 @@ class _ItemComponentState extends State<ItemComponent>
                         ],
                         if (_isExpanded) ...[
                           const SizedBox(height: 4),
-                          Row(
-                            children: [
-                              // Show habit/task icon in expanded view
-                              Icon(
-                                widget.isHabit ? Icons.flag : Icons.assignment,
-                                size: 12,
-                                color: FlutterFlowTheme.of(context)
-                                    .secondaryText
-                                    .withOpacity(0.7),
-                              ),
-                              const SizedBox(width: 4),
-                              // Show category name (for queue page)
-                              if ((widget.page == 'queue' ||
-                                      _isQueuePageSubtitle(
-                                          widget.subtitle ?? '')) &&
-                                  widget.instance.templateCategoryName
-                                      .isNotEmpty) ...[
-                                Text(
-                                  widget.instance.templateCategoryName,
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText
-                                            .withOpacity(0.7),
-                                        fontSize: 11,
-                                      ),
-                                ),
-                                const SizedBox(width: 4),
-                                // Add bullet separator if there's frequency or "one time" text to follow
-                                if ((_isRecurringItem() &&
-                                        _getFrequencyDisplay().isNotEmpty) ||
-                                    (!_isRecurringItem())) ...[
-                                  Text(
-                                    '•',
-                                    style: FlutterFlowTheme.of(context)
-                                        .bodySmall
-                                        .override(
-                                          fontFamily: 'Readex Pro',
-                                          color: FlutterFlowTheme.of(context)
-                                              .secondaryText
-                                              .withOpacity(0.7),
-                                          fontSize: 11,
-                                        ),
-                                  ),
-                                  const SizedBox(width: 4),
-                                ],
-                              ],
-                              // Show frequency if recurring, or "one time" if not recurring
-                              if (_isRecurringItem() &&
-                                  _getFrequencyDisplay().isNotEmpty) ...[
-                                Text(
-                                  _getFrequencyDisplay(),
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText
-                                            .withOpacity(0.7),
-                                        fontSize: 11,
-                                      ),
-                                ),
-                              ] else if (_isRecurringItem()) ...[
-                                // Just show recurring indicator if no frequency text
-                                Icon(
-                                  Icons.repeat,
-                                  size: 12,
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryText
-                                      .withOpacity(0.7),
-                                ),
-                              ] else ...[
-                                // Show "one time" for non-recurring tasks
-                                Text(
-                                  'one time',
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText
-                                            .withOpacity(0.7),
-                                        fontSize: 11,
-                                      ),
-                                ),
-                              ],
-                            ],
+                          ItemExpandedDetails(
+                            instance: widget.instance,
+                            page: widget.page,
+                            subtitle: widget.subtitle,
+                            isHabit: widget.isHabit,
+                            isRecurring: _isRecurringItem(),
+                            frequencyDisplay: _getFrequencyDisplay(),
+                            hasReminders: _hasReminders,
+                            reminderDisplayText: _reminderDisplayText,
+                            onEdit: _editActivity,
                           ),
                         ],
                         // Progress bar inside the text container for proper vertical centering
@@ -529,6 +453,7 @@ class _ItemComponentState extends State<ItemComponent>
               ),
               Column(
                 mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
                 children: [
                   Row(
                     mainAxisSize: MainAxisSize.min,
@@ -554,26 +479,30 @@ class _ItemComponentState extends State<ItemComponent>
                         ),
                         const SizedBox(width: 5),
                       ],
-                      Builder(
-                        builder: (btnCtx) => GestureDetector(
-                          onTap: () {
-                            _showScheduleMenu(btnCtx);
-                          },
-                          child: const Icon(Icons.calendar_month, size: 20),
+                      if (!_isNonProductive) ...[
+                        Builder(
+                          builder: (btnCtx) => GestureDetector(
+                            onTap: () {
+                              _showScheduleMenu(btnCtx);
+                            },
+                            child: const Icon(Icons.calendar_month, size: 20),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: 5),
-                      Builder(
-                        builder: (btnCtx) => GestureDetector(
-                          onTap: () {
-                            _showHabitOverflowMenu(btnCtx);
-                          },
-                          child: const Icon(Icons.more_vert, size: 20),
+                        const SizedBox(width: 5),
+                      ],
+                      if (!_isNonProductive) ...[
+                        Builder(
+                          builder: (btnCtx) => GestureDetector(
+                            onTap: () {
+                              _showHabitOverflowMenu(btnCtx);
+                            },
+                            child: const Icon(Icons.more_vert, size: 20),
+                          ),
                         ),
-                      ),
+                      ],
                     ],
                   ),
-                  if (_isExpanded) ...[
+                  if (_isExpanded && !_isNonProductive) ...[
                     const SizedBox(height: 10),
                     _buildHabitPriorityStars(),
                   ],
@@ -649,6 +578,42 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
+  Future<void> _editActivity() async {
+    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final templateRef =
+        ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
+    ActivityRecord template;
+    try {
+      template = await ActivityRecord.getDocumentOnce(templateRef);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading activity: ${e.toString()}')),
+        );
+      }
+      return;
+    }
+    if (widget.instance.templateCategoryType == 'task' ||
+        widget.instance.templateCategoryType == 'habit') {
+      showDialog(
+        context: context,
+        builder: (_) => ActivityEditorDialog(
+          activity: template,
+          instance: widget.instance,
+          isHabit: widget.instance.templateCategoryType == 'habit',
+          categories: widget.categories ?? [],
+          onSave: (updatedHabit) async {
+            if (widget.onRefresh != null) {
+              await widget.onRefresh!();
+            }
+          },
+        ),
+      );
+    } else {
+      // Fallback or error if unknown type
+    }
+  }
+
   Future<void> _showHabitOverflowMenu(BuildContext anchorContext) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
@@ -689,44 +654,7 @@ class _ItemComponentState extends State<ItemComponent>
     final templateRef =
         ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
     if (selected == 'edit') {
-      ActivityRecord template;
-      try {
-        template = await ActivityRecord.getDocumentOnce(templateRef);
-      } catch (e) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(content: Text('Error loading activity: ${e.toString()}')),
-          );
-        }
-        return;
-      }
-      if (widget.instance.templateCategoryType == 'task') {
-        showDialog(
-          context: context,
-          builder: (_) => EditTask(
-            task: template, // Pass the template here
-            instance: widget.instance, // Pass the instance here
-            categories: widget.categories ?? [],
-            onSave: (updatedHabit) async {
-              // Trigger refresh to show updated instances
-              if (widget.onRefresh != null) {
-                await widget.onRefresh!();
-              }
-            },
-          ),
-        );
-      } else {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => createActivityPage(habitToEdit: template),
-          ),
-        ).then((value) {
-          if (value == true) {
-            widget.onRefresh?.call();
-          }
-        });
-      }
+      await _editActivity();
     } else if (selected == 'copy') {
       await _copyHabit();
     } else if (selected == 'delete') {
@@ -1155,6 +1083,10 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Color get _leftStripeColor {
+    // Use grey for non-productive items
+    if (widget.instance.templateCategoryType == 'non_productive') {
+      return const Color(0xFF9E9E9E); // Medium grey for non-productive items
+    }
     // Always use dark charcoal color for tasks
     if (widget.instance.templateCategoryType == 'task') {
       return const Color(0xFF2F4F4F); // Dark Slate Gray (charcoal) for tasks
@@ -1167,6 +1099,32 @@ class _ItemComponentState extends State<ItemComponent>
       } catch (_) {}
     }
     return Colors.black;
+  }
+
+  bool get _isNonProductive {
+    return widget.instance.templateCategoryType == 'non_productive';
+  }
+
+  Widget _buildLeftStripe() {
+    if (_isNonProductive) {
+      // Dotted stripe for non-productive items
+      return SizedBox(
+        width: 3,
+        child: CustomPaint(
+          size: Size(3, double.infinity),
+          painter: _DottedLinePainter(color: _leftStripeColor),
+        ),
+      );
+    } else {
+      // Solid stripe for productive items
+      return Container(
+        width: 3,
+        decoration: BoxDecoration(
+          color: _leftStripeColor,
+          borderRadius: BorderRadius.circular(2),
+        ),
+      );
+    }
   }
 
   String _getProgressDisplayText() {
@@ -1224,6 +1182,9 @@ class _ItemComponentState extends State<ItemComponent>
       processedSubtitle = _removeCategoryNameFromSubtitle(baseSubtitle);
     }
 
+    // Add due time to subtitle if date exists but time doesn't
+    processedSubtitle = _addDueTimeToSubtitle(processedSubtitle);
+
     if (processedSubtitle.isEmpty && progressText.isEmpty) {
       return '';
     }
@@ -1242,6 +1203,128 @@ class _ItemComponentState extends State<ItemComponent>
     } else {
       return processedSubtitle;
     }
+  }
+
+  String _addDueTimeToSubtitle(String subtitle) {
+    // Check if subtitle already contains a time (indicated by @ symbol)
+    if (subtitle.contains('@')) {
+      return subtitle; // Already has time, don't add
+    }
+
+    // Get due time from instance (check both dueTime and templateDueTime)
+    String? dueTimeStr;
+    if (widget.instance.hasDueTime()) {
+      dueTimeStr = TimeUtils.formatTimeForDisplay(widget.instance.dueTime);
+    } else if (widget.instance.hasTemplateDueTime()) {
+      dueTimeStr =
+          TimeUtils.formatTimeForDisplay(widget.instance.templateDueTime);
+    }
+
+    final bool hasDueTime = dueTimeStr != null && dueTimeStr.isNotEmpty;
+    final timeSuffix = hasDueTime ? ' @ $dueTimeStr' : '';
+
+    // If instance has dueDate, we should add time even if date pattern isn't detected
+    // This handles cases where subtitle format might be different
+    if (widget.instance.dueDate == null || _isNonProductive) {
+      return subtitle; // No due date, can't add time
+    }
+
+    // Check if subtitle contains a date pattern (common date formats)
+    // Patterns: "Dec 10", "Dec 10, 2024", "Today", "Tomorrow", "MMM d" format, etc.
+    final datePatterns = [
+      RegExp(r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b',
+          caseSensitive: false), // Matches "Dec 10" or "Dec 10, 2024"
+      RegExp(r'\bToday\b', caseSensitive: false),
+      RegExp(r'\bTomorrow\b', caseSensitive: false),
+      RegExp(r'\b\d{1,2}[/-]\d{1,2}[/-]\d{2,4}\b'), // MM/DD/YYYY or DD-MM-YYYY
+    ];
+
+    bool hasDate = false;
+    for (final pattern in datePatterns) {
+      if (pattern.hasMatch(subtitle)) {
+        hasDate = true;
+        break;
+      }
+    }
+
+    // Also check if instance has dueDate (more reliable check)
+    if (!hasDate && widget.instance.dueDate != null) {
+      // Format the due date to match common subtitle formats
+      final dueDate = widget.instance.dueDate!;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+      final dueDateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+      // Check both MMMd and yMMMd formats (habits use yMMMd)
+      String dateStrMMMd;
+      String dateStrYMMMd;
+      if (dueDateOnly.isAtSameMomentAs(today)) {
+        dateStrMMMd = 'Today';
+        dateStrYMMMd = 'Today';
+      } else if (dueDateOnly.isAtSameMomentAs(tomorrow)) {
+        dateStrMMMd = 'Tomorrow';
+        dateStrYMMMd = 'Tomorrow';
+      } else {
+        dateStrMMMd = DateFormat.MMMd().format(dueDate); // "Dec 10"
+        dateStrYMMMd = DateFormat.yMMMd().format(dueDate); // "Dec 10, 2024"
+      }
+
+      // Check if subtitle starts with or contains either date format
+      if (subtitle.contains(dateStrMMMd) ||
+          subtitle.startsWith(dateStrMMMd) ||
+          subtitle.contains(dateStrYMMMd) ||
+          subtitle.startsWith(dateStrYMMMd)) {
+        hasDate = true;
+      }
+    }
+
+    if (hasDate) {
+      if (!hasDueTime) {
+        return subtitle; // Already shows date but no time to append
+      }
+      // Append time to the date part
+      // Find where the date ends (before any bullet points or other text)
+      final dateEndIndex = subtitle.indexOf(' •');
+      if (dateEndIndex > 0) {
+        // Insert time before the bullet
+        return '${subtitle.substring(0, dateEndIndex)}$timeSuffix${subtitle.substring(dateEndIndex)}';
+      } else {
+        // Append time at the end of the date
+        return '$subtitle$timeSuffix';
+      }
+    }
+
+    // If we have dueDate but didn't detect date pattern, we need to add date + time
+    // This handles cases where subtitle doesn't contain a date (e.g., "food • Every day")
+    if (widget.instance.dueDate != null && !hasDate) {
+      // Format the due date
+      final dueDate = widget.instance.dueDate!;
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      final tomorrow = today.add(const Duration(days: 1));
+      final dueDateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+
+      String dateStr;
+      if (dueDateOnly.isAtSameMomentAs(today)) {
+        dateStr = 'Today';
+      } else if (dueDateOnly.isAtSameMomentAs(tomorrow)) {
+        dateStr = 'Tomorrow';
+      } else {
+        // Use MMMd format for consistency (shorter, cleaner)
+        dateStr = DateFormat.MMMd().format(dueDate); // "Dec 10"
+      }
+
+      final dateWithOptionalTime = '$dateStr$timeSuffix';
+      if (subtitle.isEmpty) {
+        return dateWithOptionalTime;
+      } else {
+        // Add date + time at the beginning, followed by existing subtitle
+        return '$dateWithOptionalTime • $subtitle';
+      }
+    }
+
+    return subtitle;
   }
 
   bool _isQueuePageSubtitle(String subtitle) {
@@ -1289,6 +1372,90 @@ class _ItemComponentState extends State<ItemComponent>
     }
 
     return subtitle;
+  }
+
+  /// Check if the template has reminders configured
+  Future<void> _checkForReminders() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) {
+        if (mounted) {
+          setState(() => _hasReminders = false);
+        }
+        return;
+      }
+
+      final templateRef = ActivityRecord.collectionForUser(userId)
+          .doc(widget.instance.templateId);
+      final templateDoc = await templateRef.get();
+
+      if (!templateDoc.exists) {
+        if (mounted) {
+          setState(() => _hasReminders = false);
+        }
+        return;
+      }
+
+      final template = ActivityRecord.fromSnapshot(templateDoc);
+
+      // Check if instance has due time (for relative reminders)
+      final hasDueTime =
+          widget.instance.hasDueTime() || widget.instance.hasTemplateDueTime();
+
+      // Check if template has reminders
+      bool hasReminders = false;
+      String? reminderDisplayText;
+      if (template.hasReminders()) {
+        final reminders = ReminderConfigList.fromMapList(template.reminders);
+        // Check if any reminder is enabled
+        hasReminders = reminders.any((reminder) => reminder.enabled);
+        // Build display text for reminders
+        if (hasReminders) {
+          final List<String> reminderTexts = [];
+
+          // Add fixed time reminders
+          final fixedTimeReminders = reminders
+              .where((r) => r.enabled && r.fixedTimeMinutes != null)
+              .toList();
+          if (fixedTimeReminders.isNotEmpty) {
+            final times = fixedTimeReminders
+                .map((r) => TimeUtils.formatTimeOfDayForDisplay(r.time))
+                .toList();
+            reminderTexts.addAll(times);
+          }
+
+          // Add relative reminders (offset-based) if due time exists
+          if (hasDueTime) {
+            final relativeReminders = reminders
+                .where((r) =>
+                    r.enabled &&
+                    r.fixedTimeMinutes == null) // Only offset-based reminders
+                .toList();
+            if (relativeReminders.isNotEmpty) {
+              final descriptions =
+                  relativeReminders.map((r) => r.getDescription()).toList();
+              reminderTexts.addAll(descriptions);
+            }
+          }
+
+          if (reminderTexts.isNotEmpty) {
+            reminderDisplayText = reminderTexts.join(', ');
+          }
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _hasReminders = hasReminders;
+          _reminderDisplayText = reminderDisplayText;
+        });
+      }
+    } catch (e) {
+      // On error, assume no reminders
+      if (mounted) {
+        setState(() => _hasReminders = false);
+      }
+    }
   }
 
   String _getFrequencyDisplay() {
@@ -2271,4 +2438,34 @@ class _ItemComponentState extends State<ItemComponent>
       }
     }
   }
+}
+
+/// Custom painter for creating a dotted vertical line
+class _DottedLinePainter extends CustomPainter {
+  final Color color;
+
+  _DottedLinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+
+    const double dashHeight = 4.0;
+    const double dashSpace = 3.0;
+    double startY = 0;
+    while (startY < size.height) {
+      canvas.drawLine(
+        Offset(1.5, startY),
+        Offset(1.5, startY + dashHeight),
+        paint,
+      );
+      startY += dashHeight + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

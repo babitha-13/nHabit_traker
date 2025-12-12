@@ -1,22 +1,22 @@
+import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/finalize_habit_data.dart';
-import 'package:habit_tracker/Helper/utils/notification_service.dart';
-import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
-import 'package:habit_tracker/Helper/utils/engagement_tracker.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+import 'package:habit_tracker/Helper/utils/app_state.dart';
+import 'package:habit_tracker/Helper/utils/constants.dart';
+import 'package:habit_tracker/Helper/utils/engagement_tracker.dart';
+import 'package:habit_tracker/Helper/utils/notification_service.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
 import 'package:habit_tracker/Screens/Splash/splash.dart';
-import 'package:habit_tracker/Helper/utils/app_state.dart';
 import 'package:provider/provider.dart';
-import 'package:flutter/material.dart';
 import 'dart:async';
 import 'Helper/utils/flutter_flow_theme.dart';
-import 'Helper/utils/constants.dart';
 
 SharedPref sharedPref = SharedPref();
 LoginResponse users = LoginResponse();
@@ -24,6 +24,7 @@ LoginResponse users = LoginResponse();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await AndroidAlarmManager.initialize();
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
@@ -39,10 +40,8 @@ void main() async {
     final permissionGranted = await NotificationService.requestPermissions();
     if (!permissionGranted) {}
   } else {}
-  // Schedule all pending reminders
-  await ReminderScheduler.scheduleAllPendingReminders();
-  // Check for expired snoozes and reschedule
-  await ReminderScheduler.checkExpiredSnoozes();
+  // Note: Task/habit reminders are scheduled in Home.dart after user authentication
+  // to ensure currentUserUid is available
   runApp(ChangeNotifierProvider(
     create: (context) => appState,
     child: const MyApp(),
