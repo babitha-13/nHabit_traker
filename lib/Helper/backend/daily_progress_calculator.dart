@@ -129,12 +129,30 @@ class DailyProgressCalculator {
         final target = PointsService.calculateDailyTarget(habit, category);
         final earned = PointsService.calculatePointsEarned(habit, category);
         final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+        
+        // Extract additional data for statistics
+        dynamic quantity;
+        if (habit.hasCurrentValue() && habit.currentValue is num) {
+          quantity = (habit.currentValue as num).toDouble();
+        }
+        
+        int? timeSpent; // milliseconds
+        if (habit.hasTotalTimeLogged() && habit.totalTimeLogged > 0) {
+          timeSpent = habit.totalTimeLogged;
+        } else if (habit.hasAccumulatedTime() && habit.accumulatedTime > 0) {
+          timeSpent = habit.accumulatedTime;
+        }
+        
         habitBreakdown.add({
           'name': habit.templateName,
           'status': habit.status,
           'target': target,
           'earned': earned,
           'progress': progress,
+          'trackingType': habit.templateTrackingType,
+          'quantity': quantity,
+          'timeSpent': timeSpent,
+          'completedAt': habit.completedAt,
         });
       }
     }

@@ -1,6 +1,7 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -24,22 +25,27 @@ LoginResponse users = LoginResponse();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await AndroidAlarmManager.initialize();
+  // Only initialize Android-specific services when not running on web
+  if (!kIsWeb) {
+    await AndroidAlarmManager.initialize();
+  }
   await Firebase.initializeApp(
     options: DefaultFirebaseOptions.currentPlatform,
   );
   await FlutterFlowTheme.initialize();
   final appState = FFAppState(); // Initialize FFAppState
   await appState.initializePersistedState();
-  // Initialize notification service
-  await NotificationService.initialize();
-  // Check permissions status first
-  final hasPermissions = await NotificationService.checkPermissions();
-  // Request notification permissions if not granted
-  if (!hasPermissions) {
-    final permissionGranted = await NotificationService.requestPermissions();
-    if (!permissionGranted) {}
-  } else {}
+  // Initialize notification service only on mobile platforms
+  if (!kIsWeb) {
+    await NotificationService.initialize();
+    // Check permissions status first
+    final hasPermissions = await NotificationService.checkPermissions();
+    // Request notification permissions if not granted
+    if (!hasPermissions) {
+      final permissionGranted = await NotificationService.requestPermissions();
+      if (!permissionGranted) {}
+    } else {}
+  }
   // Note: Task/habit reminders are scheduled in Home.dart after user authentication
   // to ensure currentUserUid is available
   runApp(ChangeNotifierProvider(

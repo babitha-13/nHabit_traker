@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:intl/intl.dart';
 
 /// Morning catch-up dialog for handling yesterday's incomplete items
@@ -23,12 +24,61 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   List<ActivityInstanceRecord> _items = [];
   final Set<String> _processedItemIds = {};
   int _reminderCount = 0;
+  String _processingStatus = '';
+  int _processedCount = 0;
+  int _totalToProcess = 0;
 
   @override
   void initState() {
     super.initState();
     _loadItems();
     _loadReminderCount();
+    // Mark as shown immediately to prevent re-showing
+    MorningCatchUpService.markDialogAsShown();
+    _ensureRecordCreated();
+    // Ensure instances exist when dialog opens (handles edge cases)
+    _ensureInstancesExist();
+  }
+
+  Future<void> _ensureInstancesExist() async {
+    try {
+      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
+      // Reload items after ensuring instances exist
+      await _loadItems();
+    } catch (e) {
+      print('Error ensuring instances exist in dialog: $e');
+    }
+  }
+
+  @override
+  void dispose() {
+    // Ensure state is saved even if dialog is force-closed
+    try {
+      if (_items.isNotEmpty) {
+        // If dialog is closed without action, ensure record exists
+        MorningCatchUpService.createDailyProgressRecordForDate(
+          userId: currentUserUid,
+          targetDate: DateService.yesterdayStart,
+        ).catchError((e) => print('Error in dispose: $e'));
+      }
+    } catch (e) {
+      print('Error in dispose: $e');
+    }
+    super.dispose();
+  }
+
+  Future<void> _ensureRecordCreated() async {
+    try {
+      final yesterday = DateService.yesterdayStart;
+      // Check if record exists, create if not
+      await MorningCatchUpService.createDailyProgressRecordForDate(
+        userId: currentUserUid,
+        targetDate: yesterday,
+      );
+    } catch (e) {
+      print('Error ensuring record creation: $e');
+      // Don't block dialog if record creation fails
+    }
   }
 
   Future<void> _loadReminderCount() async {
@@ -136,6 +186,21 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
       // Reload items to get updated instances
       await _loadItems();
+
+      // Auto-close dialog if all items are processed
+      final remainingAfterUpdate = _items
+          .where((item) => !_processedItemIds.contains(item.reference.id))
+          .toList();
+      if (remainingAfterUpdate.isEmpty && mounted) {
+        await Future.delayed(const Duration(seconds: 2));
+        final finalRemaining = _items
+            .where((item) => !_processedItemIds.contains(item.reference.id))
+            .toList();
+        if (mounted && finalRemaining.isEmpty) {
+          await MorningCatchUpService.markDialogAsShown();
+          Navigator.of(context).pop();
+        }
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -150,7 +215,8 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
   Future<void> _skipAllRemaining() async {
     final remainingHabits = _items
-        .where((item) => !_processedItemIds.contains(item.reference.id) && 
+        .where((item) =>
+            !_processedItemIds.contains(item.reference.id) &&
             item.templateCategoryType == 'habit')
         .toList();
 
@@ -163,7 +229,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     final shouldSkip = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Skip All Remaining?'),
+        title: const Text('Skip All Remaining Habits'),
         content: Text(
           'This will mark ${remainingHabits.length} habit${remainingHabits.length == 1 ? '' : 's'} as skipped for yesterday. Tasks will remain pending.',
         ),
@@ -183,10 +249,24 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       ),
     );
 
-    if (shouldSkip != true) return;
+    if (shouldSkip != true) {
+      // User canceled - still ensure record exists
+      try {
+        await MorningCatchUpService.createDailyProgressRecordForDate(
+          userId: currentUserUid,
+          targetDate: DateService.yesterdayStart,
+        );
+      } catch (e) {
+        print('Error creating record after cancel: $e');
+      }
+      return;
+    }
 
     setState(() {
       _isProcessing = true;
+      _totalToProcess = remainingHabits.length;
+      _processedCount = 0;
+      _processingStatus = 'Preparing to skip habits...';
     });
 
     try {
@@ -194,22 +274,65 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       final yesterdayEnd =
           DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
 
-      // Skip all remaining habits
-      for (final item in remainingHabits) {
+      // Skip all remaining habits with progress updates
+      for (int i = 0; i < remainingHabits.length; i++) {
+        final item = remainingHabits[i];
+        if (mounted) {
+          setState(() {
+            _processingStatus =
+                'Skipping ${item.templateName} (${i + 1}/${remainingHabits.length})...';
+          });
+        }
+
         await ActivityInstanceService.skipInstance(
           instanceId: item.reference.id,
           skippedAt: yesterdayEnd,
         );
         _processedItemIds.add(item.reference.id);
+
+        if (mounted) {
+          setState(() {
+            _processedCount = i + 1;
+          });
+        }
       }
 
+      // Ensure all active habits have pending instances (fixes stuck instances issue)
+      if (mounted) {
+        setState(() {
+          _processingStatus = 'Ensuring all habits have current instances...';
+        });
+      }
+      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
+
       // Wait a moment to ensure all database updates are committed
+      if (mounted) {
+        setState(() {
+          _processingStatus = 'Finalizing...';
+        });
+      }
       await Future.delayed(const Duration(milliseconds: 500));
 
-      // Recalculate yesterday's progress once
-      await HistoricalEditService.recalculateDailyProgress(
+      // Reload items to reflect the new instances that were generated
+      if (mounted) {
+        setState(() {
+          _processingStatus = 'Refreshing...';
+        });
+      }
+      await _loadItems();
+
+      // Broadcast progress recalculated to refresh other parts of UI
+      InstanceEvents.broadcastProgressRecalculated();
+
+      // Create daily progress record for yesterday using new method with full breakdown
+      if (mounted) {
+        setState(() {
+          _processingStatus = 'Creating daily progress record...';
+        });
+      }
+      await MorningCatchUpService.createDailyProgressRecordForDate(
         userId: currentUserUid,
-        date: yesterday,
+        targetDate: yesterday,
       );
 
       // Reset reminder count when user skips all items
@@ -224,7 +347,24 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
             backgroundColor: FlutterFlowTheme.of(context).success,
           ),
         );
-        Navigator.of(context).pop();
+
+        // Check if there are still remaining items after reload
+        final updatedRemainingItems = _items
+            .where((item) => !_processedItemIds.contains(item.reference.id))
+            .toList();
+
+        if (updatedRemainingItems.isEmpty) {
+          // All items processed, close dialog
+          Navigator.of(context).pop();
+        } else {
+          // Still have items, update UI to show them
+          setState(() {
+            _isProcessing = false;
+            _processingStatus = '';
+            _processedCount = 0;
+            _totalToProcess = 0;
+          });
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -236,9 +376,14 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
         );
       }
     } finally {
-      setState(() {
-        _isProcessing = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isProcessing = false;
+          _processingStatus = '';
+          _processedCount = 0;
+          _totalToProcess = 0;
+        });
+      }
     }
   }
 
@@ -269,6 +414,11 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
     return WillPopScope(
       onWillPop: () async {
+        // Allow dismissal if all items are processed
+        if (remainingItems.isEmpty) {
+          await MorningCatchUpService.markDialogAsShown();
+          return true;
+        }
         // Prevent dismissing - user must choose skip or remind me later
         return false;
       },
@@ -318,7 +468,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'You have incomplete habits from yesterday. If you completed them but forgot to mark them, mark them as complete. Otherwise, use skip or snooze to handle them. Incomplete tasks will remain pending.',
+                        'You have incomplete items from yesterday. Review them and mark them individually as completed/skipped or reschedule them for later.',
                         style: theme.bodySmall.override(
                           fontFamily: 'Readex Pro',
                           color: Colors.white,
@@ -335,6 +485,42 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                 const Expanded(
                   child: Center(
                     child: CircularProgressIndicator(),
+                  ),
+                )
+              else if (_isProcessing)
+                Expanded(
+                  child: Center(
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 24),
+                        Text(
+                          _processingStatus,
+                          style: theme.bodyLarge,
+                          textAlign: TextAlign.center,
+                        ),
+                        if (_totalToProcess > 0) ...[
+                          const SizedBox(height: 16),
+                          Text(
+                            '${_processedCount} of ${_totalToProcess} completed',
+                            style: theme.bodyMedium.override(
+                              fontFamily: 'Readex Pro',
+                              color: theme.secondaryText,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          LinearProgressIndicator(
+                            value: _totalToProcess > 0
+                                ? _processedCount / _totalToProcess
+                                : 0,
+                            backgroundColor: theme.alternate,
+                            valueColor:
+                                AlwaysStoppedAnimation<Color>(theme.primary),
+                          ),
+                        ],
+                      ],
+                    ),
                   ),
                 )
               else if (remainingItems.isEmpty)
@@ -412,7 +598,25 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (remainingItems.isNotEmpty)
+                    if (remainingItems.isEmpty)
+                      SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton(
+                          onPressed: () async {
+                            await MorningCatchUpService.markDialogAsShown();
+                            if (mounted) {
+                              Navigator.of(context).pop();
+                            }
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: theme.primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                          child: const Text('Close'),
+                        ),
+                      )
+                    else ...[
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
@@ -425,19 +629,21 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                           child: const Text('Skip All Remaining'),
                         ),
                       ),
-                    if (remainingItems.isNotEmpty) const SizedBox(height: 8),
-                    // Only show "Remind Me Later" if reminder count < 3
-                    if (_reminderCount < MorningCatchUpService.maxReminderCount)
-                      SizedBox(
-                        width: double.infinity,
-                        child: OutlinedButton(
-                          onPressed: _isProcessing ? null : _snoozeDialog,
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                      const SizedBox(height: 8),
+                      // Only show "Remind Me Later" if reminder count < 3
+                      if (_reminderCount <
+                          MorningCatchUpService.maxReminderCount)
+                        SizedBox(
+                          width: double.infinity,
+                          child: OutlinedButton(
+                            onPressed: _isProcessing ? null : _snoozeDialog,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                            child: const Text('Remind Me Later'),
                           ),
-                          child: const Text('Remind Me Later'),
                         ),
-                      ),
+                    ],
                   ],
                 ),
               ),

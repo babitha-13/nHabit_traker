@@ -5,6 +5,9 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/completion_calendar_widget.dart';
 import 'package:habit_tracker/Helper/utils/habit_trend_chart_widget.dart';
+import 'package:habit_tracker/Helper/utils/habit_distribution_chart_widget.dart';
+import 'package:habit_tracker/Helper/utils/habit_period_comparison_widget.dart';
+import 'package:habit_tracker/Helper/utils/habit_progress_trend_widget.dart';
 
 class HabitDetailStatisticsPage extends StatefulWidget {
   final String habitName;
@@ -226,14 +229,141 @@ class _HabitDetailStatisticsPageState
                           Expanded(
                             child: _buildMetricCard(
                               context,
-                              'Avg Points',
-                              _stats!.averagePointsEarned.toStringAsFixed(1),
-                              Icons.star,
-                              Colors.amber,
+                              'Consistency',
+                              '${_stats!.consistencyScore.toStringAsFixed(0)}%',
+                              Icons.trending_up,
+                              _getConsistencyColor(_stats!.consistencyScore),
                             ),
                           ),
                         ],
                       ),
+                      // Time-based statistics (for time-tracked habits)
+                      if (_stats!.trackingType == 'time' && _stats!.totalSessions > 0) ...[
+                        const SizedBox(height: 24),
+                        Text(
+                          'Time Statistics',
+                          style: FlutterFlowTheme.of(context).titleMedium.override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildMetricCard(
+                                context,
+                                'Total Time',
+                                _formatDuration(_stats!.totalTimeSpent),
+                                Icons.timer,
+                                FlutterFlowTheme.of(context).primary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildMetricCard(
+                                context,
+                                'Avg Session',
+                                _formatDuration(_stats!.averageSessionDuration),
+                                Icons.access_time,
+                                Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildMetricCard(
+                                context,
+                                'Total Sessions',
+                                '${_stats!.totalSessions}',
+                                Icons.play_circle_outline,
+                                Colors.purple,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Container(), // Empty space for alignment
+                            ),
+                          ],
+                        ),
+                      ],
+                      // Quantity-based statistics (for quantity habits)
+                      if (_stats!.trackingType == 'quantity' && _stats!.totalQuantityCompleted > 0) ...[
+                        const SizedBox(height: 24),
+                        Text(
+                          'Quantity Statistics',
+                          style: FlutterFlowTheme.of(context).titleMedium.override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: _buildMetricCard(
+                                context,
+                                'Total Quantity',
+                                _stats!.totalQuantityCompleted.toStringAsFixed(1),
+                                Icons.stacked_bar_chart,
+                                FlutterFlowTheme.of(context).primary,
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: _buildMetricCard(
+                                context,
+                                'Avg per Completion',
+                                _stats!.averageQuantityPerCompletion.toStringAsFixed(1),
+                                Icons.analytics,
+                                Colors.blue,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                      // Best day/week/month
+                      if (_stats!.bestDayOfWeek != null || _stats!.bestWeek != null || _stats!.bestMonth != null) ...[
+                        const SizedBox(height: 24),
+                        Text(
+                          'Best Performance',
+                          style: FlutterFlowTheme.of(context).titleMedium.override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        Wrap(
+                          spacing: 12,
+                          runSpacing: 12,
+                          children: [
+                            if (_stats!.bestDayOfWeek != null)
+                              _buildBestPerformanceCard(
+                                context,
+                                'Best Day',
+                                _getDayName(_stats!.bestDayOfWeek!),
+                                Icons.calendar_today,
+                              ),
+                            if (_stats!.bestWeek != null)
+                              _buildBestPerformanceCard(
+                                context,
+                                'Best Week',
+                                _formatWeekDate(_stats!.bestWeek!),
+                                Icons.date_range,
+                              ),
+                            if (_stats!.bestMonth != null)
+                              _buildBestPerformanceCard(
+                                context,
+                                'Best Month',
+                                _formatMonthDate(_stats!.bestMonth!),
+                                Icons.calendar_month,
+                              ),
+                          ],
+                        ),
+                      ],
                       const SizedBox(height: 24),
                       // Trend chart
                       Text(
@@ -265,6 +395,48 @@ class _HabitDetailStatisticsPageState
                             : int.parse(_selectedPeriod),
                       ),
                       const SizedBox(height: 24),
+                      // Distribution charts
+                      if (_stats!.completionsByDayOfWeek.isNotEmpty) ...[
+                        Text(
+                          'Distribution Analysis',
+                          style: FlutterFlowTheme.of(context).titleMedium.override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        HabitDistributionChartWidget(
+                          data: _stats!.completionsByDayOfWeek,
+                          isDayOfWeek: true,
+                          height: 200,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      // Hour distribution (for time-tracked habits)
+                      if (_stats!.trackingType == 'time' && _stats!.completionsByHour.isNotEmpty) ...[
+                        HabitDistributionChartWidget(
+                          data: _stats!.completionsByHour,
+                          isDayOfWeek: false,
+                          height: 200,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      // Quantity progress trend (for quantity habits)
+                      if (_stats!.trackingType == 'quantity') ...[
+                        HabitProgressTrendWidget(
+                          dailyHistory: _stats!.dailyHistory,
+                          height: 200,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
+                      // Period comparisons
+                      if (_stats!.weeklyBreakdown.isNotEmpty || _stats!.monthlyBreakdown.isNotEmpty) ...[
+                        HabitPeriodComparisonWidget(
+                          weeklyBreakdown: _stats!.weeklyBreakdown,
+                          monthlyBreakdown: _stats!.monthlyBreakdown,
+                        ),
+                        const SizedBox(height: 24),
+                      ],
                       // Status breakdown
                       Text(
                         'Status Breakdown',
@@ -279,6 +451,96 @@ class _HabitDetailStatisticsPageState
                   ),
                 ),
     );
+  }
+  
+  Widget _buildBestPerformanceCard(
+    BuildContext context,
+    String label,
+    String value,
+    IconData icon,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).secondaryBackground,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, color: FlutterFlowTheme.of(context).primary, size: 20),
+          const SizedBox(width: 8),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                label,
+                style: FlutterFlowTheme.of(context).bodySmall.override(
+                      fontFamily: 'Readex Pro',
+                      color: FlutterFlowTheme.of(context).secondaryText,
+                    ),
+              ),
+              Text(
+                value,
+                style: FlutterFlowTheme.of(context).bodyMedium.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+  
+  String _formatDuration(Duration duration) {
+    if (duration.inHours > 0) {
+      return '${duration.inHours}h ${duration.inMinutes.remainder(60)}m';
+    } else if (duration.inMinutes > 0) {
+      return '${duration.inMinutes}m';
+    } else {
+      return '${duration.inSeconds}s';
+    }
+  }
+  
+  String _getDayName(int dayOfWeek) {
+    const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    return days[dayOfWeek - 1];
+  }
+  
+  String _formatWeekDate(DateTime weekStart) {
+    final weekEnd = weekStart.add(const Duration(days: 6));
+    return '${weekStart.month}/${weekStart.day} - ${weekEnd.month}/${weekEnd.day}';
+  }
+  
+  String _formatMonthDate(DateTime monthStart) {
+    const months = [
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec'
+    ];
+    return '${months[monthStart.month - 1]} ${monthStart.year}';
+  }
+  
+  Color _getConsistencyColor(double score) {
+    if (score >= 80) return Colors.green;
+    if (score >= 50) return Colors.orange;
+    return Colors.red;
   }
   
   Widget _buildMetricCard(

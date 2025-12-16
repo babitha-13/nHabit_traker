@@ -102,21 +102,19 @@ class IconTaskTypeDropdown extends StatelessWidget {
         child: InkWell(
           borderRadius: BorderRadius.circular(10),
           onTap: () {
-            // Show popup menu centered on screen for better UX
-            final screenSize = MediaQuery.of(context).size;
-
-            // Calculate center position
-            final centerX = screenSize.width / 2;
-            final centerY = screenSize.height / 2;
-            const menuWidth = 200.0;
-            const menuHeight = 180.0; // Approximate height for 3 items
-
-            // Position menu centered on screen
-            final position = RelativeRect.fromLTRB(
-              centerX - menuWidth / 2,
-              centerY - menuHeight / 2,
-              centerX + menuWidth / 2,
-              centerY + menuHeight / 2,
+            // Show popup menu relative to the button
+            final RenderBox button = context.findRenderObject() as RenderBox;
+            final RenderBox overlay = Navigator.of(context)
+                .overlay!
+                .context
+                .findRenderObject() as RenderBox;
+            final RelativeRect position = RelativeRect.fromRect(
+              Rect.fromPoints(
+                button.localToGlobal(Offset.zero, ancestor: overlay),
+                button.localToGlobal(button.size.bottomRight(Offset.zero),
+                    ancestor: overlay),
+              ),
+              Offset.zero & overlay.size,
             );
 
             showMenu<String>(

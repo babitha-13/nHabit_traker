@@ -1,3 +1,4 @@
+import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
@@ -5,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart'
     as habit_schema;
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
 import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
@@ -734,7 +736,7 @@ class TaskInstanceService {
     try {
       final uid = userId ?? _currentUserId;
       final isNonProductive = activityType == 'non_productive';
-      
+
       // Get current instance to check for existing sessions
       final currentInstance =
           await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
@@ -752,7 +754,7 @@ class TaskInstanceService {
       // Calculate total cumulative time
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-      
+
       // Handle non-productive vs productive differently
       if (isNonProductive) {
         // For non-productive: find or create template, then update instance
@@ -766,7 +768,7 @@ class TaskInstanceService {
             break;
           }
         }
-        
+
         // Create template if it doesn't exist
         DocumentReference templateRef;
         if (matchingTemplate == null) {
@@ -778,7 +780,7 @@ class TaskInstanceService {
         } else {
           templateRef = matchingTemplate.reference;
         }
-        
+
         // Update instance with non-productive data
         final updateData = <String, dynamic>{
           'status': 'completed',
@@ -797,7 +799,7 @@ class TaskInstanceService {
           'lastUpdated': DateTime.now(),
         };
         await taskInstanceRef.update(updateData);
-        
+
         // Delete the old timer task template (cleanup)
         try {
           final oldTemplateRef = ActivityRecord.collectionForUser(uid)
@@ -833,8 +835,8 @@ class TaskInstanceService {
         await taskInstanceRef.update(updateData);
 
         // Update the template name as well
-        final templateRef =
-            ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
+        final templateRef = ActivityRecord.collectionForUser(uid)
+            .doc(currentInstance.templateId);
         final templateUpdateData = <String, dynamic>{
           'name': taskName,
           'lastUpdated': DateTime.now(),
@@ -872,7 +874,7 @@ class TaskInstanceService {
     try {
       final uid = userId ?? _currentUserId;
       final isNonProductive = activityType == 'non_productive';
-      
+
       // Get current instance to check for existing sessions
       final currentInstance =
           await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
@@ -890,7 +892,7 @@ class TaskInstanceService {
       // Calculate total cumulative time
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-      
+
       // Handle non-productive vs productive differently
       if (isNonProductive) {
         // For non-productive: find or create template, then update instance
@@ -904,7 +906,7 @@ class TaskInstanceService {
             break;
           }
         }
-        
+
         // Create template if it doesn't exist
         DocumentReference templateRef;
         if (matchingTemplate == null) {
@@ -916,7 +918,7 @@ class TaskInstanceService {
         } else {
           templateRef = matchingTemplate.reference;
         }
-        
+
         // Update instance with non-productive data (status remains pending)
         final updateData = <String, dynamic>{
           'status': 'pending',
@@ -935,7 +937,7 @@ class TaskInstanceService {
           'lastUpdated': DateTime.now(),
         };
         await taskInstanceRef.update(updateData);
-        
+
         // Delete the old timer task template (cleanup)
         try {
           final oldTemplateRef = ActivityRecord.collectionForUser(uid)
@@ -969,8 +971,8 @@ class TaskInstanceService {
         await taskInstanceRef.update(updateData);
 
         // Update the template name as well
-        final templateRef =
-            ActivityRecord.collectionForUser(uid).doc(currentInstance.templateId);
+        final templateRef = ActivityRecord.collectionForUser(uid)
+            .doc(currentInstance.templateId);
         final templateUpdateData = <String, dynamic>{
           'name': taskName,
           'lastUpdated': DateTime.now(),
@@ -1126,6 +1128,23 @@ class TaskInstanceService {
     );
   }
 
+  /// Discard current time logging session (cancel session without saving)
+  static Future<void> discardTimeLogging({
+    required DocumentReference activityInstanceRef,
+    String? userId,
+  }) async {
+    try {
+      await activityInstanceRef.update({
+        'isTimeLogging': false,
+        'isTimerActive': false,
+        'currentSessionStartTime': FieldValue.delete(),
+        'lastUpdated': DateTime.now(),
+      });
+    } catch (e) {
+      rethrow;
+    }
+  }
+
   /// Get current session duration (for displaying running time)
   static Duration getCurrentSessionDuration(ActivityInstanceRecord instance) {
     if (!instance.isTimeLogging || instance.currentSessionStartTime == null) {
@@ -1189,7 +1208,8 @@ class TaskInstanceService {
       final result = await query.get();
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((instance) => instance.isActive && instance.timeLogSessions.isNotEmpty)
+          .where((instance) =>
+              instance.isActive && instance.timeLogSessions.isNotEmpty)
           .toList();
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
@@ -1207,6 +1227,358 @@ class TaskInstanceService {
       return instances;
     } catch (e) {
       return [];
+    }
+  }
+
+  static Future<void> logManualTimeEntry({
+    required String taskName,
+    required DateTime startTime,
+    required DateTime endTime,
+    required String activityType, // 'task', 'habit', or 'non_productive'
+    String? categoryId,
+    String? categoryName,
+    String? templateId, // Optional: if selecting an existing activity
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+
+    // Enhanced logging
+    print('TaskInstanceService.logManualTimeEntry: Starting');
+    print(
+        'TaskInstanceService.logManualTimeEntry: taskName=$taskName, activityType=$activityType, templateId=$templateId');
+    print(
+        'TaskInstanceService.logManualTimeEntry: startTime=$startTime, endTime=$endTime');
+    print('TaskInstanceService.logManualTimeEntry: userId=$uid');
+
+    if (startTime.isAfter(endTime)) {
+      print(
+          'TaskInstanceService.logManualTimeEntry: ERROR - Start time is after end time');
+      throw Exception("Start time cannot be after end time.");
+    }
+
+    final duration = endTime.difference(startTime);
+    final totalTime = duration.inMilliseconds;
+
+    // Create the session object
+    final newSession = <String, dynamic>{
+      'startTime': startTime,
+      'endTime': endTime,
+      'durationMilliseconds': totalTime,
+    };
+
+    try {
+      // SMART INSTANCE LOOKUP LOGIC
+      if (templateId != null) {
+        print(
+            'TaskInstanceService.logManualTimeEntry: Looking up existing instance for templateId: $templateId');
+        DocumentReference? targetInstanceRef;
+        dynamic existingInstance;
+        bool isHabitInstanceRecord =
+            false; // Track if instance is from HabitInstanceRecord collection
+
+        // 1. Try to find an instance for this template (including completed ones)
+        // First check pending/active instances
+        if (activityType == 'habit') {
+          // For Habits: Use the EXACT same method that populates the dropdown
+          // This ensures we find the same instance the user selected
+          try {
+            final habitInstances =
+                await ActivityInstanceService.getCurrentHabitInstances(
+                    userId: uid);
+
+            // Find the instance for this template
+            ActivityInstanceRecord? habitMatch;
+            for (final instance in habitInstances) {
+              if (instance.templateId == templateId) {
+                habitMatch = instance;
+                break; // Use the first matching instance (should only be one per template)
+              }
+            }
+
+            if (habitMatch != null) {
+              targetInstanceRef = habitMatch.reference;
+              existingInstance = habitMatch;
+              isHabitInstanceRecord =
+                  false; // ActivityInstanceRecord from getCurrentHabitInstances
+              print(
+                  'TaskInstanceService.logManualTimeEntry: Found habit instance ${habitMatch.reference.id} using getCurrentHabitInstances (window: ${habitMatch.dueDate} - ${habitMatch.windowEndDate})');
+            } else {
+              print(
+                  'TaskInstanceService.logManualTimeEntry: No habit instance found in getCurrentHabitInstances for templateId $templateId');
+            }
+          } catch (e) {
+            print(
+                'TaskInstanceService.logManualTimeEntry: Error calling getCurrentHabitInstances for templateId $templateId: $e');
+            print(
+                'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
+            // Don't continue to create new instance - throw error instead
+            throw Exception(
+                'Failed to find habit instance for template $templateId. Please ensure the habit is active and appears in your habits list.');
+          }
+        } else if (activityType == 'task') {
+          // For Tasks: Check Pending instances
+          final tasks = await getTodaysTaskInstances(userId: uid);
+          var match = tasks.firstWhereOrNull((t) => t.templateId == templateId);
+          if (match != null) {
+            targetInstanceRef = match.reference;
+            existingInstance = match;
+            isHabitInstanceRecord =
+                false; // ActivityInstanceRecord from getTodaysTaskInstances
+          }
+
+          // 2. If not found in pending, check ALL instances (including completed) for this template
+          // This handles cases where the instance was already completed but we want to add more time
+          if (targetInstanceRef == null) {
+            try {
+              final allInstancesQuery =
+                  ActivityInstanceRecord.collectionForUser(uid)
+                      .where('templateId', isEqualTo: templateId)
+                      .where('isActive', isEqualTo: true)
+                      .orderBy('lastUpdated', descending: true)
+                      .limit(1);
+              final allInstancesResult = await allInstancesQuery.get();
+              if (allInstancesResult.docs.isNotEmpty) {
+                final instanceDoc = allInstancesResult.docs.first;
+                final instance =
+                    ActivityInstanceRecord.fromSnapshot(instanceDoc);
+                // Check if the instance's date matches the start time's date (same day)
+                final instanceDate = instance.dueDate ?? instance.createdTime;
+                if (instanceDate != null) {
+                  final startDate =
+                      DateTime(startTime.year, startTime.month, startTime.day);
+                  final instanceDateOnly = DateTime(
+                      instanceDate.year, instanceDate.month, instanceDate.day);
+
+                  // Use this instance if it's for the same day, or if no dueDate (flexible)
+                  if (instanceDateOnly.isAtSameMomentAs(startDate) ||
+                      instance.dueDate == null) {
+                    targetInstanceRef = instance.reference;
+                    existingInstance = instance;
+                    isHabitInstanceRecord =
+                        false; // ActivityInstanceRecord from this query
+                  }
+                } else {
+                  // If no date info, use the instance anyway (flexible matching)
+                  targetInstanceRef = instance.reference;
+                  existingInstance = instance;
+                  isHabitInstanceRecord =
+                      false; // ActivityInstanceRecord from this query
+                }
+              }
+            } catch (e) {
+              // If query fails, continue to create new instance
+              // Error is logged but doesn't block the flow
+              print(
+                  'TaskInstanceService.logManualTimeEntry: Error querying all instances for templateId $templateId: $e');
+              print(
+                  'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
+            }
+          }
+        }
+
+        // 3. If found, add session to it
+        if (targetInstanceRef != null && existingInstance != null) {
+          final currentSessions =
+              List<Map<String, dynamic>>.from(existingInstance.timeLogSessions);
+          currentSessions.add(newSession);
+
+          final currentTotalLogged = existingInstance.totalTimeLogged;
+          final newTotalLogged = currentTotalLogged + totalTime;
+
+          // Use the correct collection reference based on where we found the instance
+          // targetInstanceRef already points to the correct collection, so we can use it directly
+          try {
+            await targetInstanceRef.update({
+              'timeLogSessions': currentSessions,
+              'totalTimeLogged': newTotalLogged,
+              'accumulatedTime': newTotalLogged,
+              'currentValue':
+                  newTotalLogged, // Update current value for progress
+              'lastUpdated': DateTime.now(),
+            });
+
+            print(
+                'TaskInstanceService: Found existing instance ${targetInstanceRef.id} for templateId $templateId, adding session (isHabitInstanceRecord: $isHabitInstanceRecord)');
+            return; // Done
+          } catch (e) {
+            // Log detailed error for debugging
+            print(
+                'TaskInstanceService.logManualTimeEntry: ERROR updating instance ${targetInstanceRef.id}');
+            print('TaskInstanceService.logManualTimeEntry: Error details - $e');
+            print(
+                'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
+            print(
+                'TaskInstanceService.logManualTimeEntry: Instance type - isHabitInstanceRecord: $isHabitInstanceRecord, activityType: $activityType');
+            print(
+                'TaskInstanceService.logManualTimeEntry: Instance reference path - ${targetInstanceRef.path}');
+            print(
+                'TaskInstanceService.logManualTimeEntry: Template ID - $templateId');
+            rethrow; // Re-throw to surface the error
+          }
+        }
+
+        // 4. If NOT found, handle based on activity type
+        if (activityType == 'habit') {
+          // For habits: Never create new instances - they must exist and be in the window
+          // If we reach here, the habit instance was not found in the window
+          throw Exception(
+              'Habit instance not found for the selected date. Please ensure the habit is active and appears in your habits list. New habit instances cannot be created from the time log.');
+        }
+
+        // For tasks: Create NEW linked instance if template exists
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(templateId);
+        final templateDoc = await templateRef.get();
+        if (templateDoc.exists) {
+          final template = ActivityRecord.fromSnapshot(templateDoc);
+          // Create instance - preserve "no due date" if template doesn't have one
+          // For tasks without due dates, use null; for others, use start time
+          final instanceDueDate = template.dueDate == null ? null : startTime;
+          final instanceRef =
+              await ActivityInstanceService.createActivityInstance(
+                  templateId: templateId,
+                  dueDate:
+                      instanceDueDate, // Preserve no due date if template doesn't have one
+                  template: template,
+                  userId: uid);
+
+          print(
+              'TaskInstanceService.logManualTimeEntry: Creating new task instance with dueDate: $instanceDueDate (template dueDate: ${template.dueDate})');
+
+          // Now update it with the session
+          // Recurse or just update? Update is safer
+          final sessions = [newSession];
+          await instanceRef.update({
+            'timeLogSessions': sessions,
+            'totalTimeLogged': totalTime,
+            'accumulatedTime': totalTime,
+            'currentValue': totalTime,
+            'lastUpdated': DateTime.now(),
+          });
+
+          if (activityType == 'task') {
+            await completeTaskInstance(
+                instanceId: instanceRef.id,
+                finalValue: totalTime,
+                finalAccumulatedTime: totalTime,
+                userId: uid);
+          }
+          print(
+              'TaskInstanceService.logManualTimeEntry: Created new instance ${instanceRef.id} for templateId $templateId');
+          return;
+        } else {
+          print(
+              'TaskInstanceService.logManualTimeEntry: Template $templateId not found, falling back to one-off logic');
+        }
+      }
+
+      // FALLBACK / NEW ONE-OFF LOGIC (Current Behavior + enhancements)
+      print(
+          'TaskInstanceService.logManualTimeEntry: Creating one-off instance for taskName: $taskName');
+
+      // Create a temporary task instance to log this manual entry against.
+      final taskInstanceRef = await createTimerTaskInstance(userId: uid);
+
+      final isNonProductive = activityType == 'non_productive';
+      final timeLogSessions = [newSession];
+
+      if (isNonProductive) {
+        // Find or create a template for the non-productive activity.
+        final templates =
+            await NonProductiveService.getNonProductiveTemplates(userId: uid);
+        ActivityRecord? matchingTemplate;
+        try {
+          matchingTemplate = templates.firstWhere(
+            (t) => t.name.toLowerCase() == taskName.toLowerCase(),
+          );
+        } catch (e) {
+          matchingTemplate = null;
+        }
+
+        DocumentReference templateRef;
+        if (matchingTemplate == null) {
+          templateRef = await NonProductiveService.createNonProductiveTemplate(
+            name: taskName,
+            trackingType: 'time',
+            userId: uid,
+          );
+        } else {
+          templateRef = matchingTemplate.reference;
+        }
+
+        // Update the instance with non-productive data
+        final updateData = <String, dynamic>{
+          'status': 'completed',
+          'completedAt': endTime,
+          'isTimerActive': false,
+          'timeLogSessions': timeLogSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'templateId': templateRef.id,
+          'templateName': taskName,
+          'templateCategoryType': 'non_productive',
+          'templateCategoryName': 'Non-Productive',
+          'templateTrackingType': 'time',
+          'lastUpdated': DateTime.now(),
+        };
+        await taskInstanceRef.update(updateData);
+      } else {
+        // Handle productive tasks (New One-Off)
+        final currentInstance =
+            await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+        final templateRef = ActivityRecord.collectionForUser(uid)
+            .doc(currentInstance.templateId);
+
+        // Update the instance with the manual log data.
+        final updateData = <String, dynamic>{
+          'status': 'completed',
+          'completedAt': endTime,
+          'isTimerActive': false,
+          'timeLogSessions': timeLogSessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'templateTarget': totalTime / 60000.0, // Minutes
+          'templateName': taskName,
+          'templateCategoryType': 'task',
+          'templateTrackingType':
+              'binary', // Force binary for one-offs per previous request
+          'lastUpdated': DateTime.now(),
+        };
+
+        if (categoryId != null) updateData['templateCategoryId'] = categoryId;
+        if (categoryName != null)
+          updateData['templateCategoryName'] = categoryName;
+
+        await taskInstanceRef.update(updateData);
+
+        // Update the underlying template as well.
+        final templateUpdateData = <String, dynamic>{
+          'name': taskName,
+          'lastUpdated': DateTime.now(),
+          'isActive': false, // Mark one-off templates as inactive.
+          'trackingType': 'binary',
+        };
+
+        if (categoryId != null) templateUpdateData['categoryId'] = categoryId;
+        if (categoryName != null)
+          templateUpdateData['categoryName'] = categoryName;
+
+        await templateRef.update(templateUpdateData);
+      }
+    } catch (e) {
+      // Log detailed error before re-throwing
+      print('TaskInstanceService.logManualTimeEntry: FATAL ERROR - $e');
+      print(
+          'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
+      print(
+          'TaskInstanceService.logManualTimeEntry: Entry details - taskName: $taskName, activityType: $activityType, templateId: $templateId');
+      print(
+          'TaskInstanceService.logManualTimeEntry: Time details - startTime: $startTime, endTime: $endTime');
+      print('TaskInstanceService.logManualTimeEntry: User ID - $uid');
+      // Re-throw to be handled by UI
+      rethrow;
     }
   }
 }

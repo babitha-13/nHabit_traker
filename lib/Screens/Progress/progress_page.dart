@@ -26,6 +26,8 @@ class _ProgressPageState extends State<ProgressPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   List<DailyProgressRecord> _progressHistory = [];
   bool _isLoading = true;
+  // Progress history range: 7, 30, or 90 days
+  int _historyDays = 7; // Start with 7 days for faster initial load
   // Live today's progress data
   double _todayTarget = 0.0;
   double _todayEarned = 0.0;
@@ -310,9 +312,9 @@ class _ProgressPageState extends State<ProgressPage> {
         }
         return;
       }
-      // Load last 90 days of progress data to match heat map range
+      // Load progress data incrementally: start with 7 days, expand to 30/90 on demand
       final endDate = DateService.currentDate;
-      final startDate = endDate.subtract(const Duration(days: 90));
+      final startDate = endDate.subtract(Duration(days: _historyDays));
       final query = await DailyProgressRecord.collectionForUser(userId)
           .where('date', isGreaterThanOrEqualTo: startDate)
           .where('date', isLessThanOrEqualTo: endDate)
@@ -472,9 +474,37 @@ class _ProgressPageState extends State<ProgressPage> {
           centerTitle: false,
           elevation: 0.0,
           actions: [
+            // History range selector
+            PopupMenuButton<int>(
+              icon: const Icon(Icons.calendar_today, color: Colors.white),
+              tooltip: 'History Range',
+              onSelected: (days) {
+                if (days != _historyDays) {
+                  setState(() {
+                    _historyDays = days;
+                  });
+                  _loadProgressHistory();
+                }
+              },
+              itemBuilder: (context) => [
+                const PopupMenuItem(
+                  value: 7,
+                  child: Text('Last 7 days'),
+                ),
+                const PopupMenuItem(
+                  value: 30,
+                  child: Text('Last 30 days'),
+                ),
+                const PopupMenuItem(
+                  value: 90,
+                  child: Text('Last 90 days'),
+                ),
+              ],
+            ),
             IconButton(
               icon: const Icon(Icons.refresh, color: Colors.white),
               onPressed: _loadProgressHistory,
+              tooltip: 'Refresh',
             ),
             // Development/Testing only - show in debug mode
             if (kDebugMode)

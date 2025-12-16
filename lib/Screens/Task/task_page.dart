@@ -54,6 +54,12 @@ class _TaskPageState extends State<TaskPage> {
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
+  // Cache for bucketed items to avoid recalculation on every build
+  Map<String, List<dynamic>>? _cachedBucketedItems;
+  int _taskInstancesHashCode = 0;
+  String _lastSearchQuery = '';
+  int _lastCompletionTimeFrame = 2;
+  String? _lastCategoryName;
   @override
   void initState() {
     super.initState();
@@ -125,6 +131,8 @@ class _TaskPageState extends State<TaskPage> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
+        // Invalidate cache when search query changes
+        _cachedBucketedItems = null;
       });
     }
   }
@@ -201,6 +209,8 @@ class _TaskPageState extends State<TaskPage> {
           }).toList();
           // Store all instances
           _taskInstances = categoryFiltered;
+          // Invalidate cache when instances change
+          _cachedBucketedItems = null;
           if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
             // Set the quick-add category to the current tab's category
             final currentCategory = categories.firstWhere(
@@ -587,7 +597,8 @@ class _TaskPageState extends State<TaskPage> {
                                     const SizedBox(width: 6),
                                     Text(
                                       _quickReminders.length == 1
-                                          ? _quickReminders.first.getDescription()
+                                          ? _quickReminders.first
+                                              .getDescription()
                                           : '${_quickReminders.length} reminders',
                                       style: TextStyle(
                                         fontSize: 11,
@@ -1261,10 +1272,9 @@ class _TaskPageState extends State<TaskPage> {
           final bottomPadding = MediaQuery.of(context).padding.bottom;
           final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
           // Use the larger of keyboard height or safe area padding
-          final totalBottomPadding = keyboardHeight > 0 
-              ? keyboardHeight 
-              : bottomPadding;
-          
+          final totalBottomPadding =
+              keyboardHeight > 0 ? keyboardHeight : bottomPadding;
+
           return Padding(
             padding: EdgeInsets.only(
               bottom: totalBottomPadding,
@@ -1468,6 +1478,21 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Map<String, List<dynamic>> get _bucketedItems {
+    // Check if cache is still valid
+    final currentInstancesHash = _taskInstances.length.hashCode ^
+        _taskInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
+    final cacheInvalid = _cachedBucketedItems == null ||
+        currentInstancesHash != _taskInstancesHashCode ||
+        _searchQuery != _lastSearchQuery ||
+        _completionTimeFrame != _lastCompletionTimeFrame ||
+        widget.categoryName != _lastCategoryName;
+    
+    if (!cacheInvalid && _cachedBucketedItems != null) {
+      return _cachedBucketedItems!;
+    }
+    
+    // Recalculate buckets
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
       'Today': [],
@@ -1642,6 +1667,14 @@ class _TaskPageState extends State<TaskPage> {
         }
       }
     }
+    
+    // Update cache
+    _cachedBucketedItems = buckets;
+    _taskInstancesHashCode = currentInstancesHash;
+    _lastSearchQuery = _searchQuery;
+    _lastCompletionTimeFrame = _completionTimeFrame;
+    _lastCategoryName = widget.categoryName;
+    
     buckets.forEach((key, value) {});
     return buckets;
   }
@@ -1687,6 +1720,8 @@ class _TaskPageState extends State<TaskPage> {
               onTap: () {
                 setState(() {
                   _completionTimeFrame = _completionTimeFrame == 30 ? 7 : 2;
+                  // Invalidate cache when completion time frame changes
+                  _cachedBucketedItems = null;
                 });
               },
               child: Container(
@@ -1729,6 +1764,8 @@ class _TaskPageState extends State<TaskPage> {
               onTap: () {
                 setState(() {
                   _completionTimeFrame = _completionTimeFrame == 2 ? 7 : 30;
+                  // Invalidate cache when completion time frame changes
+                  _cachedBucketedItems = null;
                 });
               },
               child: Container(
@@ -1775,12 +1812,17 @@ class _TaskPageState extends State<TaskPage> {
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _taskInstances[index] = updatedInstance;
+        // Invalidate cache when instance is updated
+        _cachedBucketedItems = null;
       }
-      // Remove from list if completed (completed items now show in Recent Completions)
+      // DO NOT remove from list if completed - we want them to move to "Recent Completions"
+      // instead of disappearing entirely
+      /*
       if (updatedInstance.status == 'completed') {
         _taskInstances.removeWhere(
             (inst) => inst.reference.id == updatedInstance.reference.id);
       }
+      */
     });
     // Background refresh to sync with server
     _loadDataSilently();
@@ -1790,6 +1832,8 @@ class _TaskPageState extends State<TaskPage> {
     setState(() {
       _taskInstances.removeWhere(
           (inst) => inst.reference.id == deletedInstance.reference.id);
+      // Invalidate cache when instance is removed
+      _cachedBucketedItems = null;
     });
     // Background refresh to sync with server
     _loadDataSilently();
@@ -1799,7 +1843,7 @@ class _TaskPageState extends State<TaskPage> {
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
-      final instances = await queryTaskInstances(userId: uid);
+      final instances = await queryAllTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(userId: uid);
       if (mounted) {
         setState(() {
@@ -1809,6 +1853,8 @@ class _TaskPageState extends State<TaskPage> {
                 inst.templateCategoryName == widget.categoryName);
             return matches;
           }).toList();
+          // Invalidate cache when instances change
+          _cachedBucketedItems = null;
         });
       }
     } catch (e) {
@@ -1852,6 +1898,8 @@ class _TaskPageState extends State<TaskPage> {
       if (matchesCategory) {
         setState(() {
           _taskInstances.add(instance);
+          // Invalidate cache when instance is added
+          _cachedBucketedItems = null;
         });
       }
     }
@@ -1869,6 +1917,8 @@ class _TaskPageState extends State<TaskPage> {
               .indexWhere((inst) => inst.reference.id == instance.reference.id);
           if (index != -1) {
             _taskInstances[index] = instance;
+            // Invalidate cache when instance is updated
+            _cachedBucketedItems = null;
           }
         });
       }
@@ -1885,6 +1935,8 @@ class _TaskPageState extends State<TaskPage> {
         setState(() {
           _taskInstances.removeWhere(
               (inst) => inst.reference.id == instance.reference.id);
+          // Invalidate cache when instance is deleted
+          _cachedBucketedItems = null;
         });
       }
     }

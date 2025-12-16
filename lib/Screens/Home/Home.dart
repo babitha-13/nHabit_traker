@@ -47,6 +47,8 @@ class _HomeState extends State<Home> {
   bool _isSearchMode = false;
   final TextEditingController _searchController = TextEditingController();
   final SearchStateManager _searchManager = SearchStateManager();
+  // Prevent race conditions in morning catch-up check
+  static bool _isCheckingCatchUp = false;
   @override
   void initState() {
     super.initState();
@@ -62,12 +64,19 @@ class _HomeState extends State<Home> {
       ),
     );
     // Check for goal onboarding and morning catch-up after the frame is built
+    // Parallelize independent operations for faster initialization
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      _checkMorningCatchUp();
-      _checkGoalOnboarding();
-      _checkDailyGoal();
-      _checkNotificationOnboarding();
-      _initializeNotifications();
+      // Run independent operations in parallel
+      Future.wait([
+        _checkMorningCatchUp(),
+        _checkGoalOnboarding(),
+        _checkDailyGoal(),
+        _initializeNotifications(),
+      ]).then((_) {
+        // Check notification onboarding after goal onboarding completes
+        // (it depends on goal onboarding being completed)
+        _checkNotificationOnboarding();
+      });
     });
   }
 
@@ -520,7 +529,10 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> _checkMorningCatchUp() async {
+    if (_isCheckingCatchUp) return; // Prevent concurrent checks
+    
     try {
+      _isCheckingCatchUp = true;
       final userId = users.uid;
       if (userId == null || userId.isEmpty) {
         return;
@@ -537,6 +549,8 @@ class _HomeState extends State<Home> {
       }
     } catch (e) {
       print('Error checking morning catch-up: $e');
+    } finally {
+      _isCheckingCatchUp = false;
     }
   }
 

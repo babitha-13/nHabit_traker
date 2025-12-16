@@ -40,6 +40,11 @@ class _HabitsPageState extends State<HabitsPage> {
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
+  // Cache for groupedByCategory to avoid recalculation on every build
+  Map<String, List<ActivityInstanceRecord>>? _cachedGroupedByCategory;
+  int _habitInstancesHashCode = 0;
+  String _lastSearchQuery = '';
+  bool _lastShowCompleted = false;
   @override
   void initState() {
     super.initState();
@@ -52,6 +57,8 @@ class _HabitsPageState extends State<HabitsPage> {
       if (param is bool && mounted) {
         setState(() {
           _showCompleted = param;
+          // Invalidate cache when showCompleted changes
+          _cachedGroupedByCategory = null;
         });
       }
     });
@@ -125,6 +132,8 @@ class _HabitsPageState extends State<HabitsPage> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
+        // Invalidate cache when search query changes
+        _cachedGroupedByCategory = null;
         // Auto-expand categories with results when searching
         if (_searchQuery.isNotEmpty) {
           final grouped = groupedByCategory;
@@ -140,6 +149,20 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   Map<String, List<ActivityInstanceRecord>> get groupedByCategory {
+    // Check if cache is still valid
+    final currentInstancesHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
+    final cacheInvalid = _cachedGroupedByCategory == null ||
+        currentInstancesHash != _habitInstancesHashCode ||
+        _searchQuery != _lastSearchQuery ||
+        _showCompleted != _lastShowCompleted;
+    
+    if (!cacheInvalid && _cachedGroupedByCategory != null) {
+      return _cachedGroupedByCategory!;
+    }
+    
+    // Recalculate grouping
     final grouped = <String, List<ActivityInstanceRecord>>{};
     // Filter instances by search query if active
     final instancesToProcess = _habitInstances.where((instance) {
@@ -166,6 +189,13 @@ class _HabitsPageState extends State<HabitsPage> {
             InstanceOrderService.sortInstancesByOrder(items, 'habits');
       }
     }
+    
+    // Update cache
+    _cachedGroupedByCategory = grouped;
+    _habitInstancesHashCode = currentInstancesHash;
+    _lastSearchQuery = _searchQuery;
+    _lastShowCompleted = _showCompleted;
+    
     return grouped;
   }
 
@@ -217,6 +247,8 @@ class _HabitsPageState extends State<HabitsPage> {
           setState(() {
             _habitInstances = instances;
             _categories = categories;
+            // Invalidate cache when data changes
+            _cachedGroupedByCategory = null;
             _isLoading = false;
           });
           // Auto-expand first category only on initial load if no sections are expanded
@@ -580,6 +612,8 @@ class _HabitsPageState extends State<HabitsPage> {
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _habitInstances[index] = updatedInstance;
+        // Invalidate cache when instance is updated
+        _cachedGroupedByCategory = null;
       }
       // Remove from list if completed and not showing completed
       if (!_showCompleted && updatedInstance.status == 'completed') {
@@ -595,6 +629,8 @@ class _HabitsPageState extends State<HabitsPage> {
     setState(() {
       _habitInstances.removeWhere(
           (inst) => inst.reference.id == deletedInstance.reference.id);
+      // Invalidate cache when instance is removed
+      _cachedGroupedByCategory = null;
     });
     // Background refresh to sync with server
     _loadHabitsSilently();
@@ -608,6 +644,8 @@ class _HabitsPageState extends State<HabitsPage> {
         if (mounted) {
           setState(() {
             _habitInstances = instances;
+            // Invalidate cache when instances change
+            _cachedGroupedByCategory = null;
           });
         }
       }
@@ -669,6 +707,8 @@ class _HabitsPageState extends State<HabitsPage> {
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     setState(() {
       _habitInstances.add(instance);
+      // Invalidate cache when instance is added
+      _cachedGroupedByCategory = null;
     });
   }
 
@@ -678,6 +718,8 @@ class _HabitsPageState extends State<HabitsPage> {
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
       if (index != -1) {
         _habitInstances[index] = instance;
+        // Invalidate cache when instance is updated
+        _cachedGroupedByCategory = null;
       }
       // Remove from list if completed and not showing completed
       if (!_showCompleted && instance.status == 'completed') {
@@ -691,6 +733,8 @@ class _HabitsPageState extends State<HabitsPage> {
     setState(() {
       _habitInstances
           .removeWhere((inst) => inst.reference.id == instance.reference.id);
+      // Invalidate cache when instance is deleted
+      _cachedGroupedByCategory = null;
     });
   }
 

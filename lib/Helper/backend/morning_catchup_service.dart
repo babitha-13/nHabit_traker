@@ -4,6 +4,11 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/historical_edit_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
+import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Helper/backend/points_service.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -21,13 +26,26 @@ class MorningCatchUpService {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
 
-      // Check if it's after midnight
-      if (now.hour < 1) {
-        return false; // Too early, not really "morning" yet
+      // Check if it's after midnight - but allow dialog if there are incomplete items
+      // This handles cases where user opens app in first hour but has items to handle
+      if (now.hour == 0) {
+        // Still in first hour - check if there are incomplete items
+        final hasIncompleteItems = await _hasIncompleteItemsFromYesterday(userId);
+        if (!hasIncompleteItems) {
+          return false; // No items, don't show
+        }
+        // Has items, show dialog even in first hour
+      } else if (now.hour < 1) {
+        // This shouldn't happen, but handle it gracefully
+        return false;
       }
 
       // First, auto-skip all items expired before yesterday to bring everything up to date
       await autoSkipExpiredItemsBeforeYesterday(userId);
+
+      // Ensure all active habits have pending instances (fixes stuck instances from the past)
+      // This must happen BEFORE checking for incomplete items, so missing instances are generated
+      await ensurePendingInstancesExist(userId);
 
       final prefs = await SharedPreferences.getInstance();
 
@@ -68,10 +86,35 @@ class MorningCatchUpService {
 
       // Check if there are incomplete items from yesterday
       final hasIncompleteItems = await _hasIncompleteItemsFromYesterday(userId);
+      
+      // Ensure record exists even if dialog will be shown
+      if (hasIncompleteItems) {
+        // Create record proactively when dialog will be shown
+        try {
+          await createDailyProgressRecordForDate(
+            userId: userId,
+            targetDate: DateService.yesterdayStart,
+          );
+        } catch (e) {
+          print('Error creating record in shouldShowDialog: $e');
+          // Continue even if record creation fails
+        }
+      }
+      
       return hasIncompleteItems;
-    } catch (e) {
+    } catch (e, stackTrace) {
       print('Error checking if catch-up dialog should show: $e');
-      return false;
+      print('Stack trace: $stackTrace');
+      // Attempt to create record anyway as fallback
+      try {
+        await createDailyProgressRecordForDate(
+          userId: userId,
+          targetDate: DateService.yesterdayStart,
+        );
+      } catch (recordError) {
+        print('Failed to create record in error handler: $recordError');
+      }
+      return false; // Don't show dialog on error
     }
   }
 
@@ -376,17 +419,32 @@ class MorningCatchUpService {
       // Tasks should NOT be auto-skipped - they remain pending indefinitely until user handles them
       // This is a deliberate design choice requested by user
 
-      // Recalculate progress for all affected dates
-      for (final date in affectedDates) {
-        try {
-          await HistoricalEditService.recalculateDailyProgress(
-            userId: userId,
-            date: date,
+      // Recalculate progress for all affected dates in parallel (with concurrency limit)
+      if (affectedDates.isNotEmpty) {
+        const maxConcurrency = 5; // Process up to 5 dates in parallel
+        final datesList = affectedDates.toList();
+        
+        // Process dates in batches
+        for (int i = 0; i < datesList.length; i += maxConcurrency) {
+          final batch = datesList.skip(i).take(maxConcurrency).toList();
+          await Future.wait(
+            batch.map((date) async {
+              try {
+                await HistoricalEditService.recalculateDailyProgress(
+                  userId: userId,
+                  date: date,
+                );
+              } catch (e) {
+                print('Error recalculating progress for $date: $e');
+              }
+            }),
           );
-        } catch (e) {
-          print('Error recalculating progress for $date: $e');
         }
       }
+
+      // Create records for all missed days between last record and yesterday
+      // This ensures continuity even when user hasn't opened app for days
+      await createRecordsForMissedDays(userId: userId);
 
       // After skipping expired instances with batch writes, yesterday's instances remain pending
       // for manual user confirmation via the morning catch-up dialog
@@ -402,7 +460,8 @@ class MorningCatchUpService {
 
   /// Ensure all active habits have at least one pending instance
   /// This handles cases where instance generation failed or instances are missing
-  static Future<void> _ensurePendingInstancesExist(String userId) async {
+  /// Also fixes stuck instances where completed instances from the past don't have subsequent instances
+  static Future<void> ensurePendingInstancesExist(String userId) async {
     try {
       // Get all active habit templates
       final habitsQuery = ActivityRecord.collectionForUser(userId)
@@ -449,13 +508,43 @@ class MorningCatchUpService {
             // Only generate if the most recent instance has a windowEndDate
             if (mostRecentInstance.windowEndDate != null) {
               try {
-                await ActivityInstanceService.skipInstance(
-                  instanceId: mostRecentInstance.reference.id,
-                  skippedAt: mostRecentInstance.windowEndDate,
+                final windowEndDate = mostRecentInstance.windowEndDate!;
+                final windowEndDateOnly = DateTime(
+                  windowEndDate.year,
+                  windowEndDate.month,
+                  windowEndDate.day,
                 );
-                instancesGenerated++;
-                print(
-                    'MorningCatchUpService: Generated next instance for habit ${habit.name}');
+                final yesterday = DateService.yesterdayStart;
+                
+                // If the window ended before yesterday, use bulk skip to fill the gap
+                if (windowEndDateOnly.isBefore(yesterday)) {
+                  // Get template for bulk skip
+                  final templateRef = ActivityRecord.collectionForUser(userId)
+                      .doc(habit.reference.id);
+                  final template = await ActivityRecord.getDocumentOnce(templateRef);
+                  
+                  // Use bulk skip to efficiently fill gap up to yesterday
+                  final yesterdayInstanceRef = await ActivityInstanceService
+                      .bulkSkipExpiredInstancesWithBatches(
+                    oldestInstance: mostRecentInstance,
+                    template: template,
+                    userId: userId,
+                  );
+                  if (yesterdayInstanceRef != null) {
+                    instancesGenerated++;
+                    print(
+                        'MorningCatchUpService: Filled gap and generated instances up to yesterday for habit ${habit.name}');
+                  }
+                } else {
+                  // Window ended recently, just generate next instance normally
+                  await ActivityInstanceService.skipInstance(
+                    instanceId: mostRecentInstance.reference.id,
+                    skippedAt: windowEndDate,
+                  );
+                  instancesGenerated++;
+                  print(
+                      'MorningCatchUpService: Generated next instance for habit ${habit.name}');
+                }
               } catch (e) {
                 print(
                     'MorningCatchUpService: Error generating instance for habit ${habit.name}: $e');
@@ -521,10 +610,13 @@ class MorningCatchUpService {
       }
 
       if (items.isNotEmpty) {
-        // Recalculate yesterday's progress
-        await HistoricalEditService.recalculateDailyProgress(
+        // Wait a moment to ensure all database updates are committed
+        await Future.delayed(const Duration(milliseconds: 500));
+        
+        // Create daily progress record for yesterday using new method with full breakdown
+        await createDailyProgressRecordForDate(
           userId: userId,
-          date: yesterday,
+          targetDate: yesterday,
         );
         print(
             'Force skipped ${items.length} items after max reminders reached');
@@ -538,8 +630,8 @@ class MorningCatchUpService {
   static Future<int> getReminderCount() async {
     try {
       final prefs = await SharedPreferences.getInstance();
-      final today = DateTime.now();
-      final todayOnly = DateTime(today.year, today.month, today.day);
+      final now = DateTime.now();
+      final todayOnly = DateTime(now.year, now.month, now.day);
 
       // Check if reminder count is for today
       final countDateString = prefs.getString(_reminderCountDateKey);
@@ -550,11 +642,11 @@ class MorningCatchUpService {
           countDate.month,
           countDate.day,
         );
+        // Use isAtSameMomentAs for precise comparison
         if (countDateOnly.isAtSameMomentAs(todayOnly)) {
-          // Return count for today
           return prefs.getInt(_reminderCountKey) ?? 0;
         } else {
-          // Count is for a different day, reset it
+          // Different day - reset
           await resetReminderCount();
           return 0;
         }
@@ -562,6 +654,8 @@ class MorningCatchUpService {
       return 0;
     } catch (e) {
       print('Error getting reminder count: $e');
+      // Reset on error to be safe
+      await resetReminderCount();
       return 0;
     }
   }
@@ -588,6 +682,393 @@ class MorningCatchUpService {
       await prefs.remove(_reminderCountDateKey);
     } catch (e) {
       print('Error resetting reminder count: $e');
+    }
+  }
+
+  /// Create daily progress record for a specific date using DailyProgressCalculator
+  /// This ensures records include full habitBreakdown/taskBreakdown with enhanced fields
+  /// Works with instances regardless of dayState (pending/completed/skipped)
+  /// 
+  /// [allInstances] - Optional: Pre-fetched habit instances to avoid redundant queries
+  /// [allTaskInstances] - Optional: Pre-fetched task instances to avoid redundant queries
+  /// [categories] - Optional: Pre-fetched categories to avoid redundant queries
+  static Future<void> createDailyProgressRecordForDate({
+    required String userId,
+    required DateTime targetDate,
+    List<ActivityInstanceRecord>? allInstances,
+    List<ActivityInstanceRecord>? allTaskInstances,
+    List<CategoryRecord>? categories,
+  }) async {
+    final normalizedDate =
+        DateTime(targetDate.year, targetDate.month, targetDate.day);
+    
+    // Check if record already exists (outside retry loop)
+    final existingQuery = DailyProgressRecord.collectionForUser(userId)
+        .where('date', isEqualTo: normalizedDate);
+    final existingSnapshot = await existingQuery.get();
+    if (existingSnapshot.docs.isNotEmpty) {
+      print('DailyProgressRecord already exists for $normalizedDate');
+      return;
+    }
+
+    // Retry logic for record creation
+    int retries = 3;
+    while (retries > 0) {
+      try {
+
+      // Fetch instances only if not provided
+      List<ActivityInstanceRecord> habitInstances;
+      if (allInstances != null) {
+        habitInstances = allInstances;
+      } else {
+        final allInstancesQuery = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'habit');
+        final allInstancesSnapshot = await allInstancesQuery.get();
+        habitInstances = allInstancesSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+      }
+
+      // Fetch task instances only if not provided
+      List<ActivityInstanceRecord> taskInstances;
+      if (allTaskInstances != null) {
+        taskInstances = allTaskInstances;
+      } else {
+        final allTaskInstancesQuery =
+            ActivityInstanceRecord.collectionForUser(userId)
+                .where('templateCategoryType', isEqualTo: 'task');
+        final allTaskInstancesSnapshot = await allTaskInstancesQuery.get();
+        taskInstances = allTaskInstancesSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+      }
+
+      // Fetch categories only if not provided
+      List<CategoryRecord> categoryList;
+      if (categories != null) {
+        categoryList = categories;
+      } else {
+        final categoriesQuery = CategoryRecord.collectionForUser(userId)
+            .where('categoryType', isEqualTo: 'habit');
+        final categoriesSnapshot = await categoriesQuery.get();
+        categoryList = categoriesSnapshot.docs
+            .map((doc) => CategoryRecord.fromSnapshot(doc))
+            .toList();
+      }
+
+      // Use DailyProgressCalculator (same as DayEndProcessor)
+      final calculationResult =
+          await DailyProgressCalculator.calculateDailyProgress(
+        userId: userId,
+        targetDate: normalizedDate,
+        allInstances: habitInstances,
+        categories: categoryList,
+        taskInstances: taskInstances,
+      );
+
+      final targetPoints = calculationResult['target'] as double;
+      final earnedPoints = calculationResult['earned'] as double;
+      final completionPercentage = calculationResult['percentage'] as double;
+      final displayInstances =
+          calculationResult['instances'] as List<ActivityInstanceRecord>;
+      final displayTaskInstances =
+          calculationResult['taskInstances'] as List<ActivityInstanceRecord>;
+      final allForMath =
+          calculationResult['allForMath'] as List<ActivityInstanceRecord>;
+      final allTasksForMath =
+          calculationResult['allTasksForMath'] as List<ActivityInstanceRecord>;
+      final taskTarget = calculationResult['taskTarget'] as double;
+      final taskEarned = calculationResult['taskEarned'] as double;
+      final habitBreakdown =
+          calculationResult['habitBreakdown'] as List<Map<String, dynamic>>? ??
+              [];
+      final taskBreakdown =
+          calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ??
+              [];
+
+      // Handle empty case - create record with zero values
+      if (displayInstances.isEmpty && displayTaskInstances.isEmpty) {
+        final emptyProgressData = createDailyProgressRecordData(
+          userId: userId,
+          date: normalizedDate,
+          targetPoints: 0.0,
+          earnedPoints: 0.0,
+          completionPercentage: 0.0,
+          totalHabits: 0,
+          completedHabits: 0,
+          partialHabits: 0,
+          skippedHabits: 0,
+          totalTasks: 0,
+          completedTasks: 0,
+          partialTasks: 0,
+          skippedTasks: 0,
+          taskTargetPoints: 0.0,
+          taskEarnedPoints: 0.0,
+          categoryBreakdown: {},
+          habitBreakdown: [],
+          taskBreakdown: [],
+          createdAt: DateTime.now(),
+        );
+        await DailyProgressRecord.collectionForUser(userId)
+            .add(emptyProgressData);
+        print('Created empty DailyProgressRecord for $normalizedDate');
+        return;
+      }
+
+      // Count habit statistics using allForMath and completion-on-date rule
+      int totalHabits = allForMath.length;
+      final completedOnDate = allForMath.where((i) {
+        if (i.status != 'completed' || i.completedAt == null) return false;
+        final completedDate = DateTime(
+            i.completedAt!.year, i.completedAt!.month, i.completedAt!.day);
+        return completedDate.isAtSameMomentAs(normalizedDate);
+      }).toList();
+      int completedHabits = completedOnDate.length;
+      int partialHabits = allForMath
+          .where((i) =>
+              i.status != 'completed' &&
+              (i.currentValue is num ? (i.currentValue as num) > 0 : false))
+          .length;
+      int skippedHabits = allForMath.where((i) => i.status == 'skipped').length;
+
+      // Count task statistics using allTasksForMath and completion-on-date rule
+      int totalTasks = allTasksForMath.length;
+      final completedTasksOnDate = allTasksForMath.where((task) {
+        if (task.status != 'completed' || task.completedAt == null) return false;
+        final completedDate = DateTime(task.completedAt!.year,
+            task.completedAt!.month, task.completedAt!.day);
+        return completedDate.isAtSameMomentAs(normalizedDate);
+      }).toList();
+      int completedTasks = completedTasksOnDate.length;
+      int partialTasks = allTasksForMath
+          .where((task) =>
+              task.status != 'completed' &&
+              (task.currentValue is num ? (task.currentValue as num) > 0 : false))
+          .length;
+      int skippedTasks =
+          allTasksForMath.where((task) => task.status == 'skipped').length;
+
+      // Create category breakdown
+      final categoryBreakdown = <String, Map<String, dynamic>>{};
+      for (final category in categoryList) {
+        final categoryAll = allForMath
+            .where((i) => i.templateCategoryId == category.reference.id)
+            .toList();
+        if (categoryAll.isNotEmpty) {
+          final categoryCompleted = completedOnDate
+              .where((i) => i.templateCategoryId == category.reference.id)
+              .toList();
+          final categoryTarget =
+              PointsService.calculateTotalDailyTarget(categoryAll, [category]);
+          final categoryEarned = PointsService.calculateTotalPointsEarned(
+              categoryCompleted, [category]);
+          categoryBreakdown[category.reference.id] = {
+            'target': categoryTarget,
+            'earned': categoryEarned,
+            'completed': categoryCompleted.length,
+            'total': categoryAll.length,
+          };
+        }
+      }
+
+      // Calculate cumulative score
+      Map<String, dynamic> cumulativeScoreData = {};
+      try {
+        cumulativeScoreData = await CumulativeScoreService.updateCumulativeScore(
+          userId,
+          completionPercentage,
+          normalizedDate,
+        );
+      } catch (e) {
+        print('Error calculating cumulative score: $e');
+        // Continue without cumulative score if calculation fails
+      }
+
+      // Create the daily progress record with full breakdown
+      final progressData = createDailyProgressRecordData(
+        userId: userId,
+        date: normalizedDate,
+        targetPoints: targetPoints,
+        earnedPoints: earnedPoints,
+        completionPercentage: completionPercentage,
+        totalHabits: totalHabits,
+        completedHabits: completedHabits,
+        partialHabits: partialHabits,
+        skippedHabits: skippedHabits,
+        totalTasks: totalTasks,
+        completedTasks: completedTasks,
+        partialTasks: partialTasks,
+        skippedTasks: skippedTasks,
+        taskTargetPoints: taskTarget,
+        taskEarnedPoints: taskEarned,
+        categoryBreakdown: categoryBreakdown,
+        habitBreakdown: habitBreakdown,
+        taskBreakdown: taskBreakdown,
+        cumulativeScoreSnapshot: cumulativeScoreData['cumulativeScore'] ?? 0.0,
+        dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
+        createdAt: DateTime.now(),
+      );
+        await DailyProgressRecord.collectionForUser(userId).add(progressData);
+        print('Created DailyProgressRecord for $normalizedDate with ${habitBreakdown.length} habits');
+        return; // Success
+      } catch (e) {
+        retries--;
+        if (retries == 0) {
+          print('Failed to create DailyProgressRecord after retries: $e');
+          // Create minimal record as fallback
+          try {
+            final minimalData = createDailyProgressRecordData(
+              userId: userId,
+              date: normalizedDate,
+              targetPoints: 0.0,
+              earnedPoints: 0.0,
+              completionPercentage: 0.0,
+              totalHabits: 0,
+              completedHabits: 0,
+              partialHabits: 0,
+              skippedHabits: 0,
+              totalTasks: 0,
+              completedTasks: 0,
+              partialTasks: 0,
+              skippedTasks: 0,
+              taskTargetPoints: 0.0,
+              taskEarnedPoints: 0.0,
+              categoryBreakdown: {},
+              habitBreakdown: [],
+              taskBreakdown: [],
+              createdAt: DateTime.now(),
+            );
+            await DailyProgressRecord.collectionForUser(userId).add(minimalData);
+            print('Created minimal DailyProgressRecord as fallback for $normalizedDate');
+          } catch (fallbackError) {
+            print('Fallback record creation also failed: $fallbackError');
+            rethrow;
+          }
+        } else {
+          // Wait before retrying with exponential backoff
+          await Future.delayed(Duration(milliseconds: 500 * (3 - retries)));
+        }
+      }
+    }
+  }
+
+  /// Create records for all missed days between last record and yesterday
+  /// Ensures continuity in tracking even when user hasn't opened app for days
+  static Future<void> createRecordsForMissedDays({
+    required String userId,
+  }) async {
+    try {
+      final yesterday = DateService.yesterdayStart;
+      
+      // Find the last DailyProgressRecord date
+      final lastRecordQuery = DailyProgressRecord.collectionForUser(userId)
+          .orderBy('date', descending: true)
+          .limit(1);
+      final lastRecordSnapshot = await lastRecordQuery.get();
+      
+      DateTime? lastRecordDate;
+      if (lastRecordSnapshot.docs.isNotEmpty) {
+        final lastRecord = DailyProgressRecord.fromSnapshot(lastRecordSnapshot.docs.first);
+        if (lastRecord.date != null) {
+          lastRecordDate = DateTime(
+            lastRecord.date!.year,
+            lastRecord.date!.month,
+            lastRecord.date!.day,
+          );
+        }
+      }
+
+      // If no last record, start from reasonable limit but warn
+      if (lastRecordDate == null) {
+        final limitDays = 90; // Increased from 30
+        lastRecordDate = yesterday.subtract(Duration(days: limitDays));
+        print('No previous record found, creating records for last $limitDays days');
+      }
+
+      // Check if gap is very large
+      final daysSinceLastRecord = yesterday.difference(lastRecordDate).inDays;
+      if (daysSinceLastRecord > 90) {
+        print('Warning: Large gap detected ($daysSinceLastRecord days). Creating records for recent 90 days only.');
+        // Cap at 90 days
+        lastRecordDate = yesterday.subtract(const Duration(days: 90));
+      }
+
+      // Don't create records if last record is yesterday or later
+      if (!lastRecordDate.isBefore(yesterday)) {
+        print('No missed days to create records for');
+        return;
+      }
+
+      // Build list of all missed dates
+      final missedDates = <DateTime>[];
+      DateTime currentDate = lastRecordDate.add(const Duration(days: 1));
+      while (currentDate.isBefore(yesterday) || currentDate.isAtSameMomentAs(yesterday)) {
+        missedDates.add(currentDate);
+        currentDate = currentDate.add(const Duration(days: 1));
+      }
+
+      if (missedDates.isEmpty) {
+        return;
+      }
+
+      // Pre-fetch instances and categories once to avoid redundant queries
+      final allInstancesQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit');
+      final allTaskInstancesQuery =
+          ActivityInstanceRecord.collectionForUser(userId)
+              .where('templateCategoryType', isEqualTo: 'task');
+      final categoriesQuery = CategoryRecord.collectionForUser(userId)
+          .where('categoryType', isEqualTo: 'habit');
+
+      // Fetch all data in parallel
+      final results = await Future.wait([
+        allInstancesQuery.get(),
+        allTaskInstancesQuery.get(),
+        categoriesQuery.get(),
+      ]);
+
+      final allInstances = results[0].docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      final allTaskInstances = results[1].docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      final categories = results[2].docs
+          .map((doc) => CategoryRecord.fromSnapshot(doc))
+          .toList();
+
+      // Create records for missed days in parallel (with concurrency limit)
+      const maxConcurrency = 5; // Process up to 5 dates in parallel
+      int recordsCreated = 0;
+
+      for (int i = 0; i < missedDates.length; i += maxConcurrency) {
+        final batch = missedDates.skip(i).take(maxConcurrency).toList();
+        final batchResults = await Future.wait(
+          batch.map((date) async {
+            try {
+              await createDailyProgressRecordForDate(
+                userId: userId,
+                targetDate: date,
+                allInstances: allInstances,
+                allTaskInstances: allTaskInstances,
+                categories: categories,
+              );
+              return true;
+            } catch (e) {
+              print('Error creating record for $date: $e');
+              return false;
+            }
+          }),
+        );
+        recordsCreated += batchResults.where((r) => r).length;
+      }
+
+      if (recordsCreated > 0) {
+        print('Created $recordsCreated DailyProgressRecords for missed days');
+      }
+    } catch (e) {
+      print('Error creating records for missed days: $e');
+      // Don't rethrow - this is a background operation
     }
   }
 }

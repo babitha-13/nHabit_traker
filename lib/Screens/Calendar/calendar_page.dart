@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:from_css_color/from_css_color.dart';
+import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
 import 'package:intl/intl.dart';
 
 class CalendarPage extends StatefulWidget {
@@ -22,7 +23,7 @@ class _CalendarPageState extends State<CalendarPage> {
   // Separate event controllers for completed and planned
   final EventController _completedEventController = EventController();
   final EventController _plannedEventController = EventController();
-  
+
   // Scroll tracking
   double _currentScrollOffset = 0.0;
   double _initialScrollOffset = 0.0;
@@ -45,10 +46,198 @@ class _CalendarPageState extends State<CalendarPage> {
   List<CalendarEventData> _sortedCompletedEvents = [];
   List<CalendarEventData> _sortedPlannedEvents = [];
 
+  // Key to access DayView state for scrolling
+  final GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
+
+  // Track the last tap position for precise time calculation
+  Offset? _lastTapDownPosition;
+
   @override
   void initState() {
     super.initState();
+    _calculateInitialScrollOffset();
     _loadEvents();
+  }
+
+  void _calculateInitialScrollOffset() {
+    final now = DateTime.now();
+    // Calculate minutes from midnight
+    final minutes = now.hour * 60 + now.minute;
+    // Start 1 hour before current time for context
+    final startMinutes = (minutes - 60).clamp(0, 24 * 60).toDouble();
+
+    // Set initial offsets
+    _initialScrollOffset = startMinutes * _calculateHeightPerMinute();
+    _currentScrollOffset = _initialScrollOffset;
+  }
+
+  void _showManualEntryDialog({DateTime? startTime, DateTime? endTime}) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return ManualTimeLogModal(
+          selectedDate: _selectedDate,
+          initialStartTime: startTime,
+          initialEndTime: endTime,
+          onPreviewChange: _handlePreviewChange,
+          onSave: () {
+            // Reload events to reflect the new entry
+            _loadEvents();
+          },
+        );
+      },
+    ).whenComplete(() {
+      _removePreviewEvent();
+    });
+  }
+
+  void _handlePreviewChange(
+      DateTime start, DateTime end, String type, Color? color) {
+    // Remove existing preview
+    _removePreviewEvent();
+
+    // Validate that times are on the selected date to prevent calendar_view validation errors
+    final selectedDateStart = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      0,
+      0,
+      0,
+    );
+    final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
+
+    // Clamp times to selected date
+    var validStartTime = start;
+    var validEndTime = end;
+
+    if (validStartTime.isBefore(selectedDateStart)) {
+      validStartTime = selectedDateStart;
+    } else if (validStartTime.isAfter(selectedDateEnd) ||
+        validStartTime.isAtSameMomentAs(selectedDateEnd)) {
+      validStartTime = selectedDateEnd.subtract(const Duration(seconds: 1));
+    }
+
+    if (validEndTime.isAfter(selectedDateEnd)) {
+      validEndTime = selectedDateEnd.subtract(const Duration(seconds: 1));
+    }
+
+    // Ensure end time is after start time
+    if (validEndTime.isBefore(validStartTime) ||
+        validEndTime.isAtSameMomentAs(validStartTime)) {
+      validEndTime = validStartTime.add(const Duration(minutes: 10));
+    }
+
+    // Ensure both times are on the same date as selectedDate
+    final startDateOnly = DateTime(
+      validStartTime.year,
+      validStartTime.month,
+      validStartTime.day,
+    );
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+
+    // Only create preview if start time is on the selected date
+    if (!startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+      return; // Don't add preview if times don't match selected date
+    }
+
+    // Determine color
+    Color previewColor = color ?? Colors.grey.withOpacity(0.5);
+    String title = "New Entry";
+    if (type == 'habit') title = "New Habit";
+    if (type == 'task') title = "New Task";
+    if (type == 'non_productive') title = "Non-Productive";
+
+    final previewEvent = CalendarEventData(
+      date: _selectedDate,
+      startTime: validStartTime,
+      endTime: validEndTime,
+      title: title,
+      description: "Preview",
+      color: previewColor,
+      event: "preview_id", // Use event field as ID tag
+    );
+
+    // Add to appropriate controller (using planned for preview is safer visual layer)
+    _plannedEventController.add(previewEvent);
+
+    // Auto-scroll logic
+    // We need to ensure the start time is visible above the bottom sheet
+    // Estimate bottom sheet height as 50% of screen or ~300-400px
+    // Ideally we check MediaQuery, but inside this callback context might be tricky if not careful.
+    // However, DayView gives us scroll control.
+
+    if (_dayViewKey.currentState != null) {
+      // Calculate Y position of the event start
+      final minutesFromMidnight = start.hour * 60 + start.minute;
+      final eventY = minutesFromMidnight * _calculateHeightPerMinute();
+
+      // Get current scroll offset
+      // Since we don't have direct access to ScrollController from DayViewState publicly in all versions,
+      // we rely on our tracked _currentScrollOffset or try to jump if exposed.
+      // CalendarView 1.0.3+ usually exposes proper controller or jump methods?
+      // Checking `calendar_view` source previously showed `animateTo` might not be heavily exposed on State
+      // But we can approximate.
+      // Actually, let's use the scrollController if we can find it, or just use the logical check.
+
+      // Since we are likely using a version where direct scroll manipulation might be limited via GlobalKey<DayViewState> without custom fork,
+      // We will perform a best-effort check.
+      // Wait, we tracked `_currentScrollOffset`.
+
+      final viewportHeight = MediaQuery.of(context).size.height;
+      final bottomSheetHeight = viewportHeight * 0.5; // Approximation
+
+      // We use the tracked _currentScrollOffset as the best available source of truth
+      final visibleBottom =
+          _currentScrollOffset + (viewportHeight - bottomSheetHeight);
+
+      if (eventY > visibleBottom - 50) {
+        // Buffer
+        // Event is hidden behind bottom sheet. Scroll UP to reveal it.
+        // Target: prevent it from being hidden. Put it at 30% of screen height from top?
+        // Actually, we just need it in view.
+        final targetOffset = math.max(0.0, eventY - (viewportHeight * 0.2));
+
+        // Attempt to animate scroll using dynamic access to DayViewState
+        final state = _dayViewKey.currentState as dynamic;
+        try {
+          // Try common scroll methods usually present on ScrollableState or similar
+          // Note: DayViewState in calendar_view often has 'animateTo' or exposes 'scrollController'
+          if (state.mounted) {
+            state.animateTo(
+              targetOffset,
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeOut,
+            );
+          }
+        } catch (e) {
+          debugPrint(
+              "Auto-scroll not supported on this version of DayView: $e");
+          // Fallback: If animateTo fails, try accessing scrollController property
+          try {
+            if (state.scrollController != null) {
+              state.scrollController.animateTo(
+                targetOffset,
+                duration: const Duration(milliseconds: 300),
+                curve: Curves.easeOut,
+              );
+            }
+          } catch (e2) {
+            debugPrint("Auto-scroll completely failed: $e2");
+          }
+        }
+      }
+    }
+  }
+
+  void _removePreviewEvent() {
+    _plannedEventController.removeWhere((e) => e.event == "preview_id");
   }
 
   void _changeDate(int days) {
@@ -72,10 +261,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Get categories for color lookup
     final userId = currentUserUid;
-    final habitCategories = await queryHabitCategoriesOnce(userId: userId);
-    final taskCategories = await queryTaskCategoriesOnce(userId: userId);
-    final allCategories = [...habitCategories, ...taskCategories];
-
+    
     // Get date range for filtering (start and end of selected date)
     final selectedDateStart = DateTime(
       _selectedDate.year,
@@ -87,24 +273,43 @@ class _CalendarPageState extends State<CalendarPage> {
     );
     final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
 
-    // 1. Fetch completed items
-    final completedItems = await CalendarQueueService.getCompletedItems(
-      userId: userId,
-      date: _selectedDate,
-    );
-
-    // 2. Fetch time logged items (filtered by date)
-    final timeLoggedTasks = await TaskInstanceService.getTimeLoggedTasks(
-      userId: userId,
-      startDate: selectedDateStart,
-      endDate: selectedDateEnd,
-    );
-    final nonProductiveInstances =
-        await TaskInstanceService.getNonProductiveInstances(
-      userId: userId,
-      startDate: selectedDateStart,
-      endDate: selectedDateEnd,
-    );
+    // Batch all Firestore queries in parallel for faster loading
+    final results = await Future.wait([
+      queryHabitCategoriesOnce(userId: userId),
+      queryTaskCategoriesOnce(userId: userId),
+      CalendarQueueService.getCompletedItems(
+        userId: userId,
+        date: _selectedDate,
+      ),
+      TaskInstanceService.getTimeLoggedTasks(
+        userId: userId,
+        startDate: selectedDateStart,
+        endDate: selectedDateEnd,
+      ),
+      TaskInstanceService.getNonProductiveInstances(
+        userId: userId,
+        startDate: selectedDateStart,
+        endDate: selectedDateEnd,
+      ),
+      CalendarQueueService.getQueueItems(
+        userId: userId,
+        date: _selectedDate,
+      ),
+    ]);
+    
+    final habitCategories = results[0] as List<CategoryRecord>;
+    final taskCategories = results[1] as List<CategoryRecord>;
+    final allCategories = [...habitCategories, ...taskCategories];
+    final completedItems = results[2] as List<ActivityInstanceRecord>;
+    final timeLoggedTasks = results[3] as List<ActivityInstanceRecord>;
+    final nonProductiveInstances = results[4] as List<ActivityInstanceRecord>;
+    final queueItems = results[5] as Map<String, dynamic>;
+    
+    debugPrint(
+        'Calendar: Found ${completedItems.length} completed items for ${_selectedDate}');
+    debugPrint('Calendar: Found ${timeLoggedTasks.length} time logged tasks');
+    debugPrint(
+        'Calendar: Found ${nonProductiveInstances.length} non-productive instances');
 
     // Combine all items into a map to handle duplicates (keyed by instance ID)
     final allItemsMap = <String, ActivityInstanceRecord>{};
@@ -123,28 +328,44 @@ class _CalendarPageState extends State<CalendarPage> {
     final plannedEvents = <CalendarEventData>[];
 
     // Process all items to generate calendar events
+    // Show ALL time logged on the selected date, regardless of completion status
+    // This allows users to see partial progress (e.g., 10 min of 1 hour goal)
     for (final item in allItemsMap.values) {
-      if (item.completedAt == null) continue;
+      debugPrint(
+          'Calendar: Processing item ${item.templateName} - status: ${item.status}, dueDate: ${item.dueDate}, completedAt: ${item.completedAt}, sessions: ${item.timeLogSessions.length}');
 
-      CategoryRecord? category;
-      try {
-        category = allCategories.firstWhere(
-          (c) => c.reference.id == item.templateCategoryId,
-        );
-      } catch (e) {
+      Color categoryColor;
+      if (item.templateCategoryType == 'habit') {
+        CategoryRecord? category;
         try {
           category = allCategories.firstWhere(
-            (c) => c.name == item.templateCategoryName,
+            (c) => c.reference.id == item.templateCategoryId,
           );
-        } catch (e2) {
-          // Use default if category not found
+        } catch (e) {
+          try {
+            category = allCategories.firstWhere(
+              (c) => c.name == item.templateCategoryName,
+            );
+          } catch (e2) {
+            // Use default if category not found
+          }
         }
+        categoryColor =
+            category != null ? _parseColor(category.color) : Colors.blue;
+      } else if (item.templateCategoryType == 'non_productive') {
+        categoryColor = Colors.grey;
+      } else {
+        // Tasks default to Dark Charcoal/Black
+        categoryColor = const Color(0xFF1A1A1A);
       }
 
-      final categoryColor =
-          category != null ? _parseColor(category.color) : Colors.grey;
-
-      // A. Time Tracked Events (Priority) - has timeLogSessions
+      // A. Time Tracked Events - has timeLogSessions
+      // Show ALL sessions on the selected date, regardless of completion status
+      // This includes time logged from:
+      // - Manual time log modal
+      // - Timer page
+      // - Play button on duration tasks
+      // - Right swipe to record time on task cards
       if (item.timeLogSessions.isNotEmpty) {
         // Filter sessions that fall on the selected date
         final sessionsOnDate = item.timeLogSessions.where((session) {
@@ -170,69 +391,80 @@ class _CalendarPageState extends State<CalendarPage> {
             final sessionEnd = session['endTime'] as DateTime?;
             if (sessionEnd == null) continue;
 
-            completedEvents.add(CalendarEventData(
-              date: _selectedDate,
-              startTime: sessionStart,
-              endTime: sessionEnd,
-              title: '✓ ${item.templateName}',
-              color: _muteColor(categoryColor),
-              description:
-                  'Session: ${_formatDuration(sessionEnd.difference(sessionStart))}',
-            ));
+            var actualSessionEnd = sessionEnd;
+            if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
+              actualSessionEnd = sessionStart.add(const Duration(minutes: 1));
+            }
+
+            // Validate that times are on the selected date to prevent calendar_view validation errors
+            // If event crosses midnight, clamp times to the selected date
+            final selectedDateStart = DateTime(
+              _selectedDate.year,
+              _selectedDate.month,
+              _selectedDate.day,
+              0,
+              0,
+              0,
+            );
+            final selectedDateEnd =
+                selectedDateStart.add(const Duration(days: 1));
+
+            var validStartTime = sessionStart;
+            var validEndTime = actualSessionEnd;
+
+            // Clamp start time to selected date
+            if (validStartTime.isBefore(selectedDateStart)) {
+              validStartTime = selectedDateStart;
+            } else if (validStartTime.isAfter(selectedDateEnd) ||
+                validStartTime.isAtSameMomentAs(selectedDateEnd)) {
+              // Skip events that start after the selected date
+              continue;
+            }
+
+            // Clamp end time to selected date (but ensure it's after start time)
+            if (validEndTime.isAfter(selectedDateEnd)) {
+              validEndTime =
+                  selectedDateEnd.subtract(const Duration(seconds: 1));
+            }
+
+            // Ensure end time is after start time
+            if (validEndTime.isBefore(validStartTime) ||
+                validEndTime.isAtSameMomentAs(validStartTime)) {
+              validEndTime = validStartTime.add(const Duration(minutes: 1));
+            }
+
+            // Ensure both times are on the same date as selectedDate
+            final startDateOnly = DateTime(
+              validStartTime.year,
+              validStartTime.month,
+              validStartTime.day,
+            );
+            final selectedDateOnly = DateTime(
+              _selectedDate.year,
+              _selectedDate.month,
+              _selectedDate.day,
+            );
+
+            // Only add event if start time is on the selected date
+            if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+              // Use checkmark for completed items, no checkmark for incomplete
+              final prefix = item.status == 'completed' ? '✓ ' : '';
+              completedEvents.add(CalendarEventData(
+                date: _selectedDate,
+                startTime: validStartTime,
+                endTime: validEndTime,
+                title: '$prefix${item.templateName}',
+                color:
+                    categoryColor, // Removed _muteColor for better visibility
+                description:
+                    'Session: ${_formatDuration(validEndTime.difference(validStartTime))}',
+              ));
+            }
           }
-          continue; // Skip to next item - processed as time logged event
         }
-        // If no sessions on this date, fall through to check legacy/default completion logic
-        // This handles cases where task was completed today but time logs were on other days
       }
-
-      // B. Legacy/Simple Timer Events - has accumulatedTime and timerStartTime
-      if (item.accumulatedTime > 0 && item.timerStartTime != null) {
-        final duration = Duration(milliseconds: item.accumulatedTime);
-        final endTime = item.completedAt!;
-        final startTime = endTime.subtract(duration);
-
-        completedEvents.add(CalendarEventData(
-          date: _selectedDate,
-          startTime: startTime,
-          endTime: endTime,
-          title: '✓ ${item.templateName}',
-          color: _muteColor(categoryColor),
-          description: 'Timer: ${_formatDuration(duration)}',
-        ));
-        continue; // Skip to next item - already processed
-      }
-
-      // C. Non-Tracked Events (Binary / Quantity) - default duration
-      // Calculate default duration: 10 minutes total, adjusted by quantity
-      Duration defaultDuration;
-      if (item.templateTrackingType == 'qty' && item.templateTarget != null) {
-        // Quantity-based: (10 minutes / target) * current
-        final targetQty = _getTargetMinutes(item.templateTarget);
-        final currentQty = _getCurrentValue(item.currentValue);
-        if (targetQty > 0 && currentQty > 0) {
-          final minutesPerUnit = 10.0 / targetQty;
-          final totalMinutes = (minutesPerUnit * currentQty).round();
-          defaultDuration = Duration(minutes: totalMinutes.clamp(1, 60));
-        } else {
-          defaultDuration = const Duration(minutes: 10);
-        }
-      } else {
-        // Binary (todo) - default 10 minutes
-        defaultDuration = const Duration(minutes: 10);
-      }
-
-      final endTime = item.completedAt!;
-      final startTime = endTime.subtract(defaultDuration);
-
-      completedEvents.add(CalendarEventData(
-        date: _selectedDate,
-        startTime: startTime,
-        endTime: endTime,
-        title: '✓ ${item.templateName}',
-        color: _muteColor(categoryColor),
-        description: 'Completed',
-      ));
+      // Note: We no longer handle legacy timer events or binary completions separately
+      // All time logging should use timeLogSessions for consistency
     }
 
     // Sort all completed events by end time (descending) for backward cascading
@@ -281,36 +513,39 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Assign sorted completed events
     _sortedCompletedEvents = cascadedEvents;
-    // Note: cascadedEvents are processed in reverse order (end time desc). 
+    // Note: cascadedEvents are processed in reverse order (end time desc).
     // For label collision, we want them sorted by START time ascending.
     _sortedCompletedEvents.sort((a, b) => a.startTime!.compareTo(b.startTime!));
 
-    // Get planned items for selected date
-    final queueItems = await CalendarQueueService.getQueueItems(
-      userId: userId,
-      date: _selectedDate,
-    );
+    // Planned items were already fetched in the batch query above
     final plannedItems = queueItems['planned'] ?? [];
 
     // Process planned items
     for (final item in plannedItems) {
-      CategoryRecord? category;
-      try {
-        category = allCategories.firstWhere(
-          (c) => c.reference.id == item.templateCategoryId,
-        );
-      } catch (e) {
+      Color categoryColor;
+      if (item.templateCategoryType == 'habit') {
+        CategoryRecord? category;
         try {
           category = allCategories.firstWhere(
-            (c) => c.name == item.templateCategoryName,
+            (c) => c.reference.id == item.templateCategoryId,
           );
-        } catch (e2) {
-          // Use default if category not found
+        } catch (e) {
+          try {
+            category = allCategories.firstWhere(
+              (c) => c.name == item.templateCategoryName,
+            );
+          } catch (e2) {
+            // Use default if category not found
+          }
         }
+        categoryColor =
+            category != null ? _parseColor(category.color) : Colors.blue;
+      } else if (item.templateCategoryType == 'non_productive') {
+        categoryColor = Colors.grey;
+      } else {
+        // Tasks default to Dark Charcoal/Black
+        categoryColor = const Color(0xFF1A1A1A);
       }
-
-      final categoryColor =
-          category != null ? _parseColor(category.color) : Colors.blue;
 
       // Parse due time
       DateTime startTime;
@@ -341,7 +576,7 @@ class _CalendarPageState extends State<CalendarPage> {
           startTime: startTime,
           endTime: endTime,
           title: item.templateName,
-          color: categoryColor.withOpacity(0.3), // Transparent block
+          color: categoryColor, // Pass full color, opacity handled in UI
           description: targetMinutes > 15
               ? '${_formatDuration(Duration(minutes: targetMinutes))}'
               : null,
@@ -350,7 +585,7 @@ class _CalendarPageState extends State<CalendarPage> {
         plannedEvents.add(CalendarEventData(
           date: _selectedDate,
           startTime: startTime,
-          endTime: startTime.add(const Duration(minutes: 1)),
+          endTime: startTime.add(const Duration(minutes: 10)),
           title: item.templateName,
           color: categoryColor,
           description: null,
@@ -377,17 +612,6 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Force rebuild to show new events
     if (mounted) setState(() {});
-  }
-
-  /// Get current value as integer (for quantity calculations)
-  int _getCurrentValue(dynamic currentValue) {
-    if (currentValue == null) return 0;
-    if (currentValue is int) return currentValue;
-    if (currentValue is double) return currentValue.toInt();
-    if (currentValue is String) {
-      return int.tryParse(currentValue) ?? 0;
-    }
-    return 0;
   }
 
   /// Parse dueTime string (HH:mm) to DateTime for target date
@@ -423,11 +647,6 @@ class _CalendarPageState extends State<CalendarPage> {
     } catch (e) {
       return Colors.blue; // Default color
     }
-  }
-
-  /// Mute a color for completed items
-  Color _muteColor(Color color) {
-    return color.withOpacity(0.4);
   }
 
   /// Calculate horizontal offset for floating labels to avoid overlap
@@ -510,9 +729,10 @@ class _CalendarPageState extends State<CalendarPage> {
     if (event.startTime == null || event.endTime == null) {
       return const SizedBox.shrink();
     }
-    
+
     // Calculate label offset
-    final eventList = isCompleted ? _sortedCompletedEvents : _sortedPlannedEvents;
+    final eventList =
+        isCompleted ? _sortedCompletedEvents : _sortedPlannedEvents;
     final labelOffset = _calculateLabelOffset(event, eventList, isCompleted);
 
     final duration = event.endTime!.difference(event.startTime!);
@@ -595,20 +815,28 @@ class _CalendarPageState extends State<CalendarPage> {
     bool isCompleted,
     bool isNonProductive,
   ) {
+    // For completed items, make them solid and distinct (0.85 opacity)
+    // For planned items, keep them lighter (0.3 opacity)
+    Color boxColor;
+    if (isCompleted) {
+      boxColor = event.color.withOpacity(0.6); // Solid color for completed
+    } else {
+      // Planned items: increased opacity for better visibility and contrast with text
+      boxColor = event.color.withOpacity(0.6);
+    }
+
     return Container(
       constraints: const BoxConstraints(
         minHeight: 1.0,
         minWidth: 0,
       ),
       decoration: BoxDecoration(
-        color: isCompleted
-            ? _muteColor(event.color).withOpacity(0.3)
-            : (isNonProductive
-                ? event.color.withOpacity(0.3)
-                : event.color.withOpacity(0.3)),
+        color: boxColor,
         borderRadius: BorderRadius.circular(4.0),
         border: Border.all(
-          color: isCompleted ? _muteColor(event.color) : event.color,
+          color: isCompleted
+              ? event.color
+              : event.color, // Use strong color for border
           width: isNonProductive ? 1.5 : 1.0,
         ),
       ),
@@ -620,9 +848,22 @@ class _CalendarPageState extends State<CalendarPage> {
     bool isCompleted,
     bool isNonProductive,
   ) {
-    final textColor = isCompleted
-        ? Colors.grey.shade900
-        : (isNonProductive ? Colors.white : Colors.black87);
+    // Determine text color based on background luminance
+    // Completed events are muted (opacity 0.4), but planned are solid/transparent blocks
+    // We base it on the "perceived" background color or the event color itself
+
+    Color textColor;
+    if (isNonProductive || event.color == Colors.grey) {
+      textColor = Colors.black87;
+    } else if (event.color == const Color(0xFF1A1A1A)) {
+      // Task color
+      textColor = Colors.white;
+    } else {
+      // Habits - check luminance
+      // If color is dark, use white text. If light, use black text.
+      textColor =
+          event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+    }
 
     return ConstrainedBox(
       constraints: const BoxConstraints(
@@ -647,9 +888,7 @@ class _CalendarPageState extends State<CalendarPage> {
             Text(
               event.description!,
               style: TextStyle(
-                color: isCompleted
-                    ? Colors.grey.shade800
-                    : (isNonProductive ? Colors.white70 : Colors.black54),
+                color: textColor.withOpacity(0.8),
                 fontSize: 10,
               ),
               overflow: TextOverflow.ellipsis,
@@ -665,14 +904,18 @@ class _CalendarPageState extends State<CalendarPage> {
     bool isCompleted,
     bool isNonProductive,
   ) {
-    final labelColor = isCompleted
-        ? Colors.grey.shade300
-        : (isNonProductive
-            ? event.color.withOpacity(0.9)
-            : event.color.withOpacity(0.9));
-    final textColor = isCompleted
-        ? Colors.black87
-        : (isNonProductive ? Colors.white : Colors.white);
+    final labelColor = event.color.withOpacity(0.9);
+    Color textColor;
+    if (isNonProductive || event.color == Colors.grey) {
+      textColor = Colors.black87;
+    } else if (event.color == const Color(0xFF1A1A1A)) {
+      // Task color
+      textColor = Colors.white;
+    } else {
+      // Habits - check luminance
+      textColor =
+          event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+    }
 
     return ConstrainedBox(
       constraints: const BoxConstraints(
@@ -686,7 +929,7 @@ class _CalendarPageState extends State<CalendarPage> {
           borderRadius: BorderRadius.circular(4.0),
           border: isCompleted
               ? Border.all(
-                  color: _muteColor(event.color),
+                  color: event.color, // Solid border
                   width: 1.5,
                 )
               : null,
@@ -736,7 +979,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final oldHeight = _calculateHeightPerMinute();
     final newScale =
         (_verticalZoom + _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
-    
+
     if ((newScale - _verticalZoom).abs() < 0.001) return;
 
     // Calculate new offset to preserve top position
@@ -753,7 +996,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final oldHeight = _calculateHeightPerMinute();
     final newScale =
         (_verticalZoom - _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
-    
+
     if ((newScale - _verticalZoom).abs() < 0.001) return;
 
     // Calculate new offset to preserve top position
@@ -778,7 +1021,7 @@ class _CalendarPageState extends State<CalendarPage> {
       final oldHeight = _calculateHeightPerMinute();
       final newZoom = _verticalZoom * details.scale;
       final clampedZoom = newZoom.clamp(_minVerticalZoom, _maxVerticalZoom);
-      
+
       if ((clampedZoom - _verticalZoom).abs() < 0.001) return;
 
       // Calculate new offset
@@ -822,6 +1065,11 @@ class _CalendarPageState extends State<CalendarPage> {
             tooltip: 'Reset Zoom',
           ),
         ],
+      ),
+      floatingActionButton: FloatingActionButton(
+        onPressed: _showManualEntryDialog,
+        child: const Icon(Icons.add),
+        tooltip: 'Log Time Entry',
       ),
       body: Container(
         color: Colors.white,
@@ -976,31 +1224,123 @@ class _CalendarPageState extends State<CalendarPage> {
                     }
                     return false;
                   },
-                  child: DayView(
-                    // Use unique key to force rebuild when switching views or dates OR zooming
-                    key: ValueKey('$_selectedDate-$_showPlanned-$_verticalZoom'),
-                    scrollOffset: _initialScrollOffset,
-                    controller: _showPlanned
-                        ? _plannedEventController
-                        : _completedEventController,
-                    // Assuming initialDay sets the date
-                    initialDay: _selectedDate,
-                  heightPerMinute: _calculateHeightPerMinute(),
-                  backgroundColor: Colors.white,
-                  timeLineWidth: 50,
-                  hourIndicatorSettings: HourIndicatorSettings(
-                    color: Colors.grey.shade300,
+                  child: Listener(
+                    onPointerDown: (event) {
+                      // Capture the local position of the tap within the viewport
+                      _lastTapDownPosition = event.localPosition;
+                    },
+                    child: DayView(
+                      // Use unique key to force rebuild when switching views or dates OR zooming
+                      key: _dayViewKey,
+                      scrollOffset: _initialScrollOffset,
+                      controller: _showPlanned
+                          ? _plannedEventController
+                          : _completedEventController,
+                      // Assuming initialDay sets the date
+                      initialDay: _selectedDate,
+                      heightPerMinute: _calculateHeightPerMinute(),
+                      backgroundColor: Colors.white,
+                      timeLineWidth: 50,
+                      hourIndicatorSettings: HourIndicatorSettings(
+                        color: Colors.grey.shade300,
+                      ),
+                      eventTileBuilder: (date, events, a, b, c) {
+                        return _buildEventTile(events.first, !_showPlanned);
+                      },
+                      dayTitleBuilder: (date) {
+                        return const SizedBox.shrink(); // Hide default header
+                      },
+                      onDateLongPress: (date) {
+                        // Calculate precise time from touch position details
+                        // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
+                        // use _lastTapDownPosition + scrollOffset to get pixels from top.
+                        if (_lastTapDownPosition != null) {
+                          // tapY is relative to the Listener widget, which wraps the DayView
+                          // The Listener is at the top of the Expanded widget (below the header)
+                          // So tapY is already relative to the DayView's content area
+                          final double tapY = _lastTapDownPosition!.dy;
+
+                          // Get the actual scroll position from DayView if possible
+                          // Otherwise use the tracked _currentScrollOffset
+                          double scrollOffset = _currentScrollOffset;
+
+                          // Try to get scroll position directly from DayView state
+                          try {
+                            final dayViewState = _dayViewKey.currentState;
+                            if (dayViewState != null) {
+                              // Access scrollController if available
+                              final dynamic state = dayViewState;
+                              if (state.scrollController != null) {
+                                scrollOffset =
+                                    state.scrollController.position.pixels;
+                              }
+                            }
+                          } catch (e) {
+                            // Fallback to tracked offset
+                          }
+
+                          // Calculate total pixels from top of timeline (midnight)
+                          // tapY is the position in the visible viewport
+                          // scrollOffset is how far we've scrolled from the top
+                          final double totalPixels = tapY + scrollOffset;
+                          final double totalMinutes =
+                              totalPixels / _calculateHeightPerMinute();
+
+                          // Convert total minutes to HH:MM on the selected date
+                          final int totalMinutesInt = totalMinutes.toInt();
+                          final int hours = totalMinutesInt ~/ 60;
+                          final int minutes = totalMinutesInt % 60;
+
+                          // Round minutes to nearest 5
+                          final int remainder = minutes % 5;
+                          final int roundedMinute = remainder >= 2.5
+                              ? minutes + (5 - remainder)
+                              : minutes - remainder;
+
+                          final startTime = DateTime(
+                            _selectedDate.year,
+                            _selectedDate.month,
+                            _selectedDate.day,
+                            hours,
+                            0, // Start from 0 minutes and add rounded minutes
+                          ).add(Duration(minutes: roundedMinute));
+
+                          final endTime =
+                              startTime.add(const Duration(minutes: 10));
+
+                          _showManualEntryDialog(
+                            startTime: startTime,
+                            endTime: endTime,
+                          );
+                        } else {
+                          // Fallback to old logic if no tap position (unlikely)
+                          final minute = date.minute;
+                          final remainder = minute % 5;
+                          final roundedMinute = remainder >= 2.5
+                              ? minute + (5 - remainder)
+                              : minute - remainder;
+
+                          final startTime = DateTime(
+                            date.year,
+                            date.month,
+                            date.day,
+                            date.hour,
+                            roundedMinute,
+                          );
+                          final endTime =
+                              startTime.add(const Duration(minutes: 10));
+
+                          _showManualEntryDialog(
+                            startTime: startTime,
+                            endTime: endTime,
+                          );
+                        }
+                      },
+                    ),
                   ),
-                  eventTileBuilder: (date, events, a, b, c) {
-                    return _buildEventTile(events.first, !_showPlanned);
-                  },
-                  dayTitleBuilder: (date) {
-                    return const SizedBox.shrink(); // Hide default header
-                  },
                 ),
               ),
             ),
-          ),
           ],
         ),
       ),
