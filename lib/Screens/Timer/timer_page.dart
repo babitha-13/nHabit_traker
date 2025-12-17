@@ -234,7 +234,7 @@ class _TimerPageState extends State<TimerPage> {
                 activityInstanceRef: _taskInstanceRef!,
               ).catchError((e) {
                 // Ignore errors - instance might already be cleaned up
-                debugPrint('Error clearing timer session after save: $e');
+                // Error clearing timer session after save
               });
             }
             // Reset timer after saving
@@ -268,29 +268,27 @@ class _TimerPageState extends State<TimerPage> {
         );
       } catch (e) {
         // If discard fails (e.g., no active session), continue with cleanup
-        debugPrint('Error discarding timer session: $e');
+        // Error discarding timer session
       }
 
       // Check if instance still exists
       final instance =
           await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
-      if (instance != null) {
-        // If it's a temporary timer instance (not from swipe), delete it
-        if (!widget.fromSwipe) {
-          // Delete the template if templateId exists
-          if (instance.templateId != null) {
-            final templateRef = ActivityRecord.collectionForUser(currentUserUid)
-                .doc(instance.templateId);
-            await templateRef.delete();
-          }
-          // Delete the instance
-          await _taskInstanceRef!.delete();
+      // If it's a temporary timer instance (not from swipe), delete it
+      if (!widget.fromSwipe) {
+        // Delete the template if templateId exists
+        if (instance.hasTemplateId()) {
+          final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+              .doc(instance.templateId);
+          await templateRef.delete();
         }
-        // If from swipe, discardTimeLogging was already called above
+        // Delete the instance
+        await _taskInstanceRef!.delete();
       }
+      // If from swipe, discardTimeLogging was already called above
     } catch (e) {
       // Handle error silently - cleanup is best effort
-      debugPrint('Error cleaning up timer instance: $e');
+      // Error cleaning up timer instance
     } finally {
       if (mounted) {
         setState(() {
@@ -396,17 +394,15 @@ class _TimerPageState extends State<TimerPage> {
             // For temporary timer (not from swipe), delete instance and template
             final instance =
                 await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
-            if (instance != null) {
-              // Delete the template if templateId exists
-              if (instance.templateId != null) {
-                final templateRef =
-                    ActivityRecord.collectionForUser(currentUserUid)
-                        .doc(instance.templateId);
-                await templateRef.delete();
-              }
-              // Delete the instance
-              await _taskInstanceRef!.delete();
+            // Delete the template if templateId exists
+            if (instance.hasTemplateId()) {
+              final templateRef =
+                  ActivityRecord.collectionForUser(currentUserUid)
+                      .doc(instance.templateId);
+              await templateRef.delete();
             }
+            // Delete the instance
+            await _taskInstanceRef!.delete();
           }
         } catch (e) {
           // Handle error silently - cleanup is best effort

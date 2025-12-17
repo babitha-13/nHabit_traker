@@ -11,6 +11,7 @@ import 'package:habit_tracker/Helper/utils/app_state.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/engagement_tracker.dart';
 import 'package:habit_tracker/Helper/utils/notification_service.dart';
+import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
@@ -38,6 +39,8 @@ void main() async {
   // Initialize notification service only on mobile platforms
   if (!kIsWeb) {
     await NotificationService.initialize();
+    // Initialize timer notification service
+    await TimerNotificationService.initialize();
     // Check permissions status first
     final hasPermissions = await NotificationService.checkPermissions();
     // Request notification permissions if not granted
@@ -105,23 +108,17 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       });
   ThemeData _buildThemeData(FlutterFlowTheme theme, Brightness brightness) {
     final isDark = brightness == Brightness.dark;
-    
+
     return ThemeData(
       useMaterial3: true,
       colorScheme: ColorScheme(
         brightness: brightness,
         primary: theme.primary,
-        onPrimary: isDark 
-            ? const Color(0xFF181C1F) 
-            : Colors.white,
+        onPrimary: isDark ? const Color(0xFF181C1F) : Colors.white,
         secondary: theme.secondary,
-        onSecondary: isDark 
-            ? const Color(0xFF181C1F) 
-            : Colors.white,
+        onSecondary: isDark ? const Color(0xFF181C1F) : Colors.white,
         tertiary: theme.tertiary,
-        onTertiary: isDark 
-            ? const Color(0xFF181C1F) 
-            : const Color(0xFF2C2C2C),
+        onTertiary: isDark ? const Color(0xFF181C1F) : const Color(0xFF2C2C2C),
         error: theme.error,
         onError: Colors.white,
         surface: theme.secondaryBackground,
@@ -137,9 +134,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       elevatedButtonTheme: ElevatedButtonThemeData(
         style: ElevatedButton.styleFrom(
           backgroundColor: theme.primary,
-          foregroundColor: isDark 
-              ? const Color(0xFF181C1F) 
-              : Colors.white,
+          foregroundColor: isDark ? const Color(0xFF181C1F) : Colors.white,
           shape: RoundedRectangleBorder(
             borderRadius: BorderRadius.circular(theme.buttonRadius),
           ),
@@ -161,7 +156,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   Widget build(BuildContext context) {
     final lightTheme = LightModeTheme();
     final darkTheme = DarkModeTheme();
-    
+
     return MaterialApp(
       title: 'Habit Tracker',
       debugShowCheckedModeBanner: false,

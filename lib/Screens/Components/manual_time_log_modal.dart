@@ -1,12 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
 
 class ManualTimeLogModal extends StatefulWidget {
   final DateTime selectedDate;
@@ -20,6 +23,7 @@ class ManualTimeLogModal extends StatefulWidget {
     this.initialEndTime,
     this.onPreviewChange,
     this.fromTimer = false,
+    this.editMetadata,
   });
 
   final DateTime? initialStartTime;
@@ -27,6 +31,8 @@ class ManualTimeLogModal extends StatefulWidget {
   final Function(DateTime start, DateTime end, String type, Color? color)?
       onPreviewChange;
   final bool fromTimer; // If true, auto-mark binary tasks as complete
+  final CalendarEventMetadata?
+      editMetadata; // If provided, we're editing an existing entry
 
   @override
   State<ManualTimeLogModal> createState() => _ManualTimeLogModalState();
@@ -123,6 +129,26 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       _endTime = _startTime.add(const Duration(minutes: 10));
     }
     _loadActivities();
+
+    // If editing, prefill the form
+    if (widget.editMetadata != null) {
+      _selectedType = widget.editMetadata!.activityType;
+      _activityController.text = widget.editMetadata!.activityName;
+      // Find and select the template if it exists
+      WidgetsBinding.instance.addPostFrameCallback((_) async {
+        await _loadActivities(); // Ensure activities are loaded
+        if (mounted && widget.editMetadata!.templateId != null) {
+          final template = _allActivities.firstWhereOrNull(
+            (a) => a.reference.id == widget.editMetadata!.templateId,
+          );
+          if (template != null) {
+            setState(() {
+              _selectedTemplate = template;
+            });
+          }
+        }
+      });
+    }
 
     // Initial preview update
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -431,15 +457,6 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     }
 
     // Validate that times are on the selected date (within reasonable bounds)
-    final selectedDateStart = DateTime(
-      widget.selectedDate.year,
-      widget.selectedDate.month,
-      widget.selectedDate.day,
-      0,
-      0,
-      0,
-    );
-
     final startDateOnly = DateTime(
       _startTime.year,
       _startTime.month,
@@ -499,22 +516,26 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
 
     try {
       final templateId = _selectedTemplate?.reference.id;
-      debugPrint(
-          'ManualTimeLogModal: Saving entry - taskName: ${_selectedTemplate?.name ?? name}, templateId: $templateId, activityType: $_selectedType');
-      debugPrint(
-          'ManualTimeLogModal: Time range - startTime: $_startTime, endTime: $_endTime');
-      debugPrint(
-          'ManualTimeLogModal: Selected date: ${widget.selectedDate}, Start date: $startDateOnly, End date: $endDateOnly');
-      debugPrint(
-          'ManualTimeLogModal: Duration: ${duration.inHours}h ${duration.inMinutes.remainder(60)}m');
 
-      await TaskInstanceService.logManualTimeEntry(
-        taskName: _selectedTemplate?.name ?? name,
-        startTime: _startTime,
-        endTime: _endTime,
-        activityType: _selectedType, // 'task', 'habit', 'non_productive'
-        templateId: templateId,
-      );
+      // Check if we're editing an existing entry
+      if (widget.editMetadata != null) {
+        // Update existing session
+        await TaskInstanceService.updateTimeLogSession(
+          instanceId: widget.editMetadata!.instanceId,
+          sessionIndex: widget.editMetadata!.sessionIndex,
+          startTime: _startTime,
+          endTime: _endTime,
+        );
+      } else {
+        // Create new entry
+        await TaskInstanceService.logManualTimeEntry(
+          taskName: _selectedTemplate?.name ?? name,
+          startTime: _startTime,
+          endTime: _endTime,
+          activityType: _selectedType, // 'task', 'habit', 'non_productive'
+          templateId: templateId,
+        );
+      }
 
       // Handle completion separately if needed
       // If from timer and should mark complete
@@ -544,7 +565,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
             // in logManualTimeEntry, so we may not need to do anything here
             // But if we do, we'd need to query for the instance
           } catch (e) {
-            debugPrint('Error marking instance as complete: $e');
+            // Error marking instance as complete
             // Don't fail the save if completion marking fails
           }
         }
@@ -561,26 +582,20 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
         Future.delayed(const Duration(milliseconds: 300), () {
           if (rootContext.mounted) {
             ScaffoldMessenger.of(rootContext).showSnackBar(
-              const SnackBar(
-                content: Text('Time entry logged successfully!'),
+              SnackBar(
+                content: Text(widget.editMetadata != null
+                    ? 'Time entry updated successfully!'
+                    : 'Time entry logged successfully!'),
                 backgroundColor: Colors.green,
                 behavior: SnackBarBehavior.floating,
-                duration: Duration(seconds: 2),
+                duration: const Duration(seconds: 2),
               ),
             );
           }
         });
       }
     } catch (e) {
-      // Log detailed error for debugging
-      debugPrint('ManualTimeLogModal: Error saving time entry: $e');
-      debugPrint('ManualTimeLogModal: Error type: ${e.runtimeType}');
-      debugPrint(
-          'ManualTimeLogModal: Error stack trace: ${StackTrace.current}');
-      debugPrint(
-          'ManualTimeLogModal: Entry details - taskName: ${_selectedTemplate?.name ?? name}, templateId: ${_selectedTemplate?.reference.id}, activityType: $_selectedType');
-      debugPrint(
-          'ManualTimeLogModal: Time details - startTime: $_startTime, endTime: $_endTime');
+      // Error saving time entry
 
       // Get root context before closing modal
       final rootContext = Navigator.of(context, rootNavigator: true).context;
@@ -609,9 +624,154 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     }
   }
 
+  Future<void> _deleteEntry() async {
+    if (widget.editMetadata == null) return;
+
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+
+    try {
+      // Fetch the instance to check its status and tracking type
+      final instance = await ActivityInstanceRecord.getDocumentOnce(
+        ActivityInstanceRecord.collectionForUser(currentUserUid)
+            .doc(widget.editMetadata!.instanceId),
+      );
+
+      // Check if instance is completed and not a timer type
+      // For non-timer types (binary, quantitative), show dialog with options
+      bool shouldUncomplete = false;
+      if (instance.status == 'completed' &&
+          instance.templateTrackingType != 'time') {
+        // Show dialog asking user what to do
+        final userChoice = await showDialog<String>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete Time Entry'),
+            content: const Text(
+                'This task/habit is marked as completed. What would you like to do?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop('cancel'),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop('uncomplete'),
+                style: TextButton.styleFrom(foregroundColor: Colors.orange),
+                child: const Text('Uncomplete'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop('keep'),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Keep Completed'),
+              ),
+            ],
+          ),
+        );
+
+        if (userChoice == null || userChoice == 'cancel') {
+          if (mounted) {
+            setState(() => _isLoading = false);
+          }
+          return;
+        }
+
+        shouldUncomplete = userChoice == 'uncomplete';
+      } else {
+        // For timer types or non-completed items, show simple confirmation
+        final confirmed = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Delete Time Entry'),
+            content: const Text(
+                'Are you sure you want to delete this time entry? This action cannot be undone.'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.of(context).pop(true),
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                child: const Text('Delete'),
+              ),
+            ],
+          ),
+        );
+
+        if (confirmed != true) {
+          if (mounted) {
+            setState(() => _isLoading = false);
+          }
+          return;
+        }
+      }
+
+      // Uncomplete if user chose to uncomplete
+      if (shouldUncomplete) {
+        await ActivityInstanceService.uncompleteInstance(
+          instanceId: widget.editMetadata!.instanceId,
+        );
+      }
+
+      // Delete the time log session
+      // For timer types, this will auto-uncomplete if time falls below target
+      final wasAutoUncompleted = await TaskInstanceService.deleteTimeLogSession(
+        instanceId: widget.editMetadata!.instanceId,
+        sessionIndex: widget.editMetadata!.sessionIndex,
+      );
+
+      final rootContext = Navigator.of(context, rootNavigator: true).context;
+
+      if (mounted) {
+        Navigator.of(context).pop();
+        widget.onSave();
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (rootContext.mounted) {
+            String message = 'Time entry deleted successfully!';
+            if (wasAutoUncompleted) {
+              message += ' Task/habit has been uncompleted because time is now below target.';
+            } else if (shouldUncomplete) {
+              message += ' Task/habit has been uncompleted.';
+            }
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(
+                content: Text(message),
+                backgroundColor: Colors.green,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        });
+      }
+    } catch (e) {
+      final rootContext = Navigator.of(context, rootNavigator: true).context;
+      if (mounted) {
+        Navigator.of(context).pop();
+        Future.delayed(const Duration(milliseconds: 300), () {
+          if (rootContext.mounted) {
+            ScaffoldMessenger.of(rootContext).showSnackBar(
+              SnackBar(
+                content: Text('Failed to delete entry: ${e.toString()}'),
+                backgroundColor: Colors.red,
+                behavior: SnackBarBehavior.floating,
+                duration: const Duration(seconds: 4),
+              ),
+            );
+          }
+        });
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
+    final isEditMode = widget.editMetadata != null;
 
     return Container(
       padding: EdgeInsets.only(
@@ -641,6 +801,26 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                 color: Colors.grey[300],
                 borderRadius: BorderRadius.circular(2),
               ),
+            ),
+          ),
+
+          // Title
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  isEditMode ? 'Edit Time Entry' : 'Log Time Entry',
+                  style: theme.titleLarge,
+                ),
+                if (isEditMode)
+                  IconButton(
+                    icon: const Icon(Icons.delete, color: Colors.red),
+                    onPressed: _isLoading ? null : _deleteEntry,
+                    tooltip: 'Delete entry',
+                  ),
+              ],
             ),
           ),
 
@@ -807,9 +987,9 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                                 child: CircularProgressIndicator(
                                     color: Colors.white, strokeWidth: 2),
                               )
-                            : const Text(
-                                'Log Time Entry',
-                                style: TextStyle(
+                            : Text(
+                                isEditMode ? 'Update Entry' : 'Log Time Entry',
+                                style: const TextStyle(
                                     fontSize: 16, fontWeight: FontWeight.bold),
                               ),
                       ),
@@ -903,7 +1083,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     // Quantity tasks: Show stepper
     if (trackingType == 'qty') {
       final target = _selectedTemplate!.target;
-      final unit = _selectedTemplate!.unit ?? '';
+      final unit = _selectedTemplate!.unit;
 
       return Container(
         padding: const EdgeInsets.all(12),
@@ -959,37 +1139,43 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       );
     }
 
-    // Time duration tasks: Show info text
+    // Time duration tasks: Show info text only if target is set (> 0)
     if (trackingType == 'time') {
       final target = _selectedTemplate!.target;
       final targetMinutes =
           target is int ? target : (target is double ? target.toInt() : 0);
-      final hours = targetMinutes ~/ 60;
-      final minutes = targetMinutes % 60;
-      final targetStr = hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
+      
+      // Only show completion message if target is set (greater than 0)
+      if (targetMinutes > 0) {
+        final hours = targetMinutes ~/ 60;
+        final minutes = targetMinutes % 60;
+        final targetStr = hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
 
-      return Container(
-        padding: const EdgeInsets.all(12),
-        decoration: BoxDecoration(
-          color: Colors.blue.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: Colors.blue.shade200),
-        ),
-        child: Row(
-          children: [
-            Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Text(
-                'Will auto-complete if total time reaches $targetStr',
-                style: theme.bodySmall.copyWith(
-                  color: Colors.blue.shade700,
+        return Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            color: Colors.blue.withOpacity(0.1),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: Colors.blue.shade200),
+          ),
+          child: Row(
+            children: [
+              Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  'Will auto-complete if total time reaches $targetStr',
+                  style: theme.bodySmall.copyWith(
+                    color: Colors.blue.shade700,
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-      );
+            ],
+          ),
+        );
+      }
+      // If no target, don't show any completion message
+      return const SizedBox.shrink();
     }
 
     // Non-productive or unknown: No controls

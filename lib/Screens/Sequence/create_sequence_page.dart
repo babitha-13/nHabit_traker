@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/activity_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/backend/category_color_util.dart';
 import 'package:habit_tracker/Screens/Sequence/create_sequence_item_dialog.dart';
 
 class CreateSequencePage extends StatefulWidget {
@@ -86,7 +87,10 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
         final activity =
             _allActivities.firstWhere((a) => a.reference.id == itemId);
         existingItems.add(activity);
-      } catch (e) {}
+      } catch (e) {
+        // Silently ignore missing activities - they may have been deleted
+        print('Activity not found for sequence item: $itemId');
+      }
     }
     setState(() {
       _selectedItems = existingItems;
@@ -216,7 +220,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     if (_selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Please add at least one item to the sequence'),
+          content: const Text('Please add at least one item to the sequence'),
           backgroundColor: Colors.red,
         ),
       );
@@ -307,22 +311,14 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           );
           if (instance != null) {
           } else {}
-        } catch (e) {}
+        } catch (e) {
+          // Log error but continue with other items - individual instance creation failures are non-critical
+          print('Error creating instance for sequence item $itemId: $e');
+        }
       }
-    } catch (e) {}
-  }
-
-  String _getItemTypeDisplayName(String categoryType) {
-    switch (categoryType) {
-      case 'habit':
-        return 'Habit';
-      case 'task':
-        return 'Task';
-      case 'sequence_item':
-      case 'non_productive':
-        return 'Non-Productive'; // sequence_item is legacy, now non_productive
-      default:
-        return 'Unknown';
+    } catch (e) {
+      // Log error but don't fail - instance creation for new items is non-critical
+      print('Error creating instances for new sequence items: $e');
     }
   }
 
@@ -331,7 +327,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       case 'habit':
         return Colors.green;
       case 'task':
-        return Colors.blue;
+        return const Color(0xFF2F4F4F); // Dark Slate Gray (charcoal) for tasks
       case 'sequence_item':
       case 'non_productive':
         return Colors.grey.shade600; // Muted color for non-productive
@@ -340,8 +336,202 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     }
   }
 
+  Color _getStripeColor(ActivityRecord activity) {
+    // For habits, use category color if available, otherwise use type color
+    if (activity.categoryType == 'habit') {
+      try {
+        final hex = CategoryColorUtil.hexForName(activity.categoryName);
+        return Color(int.parse(hex.replaceFirst('#', '0xFF')));
+      } catch (_) {
+        return _getItemTypeColor(activity.categoryType);
+      }
+    }
+    // For tasks and non-productive, use type color
+    return _getItemTypeColor(activity.categoryType);
+  }
+
+  Widget _buildTextField(FlutterFlowTheme theme, TextEditingController controller,
+      String hint, {int maxLines = 1}) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: theme.tertiary.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: TextField(
+        controller: controller,
+        style: theme.bodyMedium,
+        maxLines: maxLines,
+        decoration: InputDecoration(
+          hintText: hint,
+          hintStyle: TextStyle(
+            color: theme.secondaryText,
+            fontSize: 14,
+          ),
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildSimplifiedItemCard(ActivityRecord activity, bool isSelected) {
+    final theme = FlutterFlowTheme.of(context);
+    final stripeColor = _getStripeColor(activity);
+    final isNonProductive = activity.categoryType == 'non_productive' ||
+        activity.categoryType == 'sequence_item';
+
+    return GestureDetector(
+      onLongPress: isNonProductive
+          ? () => _showDeleteConfirmation(activity)
+          : null,
+      onTap: () {
+        if (isSelected) {
+          _removeItem(activity);
+        } else {
+          _addItem(activity);
+        }
+      },
+      child: Container(
+        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+        decoration: BoxDecoration(
+          gradient: theme.neumorphicGradientSubtle,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: theme.cardBorderColor,
+            width: 1,
+          ),
+        ),
+        child: IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Left stripe
+              isNonProductive
+                  ? SizedBox(
+                      width: 3,
+                      child: CustomPaint(
+                        size: const Size(3, double.infinity),
+                        painter: _DottedLinePainter(color: stripeColor),
+                      ),
+                    )
+                  : Container(
+                      width: 3,
+                      decoration: BoxDecoration(
+                        color: stripeColor,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+              const SizedBox(width: 5),
+              // Icon
+              SizedBox(
+                width: 36,
+                child: Center(
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: stripeColor,
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                    child: Icon(
+                      activity.categoryType == 'habit'
+                          ? Icons.flag
+                          : activity.categoryType == 'task'
+                              ? Icons.assignment
+                              : Icons.access_time,
+                      color: Colors.white,
+                      size: 16,
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 5),
+              // Content
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      activity.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.bodyMedium.override(
+                        fontFamily: 'Readex Pro',
+                        fontWeight: FontWeight.w600,
+                        color: theme.primaryText,
+                      ),
+                    ),
+                    if (activity.categoryName.isNotEmpty) ...[
+                      const SizedBox(height: 2),
+                      Text(
+                        activity.categoryName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.bodySmall.override(
+                          fontFamily: 'Readex Pro',
+                          color: theme.secondaryText,
+                          fontSize: 12,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              // Plus/Check button
+              Column(
+                mainAxisSize: MainAxisSize.min,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  GestureDetector(
+                    onTap: () {
+                      if (isSelected) {
+                        _removeItem(activity);
+                      } else {
+                        _addItem(activity);
+                      }
+                    },
+                    child: Container(
+                      width: 32,
+                      height: 32,
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? theme.primary
+                            : Colors.transparent,
+                        borderRadius: BorderRadius.circular(4),
+                        border: isSelected
+                            ? null
+                            : Border.all(
+                                color: stripeColor,
+                                width: 2,
+                              ),
+                      ),
+                      child: Icon(
+                        isSelected ? Icons.check : Icons.add,
+                        size: 18,
+                        color: isSelected ? Colors.white : stripeColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
     // Auto-expand/collapse based on keyboard visibility
     final isKeyboardVisible = MediaQuery.of(context).viewInsets.bottom > 0;
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -353,388 +543,548 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       }
     });
     return Scaffold(
-      backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+      backgroundColor: theme.primaryBackground,
       appBar: AppBar(
-        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        backgroundColor: theme.primaryBackground,
+        elevation: 0,
         title: Text(
           widget.existingSequence != null ? 'Edit Sequence' : 'Create Sequence',
-          style: FlutterFlowTheme.of(context).headlineMedium,
+          style: theme.titleMedium.override(
+            fontFamily: 'Readex Pro',
+            fontWeight: FontWeight.w600,
+          ),
         ),
         actions: [
-          TextButton(
-            onPressed: _isSaving ? null : _saveSequence,
-            child: _isSaving
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : Text(
-                    'Save',
-                    style: FlutterFlowTheme.of(context).titleMedium.override(
-                          color: FlutterFlowTheme.of(context).primary,
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Container(
+              decoration: BoxDecoration(
+                gradient: theme.primaryButtonGradient,
+                borderRadius: BorderRadius.circular(theme.buttonRadius),
+              ),
+              child: TextButton(
+                onPressed: _isSaving ? null : _saveSequence,
+                style: TextButton.styleFrom(
+                  backgroundColor: Colors.transparent,
+                  shadowColor: Colors.transparent,
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                ),
+                child: _isSaving
+                    ? const SizedBox(
+                        width: 20,
+                        height: 20,
+                        child: CircularProgressIndicator(
+                          color: Colors.white,
+                          strokeWidth: 2,
                         ),
-                  ),
+                      )
+                    : Text(
+                        'Save',
+                        style: theme.bodyMedium.override(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+              ),
+            ),
           ),
         ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : Form(
-              key: _formKey,
-              child: Column(
-                children: [
-                  // Sequence Details
-                  Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        TextFormField(
-                          controller: _nameController,
-                          decoration: const InputDecoration(
-                            labelText: 'Sequence Name *',
-                            border: OutlineInputBorder(),
-                          ),
-                          validator: (value) {
-                            if (value == null || value.trim().isEmpty) {
-                              return 'Please enter a sequence name';
-                            }
-                            return null;
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextFormField(
-                          controller: _descriptionController,
-                          decoration: const InputDecoration(
-                            labelText: 'Description (Optional)',
-                            border: OutlineInputBorder(),
-                          ),
-                          maxLines: 2,
-                        ),
-                      ],
-                    ),
+          : Container(
+              decoration: BoxDecoration(
+                gradient: theme.neumorphicGradient,
+                borderRadius: const BorderRadius.only(
+                  topLeft: Radius.circular(20),
+                  topRight: Radius.circular(20),
+                ),
+                border: Border.all(
+                  color: theme.surfaceBorderColor,
+                  width: 1,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(0.05),
+                    offset: const Offset(0, -2),
+                    blurRadius: 4,
+                    spreadRadius: 0,
                   ),
-                  // Search and Add Items
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Add Items',
-                          style: FlutterFlowTheme.of(context).titleMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        Row(
-                          children: [
-                            Expanded(
-                              child: TextField(
-                                controller: _searchController,
-                                decoration: const InputDecoration(
-                                  hintText:
-                                      'Search habits, tasks, or non-productive items...',
-                                  border: OutlineInputBorder(),
-                                  prefixIcon: Icon(Icons.search),
-                                ),
-                                onChanged: _filterActivities,
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            ElevatedButton.icon(
-                              onPressed: _createNewSequenceItem,
-                              icon: const Icon(Icons.add),
-                              label: const Text('New Item'),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 16),
-                  // Available Items List
-                  Expanded(
-                    child: _filteredActivities.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.search_off,
-                                  size: 64,
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryText,
-                                ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No items found',
-                                  style:
-                                      FlutterFlowTheme.of(context).titleMedium,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Try a different search term or create a new item',
-                                  style:
-                                      FlutterFlowTheme.of(context).bodyMedium,
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            itemCount: _filteredActivities.length,
-                            itemBuilder: (context, index) {
-                              final activity = _filteredActivities[index];
-                              final isSelected = _selectedItems.any(
-                                (item) =>
-                                    item.reference.id == activity.reference.id,
-                              );
-                              return Card(
-                                margin: const EdgeInsets.only(bottom: 8),
-                                child: GestureDetector(
-                                  onLongPress: activity.categoryType ==
-                                              'sequence_item' ||
-                                          activity.categoryType ==
-                                              'non_productive'
-                                      ? () => _showDeleteConfirmation(activity)
-                                      : null,
-                                  child: ListTile(
-                                    leading: Container(
-                                      width: 40,
-                                      height: 40,
-                                      decoration: BoxDecoration(
-                                        color: _getItemTypeColor(
-                                            activity.categoryType),
-                                        shape: BoxShape.circle,
-                                      ),
-                                      child: Icon(
-                                        activity.categoryType == 'habit'
-                                            ? Icons.flag
-                                            :                                         activity.categoryType == 'task'
-                                                ? Icons.assignment
-                                                : (activity.categoryType ==
-                                                            'non_productive' ||
-                                                        activity.categoryType ==
-                                                            'sequence_item')
-                                                    ? Icons.access_time
-                                                    : Icons.playlist_add,
-                                        color: Colors.white,
-                                        size: 20,
-                                      ),
-                                    ),
-                                    title: Text(activity.name),
-                                    subtitle: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                        Text(activity.categoryName),
-                                        const SizedBox(height: 4),
-                                        Container(
-                                          padding: const EdgeInsets.symmetric(
-                                            horizontal: 8,
-                                            vertical: 2,
-                                          ),
-                                          decoration: BoxDecoration(
-                                            color: _getItemTypeColor(
-                                                    activity.categoryType)
-                                                .withOpacity(0.1),
-                                            borderRadius:
-                                                BorderRadius.circular(12),
-                                          ),
-                                          child: Text(
-                                            _getItemTypeDisplayName(
-                                                activity.categoryType),
-                                            style: TextStyle(
-                                              fontSize: 10,
-                                              color: _getItemTypeColor(
-                                                  activity.categoryType),
-                                              fontWeight: FontWeight.bold,
-                                            ),
-                                          ),
-                                        ),
-                                      ],
-                                    ),
-                                    trailing: isSelected
-                                        ? Icon(
-                                            Icons.check_circle,
-                                            color: FlutterFlowTheme.of(context)
-                                                .primary,
-                                          )
-                                        : const Icon(Icons.add_circle_outline),
-                                    onTap: () {
-                                      if (isSelected) {
-                                        _removeItem(activity);
-                                      } else {
-                                        _addItem(activity);
-                                      }
-                                    },
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-                  ),
-                  // Selected Items - Collapsible
-                  if (_selectedItems.isNotEmpty) ...[
-                    Container(
-                      decoration: BoxDecoration(
-                        color: FlutterFlowTheme.of(context).secondaryBackground,
-                        border: Border(
-                          top: BorderSide(
-                            color: FlutterFlowTheme.of(context).alternate,
-                          ),
-                        ),
-                      ),
+                ],
+              ),
+              child: Form(
+                key: _formKey,
+                child: Column(
+                  children: [
+                    // Sequence Details
+                    Padding(
+                      padding: const EdgeInsets.all(16),
                       child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          // Collapsible Header
-                          GestureDetector(
-                            onTap: () {
-                              // Dismiss keyboard first, then toggle
-                              FocusScope.of(context).unfocus();
-                              setState(() {
-                                _isSelectedItemsExpanded =
-                                    !_isSelectedItemsExpanded;
-                              });
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.all(16),
-                              child: Row(
-                                children: [
-                                  Expanded(
-                                    child: Text(
-                                      'Selected Items (${_selectedItems.length})',
-                                      style: FlutterFlowTheme.of(context)
-                                          .titleMedium,
-                                    ),
-                                  ),
-                                  Icon(
-                                    _isSelectedItemsExpanded
-                                        ? Icons.expand_less
-                                        : Icons.expand_more,
-                                    color: FlutterFlowTheme.of(context)
-                                        .secondaryText,
-                                  ),
-                                ],
-                              ),
+                          Text(
+                            'Sequence Name *',
+                            style: theme.bodySmall.override(
+                              color: theme.secondaryText,
                             ),
                           ),
-                          // Expandable Content
-                          AnimatedCrossFade(
-                            duration: const Duration(milliseconds: 300),
-                            crossFadeState: _isSelectedItemsExpanded
-                                ? CrossFadeState.showSecond
-                                : CrossFadeState.showFirst,
-                            firstChild: const SizedBox.shrink(),
-                            secondChild: Container(
-                              padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Text(
-                                    'Drag to reorder items in the sequence',
-                                    style: FlutterFlowTheme.of(context)
-                                        .bodySmall
-                                        .override(
-                                          color: FlutterFlowTheme.of(context)
-                                              .secondaryText,
-                                        ),
-                                  ),
-                                  const SizedBox(height: 8),
-                                  SizedBox(
-                                    height:
-                                        200, // Max height for selected items
-                                    child: ReorderableListView.builder(
-                                      shrinkWrap: true,
-                                      physics:
-                                          const AlwaysScrollableScrollPhysics(),
-                                      itemCount: _selectedItems.length,
-                                      onReorder: _reorderItems,
-                                      itemBuilder: (context, index) {
-                                        final activity = _selectedItems[index];
-                                        return Card(
-                                          key: ValueKey(activity.reference.id),
-                                          margin:
-                                              const EdgeInsets.only(bottom: 4),
-                                          child: ListTile(
-                                            leading: Container(
-                                              width: 32,
-                                              height: 32,
-                                              decoration: BoxDecoration(
-                                                color: _getItemTypeColor(
-                                                    activity.categoryType),
-                                                shape: BoxShape.circle,
-                                              ),
-                                              child: Icon(
-                                                activity.categoryType == 'habit'
-                                                    ? Icons.flag
-                                                    : activity.categoryType ==
-                                                            'task'
-                                                        ? Icons.assignment
-                                                        : Icons.playlist_add,
-                                                color: Colors.white,
-                                                size: 16,
-                                              ),
-                                            ),
-                                            title: Text(activity.name),
-                                            subtitle:
-                                                Text(activity.categoryName),
-                                            trailing: Row(
-                                              mainAxisSize: MainAxisSize.min,
-                                              children: [
-                                                Container(
-                                                  padding: const EdgeInsets
-                                                      .symmetric(
-                                                    horizontal: 6,
-                                                    vertical: 2,
-                                                  ),
-                                                  decoration: BoxDecoration(
-                                                    color: _getItemTypeColor(
-                                                            activity
-                                                                .categoryType)
-                                                        .withOpacity(0.1),
-                                                    borderRadius:
-                                                        BorderRadius.circular(
-                                                            8),
-                                                  ),
-                                                  child: Text(
-                                                    _getItemTypeDisplayName(
-                                                        activity.categoryType),
-                                                    style: TextStyle(
-                                                      fontSize: 10,
-                                                      color: _getItemTypeColor(
-                                                          activity
-                                                              .categoryType),
-                                                      fontWeight:
-                                                          FontWeight.bold,
-                                                    ),
-                                                  ),
-                                                ),
-                                                const SizedBox(width: 8),
-                                                Icon(
-                                                  Icons.drag_handle,
-                                                  color: FlutterFlowTheme.of(
-                                                          context)
-                                                      .secondaryText,
-                                                ),
-                                              ],
-                                            ),
-                                          ),
-                                        );
-                                      },
-                                    ),
-                                  ),
-                                ],
+                          const SizedBox(height: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                              vertical: 8,
+                            ),
+                            decoration: BoxDecoration(
+                              color: theme.tertiary.withOpacity(0.3),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: theme.surfaceBorderColor,
+                                width: 1,
                               ),
                             ),
+                            child: TextFormField(
+                              controller: _nameController,
+                              style: theme.bodyMedium,
+                              decoration: InputDecoration(
+                                hintText: 'Enter sequence name',
+                                hintStyle: TextStyle(
+                                  color: theme.secondaryText,
+                                  fontSize: 14,
+                                ),
+                                border: InputBorder.none,
+                                isDense: true,
+                                contentPadding: EdgeInsets.zero,
+                              ),
+                              validator: (value) {
+                                if (value == null || value.trim().isEmpty) {
+                                  return 'Please enter a sequence name';
+                                }
+                                return null;
+                              },
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Description (Optional)',
+                            style: theme.bodySmall.override(
+                              color: theme.secondaryText,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          _buildTextField(
+                            theme,
+                            _descriptionController,
+                            'Enter description',
+                            maxLines: 2,
                           ),
                         ],
                       ),
                     ),
+                    // Search and Add Items
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Add Items',
+                            style: theme.titleMedium.override(
+                              fontFamily: 'Readex Pro',
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Expanded(
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 8,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: theme.tertiary.withOpacity(0.3),
+                                    borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(
+                                      color: theme.surfaceBorderColor,
+                                      width: 1,
+                                    ),
+                                  ),
+                                  child: TextField(
+                                    controller: _searchController,
+                                    style: theme.bodyMedium,
+                                    decoration: InputDecoration(
+                                      hintText:
+                                          'Search habits, tasks, or non-productive items...',
+                                      hintStyle: TextStyle(
+                                        color: theme.secondaryText,
+                                        fontSize: 14,
+                                      ),
+                                      border: InputBorder.none,
+                                      isDense: true,
+                                      contentPadding: EdgeInsets.zero,
+                                      prefixIcon: Icon(
+                                        Icons.search,
+                                        color: theme.secondaryText,
+                                        size: 20,
+                                      ),
+                                    ),
+                                    onChanged: _filterActivities,
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Container(
+                                decoration: BoxDecoration(
+                                  gradient: theme.primaryButtonGradient,
+                                  borderRadius:
+                                      BorderRadius.circular(theme.buttonRadius),
+                                ),
+                                child: ElevatedButton.icon(
+                                  onPressed: _createNewSequenceItem,
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: Colors.transparent,
+                                    shadowColor: Colors.transparent,
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 16,
+                                      vertical: 12,
+                                    ),
+                                  ),
+                                  icon: const Icon(Icons.add, color: Colors.white),
+                                  label: Text(
+                                    'New Item',
+                                    style: theme.bodyMedium.override(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    // Available Items List
+                    Expanded(
+                      child: _filteredActivities.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  Icon(
+                                    Icons.search_off,
+                                    size: 64,
+                                    color: theme.secondaryText,
+                                  ),
+                                  const SizedBox(height: 16),
+                                  Text(
+                                    'No items found',
+                                    style: theme.titleMedium,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Try a different search term or create a new item',
+                                    style: theme.bodyMedium,
+                                  ),
+                                ],
+                              ),
+                            )
+                          : ListView.builder(
+                              itemCount: _filteredActivities.length,
+                              itemBuilder: (context, index) {
+                                final activity = _filteredActivities[index];
+                                final isSelected = _selectedItems.any(
+                                  (item) =>
+                                      item.reference.id ==
+                                      activity.reference.id,
+                                );
+                                return _buildSimplifiedItemCard(
+                                    activity, isSelected);
+                              },
+                            ),
+                    ),
+                    // Selected Items - Collapsible
+                    if (_selectedItems.isNotEmpty) ...[
+                      Container(
+                        margin: const EdgeInsets.only(top: 16),
+                        decoration: BoxDecoration(
+                          gradient: theme.neumorphicGradientSubtle,
+                          border: Border(
+                            top: BorderSide(
+                              color: theme.surfaceBorderColor,
+                              width: 1,
+                            ),
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            // Collapsible Header
+                            GestureDetector(
+                              onTap: () {
+                                // Dismiss keyboard first, then toggle
+                                FocusScope.of(context).unfocus();
+                                setState(() {
+                                  _isSelectedItemsExpanded =
+                                      !_isSelectedItemsExpanded;
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.all(16),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        'Selected Items (${_selectedItems.length})',
+                                        style: theme.titleMedium.override(
+                                          fontFamily: 'Readex Pro',
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    Icon(
+                                      _isSelectedItemsExpanded
+                                          ? Icons.expand_less
+                                          : Icons.expand_more,
+                                      color: theme.secondaryText,
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                            // Expandable Content
+                            AnimatedCrossFade(
+                              duration: const Duration(milliseconds: 300),
+                              crossFadeState: _isSelectedItemsExpanded
+                                  ? CrossFadeState.showSecond
+                                  : CrossFadeState.showFirst,
+                              firstChild: const SizedBox.shrink(),
+                              secondChild: Container(
+                                padding:
+                                    const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      'Drag to reorder items in the sequence',
+                                      style: theme.bodySmall.override(
+                                        color: theme.secondaryText,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 8),
+                                    SizedBox(
+                                      height: 200, // Max height for selected items
+                                      child: ReorderableListView.builder(
+                                        shrinkWrap: true,
+                                        physics:
+                                            const AlwaysScrollableScrollPhysics(),
+                                        itemCount: _selectedItems.length,
+                                        onReorder: _reorderItems,
+                                        itemBuilder: (context, index) {
+                                          final activity = _selectedItems[index];
+                                          final stripeColor =
+                                              _getStripeColor(activity);
+                                          final isNonProductive =
+                                              activity.categoryType ==
+                                                      'non_productive' ||
+                                                  activity.categoryType ==
+                                                      'sequence_item';
+                                          return Container(
+                                            key: ValueKey(activity.reference.id),
+                                            margin: const EdgeInsets.only(
+                                                bottom: 4),
+                                            padding: const EdgeInsets.fromLTRB(
+                                                6, 6, 6, 6),
+                                            decoration: BoxDecoration(
+                                              gradient:
+                                                  theme.neumorphicGradientSubtle,
+                                              borderRadius:
+                                                  BorderRadius.circular(12),
+                                              border: Border.all(
+                                                color: theme.cardBorderColor,
+                                                width: 1,
+                                              ),
+                                            ),
+                                            child: IntrinsicHeight(
+                                              child: Row(
+                                                crossAxisAlignment:
+                                                    CrossAxisAlignment.stretch,
+                                                children: [
+                                                  // Left stripe
+                                                  isNonProductive
+                                                      ? SizedBox(
+                                                          width: 3,
+                                                          child: CustomPaint(
+                                                            size: const Size(
+                                                                3,
+                                                                double.infinity),
+                                                            painter:
+                                                                _DottedLinePainter(
+                                                                    color:
+                                                                        stripeColor),
+                                                          ),
+                                                        )
+                                                      : Container(
+                                                          width: 3,
+                                                          decoration:
+                                                              BoxDecoration(
+                                                            color: stripeColor,
+                                                            borderRadius:
+                                                                BorderRadius
+                                                                    .circular(
+                                                                        2),
+                                                          ),
+                                                        ),
+                                                  const SizedBox(width: 5),
+                                                  // Icon
+                                                  SizedBox(
+                                                    width: 32,
+                                                    child: Center(
+                                                      child: Container(
+                                                        width: 24,
+                                                        height: 24,
+                                                        decoration:
+                                                            BoxDecoration(
+                                                          color: stripeColor,
+                                                          borderRadius:
+                                                              BorderRadius
+                                                                  .circular(4),
+                                                        ),
+                                                        child: Icon(
+                                                          activity.categoryType ==
+                                                                  'habit'
+                                                              ? Icons.flag
+                                                              : activity
+                                                                          .categoryType ==
+                                                                      'task'
+                                                                  ? Icons
+                                                                      .assignment
+                                                                  : Icons
+                                                                      .playlist_add,
+                                                          color: Colors.white,
+                                                          size: 16,
+                                                        ),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                  const SizedBox(width: 5),
+                                                  // Content
+                                                  Expanded(
+                                                    child: Column(
+                                                      crossAxisAlignment:
+                                                          CrossAxisAlignment
+                                                              .start,
+                                                      mainAxisAlignment:
+                                                          MainAxisAlignment
+                                                              .center,
+                                                      children: [
+                                                        Text(
+                                                          activity.name,
+                                                          maxLines: 1,
+                                                          overflow: TextOverflow
+                                                              .ellipsis,
+                                                          style: theme
+                                                              .bodyMedium
+                                                              .override(
+                                                            fontFamily:
+                                                                'Readex Pro',
+                                                            fontWeight:
+                                                                FontWeight.w600,
+                                                            color: theme
+                                                                .primaryText,
+                                                          ),
+                                                        ),
+                                                        if (activity
+                                                            .categoryName
+                                                            .isNotEmpty) ...[
+                                                          const SizedBox(
+                                                              height: 2),
+                                                          Text(
+                                                            activity
+                                                                .categoryName,
+                                                            maxLines: 1,
+                                                            overflow:
+                                                                TextOverflow
+                                                                    .ellipsis,
+                                                            style: theme
+                                                                .bodySmall
+                                                                .override(
+                                                              fontFamily:
+                                                                  'Readex Pro',
+                                                              color: theme
+                                                                  .secondaryText,
+                                                              fontSize: 12,
+                                                            ),
+                                                          ),
+                                                        ],
+                                                      ],
+                                                    ),
+                                                  ),
+                                                  // Drag handle
+                                                  Column(
+                                                    mainAxisSize:
+                                                        MainAxisSize.min,
+                                                    mainAxisAlignment:
+                                                        MainAxisAlignment.center,
+                                                    children: [
+                                                      Icon(
+                                                        Icons.drag_handle,
+                                                        color: theme
+                                                            .secondaryText,
+                                                        size: 20,
+                                                      ),
+                                                    ],
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ],
-                ],
+                ),
               ),
             ),
     );
   }
+}
+
+/// Custom painter for creating a dotted vertical line
+class _DottedLinePainter extends CustomPainter {
+  final Color color;
+
+  _DottedLinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 3.0
+      ..strokeCap = StrokeCap.round;
+
+    const double dashHeight = 4.0;
+    const double dashSpace = 3.0;
+    double startY = 0;
+    while (startY < size.height) {
+      canvas.drawLine(
+        Offset(1.5, startY),
+        Offset(1.5, startY + dashHeight),
+        paint,
+      );
+      startY += dashHeight + dashSpace;
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

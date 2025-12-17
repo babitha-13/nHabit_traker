@@ -1242,17 +1242,7 @@ class TaskInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
 
-    // Enhanced logging
-    print('TaskInstanceService.logManualTimeEntry: Starting');
-    print(
-        'TaskInstanceService.logManualTimeEntry: taskName=$taskName, activityType=$activityType, templateId=$templateId');
-    print(
-        'TaskInstanceService.logManualTimeEntry: startTime=$startTime, endTime=$endTime');
-    print('TaskInstanceService.logManualTimeEntry: userId=$uid');
-
     if (startTime.isAfter(endTime)) {
-      print(
-          'TaskInstanceService.logManualTimeEntry: ERROR - Start time is after end time');
       throw Exception("Start time cannot be after end time.");
     }
 
@@ -1269,8 +1259,6 @@ class TaskInstanceService {
     try {
       // SMART INSTANCE LOOKUP LOGIC
       if (templateId != null) {
-        print(
-            'TaskInstanceService.logManualTimeEntry: Looking up existing instance for templateId: $templateId');
         DocumentReference? targetInstanceRef;
         dynamic existingInstance;
         bool isHabitInstanceRecord =
@@ -1279,12 +1267,15 @@ class TaskInstanceService {
         // 1. Try to find an instance for this template (including completed ones)
         // First check pending/active instances
         if (activityType == 'habit') {
-          // For Habits: Use the EXACT same method that populates the dropdown
-          // This ensures we find the same instance the user selected
+          // For Habits: Use date-aware lookup based on startTime (selected calendar date)
+          // This ensures we find the same instance that's displayed in the queue for that date
           try {
+            // Extract date from startTime (the selected calendar date)
+            final targetDate = DateTime(startTime.year, startTime.month, startTime.day);
+            
             final habitInstances =
-                await ActivityInstanceService.getCurrentHabitInstances(
-                    userId: uid);
+                await ActivityInstanceService.getHabitInstancesForDate(
+                    targetDate: targetDate, userId: uid);
 
             // Find the instance for this template
             ActivityInstanceRecord? habitMatch;
@@ -1299,18 +1290,9 @@ class TaskInstanceService {
               targetInstanceRef = habitMatch.reference;
               existingInstance = habitMatch;
               isHabitInstanceRecord =
-                  false; // ActivityInstanceRecord from getCurrentHabitInstances
-              print(
-                  'TaskInstanceService.logManualTimeEntry: Found habit instance ${habitMatch.reference.id} using getCurrentHabitInstances (window: ${habitMatch.dueDate} - ${habitMatch.windowEndDate})');
-            } else {
-              print(
-                  'TaskInstanceService.logManualTimeEntry: No habit instance found in getCurrentHabitInstances for templateId $templateId');
+                  false; // ActivityInstanceRecord from getHabitInstancesForDate
             }
           } catch (e) {
-            print(
-                'TaskInstanceService.logManualTimeEntry: Error calling getCurrentHabitInstances for templateId $templateId: $e');
-            print(
-                'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
             // Don't continue to create new instance - throw error instead
             throw Exception(
                 'Failed to find habit instance for template $templateId. Please ensure the habit is active and appears in your habits list.');
@@ -1368,10 +1350,6 @@ class TaskInstanceService {
             } catch (e) {
               // If query fails, continue to create new instance
               // Error is logged but doesn't block the flow
-              print(
-                  'TaskInstanceService.logManualTimeEntry: Error querying all instances for templateId $templateId: $e');
-              print(
-                  'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
             }
           }
         }
@@ -1385,34 +1363,33 @@ class TaskInstanceService {
           final currentTotalLogged = existingInstance.totalTimeLogged;
           final newTotalLogged = currentTotalLogged + totalTime;
 
+          // Prepare update data
+          final updateData = <String, dynamic>{
+            'timeLogSessions': currentSessions,
+            'totalTimeLogged': newTotalLogged,
+            'accumulatedTime': newTotalLogged,
+            'currentValue': newTotalLogged, // Update current value for progress
+            'lastUpdated': DateTime.now(),
+          };
+          
+          // Fix: Ensure templateCategoryType is correct for non-productive items
+          // Migrate legacy 'sequence_item' to 'non_productive'
+          if (activityType == 'non_productive') {
+            updateData['templateCategoryType'] = 'non_productive';
+            updateData['templateCategoryName'] = 'Non-Productive';
+          } else if (existingInstance.templateCategoryType == 'sequence_item') {
+            // Migrate legacy sequence_item to non_productive
+            updateData['templateCategoryType'] = 'non_productive';
+            updateData['templateCategoryName'] = 'Non-Productive';
+          }
+
           // Use the correct collection reference based on where we found the instance
           // targetInstanceRef already points to the correct collection, so we can use it directly
           try {
-            await targetInstanceRef.update({
-              'timeLogSessions': currentSessions,
-              'totalTimeLogged': newTotalLogged,
-              'accumulatedTime': newTotalLogged,
-              'currentValue':
-                  newTotalLogged, // Update current value for progress
-              'lastUpdated': DateTime.now(),
-            });
-
-            print(
-                'TaskInstanceService: Found existing instance ${targetInstanceRef.id} for templateId $templateId, adding session (isHabitInstanceRecord: $isHabitInstanceRecord)');
+            await targetInstanceRef.update(updateData);
             return; // Done
           } catch (e) {
-            // Log detailed error for debugging
-            print(
-                'TaskInstanceService.logManualTimeEntry: ERROR updating instance ${targetInstanceRef.id}');
-            print('TaskInstanceService.logManualTimeEntry: Error details - $e');
-            print(
-                'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
-            print(
-                'TaskInstanceService.logManualTimeEntry: Instance type - isHabitInstanceRecord: $isHabitInstanceRecord, activityType: $activityType');
-            print(
-                'TaskInstanceService.logManualTimeEntry: Instance reference path - ${targetInstanceRef.path}');
-            print(
-                'TaskInstanceService.logManualTimeEntry: Template ID - $templateId');
+            // Error updating instance
             rethrow; // Re-throw to surface the error
           }
         }
@@ -1442,9 +1419,6 @@ class TaskInstanceService {
                   template: template,
                   userId: uid);
 
-          print(
-              'TaskInstanceService.logManualTimeEntry: Creating new task instance with dueDate: $instanceDueDate (template dueDate: ${template.dueDate})');
-
           // Now update it with the session
           // Recurse or just update? Update is safer
           final sessions = [newSession];
@@ -1456,25 +1430,32 @@ class TaskInstanceService {
             'lastUpdated': DateTime.now(),
           });
 
-          if (activityType == 'task') {
-            await completeTaskInstance(
-                instanceId: instanceRef.id,
-                finalValue: totalTime,
-                finalAccumulatedTime: totalTime,
-                userId: uid);
+          // Only auto-complete tasks if:
+          // 1. It's a task (not habit/non-productive)
+          // 2. Template has time tracking
+          // 3. Template has a target set (> 0)
+          // 4. Logged time meets or exceeds the target
+          if (activityType == 'task' &&
+              template.trackingType == 'time' &&
+              template.target != null) {
+            final target = template.target;
+            if (target is num && target > 0) {
+              final targetMs = (target.toInt()) * 60000; // Convert minutes to milliseconds
+              if (totalTime >= targetMs) {
+                // Only complete if time meets/exceeds target
+                await completeTaskInstance(
+                    instanceId: instanceRef.id,
+                    finalValue: totalTime,
+                    finalAccumulatedTime: totalTime,
+                    userId: uid);
+              }
+            }
           }
-          print(
-              'TaskInstanceService.logManualTimeEntry: Created new instance ${instanceRef.id} for templateId $templateId');
           return;
-        } else {
-          print(
-              'TaskInstanceService.logManualTimeEntry: Template $templateId not found, falling back to one-off logic');
         }
       }
 
       // FALLBACK / NEW ONE-OFF LOGIC (Current Behavior + enhancements)
-      print(
-          'TaskInstanceService.logManualTimeEntry: Creating one-off instance for taskName: $taskName');
 
       // Create a temporary task instance to log this manual entry against.
       final taskInstanceRef = await createTimerTaskInstance(userId: uid);
@@ -1568,16 +1549,129 @@ class TaskInstanceService {
         await templateRef.update(templateUpdateData);
       }
     } catch (e) {
-      // Log detailed error before re-throwing
-      print('TaskInstanceService.logManualTimeEntry: FATAL ERROR - $e');
-      print(
-          'TaskInstanceService.logManualTimeEntry: Error type - ${e.runtimeType}');
-      print(
-          'TaskInstanceService.logManualTimeEntry: Entry details - taskName: $taskName, activityType: $activityType, templateId: $templateId');
-      print(
-          'TaskInstanceService.logManualTimeEntry: Time details - startTime: $startTime, endTime: $endTime');
-      print('TaskInstanceService.logManualTimeEntry: User ID - $uid');
       // Re-throw to be handled by UI
+      rethrow;
+    }
+  }
+
+  /// Update a specific time log session
+  static Future<void> updateTimeLogSession({
+    required String instanceId,
+    required int sessionIndex,
+    required DateTime startTime,
+    required DateTime endTime,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+      final instanceDoc = await instanceRef.get();
+      if (!instanceDoc.exists) {
+        throw Exception('Instance not found');
+      }
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+
+      if (sessionIndex < 0 || sessionIndex >= instance.timeLogSessions.length) {
+        throw Exception('Session index out of range');
+      }
+
+      // Validate time range
+      if (startTime.isAfter(endTime)) {
+        throw Exception('Start time cannot be after end time');
+      }
+
+      final duration = endTime.difference(startTime);
+      final durationMs = duration.inMilliseconds;
+
+      // Update the session
+      final sessions =
+          List<Map<String, dynamic>>.from(instance.timeLogSessions);
+      sessions[sessionIndex] = {
+        'startTime': startTime,
+        'endTime': endTime,
+        'durationMilliseconds': durationMs,
+      };
+
+      // Recalculate total time
+      final totalTime = sessions.fold<int>(
+          0, (sum, session) => sum + (session['durationMilliseconds'] as int));
+
+      // Update the instance
+      await instanceRef.update({
+        'timeLogSessions': sessions,
+        'totalTimeLogged': totalTime,
+        'accumulatedTime': totalTime,
+        'currentValue': totalTime,
+        'lastUpdated': DateTime.now(),
+      });
+    } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Delete a specific time log session
+  /// Returns true if the instance was uncompleted due to time falling below target
+  static Future<bool> deleteTimeLogSession({
+    required String instanceId,
+    required int sessionIndex,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+      final instanceDoc = await instanceRef.get();
+      if (!instanceDoc.exists) {
+        throw Exception('Instance not found');
+      }
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+
+      if (sessionIndex < 0 || sessionIndex >= instance.timeLogSessions.length) {
+        throw Exception('Session index out of range');
+      }
+
+      // Remove the session
+      final sessions =
+          List<Map<String, dynamic>>.from(instance.timeLogSessions);
+      sessions.removeAt(sessionIndex);
+
+      // Recalculate total time
+      final totalTime = sessions.fold<int>(
+          0, (sum, session) => sum + (session['durationMilliseconds'] as int));
+
+      // Update the instance
+      await instanceRef.update({
+        'timeLogSessions': sessions,
+        'totalTimeLogged': totalTime,
+        'accumulatedTime': totalTime,
+        'currentValue': totalTime,
+        'lastUpdated': DateTime.now(),
+      });
+
+      // Handle auto-uncompletion for timer-type tasks/habits
+      // If instance is completed and has time tracking with a target (> 0),
+      // and the new total time is below the target, uncomplete it
+      bool wasUncompleted = false;
+      if (instance.status == 'completed' &&
+          instance.templateTrackingType == 'time' &&
+          instance.templateTarget != null) {
+        final target = instance.templateTarget;
+        if (target is num && target > 0) {
+          final targetMs = (target.toInt()) * 60000; // Convert minutes to milliseconds
+          if (totalTime < targetMs) {
+            // Auto-uncomplete for timer types when time falls below target
+            await ActivityInstanceService.uncompleteInstance(
+              instanceId: instanceId,
+              userId: uid,
+            );
+            wasUncompleted = true;
+          }
+        }
+      }
+
+      return wasUncompleted;
+    } catch (e) {
       rethrow;
     }
   }

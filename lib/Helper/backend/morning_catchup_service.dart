@@ -9,6 +9,8 @@ import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/backend/points_service.dart';
+import 'package:habit_tracker/Helper/utils/score_bonus_toast_service.dart';
+import 'package:habit_tracker/Helper/utils/milestone_toast_service.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -96,15 +98,12 @@ class MorningCatchUpService {
             targetDate: DateService.yesterdayStart,
           );
         } catch (e) {
-          print('Error creating record in shouldShowDialog: $e');
           // Continue even if record creation fails
         }
       }
       
       return hasIncompleteItems;
     } catch (e, stackTrace) {
-      print('Error checking if catch-up dialog should show: $e');
-      print('Stack trace: $stackTrace');
       // Attempt to create record anyway as fallback
       try {
         await createDailyProgressRecordForDate(
@@ -112,7 +111,7 @@ class MorningCatchUpService {
           targetDate: DateService.yesterdayStart,
         );
       } catch (recordError) {
-        print('Failed to create record in error handler: $recordError');
+        // Failed to create record in error handler
       }
       return false; // Don't show dialog on error
     }
@@ -193,7 +192,6 @@ class MorningCatchUpService {
 
       return false;
     } catch (e) {
-      print('Error checking incomplete items: $e');
       return false;
     }
   }
@@ -277,7 +275,6 @@ class MorningCatchUpService {
 
       return items;
     } catch (e) {
-      print('Error getting incomplete items: $e');
       return [];
     }
   }
@@ -289,7 +286,7 @@ class MorningCatchUpService {
       final now = DateTime.now();
       await prefs.setString(_shownDateKey, now.toIso8601String());
     } catch (e) {
-      print('Error marking dialog as shown: $e');
+      // Error marking dialog as shown
     }
   }
 
@@ -305,7 +302,7 @@ class MorningCatchUpService {
       // Increment reminder count
       await incrementReminderCount();
     } catch (e) {
-      print('Error snoozing dialog: $e');
+      // Error snoozing dialog
     }
   }
 
@@ -315,7 +312,7 @@ class MorningCatchUpService {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_snoozeUntilKey);
     } catch (e) {
-      print('Error clearing snooze: $e');
+      // Error clearing snooze
     }
   }
 
@@ -327,9 +324,8 @@ class MorningCatchUpService {
       await prefs.remove(_snoozeUntilKey);
       await prefs.remove(_reminderCountKey);
       await prefs.remove(_reminderCountDateKey);
-      print('Morning catch-up dialog state reset');
     } catch (e) {
-      print('Error resetting dialog state: $e');
+      // Error resetting dialog state
     }
   }
 
@@ -365,9 +361,6 @@ class MorningCatchUpService {
           // Only process if windowEndDate is before yesterday (already expired, not ongoing)
           // This ensures we don't touch active windows
           if (windowEndDateOnly.isBefore(yesterday)) {
-            print(
-                'MorningCatchUpService: Processing expired habit ${instance.templateName} (windowEndDate: $windowEndDateOnly, yesterday: $yesterday)');
-
             // Get template to calculate frequency
             try {
               final templateRef = ActivityRecord.collectionForUser(userId)
@@ -386,11 +379,19 @@ class MorningCatchUpService {
               if (yesterdayInstanceRef != null) {
                 habitSkipped++;
                 totalSkipped++;
-                print(
-                    'MorningCatchUpService: Created yesterday instance ${yesterdayInstanceRef.id} for ${instance.templateName}');
+              } else {
+                // Fallback: skip expired instance and generate next one normally
+                // This should rarely happen as bulkSkipExpiredInstancesWithBatches now always returns a reference
+                await ActivityInstanceService.skipInstance(
+                  instanceId: instance.reference.id,
+                  skippedAt: windowEndDateOnly,
+                  skipAutoGeneration: false, // Allow normal generation
+                  userId: userId,
+                );
+                habitSkipped++;
+                totalSkipped++;
               }
             } catch (e) {
-              print('Error processing habit ${instance.templateName}: $e');
               // Fallback: skip normally if bulk skip fails
               await ActivityInstanceService.skipInstance(
                 instanceId: instance.reference.id,
@@ -435,7 +436,7 @@ class MorningCatchUpService {
                   date: date,
                 );
               } catch (e) {
-                print('Error recalculating progress for $date: $e');
+                // Error recalculating progress for date
               }
             }),
           );
@@ -449,12 +450,8 @@ class MorningCatchUpService {
       // After skipping expired instances with batch writes, yesterday's instances remain pending
       // for manual user confirmation via the morning catch-up dialog
 
-      if (totalSkipped > 0) {
-        print(
-            'Efficiently processed $totalSkipped expired habits before yesterday ($habitSkipped habits) using batch writes');
-      }
     } catch (e) {
-      print('Error auto-skipping expired items: $e');
+      // Error auto-skipping expired items
     }
   }
 
@@ -483,8 +480,6 @@ class MorningCatchUpService {
 
         if (pendingSnapshot.docs.isEmpty) {
           // No pending instance found - need to generate one
-          print(
-              'MorningCatchUpService: No pending instance found for habit ${habit.name}, attempting to generate one');
 
           // Find the most recent instance (completed or skipped) to generate from
           final allInstancesQuery =
@@ -532,8 +527,6 @@ class MorningCatchUpService {
                   );
                   if (yesterdayInstanceRef != null) {
                     instancesGenerated++;
-                    print(
-                        'MorningCatchUpService: Filled gap and generated instances up to yesterday for habit ${habit.name}');
                   }
                 } else {
                   // Window ended recently, just generate next instance normally
@@ -542,12 +535,9 @@ class MorningCatchUpService {
                     skippedAt: windowEndDate,
                   );
                   instancesGenerated++;
-                  print(
-                      'MorningCatchUpService: Generated next instance for habit ${habit.name}');
                 }
               } catch (e) {
-                print(
-                    'MorningCatchUpService: Error generating instance for habit ${habit.name}: $e');
+                // Error generating instance for habit
               }
             } else {
               // No windowEndDate - create initial instance
@@ -558,11 +548,8 @@ class MorningCatchUpService {
                   userId: userId,
                 );
                 instancesGenerated++;
-                print(
-                    'MorningCatchUpService: Created initial instance for habit ${habit.name}');
               } catch (e) {
-                print(
-                    'MorningCatchUpService: Error creating initial instance for habit ${habit.name}: $e');
+                // Error creating initial instance for habit
               }
             }
           } else {
@@ -574,23 +561,15 @@ class MorningCatchUpService {
                 userId: userId,
               );
               instancesGenerated++;
-              print(
-                  'MorningCatchUpService: Created initial instance for habit ${habit.name} (no existing instances)');
             } catch (e) {
-              print(
-                  'MorningCatchUpService: Error creating initial instance for habit ${habit.name}: $e');
+              // Error creating initial instance for habit
             }
           }
         }
       }
 
-      if (instancesGenerated > 0) {
-        print(
-            'MorningCatchUpService: Generated $instancesGenerated missing instances for active habits');
-      }
     } catch (e) {
-      print(
-          'MorningCatchUpService: Error ensuring pending instances exist: $e');
+      // Error ensuring pending instances exist
     }
   }
 
@@ -618,11 +597,9 @@ class MorningCatchUpService {
           userId: userId,
           targetDate: yesterday,
         );
-        print(
-            'Force skipped ${items.length} items after max reminders reached');
       }
     } catch (e) {
-      print('Error force skipping remaining items: $e');
+      // Error force skipping remaining items
     }
   }
 
@@ -653,7 +630,6 @@ class MorningCatchUpService {
       }
       return 0;
     } catch (e) {
-      print('Error getting reminder count: $e');
       // Reset on error to be safe
       await resetReminderCount();
       return 0;
@@ -670,7 +646,7 @@ class MorningCatchUpService {
       await prefs.setInt(_reminderCountKey, currentCount + 1);
       await prefs.setString(_reminderCountDateKey, todayOnly.toIso8601String());
     } catch (e) {
-      print('Error incrementing reminder count: $e');
+      // Error incrementing reminder count
     }
   }
 
@@ -681,7 +657,7 @@ class MorningCatchUpService {
       await prefs.remove(_reminderCountKey);
       await prefs.remove(_reminderCountDateKey);
     } catch (e) {
-      print('Error resetting reminder count: $e');
+      // Error resetting reminder count
     }
   }
 
@@ -707,7 +683,6 @@ class MorningCatchUpService {
         .where('date', isEqualTo: normalizedDate);
     final existingSnapshot = await existingQuery.get();
     if (existingSnapshot.docs.isNotEmpty) {
-      print('DailyProgressRecord already exists for $normalizedDate');
       return;
     }
 
@@ -811,7 +786,6 @@ class MorningCatchUpService {
         );
         await DailyProgressRecord.collectionForUser(userId)
             .add(emptyProgressData);
-        print('Created empty DailyProgressRecord for $normalizedDate');
         return;
       }
 
@@ -871,6 +845,13 @@ class MorningCatchUpService {
         }
       }
 
+      // Calculate category neglect penalty
+      final categoryNeglectPenalty = CumulativeScoreService.calculateCategoryNeglectPenalty(
+        categoryList,
+        allForMath,
+        normalizedDate,
+      );
+
       // Calculate cumulative score
       Map<String, dynamic> cumulativeScoreData = {};
       try {
@@ -878,9 +859,26 @@ class MorningCatchUpService {
           userId,
           completionPercentage,
           normalizedDate,
+          earnedPoints,
+          categoryNeglectPenalty: categoryNeglectPenalty,
         );
+        
+        // Show bonus notifications
+        final bonuses = CumulativeScoreService.getBonusNotifications(
+          cumulativeScoreData,
+        );
+        if (bonuses.isNotEmpty) {
+          ScoreBonusToastService.showMultipleNotifications(bonuses);
+        }
+
+        // Show milestone achievements
+        final newMilestones = cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
+        if (newMilestones.isNotEmpty) {
+          final milestoneValues = newMilestones.map((m) => m as int).toList();
+          MilestoneToastService.showMultipleMilestones(milestoneValues);
+        }
       } catch (e) {
-        print('Error calculating cumulative score: $e');
+        // Error calculating cumulative score
         // Continue without cumulative score if calculation fails
       }
 
@@ -909,12 +907,11 @@ class MorningCatchUpService {
         createdAt: DateTime.now(),
       );
         await DailyProgressRecord.collectionForUser(userId).add(progressData);
-        print('Created DailyProgressRecord for $normalizedDate with ${habitBreakdown.length} habits');
         return; // Success
       } catch (e) {
         retries--;
         if (retries == 0) {
-          print('Failed to create DailyProgressRecord after retries: $e');
+          // Failed to create DailyProgressRecord after retries
           // Create minimal record as fallback
           try {
             final minimalData = createDailyProgressRecordData(
@@ -939,9 +936,8 @@ class MorningCatchUpService {
               createdAt: DateTime.now(),
             );
             await DailyProgressRecord.collectionForUser(userId).add(minimalData);
-            print('Created minimal DailyProgressRecord as fallback for $normalizedDate');
           } catch (fallbackError) {
-            print('Fallback record creation also failed: $fallbackError');
+            // Fallback record creation also failed
             rethrow;
           }
         } else {
@@ -982,20 +978,18 @@ class MorningCatchUpService {
       if (lastRecordDate == null) {
         final limitDays = 90; // Increased from 30
         lastRecordDate = yesterday.subtract(Duration(days: limitDays));
-        print('No previous record found, creating records for last $limitDays days');
       }
 
       // Check if gap is very large
       final daysSinceLastRecord = yesterday.difference(lastRecordDate).inDays;
       if (daysSinceLastRecord > 90) {
-        print('Warning: Large gap detected ($daysSinceLastRecord days). Creating records for recent 90 days only.');
+        // Large gap detected, creating records for recent 90 days only
         // Cap at 90 days
         lastRecordDate = yesterday.subtract(const Duration(days: 90));
       }
 
       // Don't create records if last record is yesterday or later
       if (!lastRecordDate.isBefore(yesterday)) {
-        print('No missed days to create records for');
         return;
       }
 
@@ -1055,7 +1049,7 @@ class MorningCatchUpService {
               );
               return true;
             } catch (e) {
-              print('Error creating record for $date: $e');
+              // Error creating record for date
               return false;
             }
           }),
@@ -1064,10 +1058,9 @@ class MorningCatchUpService {
       }
 
       if (recordsCreated > 0) {
-        print('Created $recordsCreated DailyProgressRecords for missed days');
       }
     } catch (e) {
-      print('Error creating records for missed days: $e');
+      // Error creating records for missed days
       // Don't rethrow - this is a background operation
     }
   }

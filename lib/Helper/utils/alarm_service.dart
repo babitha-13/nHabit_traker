@@ -25,7 +25,6 @@ class AlarmService {
       _initialized = true;
       return true;
     } catch (e) {
-      print('AlarmService: Failed to initialize: $e');
       return false;
     }
   }
@@ -51,12 +50,8 @@ class AlarmService {
         final delay = scheduledTime.difference(now).inMilliseconds;
         if (delay <= 0) {
           // Alarm time is in the past
-          print(
-              'AlarmService: Skipping alarm ${reminderId ?? id} because scheduled time $scheduledTime is not in the future.');
           return false;
         }
-        print(
-            'AlarmService: Scheduling alarm ${reminderId ?? id} (hash: $id) at $scheduledTime (delay ${delay}ms)');
         // Schedule the alarm
         final scheduled = await AndroidAlarmManager.oneShot(
           Duration(milliseconds: delay),
@@ -73,8 +68,6 @@ class AlarmService {
           },
         );
         if (!scheduled) {
-          print(
-              'AlarmService: Failed to schedule alarm ${reminderId ?? id}. Falling back to notification.');
           await _fallbackToNotification(
             reminderId: reminderId ?? 'alarm_$id',
             title: title,
@@ -82,9 +75,6 @@ class AlarmService {
             body: body,
             payload: payload,
           );
-        } else {
-          print(
-              'AlarmService: Alarm ${reminderId ?? id} scheduled successfully.');
         }
         return scheduled;
       } else {
@@ -93,7 +83,6 @@ class AlarmService {
         return false;
       }
     } catch (e) {
-      print('AlarmService: Failed to schedule alarm: $e');
       return false;
     }
   }
@@ -109,7 +98,6 @@ class AlarmService {
       }
       return true;
     } catch (e) {
-      print('AlarmService: Failed to cancel alarm: $e');
       return false;
     }
   }
@@ -144,21 +132,20 @@ class AlarmService {
     final body = params?['body'] ?? title;
     final payload = params?['payload'] as String?;
     final reminderId = params?['reminderId'] as String?;
-    print('AlarmService: Alarm triggered - $title: $body');
     try {
       WidgetsFlutterBinding.ensureInitialized();
-      
+
       // Immediate vibration feedback
       try {
-        if (await Vibration.hasVibrator() ?? false) {
-           Vibration.vibrate(pattern: [0, 1000, 1000, 1000], repeat: 1);
+        if (await Vibration.hasVibrator()) {
+          Vibration.vibrate(pattern: [0, 1000, 1000, 1000], repeat: 1);
         }
       } catch (e) {
-        print('AlarmService: Vibration failed: $e');
+        // Vibration failed, continue without it
       }
 
       await NotificationService.initialize();
-      
+
       // Use fullScreenIntent priority for the notification
       // This will trigger the onNotificationResponse callback immediately if app is in foreground,
       // or show the high-priority notification that can launch the activity
@@ -167,7 +154,7 @@ class AlarmService {
       if (reminderId != null) {
         ringingPayload += '|$reminderId';
       }
-      
+
       await NotificationService.showImmediate(
         id: 'alarm_${reminderId ?? id}',
         title: title,
@@ -175,8 +162,7 @@ class AlarmService {
         payload: ringingPayload, // Special payload format
       );
     } catch (e) {
-      print(
-          'AlarmService: Failed to show notification from alarm callback: $e');
+      // Failed to show notification from alarm callback
     }
     // Note: To show notifications from this callback, you needed to
     // initialize the notification service in this isolate (done above).
@@ -198,7 +184,7 @@ class AlarmService {
         payload: payload,
       );
     } catch (e) {
-      print('AlarmService: Fallback notification failed: $e');
+      // Fallback notification failed
     }
   }
 }

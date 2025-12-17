@@ -2,7 +2,6 @@ import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 
 /// Service to calculate daily progress for a specific date
 /// Used by both Queue page (for today) and DayEndProcessor (for historical dates)
@@ -94,10 +93,6 @@ class DailyProgressCalculator {
     }).toList();
 
     // includeSkippedForComputation is now implicit via inWindowHabits (status-agnostic)
-    if (includeSkippedForComputation) {
-      final skippedCount =
-          inWindowHabits.where((i) => i.status == 'skipped').length;
-    }
 
     // Use the SAME PointsService methods as Queue page
     double habitTargetPoints;

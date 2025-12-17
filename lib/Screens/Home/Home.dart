@@ -4,9 +4,7 @@ import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
@@ -29,6 +27,8 @@ import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/utils/global_floating_timer.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -43,10 +43,6 @@ class _HomeState extends State<Home> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int currentIndex = 2;
   late Widget cWidget;
-  // Search functionality
-  bool _isSearchMode = false;
-  final TextEditingController _searchController = TextEditingController();
-  final SearchStateManager _searchManager = SearchStateManager();
   // Prevent race conditions in morning catch-up check
   static bool _isCheckingCatchUp = false;
   @override
@@ -83,7 +79,6 @@ class _HomeState extends State<Home> {
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
-    _searchController.dispose();
     super.dispose();
   }
 
@@ -108,59 +103,50 @@ class _HomeState extends State<Home> {
               icon: const Icon(Icons.menu, color: Colors.white),
               onPressed: () => scaffoldKey.currentState?.openDrawer(),
             ),
-            title: _isSearchMode
-                ? TextField(
-                    controller: _searchController,
-                    style: const TextStyle(color: Colors.white, fontSize: 18),
-                    decoration: const InputDecoration(
-                      hintText: 'Search...',
-                      hintStyle: TextStyle(color: Colors.white70),
-                      border: InputBorder.none,
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    onChanged: (value) {
-                      _searchManager.updateQuery(value);
-                    },
-                    autofocus: true,
-                  )
-                : Text(
-                    title,
-                    style: FlutterFlowTheme.of(context).headlineMedium.override(
-                          fontFamily: 'Outfit',
-                          color: Colors.white,
-                          fontSize: 22,
-                        ),
+            title: Text(
+              title,
+              style: FlutterFlowTheme.of(context).headlineMedium.override(
+                    fontFamily: 'Outfit',
+                    color: Colors.white,
+                    fontSize: 22,
                   ),
+            ),
             actions: [
-              // Search button - toggle search mode
-              IconButton(
-                icon: Icon(
-                  _isSearchMode ? Icons.close : Icons.search,
-                  color: Colors.white,
-                ),
-                onPressed: () {
-                  setState(() {
-                    if (_isSearchMode) {
-                      _isSearchMode = false;
-                      _searchController.clear();
-                      _searchManager.clearQuery();
-                    } else {
-                      _isSearchMode = true;
-                    }
-                  });
-                },
-                tooltip: _isSearchMode ? 'Close search' : 'Search',
-              ),
               // Goals button - always visible
-              IconButton(
-                icon: const Icon(Icons.gps_fixed, color: Colors.white),
-                onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (context) => const GoalDialog(),
-                  );
-                },
-                tooltip: 'Goals',
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: TextButton(
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => const GoalDialog(),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
+                      ),
+                    ),
+                    child: Text(
+                      'Goal',
+                      style: FlutterFlowTheme.of(context).bodyLarge.override(
+                            fontFamily: 'Outfit',
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                    ),
+                  ),
+                ),
               ),
               Visibility(
                 visible: title == "Tasks",
@@ -171,36 +157,20 @@ class _HomeState extends State<Home> {
                     PopupMenuItem(
                       value: 'default',
                       child: ListTile(
-                        leading: Icon(Icons.sort_by_alpha),
-                        title: Text('Default sort'),
+                        leading: const Icon(Icons.sort_by_alpha),
+                        title: const Text('Default sort'),
                       ),
                     ),
                     PopupMenuItem(
                       value: 'importance',
                       child: ListTile(
-                        leading: Icon(Icons.star),
-                        title: Text('Sort by importance'),
+                        leading: const Icon(Icons.star),
+                        title: const Text('Sort by importance'),
                       ),
                     ),
                   ],
                 ),
               ),
-              Visibility(
-                visible: title == "Habits",
-                child: PopupMenuButton<String>(
-                  icon: const Icon(Icons.more_vert, color: Colors.white),
-                  onSelected: (value) => _handleHabitsMenuAction(value),
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: 'clear_test_data',
-                      child: ListTile(
-                        leading: Icon(Icons.refresh, color: Colors.orange),
-                        title: Text('Clear Test Data'),
-                      ),
-                    ),
-                  ],
-                ),
-              )
             ],
             centerTitle: false,
             elevation: 0,
@@ -229,7 +199,9 @@ class _HomeState extends State<Home> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                "email",
+                                currentUserEmail.isNotEmpty
+                                    ? currentUserEmail
+                                    : "email",
                                 style: theme.bodyMedium.override(
                                   fontFamily: 'Readex Pro',
                                   color: Colors.white70,
@@ -282,6 +254,20 @@ class _HomeState extends State<Home> {
                                   );
                                 },
                               ),
+                              _DrawerItem(
+                                icon: Icons.trending_up,
+                                label: 'Progress History',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const ProgressPage(),
+                                    ),
+                                  );
+                                },
+                              ),
                               // Development/Testing only - show in debug mode
                               if (kDebugMode) ...[
                                 _DrawerItem(
@@ -301,8 +287,8 @@ class _HomeState extends State<Home> {
                               ],
                               const Divider(),
                               _DrawerItem(
-                                icon: Icons.person,
-                                label: 'Profile',
+                                icon: Icons.settings,
+                                label: 'Settings',
                                 onTap: () {
                                   Navigator.pop(context);
                                   Navigator.push(
@@ -343,17 +329,24 @@ class _HomeState extends State<Home> {
               key: _parentKey,
               children: [
                 Container(color: Colors.white, child: cWidget),
+                // Global floating timer - appears on all pages when timers are active
+                const GlobalFloatingTimer(),
+                // DEBUG: FAB for testing catch-up dialog (remove after testing)
+                // Positioned above search FAB (which will be at bottom-left)
+                Positioned(
+                  left: 16,
+                  bottom:
+                      80, // Above search FAB (56px FAB + 16px spacing + 8px)
+                  child: FloatingActionButton(
+                    onPressed: showCatchUpDialogManually,
+                    backgroundColor: FlutterFlowTheme.of(context).primary,
+                    child: const Icon(Icons.history, color: Colors.white),
+                    tooltip: 'Test Catch-Up Dialog',
+                  ),
+                ),
               ],
             ),
           ),
-          // DEBUG: FAB for testing catch-up dialog (remove after testing)
-          floatingActionButton: FloatingActionButton(
-            onPressed: showCatchUpDialogManually,
-            backgroundColor: FlutterFlowTheme.of(context).primary,
-            child: const Icon(Icons.history, color: Colors.white),
-            tooltip: 'Test Catch-Up Dialog',
-          ),
-          floatingActionButtonLocation: FloatingActionButtonLocation.startFloat,
           bottomNavigationBar: Container(
             decoration: BoxDecoration(
               color: FlutterFlowTheme.of(context).secondaryBackground,
@@ -392,19 +385,19 @@ class _HomeState extends State<Home> {
               unselectedFontSize: 12,
               items: [
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.assignment),
+                  icon: const Icon(Icons.assignment),
                   label: 'Tasks',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.flag),
+                  icon: const Icon(Icons.flag),
                   label: 'Habits',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.queue),
+                  icon: const Icon(Icons.queue),
                   label: 'Queue',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.playlist_play),
+                  icon: const Icon(Icons.playlist_play),
                   label: 'Sequences',
                 ),
                 BottomNavigationBarItem(
@@ -430,7 +423,7 @@ class _HomeState extends State<Home> {
       preBackPress = DateTime.now();
       if (cantExit) {
         const snack = SnackBar(
-          content: Text('Press Back button again to Exit'),
+          content: const Text('Press Back button again to Exit'),
           duration: Duration(seconds: 2),
         );
         ScaffoldMessenger.of(context).showSnackBar(snack);
@@ -452,12 +445,6 @@ class _HomeState extends State<Home> {
   void loadPage(s) {
     if (mounted) {
       setState(() {
-        // Clear search when switching pages
-        if (_isSearchMode) {
-          _isSearchMode = false;
-          _searchController.clear();
-          _searchManager.clearQuery();
-        }
         if (s == "Queue") {
           title = s;
           cWidget = const QueuePage();
@@ -508,7 +495,10 @@ class _HomeState extends State<Home> {
           builder: (context) => const GoalOnboardingDialog(),
         );
       }
-    } catch (e) {}
+    } catch (e) {
+      // Silently ignore errors in goal onboarding check - non-critical UI operation
+      print('Error checking goal onboarding: $e');
+    }
   }
 
   Future<void> _checkDailyGoal() async {
@@ -525,12 +515,15 @@ class _HomeState extends State<Home> {
           builder: (context) => const GoalDialog(),
         );
       }
-    } catch (e) {}
+    } catch (e) {
+      // Silently ignore errors in daily goal check - non-critical UI operation
+      print('Error checking daily goal: $e');
+    }
   }
 
   Future<void> _checkMorningCatchUp() async {
     if (_isCheckingCatchUp) return; // Prevent concurrent checks
-    
+
     try {
       _isCheckingCatchUp = true;
       final userId = users.uid;
@@ -548,7 +541,7 @@ class _HomeState extends State<Home> {
         );
       }
     } catch (e) {
-      print('Error checking morning catch-up: $e');
+      // Error checking morning catch-up
     } finally {
       _isCheckingCatchUp = false;
     }
@@ -560,7 +553,7 @@ class _HomeState extends State<Home> {
     try {
       final userId = users.uid;
       if (userId == null || userId.isEmpty) {
-        print('No user ID available');
+        // No user ID available
         return;
       }
       // First, auto-skip all expired items to bring everything up to date
@@ -576,7 +569,7 @@ class _HomeState extends State<Home> {
         );
       }
     } catch (e) {
-      print('Error showing catch-up dialog manually: $e');
+      // Error showing catch-up dialog manually
     }
   }
 
@@ -606,7 +599,7 @@ class _HomeState extends State<Home> {
         }
       }
     } catch (e) {
-      print('Error checking notification onboarding: $e');
+      // Error checking notification onboarding
     }
   }
 
@@ -625,88 +618,7 @@ class _HomeState extends State<Home> {
       // Check for expired snoozes and reschedule
       await ReminderScheduler.checkExpiredSnoozes();
     } catch (e) {
-      print('Error initializing notifications: $e');
-    }
-  }
-
-  Future<void> _handleHabitsMenuAction(String value) async {
-    if (value == 'clear_test_data') {
-      final shouldClear = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Clear Test Data'),
-          content: const Text(
-            'This will delete ALL existing instances (completed, pending, skipped) and create fresh instances starting tomorrow. Your habit and task templates will be preserved.\n\nThis action cannot be undone.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              style: TextButton.styleFrom(
-                foregroundColor: Colors.orange,
-              ),
-              child: const Text('Clear All Data'),
-            ),
-          ],
-        ),
-      );
-
-      if (shouldClear == true) {
-        try {
-          // Show loading indicator
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => const AlertDialog(
-              content: Row(
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(width: 20),
-                  Text('Clearing test data...'),
-                ],
-              ),
-            ),
-          );
-
-          // Call the reset service
-          final result =
-              await ActivityInstanceService.resetAllInstancesForFreshStart();
-
-          // Close loading dialog
-          Navigator.of(context).pop();
-
-          // Show success message
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text(
-                  'Test data cleared! ${result['createdInstances']} fresh instances created for ${(result['habitTemplates'] ?? 0) + (result['taskTemplates'] ?? 0)} templates.',
-                ),
-                backgroundColor: Colors.green,
-                duration: const Duration(seconds: 4),
-              ),
-            );
-
-            // Refresh the habits page
-            NotificationCenter.post("loadHabits", "");
-          }
-        } catch (e) {
-          // Close loading dialog if it's still open
-          Navigator.of(context).pop();
-
-          if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(
-                content: Text('Error clearing test data: $e'),
-                backgroundColor: Colors.red,
-              ),
-            );
-          }
-        }
-      }
+      // Error initializing notifications
     }
   }
 }

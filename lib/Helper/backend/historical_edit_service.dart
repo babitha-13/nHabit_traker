@@ -143,6 +143,13 @@ class HistoricalEditService {
         .where('date', isEqualTo: normalizedDate);
     final progressSnapshot = await progressQuery.get();
     if (progressSnapshot.docs.isEmpty) {
+      // Calculate category neglect penalty
+      final categoryNeglectPenalty = CumulativeScoreService.calculateCategoryNeglectPenalty(
+        categories,
+        instances,
+        normalizedDate,
+      );
+
       // Calculate cumulative score for new record
       Map<String, dynamic> cumulativeScoreData = {};
       try {
@@ -151,9 +158,11 @@ class HistoricalEditService {
           userId,
           completionPercentage,
           normalizedDate,
+          earnedPoints,
+          categoryNeglectPenalty: categoryNeglectPenalty,
         );
       } catch (e) {
-        print('Error calculating cumulative score for new record: $e');
+        // Error calculating cumulative score for new record
       }
 
       // Create new record if it doesn't exist
@@ -175,6 +184,13 @@ class HistoricalEditService {
       );
       await DailyProgressRecord.collectionForUser(userId).add(progressData);
     } else {
+      // Calculate category neglect penalty
+      final categoryNeglectPenalty = CumulativeScoreService.calculateCategoryNeglectPenalty(
+        categories,
+        instances,
+        normalizedDate,
+      );
+
       // Calculate cumulative score for updated record
       Map<String, dynamic> cumulativeScoreData = {};
       try {
@@ -183,9 +199,11 @@ class HistoricalEditService {
           userId,
           completionPercentage,
           normalizedDate,
+          earnedPoints,
+          categoryNeglectPenalty: categoryNeglectPenalty,
         );
       } catch (e) {
-        print('Error calculating cumulative score for updated record: $e');
+        // Error calculating cumulative score for updated record
       }
 
       // Update existing record

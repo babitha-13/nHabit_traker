@@ -4,6 +4,8 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Helper/utils/score_bonus_toast_service.dart';
+import 'package:habit_tracker/Helper/utils/milestone_toast_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
@@ -222,8 +224,6 @@ class DayEndProcessor {
     final allTasksForMath =
         calculationResult['allTasksForMath'] as List<ActivityInstanceRecord>;
     // Extract separate breakdowns for analytics
-    final habitTarget = calculationResult['habitTarget'] as double;
-    final habitEarned = calculationResult['habitEarned'] as double;
     final taskTarget = calculationResult['taskTarget'] as double;
     final taskEarned = calculationResult['taskEarned'] as double;
     if (instances.isEmpty && taskInstances.isEmpty) {
@@ -310,6 +310,13 @@ class DayEndProcessor {
             [];
     final taskBreakdown =
         calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
+    // Calculate category neglect penalty
+    final categoryNeglectPenalty = CumulativeScoreService.calculateCategoryNeglectPenalty(
+      categories,
+      allForMath,
+      normalizedDate,
+    );
+
     // Calculate cumulative score
     Map<String, dynamic> cumulativeScoreData = {};
     try {
@@ -317,9 +324,25 @@ class DayEndProcessor {
         userId,
         completionPercentage,
         normalizedDate,
+        earnedPoints,
+        categoryNeglectPenalty: categoryNeglectPenalty,
       );
+      
+      // Show bonus notifications
+      final bonuses = CumulativeScoreService.getBonusNotifications(
+        cumulativeScoreData,
+      );
+      if (bonuses.isNotEmpty) {
+        ScoreBonusToastService.showMultipleNotifications(bonuses);
+      }
+
+      // Show milestone achievements
+      final newMilestones = cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
+      if (newMilestones.isNotEmpty) {
+        final milestoneValues = newMilestones.map((m) => m as int).toList();
+        MilestoneToastService.showMultipleMilestones(milestoneValues);
+      }
     } catch (e) {
-      print('Error calculating cumulative score: $e');
       // Continue without cumulative score if calculation fails
     }
 

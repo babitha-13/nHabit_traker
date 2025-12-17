@@ -14,6 +14,7 @@ import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config.dart';
@@ -166,6 +167,7 @@ class _TaskPageState extends State<TaskPage> {
                   child: const Icon(Icons.add, color: Colors.white),
                 ),
               ),
+              const SearchFAB(),
             ],
           );
     return returnedWidget;

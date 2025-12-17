@@ -147,16 +147,6 @@ class PointsService {
           earnedPoints = 0.0;
         }
 
-        // Debug logging for binary habits
-        if (earnedPoints > habitPriority) {
-          print('=== BINARY HABIT DEBUG ===');
-          print('Habit: ${instance.templateName}');
-          print('Priority: $habitPriority');
-          print('Count: $countValue');
-          print('Target: ${instance.templateTarget}');
-          print('Earned: $earnedPoints');
-          print('Status: ${instance.status}');
-        }
         return earnedPoints;
       case 'quantitative':
         // Quantitative habits: points based on progress percentage
@@ -191,17 +181,6 @@ class PointsService {
           }
         }
 
-        // Debug logging for quantitative habits
-        if (earnedPoints > habitPriority) {
-          print('=== QUANTITATIVE HABIT DEBUG ===');
-          print('Habit: ${instance.templateName}');
-          print('Priority: $habitPriority');
-          print('Current: ${_getCurrentValue(instance)}');
-          print('Target: ${_getTargetValue(instance)}');
-          print('Earned: $earnedPoints');
-          print('Status: ${instance.status}');
-          print('Window Duration: ${instance.windowDuration}');
-        }
         return earnedPoints;
       case 'time':
         // Time-based habits: points based on accumulated time vs target
@@ -247,17 +226,6 @@ class PointsService {
           }
         }
 
-        // Debug logging for time-based habits
-        if (earnedPoints > habitPriority * 2) {
-          print('=== TIME HABIT DEBUG ===');
-          print('Habit: ${instance.templateName}');
-          print('Priority: $habitPriority');
-          print('Accumulated Time: ${instance.accumulatedTime}');
-          print('Target Minutes: ${_getTargetValue(instance)}');
-          print('Earned: $earnedPoints');
-          print('Status: ${instance.status}');
-          print('Window Duration: ${instance.windowDuration}');
-        }
         return earnedPoints;
       default:
         return 0.0;

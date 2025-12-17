@@ -5,6 +5,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_fab.dart';
 
 class NonProductiveTemplatesPage extends StatefulWidget {
   const NonProductiveTemplatesPage({Key? key}) : super(key: key);
@@ -18,11 +20,42 @@ class _NonProductiveTemplatesPageState
     extends State<NonProductiveTemplatesPage> {
   List<ActivityRecord> _templates = [];
   bool _isLoading = true;
+  // Search functionality
+  String _searchQuery = '';
+  final SearchStateManager _searchManager = SearchStateManager();
 
   @override
   void initState() {
     super.initState();
     _loadTemplates();
+    // Listen for search changes
+    _searchManager.addListener(_onSearchChanged);
+  }
+
+  @override
+  void dispose() {
+    _searchManager.removeListener(_onSearchChanged);
+    super.dispose();
+  }
+
+  void _onSearchChanged(String query) {
+    if (mounted) {
+      setState(() {
+        _searchQuery = query;
+      });
+    }
+  }
+
+  List<ActivityRecord> get _filteredTemplates {
+    if (_searchQuery.isEmpty) {
+      return _templates;
+    }
+    final query = _searchQuery.toLowerCase();
+    return _templates.where((template) {
+      final nameMatch = template.name.toLowerCase().contains(query);
+      final descriptionMatch = template.description.toLowerCase().contains(query);
+      return nameMatch || descriptionMatch;
+    }).toList();
   }
 
   Future<void> _loadTemplates() async {
@@ -141,39 +174,45 @@ class _NonProductiveTemplatesPageState
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
         title: const Text('Non-Productive Items'),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _templates.isEmpty
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.access_time,
-                        size: 64,
-                        color: FlutterFlowTheme.of(context).secondaryText,
+      body: Stack(
+        children: [
+          _isLoading
+              ? const Center(child: CircularProgressIndicator())
+              : _filteredTemplates.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(
+                            Icons.access_time,
+                            size: 64,
+                            color: FlutterFlowTheme.of(context).secondaryText,
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            _searchQuery.isNotEmpty
+                                ? 'No Templates Found'
+                                : 'No Non-Productive Templates',
+                            style: FlutterFlowTheme.of(context).titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            _searchQuery.isNotEmpty
+                                ? 'Try a different search term'
+                                : 'Create templates to track time for activities like sleep, travel, and rest',
+                            style: FlutterFlowTheme.of(context).bodyMedium,
+                            textAlign: TextAlign.center,
+                          ),
+                        ],
                       ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'No Non-Productive Templates',
-                        style: FlutterFlowTheme.of(context).titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Create templates to track time for activities like sleep, travel, and rest',
-                        style: FlutterFlowTheme.of(context).bodyMedium,
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                )
-              : RefreshIndicator(
-                  onRefresh: _loadTemplates,
-                  child: ListView.builder(
-                    padding: const EdgeInsets.all(16),
-                    itemCount: _templates.length,
-                    itemBuilder: (context, index) {
-                      final template = _templates[index];
+                    )
+                  : RefreshIndicator(
+                      onRefresh: _loadTemplates,
+                      child: ListView.builder(
+                        padding: const EdgeInsets.all(16),
+                        itemCount: _filteredTemplates.length,
+                        itemBuilder: (context, index) {
+                          final template = _filteredTemplates[index];
                       return Card(
                         margin: const EdgeInsets.only(bottom: 12),
                         child: Padding(
@@ -268,13 +307,22 @@ class _NonProductiveTemplatesPageState
                           ),
                         ),
                       );
-                    },
-                  ),
-                ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _showCreateDialog,
-        child: const Icon(Icons.add),
-        tooltip: 'Create Non-Productive Template',
+                        },
+                      ),
+                    ),
+          // Search FAB at bottom-left
+          const SearchFAB(),
+          // Existing FAB at bottom-right
+          Positioned(
+            right: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              onPressed: _showCreateDialog,
+              child: const Icon(Icons.add),
+              tooltip: 'Create Non-Productive Template',
+            ),
+          ),
+        ],
       ),
     );
   }

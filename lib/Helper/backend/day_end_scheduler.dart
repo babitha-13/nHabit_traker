@@ -1,7 +1,5 @@
 import 'dart:async';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:habit_tracker/Helper/backend/background_scheduler.dart';
-import 'package:habit_tracker/Helper/utils/notification_service.dart';
 
 /// Service for managing day-end processing with snooze functionality
 /// NOTE: Automatic processing is disabled - users must manually confirm status changes via Queue page
@@ -44,7 +42,10 @@ class DayEndScheduler {
       if (lastResetString != null) {
         _lastResetDate = DateTime.parse(lastResetString);
       }
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - SharedPreferences load failure is non-critical
+      print('Error loading day end scheduler state: $e');
+    }
   }
 
   /// Save scheduler state to SharedPreferences
@@ -59,7 +60,10 @@ class DayEndScheduler {
       if (_lastResetDate != null) {
         await prefs.setString(_lastResetKey, _lastResetDate!.toIso8601String());
       }
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - SharedPreferences save failure is non-critical
+      print('Error saving day end scheduler state: $e');
+    }
   }
 
   /// Check if snooze budget should be reset (new day)
@@ -117,60 +121,6 @@ class DayEndScheduler {
     } else {
       return todayMidnight.add(const Duration(days: 1));
     }
-  }
-
-  /// Schedule day-end notifications (1hr, 30min, 15min before)
-  static Future<void> _scheduleDayEndNotifications() async {
-    if (_scheduledProcessTime == null) return;
-    final processTime = _scheduledProcessTime!;
-    // Cancel existing day-end notifications
-    await NotificationService.cancelDayEndNotifications();
-    // Schedule 3 notifications
-    final notifications = [
-      {
-        'time': processTime.subtract(const Duration(hours: 1)),
-        'message':
-            'You\'re almost there! 1 hour left to crush today\'s goals 💪 Check your progress!',
-        'id': 'day_end_1hr'
-      },
-      {
-        'time': processTime.subtract(const Duration(minutes: 30)),
-        'message':
-            'You\'re almost there! 30 minutes left to crush today\'s goals 💪 Check your progress!',
-        'id': 'day_end_30min'
-      },
-      {
-        'time': processTime.subtract(const Duration(minutes: 15)),
-        'message':
-            'You\'re almost there! 15 minutes left to crush today\'s goals 💪 Check your progress!',
-        'id': 'day_end_15min'
-      },
-    ];
-    for (final notification in notifications) {
-      final notificationTime = notification['time'] as DateTime;
-      final message = notification['message'] as String;
-      final id = notification['id'] as String;
-      // Only schedule if the notification time is in the future
-      if (notificationTime.isAfter(DateTime.now())) {
-        await NotificationService.scheduleReminder(
-          id: id,
-          title: 'Day Ending Soon',
-          body: message,
-          scheduledTime: notificationTime,
-          payload: 'day_end_notification',
-        );
-      }
-    }
-  }
-
-  /// Process the day-end (called by timer)
-  static Future<void> _processDayEnd() async {
-    // Trigger the background scheduler to process day-end
-    await BackgroundScheduler.triggerDayEndProcessing();
-    // Reset snooze budget for next day
-    _snoozeUsedMinutes = 0;
-    _scheduledProcessTime = null;
-    await _saveState();
   }
 
   /// Snooze the day-end processing

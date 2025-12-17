@@ -13,11 +13,7 @@ class ReminderScheduler {
   /// Schedule reminders for a specific instance based on template reminders
   static Future<void> scheduleReminderForInstance(
       ActivityInstanceRecord instance) async {
-    print(
-        'ReminderScheduler: Scheduling for ${instance.reference.id} (status: ${instance.status}, active: ${instance.isActive})');
     if (!_shouldScheduleReminder(instance)) {
-      print(
-          'ReminderScheduler: Skipped scheduling for ${instance.reference.id} - _shouldScheduleReminder returned false');
       return;
     }
     try {
@@ -160,8 +156,6 @@ class ReminderScheduler {
         final actions = _buildNotificationActions(instance, reminderId);
 
         if (reminder.type == 'alarm') {
-          print(
-              'ReminderScheduler: Scheduling ALARM type reminder for ${instance.reference.id}');
           // Schedule as system alarm
           if (AlarmService.isSupported()) {
             await AlarmService.scheduleAlarm(
@@ -177,8 +171,6 @@ class ReminderScheduler {
               reminderId: reminderId,
             );
           } else {
-            print(
-                'ReminderScheduler: Alarms not supported, falling back to notification');
             // Fallback to notification if alarms not supported
             await NotificationService.scheduleReminder(
               id: reminderId,
@@ -195,8 +187,6 @@ class ReminderScheduler {
             );
           }
         } else {
-          print(
-              'ReminderScheduler: Scheduling NOTIFICATION type reminder for ${instance.reference.id}');
           // Schedule as notification
           await NotificationService.scheduleReminder(
             id: reminderId,
@@ -214,7 +204,7 @@ class ReminderScheduler {
         }
       }
     } catch (e) {
-      print('ReminderScheduler: Error scheduling reminders: $e');
+      // Error scheduling reminders
     }
   }
 
@@ -433,7 +423,7 @@ class ReminderScheduler {
         // If we can't get template, just cancel the main notification
       }
     } catch (e) {
-      print('ReminderScheduler: Error canceling reminders: $e');
+      // Error canceling reminders
     }
   }
 
@@ -460,7 +450,10 @@ class ReminderScheduler {
           await scheduleReminderForInstance(instance);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - reminder scheduling is non-critical
+      print('Error scheduling pending reminders: $e');
+    }
   }
 
   /// Check if a reminder should be scheduled for this instance
@@ -532,7 +525,10 @@ class ReminderScheduler {
         }
       }
       if (rescheduledCount > 0) {}
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - expired snooze check is non-critical
+      print('Error checking expired snoozes: $e');
+    }
   }
 
   /// Snooze a reminder by rescheduling it for a later time
@@ -591,8 +587,7 @@ class ReminderScheduler {
       }
 
       if (instanceId == null || templateId == null) {
-        print(
-            'ReminderScheduler: Could not find instance for reminderId: $reminderId');
+        // Could not find instance for reminderId
         return;
       }
 
@@ -607,8 +602,7 @@ class ReminderScheduler {
           ActivityRecord.collectionForUser(userId).doc(templateId);
       final templateDoc = await templateRef.get();
       if (!templateDoc.exists) {
-        print(
-            'ReminderScheduler: Template not found for reminderId: $reminderId');
+        // Template not found for reminderId
         return;
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
@@ -683,10 +677,8 @@ class ReminderScheduler {
         );
       }
 
-      print(
-          'ReminderScheduler: Snoozed reminder $reminderId for $durationMinutes minutes');
     } catch (e) {
-      print('ReminderScheduler: Error snoozing reminder: $e');
+      // Error snoozing reminder
     }
   }
 

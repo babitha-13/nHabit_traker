@@ -8,6 +8,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
@@ -301,42 +302,48 @@ class _HabitsPageState extends State<HabitsPage> {
             //   onRefresh: _loadHabits,
             //   onHabitUpdated: (updated) => {}, // _updateHabitInLocalState(updated),
             // ),
+            // Search FAB at bottom-left
+            const SearchFAB(),
+            // Existing FABs at bottom-right
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingActionButton(
+                    heroTag: 'fab_add_habit',
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => ActivityEditorDialog(
+                          isHabit: true,
+                          categories: _categories,
+                          onSave: (record) {
+                            if (record != null) {
+                              NotificationCenter.post("loadHabits", "");
+                            }
+                          },
+                        ),
+                      );
+                    },
+                    tooltip: 'Add Habit',
+                    backgroundColor: FlutterFlowTheme.of(context).primary,
+                    child: const Icon(Icons.add, color: Colors.white),
+                  ),
+                  const SizedBox(height: 12),
+                  FloatingActionButton(
+                    heroTag: 'fab_add_category',
+                    onPressed: _showAddCategoryDialog,
+                    tooltip: 'Add Category',
+                    backgroundColor: FlutterFlowTheme.of(context).secondary,
+                    child: const Icon(Icons.create_new_folder, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
           ],
         ),
-      ),
-      floatingActionButton: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        crossAxisAlignment: CrossAxisAlignment.end,
-        children: [
-          FloatingActionButton(
-            heroTag: 'fab_add_habit',
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => ActivityEditorDialog(
-                  isHabit: true,
-                  categories: _categories,
-                  onSave: (record) {
-                    if (record != null) {
-                      NotificationCenter.post("loadHabits", "");
-                    }
-                  },
-                ),
-              );
-            },
-            tooltip: 'Add Habit',
-            backgroundColor: FlutterFlowTheme.of(context).primary,
-            child: const Icon(Icons.add, color: Colors.white),
-          ),
-          const SizedBox(height: 12),
-          FloatingActionButton(
-            heroTag: 'fab_add_category',
-            onPressed: _showAddCategoryDialog,
-            tooltip: 'Add Category',
-            backgroundColor: FlutterFlowTheme.of(context).secondary,
-            child: const Icon(Icons.create_new_folder, color: Colors.white),
-          ),
-        ],
       ),
     );
   }
@@ -527,9 +534,9 @@ class _HabitsPageState extends State<HabitsPage> {
                   value: 'edit',
                   child: Row(
                     children: [
-                      Icon(Icons.edit, size: 16),
-                      SizedBox(width: 5),
-                      Text('Edit category'),
+                      const Icon(Icons.edit, size: 16),
+                      const SizedBox(width: 5),
+                      const Text('Edit category'),
                     ],
                   ),
                 ),
@@ -537,9 +544,9 @@ class _HabitsPageState extends State<HabitsPage> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete, size: 16, color: Colors.red),
-                      SizedBox(width: 5),
-                      Text('Delete category',
+                      const Icon(Icons.delete, size: 16, color: Colors.red),
+                      const SizedBox(width: 5),
+                      const Text('Delete category',
                           style: TextStyle(color: Colors.red)),
                     ],
                   ),
@@ -649,7 +656,10 @@ class _HabitsPageState extends State<HabitsPage> {
           });
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Silently ignore errors in category cache invalidation - non-critical operation
+      print('Error invalidating category cache: $e');
+    }
   }
 
   void _showDeleteCategoryConfirmation(CategoryRecord category) {

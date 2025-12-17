@@ -107,7 +107,7 @@ class CalendarQueueService {
 
       return plannedItems;
     } catch (e) {
-      print('CalendarQueueService: Error getting planned items: $e');
+      // Error getting planned items
       return [];
     }
   }
@@ -137,7 +137,7 @@ class CalendarQueueService {
 
       return completedItems;
     } catch (e) {
-      print('CalendarQueueService: Error getting completed items: $e');
+      // Error getting completed items
       return [];
     }
   }

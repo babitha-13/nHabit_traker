@@ -13,6 +13,7 @@ import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
@@ -27,6 +28,7 @@ import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
     show QueueSortState, QueueSortStateManager, QueueSortType;
 import 'package:habit_tracker/Screens/Queue/queue_filter_dialog.dart';
 import 'package:habit_tracker/Helper/backend/points_service.dart';
+import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -60,6 +62,9 @@ class _QueuePageState extends State<QueuePage> {
   List<Map<String, dynamic>> _cumulativeScoreHistory = [];
   bool _isLoadingCumulativeScore = false; // Guard against recursive loads
   bool _pendingCumulativeScoreReload = false;
+  // Aggregate statistics
+  double _averageDailyScore7Day = 0.0;
+  int _positiveDaysCount7Day = 0;
   // Removed legacy Recent Completions expansion state; now uses standard sections
   // Search functionality
   String _searchQuery = '';
@@ -259,15 +264,6 @@ class _QueuePageState extends State<QueuePage> {
           uniqueInstances[instance.reference.id] = instance;
         }
         final deduplicatedInstances = uniqueInstances.values.toList();
-        // Count instances by type
-        int taskCount = 0;
-        int habitCount = 0;
-        for (final inst in deduplicatedInstances) {
-          if (inst.templateCategoryType == 'task') taskCount++;
-          if (inst.templateCategoryType == 'habit') habitCount++;
-        }
-        print(
-            'QueuePage: Loaded ${deduplicatedInstances.length} instances ($taskCount tasks, $habitCount habits)');
         if (mounted) {
           setState(() {
             _instances = deduplicatedInstances;
@@ -408,6 +404,7 @@ class _QueuePageState extends State<QueuePage> {
         // Get today's progress
         final progressData = TodayProgressState().getProgressData();
         final todayPercentage = progressData['percentage'] ?? 0.0;
+        final todayEarned = progressData['earned'] ?? 0.0;
 
         if (todayPercentage > 0) {
           // Calculate projected score including today's progress
@@ -415,6 +412,7 @@ class _QueuePageState extends State<QueuePage> {
               await CumulativeScoreService.calculateProjectedDailyScore(
             userId,
             todayPercentage,
+            todayEarned,
           );
 
           currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
@@ -444,11 +442,27 @@ class _QueuePageState extends State<QueuePage> {
         }
       }
 
+      // Load aggregate statistics
+      double avgDailyScore7Day = 0.0;
+      int positiveDays7Day = 0;
+      try {
+        final userStats =
+            await CumulativeScoreService.getCumulativeScore(userId);
+        if (userStats != null) {
+          avgDailyScore7Day = userStats.averageDailyScore7Day;
+          positiveDays7Day = userStats.positiveDaysCount7Day;
+        }
+      } catch (e) {
+        // Error loading aggregate stats
+      }
+
       // Update state with calculated values
       if (mounted) {
         setState(() {
           _cumulativeScore = currentCumulativeScore;
           _dailyScoreGain = currentDailyGain;
+          _averageDailyScore7Day = avgDailyScore7Day;
+          _positiveDaysCount7Day = positiveDays7Day;
         });
       }
 
@@ -510,7 +524,7 @@ class _QueuePageState extends State<QueuePage> {
           }
         }
       } catch (e) {
-        print('Error fetching prior cumulative score: $e');
+        // Error fetching prior cumulative score
       }
 
       // Iterate day by day from startDate to endDate
@@ -566,8 +580,7 @@ class _QueuePageState extends State<QueuePage> {
           _cumulativeScoreHistory.any((h) => (h['score'] as double) > 0);
 
       if (!isNewHistoryValid && wasOldHistoryValid) {
-        print(
-            'Warning: New cumulative score history is empty/zero. Ignoring update to preserve data.');
+        // Warning: New cumulative score history is empty/zero. Ignoring update to preserve data.
         _isLoadingCumulativeScore = false;
         return;
       }
@@ -578,7 +591,7 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     } catch (e) {
-      print('Error loading cumulative score: $e');
+      // Error loading cumulative score
     } finally {
       _isLoadingCumulativeScore = false;
       if (_pendingCumulativeScoreReload) {
@@ -823,7 +836,7 @@ class _QueuePageState extends State<QueuePage> {
       0,
       sortedItems.length - 1,
     ).catchError((e) {
-      print('Error saving sorted order: $e');
+      // Error saving sorted order
     });
 
     return sortedItems;
@@ -835,7 +848,7 @@ class _QueuePageState extends State<QueuePage> {
         _instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
     final currentCategoriesHash = _categories.length.hashCode ^
         _categories.fold(0, (sum, cat) => sum ^ cat.reference.id.hashCode);
-    
+
     final cacheInvalid = _cachedBucketedItems == null ||
         currentInstancesHash != _instancesHashCode ||
         currentCategoriesHash != _categoriesHashCode ||
@@ -843,11 +856,11 @@ class _QueuePageState extends State<QueuePage> {
         !_filtersEqual(_currentFilter, _lastFilter) ||
         !_sortsEqual(_currentSort, _lastSort) ||
         !_setsEqual(_expandedSections, _lastExpandedSections);
-    
+
     if (!cacheInvalid && _cachedBucketedItems != null) {
       return _cachedBucketedItems!;
     }
-    
+
     // Recalculate buckets
     final Map<String, List<ActivityInstanceRecord>> buckets = {
       'Overdue': [],
@@ -961,7 +974,7 @@ class _QueuePageState extends State<QueuePage> {
         }
       }
     }
-    
+
     // Update cache
     _cachedBucketedItems = buckets;
     _instancesHashCode = currentInstancesHash;
@@ -970,30 +983,33 @@ class _QueuePageState extends State<QueuePage> {
     _lastFilter = QueueFilterState(
       allTasks: _currentFilter.allTasks,
       allHabits: _currentFilter.allHabits,
-      selectedHabitCategoryNames: Set.from(_currentFilter.selectedHabitCategoryNames),
-      selectedTaskCategoryNames: Set.from(_currentFilter.selectedTaskCategoryNames),
+      selectedHabitCategoryNames:
+          Set.from(_currentFilter.selectedHabitCategoryNames),
+      selectedTaskCategoryNames:
+          Set.from(_currentFilter.selectedTaskCategoryNames),
     );
     _lastSort = QueueSortState(
       sortType: _currentSort.sortType,
     );
     _lastExpandedSections = Set.from(_expandedSections);
-    
+
     return buckets;
   }
-  
+
   bool _filtersEqual(QueueFilterState? a, QueueFilterState? b) {
     if (a == null || b == null) return a == b;
     return a.allTasks == b.allTasks &&
         a.allHabits == b.allHabits &&
-        _setsEqual(a.selectedHabitCategoryNames, b.selectedHabitCategoryNames) &&
+        _setsEqual(
+            a.selectedHabitCategoryNames, b.selectedHabitCategoryNames) &&
         _setsEqual(a.selectedTaskCategoryNames, b.selectedTaskCategoryNames);
   }
-  
+
   bool _sortsEqual(QueueSortState? a, QueueSortState? b) {
     if (a == null || b == null) return a == b;
     return a.sortType == b.sortType;
   }
-  
+
   bool _setsEqual<T>(Set<T> a, Set<T> b) {
     if (a.length != b.length) return false;
     return a.every((item) => b.contains(item));
@@ -1140,15 +1156,15 @@ class _QueuePageState extends State<QueuePage> {
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
                 PopupMenuItem<String>(
                   value: QueueSortType.points,
-                  child: Text('Sort by Points'),
+                  child: const Text('Sort by Points'),
                 ),
                 PopupMenuItem<String>(
                   value: QueueSortType.time,
-                  child: Text('Sort by Time'),
+                  child: const Text('Sort by Time'),
                 ),
                 PopupMenuItem<String>(
                   value: QueueSortType.urgency,
-                  child: Text('Sort by Urgency'),
+                  child: const Text('Sort by Urgency'),
                 ),
               ],
             ),
@@ -1156,17 +1172,22 @@ class _QueuePageState extends State<QueuePage> {
             _buildFilterButton(theme),
           ],
         ),
-        body: Column(
+        body: Stack(
           children: [
-            // Tab content
-            Expanded(
-              child: TabBarView(
-                children: [
-                  _buildDailyTabContent(),
-                  const WeeklyView(),
-                ],
-              ),
+            Column(
+              children: [
+                // Tab content
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _buildDailyTabContent(),
+                      const WeeklyView(),
+                    ],
+                  ),
+                ),
+              ],
             ),
+            const SearchFAB(),
           ],
         ),
       ),
@@ -1179,11 +1200,6 @@ class _QueuePageState extends State<QueuePage> {
         _isLoading
             ? const Center(child: CircularProgressIndicator())
             : _buildDailyView(),
-        // FloatingTimer(
-        //   activeHabits: _activeFloatingHabits,
-        //   onRefresh: _loadData,
-        //   onHabitUpdated: (updated) => {},
-        // ),
       ],
     );
   }
@@ -1279,6 +1295,41 @@ class _QueuePageState extends State<QueuePage> {
                             fontWeight: FontWeight.w600,
                           ),
                     ),
+                  // Aggregate stats (compact display)
+                  if (_averageDailyScore7Day != 0 ||
+                      _positiveDaysCount7Day > 0) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: FlutterFlowTheme.of(context)
+                            .alternate
+                            .withOpacity(0.3),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Column(
+                        children: [
+                          Text(
+                            '7d Avg: ${_averageDailyScore7Day.toStringAsFixed(1)}',
+                            style:
+                                FlutterFlowTheme.of(context).bodySmall.override(
+                                      fontFamily: 'Readex Pro',
+                                      fontSize: 10,
+                                    ),
+                          ),
+                          Text(
+                            'Positive: $_positiveDaysCount7Day/7',
+                            style:
+                                FlutterFlowTheme.of(context).bodySmall.override(
+                                      fontFamily: 'Readex Pro',
+                                      fontSize: 10,
+                                    ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ],
               ),
             ],
@@ -1288,10 +1339,12 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  // List<ActivityRecord> get _activeFloatingHabits {
-  //   // TODO: Re-implement with instances
-  //   return [];
-  // }
+  /// Get active floating timer instances
+  /// Uses TimerManager to get globally tracked active timers
+  List<ActivityInstanceRecord> get _activeFloatingInstances {
+    return TimerManager().activeTimers;
+  }
+
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
     final order = ['Overdue', 'Pending', 'Completed', 'Skipped/Snoozed'];
@@ -1640,7 +1693,6 @@ class _QueuePageState extends State<QueuePage> {
       } else {}
     });
     // Recalculate progress for instant updates
-    print('QueuePage: Triggering _calculateProgress() after instance update');
     _calculateProgress();
   }
 
@@ -1729,7 +1781,10 @@ class _QueuePageState extends State<QueuePage> {
         });
         _calculateProgress();
       }
-    } catch (e) {}
+    } catch (e) {
+      // Silently ignore errors in silent refresh - non-critical background operation
+      print('Error in silent refresh instances: $e');
+    }
   }
 
   /// Handle reordering of items within a section
@@ -1867,42 +1922,77 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
           totalWidth = constraints.maxWidth;
         }
 
+        // Calculate min/max scores for scale
+        final minScore = widget.history.isEmpty
+            ? 0.0
+            : widget.history
+                .map((d) => d['score'] as double)
+                .reduce((a, b) => a < b ? a : b);
+        final maxScore = widget.history.isEmpty
+            ? 100.0
+            : widget.history
+                .map((d) => d['score'] as double)
+                .reduce((a, b) => a > b ? a : b);
+        final adjustedMaxScore =
+            maxScore == minScore ? minScore + 10.0 : maxScore;
+        final adjustedRange = adjustedMaxScore - minScore;
+
+        // Generate scale labels (3-5 labels)
+        final numLabels = 5;
+        final scaleLabels = <double>[];
+        for (int i = 0; i < numLabels; i++) {
+          final value = minScore + (adjustedRange * i / (numLabels - 1));
+          scaleLabels.add(value);
+        }
+
         return Container(
           decoration: BoxDecoration(
             color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
             borderRadius: BorderRadius.circular(8),
           ),
-          child: SingleChildScrollView(
-            controller: _scrollController,
-            scrollDirection: Axis.horizontal,
-            child: SizedBox(
-              width: totalWidth,
-              height: constraints.maxHeight > 0 ? constraints.maxHeight : 100,
-              child: CustomPaint(
-                painter: CumulativeScoreLinePainter(
-                  data: widget.history,
-                  minScore: widget.history.isEmpty
-                      ? 0
-                      : widget.history
-                          .map((d) => d['score'] as double)
-                          .reduce((a, b) => a < b ? a : b),
-                  maxScore: widget.history.isEmpty
-                      ? 100
-                      : widget.history
-                          .map((d) => d['score'] as double)
-                          .reduce((a, b) => a > b ? a : b),
-                  scoreRange: widget.history.isEmpty
-                      ? 100
-                      : widget.history
-                              .map((d) => d['score'] as double)
-                              .reduce((a, b) => a > b ? a : b) -
-                          widget.history
-                              .map((d) => d['score'] as double)
-                              .reduce((a, b) => a < b ? a : b),
-                  color: widget.color,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // Y-axis scale labels
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+                child: Column(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  crossAxisAlignment: CrossAxisAlignment.end,
+                  children: scaleLabels.reversed.map((value) {
+                    return Text(
+                      value.toStringAsFixed(0),
+                      style: FlutterFlowTheme.of(context).bodySmall.override(
+                            fontFamily: 'Readex Pro',
+                            fontSize: 9,
+                            color: FlutterFlowTheme.of(context).secondaryText,
+                          ),
+                    );
+                  }).toList(),
                 ),
               ),
-            ),
+              // Chart with horizontal scroll
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _scrollController,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: totalWidth,
+                    height:
+                        constraints.maxHeight > 0 ? constraints.maxHeight : 100,
+                    child: CustomPaint(
+                      painter: CumulativeScoreLinePainter(
+                        data: widget.history,
+                        minScore: minScore,
+                        maxScore: adjustedMaxScore,
+                        scoreRange: adjustedRange,
+                        color: widget.color,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         );
       },

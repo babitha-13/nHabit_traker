@@ -37,17 +37,18 @@ class ItemExpandedDetails extends StatelessWidget {
         subtitle == categoryName;
   }
 
-  bool get _isNonProductive => instance.templateCategoryType == 'non_productive';
+  bool get _isNonProductive =>
+      instance.templateCategoryType == 'non_productive';
 
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-    
+
     return InkWell(
       onTap: onEdit,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 2, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
         child: Row(
           children: [
             // Show habit/task icon in expanded view
@@ -60,15 +61,15 @@ class ItemExpandedDetails extends StatelessWidget {
               const SizedBox(width: 4),
             ],
             // Show category name (for queue page)
-            if ((page == 'queue' ||
-                    _isQueuePageSubtitle(subtitle ?? '')) &&
+            if ((page == 'queue' || _isQueuePageSubtitle(subtitle ?? '')) &&
                 instance.templateCategoryName.isNotEmpty) ...[
               Text(
                 instance.templateCategoryName,
                 style: theme.bodySmall.override(
                   fontFamily: 'Readex Pro',
-                  color: theme.secondaryText.withOpacity(0.7),
-                  fontSize: 11,
+                  color: theme.primaryText.withOpacity(0.7),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(width: 4),
@@ -80,8 +81,9 @@ class ItemExpandedDetails extends StatelessWidget {
                   '•',
                   style: theme.bodySmall.override(
                     fontFamily: 'Readex Pro',
-                    color: theme.secondaryText.withOpacity(0.7),
-                    fontSize: 11,
+                    color: theme.primaryText.withOpacity(0.7),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
                 const SizedBox(width: 4),
@@ -94,8 +96,9 @@ class ItemExpandedDetails extends StatelessWidget {
                   frequencyDisplay,
                   style: theme.bodySmall.override(
                     fontFamily: 'Readex Pro',
-                    color: theme.secondaryText.withOpacity(0.7),
-                    fontSize: 11,
+                    color: theme.primaryText.withOpacity(0.7),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ] else if (isRecurring) ...[
@@ -111,8 +114,9 @@ class ItemExpandedDetails extends StatelessWidget {
                   'one time',
                   style: theme.bodySmall.override(
                     fontFamily: 'Readex Pro',
-                    color: theme.secondaryText.withOpacity(0.7),
-                    fontSize: 11,
+                    color: theme.primaryText.withOpacity(0.7),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -124,8 +128,9 @@ class ItemExpandedDetails extends StatelessWidget {
                 '•',
                 style: theme.bodySmall.override(
                   fontFamily: 'Readex Pro',
-                  color: theme.secondaryText.withOpacity(0.7),
-                  fontSize: 11,
+                  color: theme.primaryText.withOpacity(0.7),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
                 ),
               ),
               const SizedBox(width: 4),
@@ -134,14 +139,16 @@ class ItemExpandedDetails extends StatelessWidget {
                 size: 12,
                 color: theme.secondaryText.withOpacity(0.7),
               ),
-              if (reminderDisplayText != null && reminderDisplayText!.isNotEmpty) ...[
+              if (reminderDisplayText != null &&
+                  reminderDisplayText!.isNotEmpty) ...[
                 const SizedBox(width: 4),
                 Text(
                   reminderDisplayText!,
                   style: theme.bodySmall.override(
                     fontFamily: 'Readex Pro',
-                    color: theme.secondaryText.withOpacity(0.7),
-                    fontSize: 11,
+                    color: theme.primaryText.withOpacity(0.7),
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
               ],
@@ -152,4 +159,3 @@ class ItemExpandedDetails extends StatelessWidget {
     );
   }
 }
-

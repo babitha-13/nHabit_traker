@@ -143,7 +143,6 @@ class HabitStatisticsService {
           }
         }
       } catch (e) {
-        print('Error fetching today\'s data from instances: $e');
         // Continue without today's data - not critical
       }
     }
@@ -178,7 +177,6 @@ class HabitStatisticsService {
         totalSessions = _calculateTotalSessions(completedInstances);
         totalQuantityCompleted = _calculateTotalQuantityCompleted(completedInstances);
       } catch (e) {
-        print('Error fetching additional instance details: $e');
         // Continue without these details - not critical
       }
     }
@@ -572,16 +570,6 @@ class HabitStatisticsService {
     }
     return Duration(milliseconds: totalMilliseconds);
   }
-  
-  /// Calculate average session duration
-  static Duration _calculateAverageSessionDuration(List<ActivityInstanceRecord> instances) {
-    final totalSessions = _calculateTotalSessions(instances);
-    if (totalSessions == 0) return Duration.zero;
-    
-    final totalTime = _calculateTotalTimeSpent(instances);
-    return Duration(milliseconds: totalTime.inMilliseconds ~/ totalSessions);
-  }
-  
   /// Calculate total number of sessions
   static int _calculateTotalSessions(List<ActivityInstanceRecord> instances) {
     int totalSessions = 0;
@@ -611,26 +599,6 @@ class HabitStatisticsService {
     }
     return total;
   }
-  
-  /// Calculate completions by day of week (1=Monday, 7=Sunday)
-  static Map<int, int> _calculateCompletionsByDayOfWeek(List<ActivityInstanceRecord> instances) {
-    final map = <int, int>{};
-    for (int i = 1; i <= 7; i++) {
-      map[i] = 0;
-    }
-    
-    for (final instance in instances) {
-      DateTime? date = instance.completedAt ?? instance.dueDate;
-      if (date != null) {
-        // Dart's weekday: 1=Monday, 7=Sunday
-        final dayOfWeek = date.weekday;
-        map[dayOfWeek] = (map[dayOfWeek] ?? 0) + 1;
-      }
-    }
-    
-    return map;
-  }
-  
   /// Calculate completions by hour (0-23)
   static Map<int, int> _calculateCompletionsByHour(List<ActivityInstanceRecord> instances) {
     final map = <int, int>{};
@@ -663,114 +631,7 @@ class HabitStatisticsService {
     }
     
     return bestDay;
-  }
-  
-  /// Calculate weekly breakdown
-  static List<Map<String, dynamic>> _calculateWeeklyBreakdown(
-    List<ActivityInstanceRecord> instances,
-    DateTime? startDate,
-    DateTime? endDate,
-  ) {
-    final breakdown = <Map<String, dynamic>>[];
-    
-    if (instances.isEmpty) return breakdown;
-    
-    // Group instances by week
-    final instancesByWeek = <DateTime, List<ActivityInstanceRecord>>{};
-    
-    for (final instance in instances) {
-      if (instance.dueDate == null) continue;
-      
-      // Get start of week (Monday)
-      final date = instance.dueDate!;
-      final daysFromMonday = (date.weekday - 1) % 7;
-      final weekStart = DateTime(date.year, date.month, date.day).subtract(Duration(days: daysFromMonday));
-      
-      (instancesByWeek[weekStart] ??= []).add(instance);
-    }
-    
-    // Calculate stats for each week
-    for (final entry in instancesByWeek.entries) {
-      final weekStart = entry.key;
-      final weekInstances = entry.value;
-      
-      final completed = weekInstances.where((i) => i.status == 'completed').length;
-      final total = weekInstances.length;
-      final completionRate = total > 0 ? (completed / total) * 100.0 : 0.0;
-      
-      breakdown.add({
-        'weekStart': weekStart,
-        'completed': completed,
-        'total': total,
-        'completionRate': completionRate,
-      });
-    }
-    
-    // Sort by week start date
-    breakdown.sort((a, b) {
-      final aDate = a['weekStart'] as DateTime;
-      final bDate = b['weekStart'] as DateTime;
-      return aDate.compareTo(bDate);
-    });
-    
-    return breakdown;
-  }
-  
-  /// Calculate monthly breakdown
-  static List<Map<String, dynamic>> _calculateMonthlyBreakdown(
-    List<ActivityInstanceRecord> instances,
-    DateTime? startDate,
-    DateTime? endDate,
-  ) {
-    final breakdown = <DateTime, Map<String, dynamic>>{};
-    
-    // Group instances by month
-    for (final instance in instances) {
-      if (instance.dueDate == null) continue;
-      
-      final date = instance.dueDate!;
-      final monthKey = DateTime(date.year, date.month, 1);
-      
-      if (!breakdown.containsKey(monthKey)) {
-        breakdown[monthKey] = {
-          'monthStart': monthKey,
-          'completed': 0,
-          'total': 0,
-        };
-      }
-      
-      final monthData = breakdown[monthKey]!;
-      monthData['total'] = (monthData['total'] as int) + 1;
-      
-      if (instance.status == 'completed') {
-        monthData['completed'] = (monthData['completed'] as int) + 1;
-      }
-    }
-    
-    // Convert to list and calculate completion rates
-    final result = breakdown.values.map((monthData) {
-      final completed = monthData['completed'] as int;
-      final total = monthData['total'] as int;
-      final completionRate = total > 0 ? (completed / total) * 100.0 : 0.0;
-      
-      return {
-        'monthStart': monthData['monthStart'],
-        'completed': completed,
-        'total': total,
-        'completionRate': completionRate,
-      };
-    }).toList();
-    
-    // Sort by month start date
-    result.sort((a, b) {
-      final aDate = a['monthStart'] as DateTime;
-      final bDate = b['monthStart'] as DateTime;
-      return aDate.compareTo(bDate);
-    });
-    
-    return result;
-  }
-  
+  }  
   /// Calculate best week (highest completion rate)
   static DateTime? _calculateBestWeek(List<Map<String, dynamic>> weeklyBreakdown) {
     if (weeklyBreakdown.isEmpty) return null;

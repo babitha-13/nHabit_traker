@@ -5,9 +5,12 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence_detail_page.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
+import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
 
 class Sequences extends StatefulWidget {
   const Sequences({super.key});
@@ -20,10 +23,42 @@ class _SequencesState extends State<Sequences> {
   List<SequenceRecord> _sequences = [];
   List<ActivityRecord> _habits = [];
   bool _isLoading = true;
+  // Search functionality
+  String _searchQuery = '';
+  final SearchStateManager _searchManager = SearchStateManager();
+  
   @override
   void initState() {
     super.initState();
     _loadData();
+    // Listen for search changes
+    _searchManager.addListener(_onSearchChanged);
+  }
+  
+  @override
+  void dispose() {
+    _searchManager.removeListener(_onSearchChanged);
+    super.dispose();
+  }
+  
+  void _onSearchChanged(String query) {
+    if (mounted) {
+      setState(() {
+        _searchQuery = query;
+      });
+    }
+  }
+  
+  List<SequenceRecord> get _filteredSequences {
+    if (_searchQuery.isEmpty) {
+      return _sequences;
+    }
+    final query = _searchQuery.toLowerCase();
+    return _sequences.where((sequence) {
+      final nameMatch = sequence.name.toLowerCase().contains(query);
+      final descriptionMatch = sequence.description.toLowerCase().contains(query);
+      return nameMatch || descriptionMatch;
+    }).toList();
   }
 
   Future<void> _loadData() async {
@@ -135,6 +170,21 @@ class _SequencesState extends State<Sequences> {
     );
   }
 
+  Future<void> _showCreateNonProductiveDialog() async {
+    final result = await showDialog<ActivityRecord>(
+      context: context,
+      builder: (context) => NonProductiveTemplateDialog(
+        onTemplateCreated: (template) {
+          Navigator.of(context).pop(template);
+        },
+      ),
+    );
+    // Optionally reload data if needed
+    if (result != null) {
+      await _loadData();
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -167,47 +217,73 @@ class _SequencesState extends State<Sequences> {
       ),
       body: SafeArea(
         top: true,
-        child: _isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : Column(
-                children: [
-                  // Sequences list
-                  Expanded(
-                    child: _sequences.isEmpty
-                        ? Center(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              children: [
-                                Icon(
-                                  Icons.playlist_play,
-                                  size: 64,
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryText,
+        child: Stack(
+          children: [
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : Column(
+                    children: [
+                      // Create New Sequence button at the top
+                      if (_filteredSequences.isNotEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(16.0),
+                      child: SizedBox(
+                        width: double.infinity,
+                        child: ElevatedButton.icon(
+                          onPressed: _navigateToCreateSequence,
+                          icon: const Icon(Icons.add),
+                          label: const Text('Create New Sequence'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: FlutterFlowTheme.of(context).primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                          ),
+                        ),
+                      ),
+                    ),
+                      // Sequences list
+                      Expanded(
+                        child: _filteredSequences.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.playlist_play,
+                                      size: 64,
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      _searchQuery.isNotEmpty
+                                          ? 'No sequences found'
+                                          : 'No sequences yet',
+                                      style:
+                                          FlutterFlowTheme.of(context).titleMedium,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      _searchQuery.isNotEmpty
+                                          ? 'Try a different search term'
+                                          : 'Create sequences to group related habits and tasks!',
+                                      style:
+                                          FlutterFlowTheme.of(context).bodyMedium,
+                                    ),
+                                    if (_searchQuery.isEmpty) ...[
+                                      const SizedBox(height: 16),
+                                      ElevatedButton(
+                                        onPressed: _navigateToCreateSequence,
+                                        child: const Text('Create Sequence'),
+                                      ),
+                                    ],
+                                  ],
                                 ),
-                                const SizedBox(height: 16),
-                                Text(
-                                  'No sequences yet',
-                                  style:
-                                      FlutterFlowTheme.of(context).titleMedium,
-                                ),
-                                const SizedBox(height: 8),
-                                Text(
-                                  'Create sequences to group related habits and tasks!',
-                                  style:
-                                      FlutterFlowTheme.of(context).bodyMedium,
-                                ),
-                                const SizedBox(height: 16),
-                                ElevatedButton(
-                                  onPressed: _navigateToCreateSequence,
-                                  child: const Text('Create Sequence'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : ListView.builder(
-                            itemCount: _sequences.length,
-                            itemBuilder: (context, index) {
-                              final sequence = _sequences[index];
+                              )
+                            : ListView.builder(
+                                itemCount: _filteredSequences.length,
+                                itemBuilder: (context, index) {
+                                  final sequence = _filteredSequences[index];
                               final itemNames = sequence.itemNames.isNotEmpty
                                   ? sequence.itemNames
                                   : _getItemNames(sequence.itemIds);
@@ -320,18 +396,43 @@ class _SequencesState extends State<Sequences> {
                                   ),
                                 ),
                               );
-                            },
+                                },
+                              ),
+                      ),
+                      // Non-Productive Tasks Button at the bottom
+                      // Add horizontal padding to avoid overlapping with FABs
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(80, 16, 80, 16),
+                        child: ElevatedButton.icon(
+                          onPressed: _navigateToNonProductiveTemplates,
+                          icon: const Icon(Icons.access_time),
+                          label: const Text('Non Productive Tasks'),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: FlutterFlowTheme.of(context).primary,
+                            foregroundColor: Colors.white,
+                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
                           ),
+                        ),
+                      ),
+                    ],
                   ),
-                ],
+            // Search FAB at bottom-left
+            const SearchFAB(heroTag: 'search_fab_sequences'),
+            // Existing FAB at bottom-right
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: FloatingActionButton(
+                heroTag: 'fab_add_non_productive_sequence',
+                onPressed: _showCreateNonProductiveDialog,
+                backgroundColor: FlutterFlowTheme.of(context).primary,
+                child: const Icon(
+                  Icons.add,
+                  color: Colors.white,
+                ),
               ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _navigateToCreateSequence,
-        backgroundColor: FlutterFlowTheme.of(context).primary,
-        child: const Icon(
-          Icons.add,
-          color: Colors.white,
+            ),
+          ],
         ),
       ),
     );

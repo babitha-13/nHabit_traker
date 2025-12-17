@@ -7,11 +7,142 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:from_css_color/from_css_color.dart';
 import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
+import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
+import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:intl/intl.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+
+/// Metadata stored with calendar events for editing
+class CalendarEventMetadata {
+  final String instanceId;
+  final int sessionIndex; // Index in timeLogSessions array
+  final String activityName;
+  final String activityType; // 'task', 'habit', 'non_productive'
+  final String? templateId;
+
+  CalendarEventMetadata({
+    required this.instanceId,
+    required this.sessionIndex,
+    required this.activityName,
+    required this.activityType,
+    this.templateId,
+  });
+
+  Map<String, dynamic> toMap() {
+    return {
+      'instanceId': instanceId,
+      'sessionIndex': sessionIndex,
+      'activityName': activityName,
+      'activityType': activityType,
+      'templateId': templateId,
+    };
+  }
+
+  static CalendarEventMetadata? fromMap(dynamic data) {
+    if (data is Map<String, dynamic>) {
+      return CalendarEventMetadata(
+        instanceId: data['instanceId'] as String,
+        sessionIndex: data['sessionIndex'] as int,
+        activityName: data['activityName'] as String,
+        activityType: data['activityType'] as String,
+        templateId: data['templateId'] as String?,
+      );
+    }
+    return null;
+  }
+}
+
+/// Custom painter for diagonal stripe pattern
+class _DiagonalStripePainter extends CustomPainter {
+  final Color stripeColor;
+  final double stripeWidth;
+  final double spacing;
+
+  _DiagonalStripePainter({
+    this.stripeColor = const Color(0xFFBDBDBD),
+    this.stripeWidth = 2.0,
+    this.spacing = 8.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = stripeColor
+      ..strokeWidth = stripeWidth
+      ..style = PaintingStyle.stroke;
+
+    // Draw diagonal lines at 45 degrees (from top-left to bottom-right)
+    // Calculate perpendicular spacing for even stripe distribution
+    final lineSpacing = spacing + stripeWidth;
+    final perpendicularSpacing = lineSpacing / math.sqrt(2);
+
+    // Calculate offset range needed to cover entire canvas
+    // For line y = x + offset:
+    // - To cover from left edge: offset ranges from 0 to height
+    // - To cover from top edge: offset ranges from -width to 0
+    final minOffset = -size.width;
+    final maxOffset = size.height;
+
+    // Generate lines at regular intervals within the offset range
+    final numLines =
+        ((maxOffset - minOffset) / perpendicularSpacing).ceil() + 2;
+
+    // Draw lines with equation: y = x + offset
+    for (int i = -1; i < numLines; i++) {
+      final offset = minOffset + (i * perpendicularSpacing);
+
+      // Find all possible intersection points with canvas boundaries
+      // For line y = x + offset:
+      // - Top edge (y=0): x = -offset, point = (-offset, 0)
+      // - Bottom edge (y=height): x = height - offset, point = (height - offset, height)
+      // - Left edge (x=0): y = offset, point = (0, offset)
+      // - Right edge (x=width): y = width + offset, point = (width, width + offset)
+
+      final intersections = <Offset>[];
+
+      // Check top edge intersection
+      final topX = -offset;
+      if (topX >= 0 && topX <= size.width) {
+        intersections.add(Offset(topX, 0));
+      }
+
+      // Check bottom edge intersection
+      final bottomX = size.height - offset;
+      if (bottomX >= 0 && bottomX <= size.width) {
+        intersections.add(Offset(bottomX, size.height));
+      }
+
+      // Check left edge intersection
+      final leftY = offset;
+      if (leftY >= 0 && leftY <= size.height) {
+        intersections.add(Offset(0, leftY));
+      }
+
+      // Check right edge intersection
+      final rightY = size.width + offset;
+      if (rightY >= 0 && rightY <= size.height) {
+        intersections.add(Offset(size.width, rightY));
+      }
+
+      // Draw line between the two valid intersection points
+      if (intersections.length >= 2) {
+        // Sort by x coordinate to get start and end points
+        intersections.sort((a, b) => a.dx.compareTo(b.dx));
+        canvas.drawLine(intersections.first, intersections.last, paint);
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DiagonalStripePainter oldDelegate) {
+    return oldDelegate.stripeColor != stripeColor ||
+        oldDelegate.stripeWidth != stripeWidth ||
+        oldDelegate.spacing != spacing;
+  }
+}
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -52,11 +183,38 @@ class _CalendarPageState extends State<CalendarPage> {
   // Track the last tap position for precise time calculation
   Offset? _lastTapDownPosition;
 
+  // Track zoom gesture start for proportional zooming
+  double? _initialZoomOnGestureStart;
+  double? _initialScaleOnGestureStart;
+
   @override
   void initState() {
     super.initState();
     _calculateInitialScrollOffset();
-    _loadEvents();
+    _initializeTabState();
+  }
+
+  /// Initialize tab state by loading saved preference
+  Future<void> _initializeTabState() async {
+    final savedShowPlanned = await _loadTabState();
+    if (mounted) {
+      setState(() {
+        _showPlanned = savedShowPlanned;
+      });
+      _loadEvents();
+    }
+  }
+
+  /// Load saved tab state from SharedPreferences
+  Future<bool> _loadTabState() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool('calendar_show_planned') ?? true; // Default to Planned
+  }
+
+  /// Save tab state to SharedPreferences
+  Future<void> _saveTabState(bool showPlanned) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('calendar_show_planned', showPlanned);
   }
 
   void _calculateInitialScrollOffset() {
@@ -91,6 +249,184 @@ class _CalendarPageState extends State<CalendarPage> {
     ).whenComplete(() {
       _removePreviewEvent();
     });
+  }
+
+  /// Calculate time breakdown by category from events
+  /// NOTE: This processes ALL time-logged events, not just completed ones
+  /// The name "_sortedCompletedEvents" is misleading - it contains all events with time logs
+  List<PieChartSegment> _calculateTimeBreakdown() {
+    // Map to store total time per category (in minutes)
+    final categoryTimeMap = <String, double>{
+      'habit': 0.0,
+      'task': 0.0,
+      'non_productive': 0.0,
+    };
+
+    // Map to store activity names per category (for grouping)
+    final categoryActivitiesMap = <String, Set<String>>{
+      'habit': <String>{},
+      'task': <String>{},
+      'non_productive': <String>{},
+    };
+
+    // Process all events with time logs
+    for (final event in _sortedCompletedEvents) {
+      if (event.startTime == null || event.endTime == null) continue;
+
+      // Extract metadata
+      final metadata = CalendarEventMetadata.fromMap(event.event);
+      if (metadata == null) continue;
+
+      // Calculate duration in minutes
+      final duration = event.endTime!.difference(event.startTime!);
+      final minutes = duration.inMinutes.toDouble();
+
+      // Add to category total
+      final category = metadata.activityType;
+      if (categoryTimeMap.containsKey(category)) {
+        categoryTimeMap[category] = categoryTimeMap[category]! + minutes;
+        categoryActivitiesMap[category]!.add(metadata.activityName);
+      }
+    }
+
+    // Create segments
+    final segments = <PieChartSegment>[];
+
+    // Habits segment
+    if (categoryTimeMap['habit']! > 0) {
+      segments.add(PieChartSegment(
+        label: 'Habits',
+        value: categoryTimeMap['habit']!,
+        color: Colors.orange,
+        category: 'habit',
+      ));
+    }
+
+    // Tasks segment
+    if (categoryTimeMap['task']! > 0) {
+      segments.add(PieChartSegment(
+        label: 'Tasks',
+        value: categoryTimeMap['task']!,
+        color: const Color(0xFF1A1A1A),
+        category: 'task',
+      ));
+    }
+
+    // Non-productive segment
+    if (categoryTimeMap['non_productive']! > 0) {
+      segments.add(PieChartSegment(
+        label: 'Non-Productive',
+        value: categoryTimeMap['non_productive']!,
+        color: Colors.grey,
+        category: 'non_productive',
+      ));
+    }
+
+    // Calculate unlogged time (24 hours = 1440 minutes)
+    final totalLogged =
+        categoryTimeMap.values.fold<double>(0, (sum, val) => sum + val);
+    final unloggedMinutes = (24 * 60) - totalLogged;
+
+    if (unloggedMinutes > 0) {
+      segments.add(PieChartSegment(
+        label: 'Unlogged',
+        value: unloggedMinutes,
+        color: Colors.grey.shade300,
+        category: 'unlogged',
+      ));
+    }
+
+    return segments;
+  }
+
+  /// Show pie chart bottom sheet
+  void _showTimeBreakdownChart() {
+    final segments = _calculateTimeBreakdown();
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return Container(
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+          ),
+          child: DraggableScrollableSheet(
+            initialChildSize: 0.7,
+            minChildSize: 0.5,
+            maxChildSize: 0.95,
+            builder: (context, scrollController) {
+              return SingleChildScrollView(
+                controller: scrollController,
+                child: TimeBreakdownChartWidget(
+                  segments: segments,
+                  selectedDate: _selectedDate,
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
+  void _showEditEntryDialog({required CalendarEventMetadata metadata}) async {
+    // Fetch the instance to get the session data
+    try {
+      final instance = await ActivityInstanceRecord.getDocumentOnce(
+        ActivityInstanceRecord.collectionForUser(currentUserUid)
+            .doc(metadata.instanceId),
+      );
+
+      if (instance.timeLogSessions.isEmpty ||
+          metadata.sessionIndex >= instance.timeLogSessions.length) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session not found')),
+        );
+        return;
+      }
+
+      final session = instance.timeLogSessions[metadata.sessionIndex];
+      final sessionStart = session['startTime'] as DateTime;
+      final sessionEnd = session['endTime'] as DateTime?;
+
+      if (sessionEnd == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Session is not completed')),
+        );
+        return;
+      }
+
+      showModalBottomSheet(
+        context: context,
+        isScrollControlled: true,
+        backgroundColor: Colors.transparent,
+        builder: (BuildContext context) {
+          return ManualTimeLogModal(
+            selectedDate: _selectedDate,
+            initialStartTime: sessionStart,
+            initialEndTime: sessionEnd,
+            onPreviewChange: _handlePreviewChange,
+            onSave: () {
+              // Reload events to reflect the updated entry
+              _loadEvents();
+            },
+            // Pass edit metadata
+            editMetadata: metadata,
+          );
+        },
+      ).whenComplete(() {
+        _removePreviewEvent();
+      });
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error loading session: $e')),
+        );
+      }
+    }
   }
 
   void _handlePreviewChange(
@@ -217,8 +553,7 @@ class _CalendarPageState extends State<CalendarPage> {
             );
           }
         } catch (e) {
-          debugPrint(
-              "Auto-scroll not supported on this version of DayView: $e");
+          // Auto-scroll not supported on this version of DayView
           // Fallback: If animateTo fails, try accessing scrollController property
           try {
             if (state.scrollController != null) {
@@ -229,7 +564,7 @@ class _CalendarPageState extends State<CalendarPage> {
               );
             }
           } catch (e2) {
-            debugPrint("Auto-scroll completely failed: $e2");
+            // Auto-scroll completely failed
           }
         }
       }
@@ -261,7 +596,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Get categories for color lookup
     final userId = currentUserUid;
-    
+
     // Get date range for filtering (start and end of selected date)
     final selectedDateStart = DateTime(
       _selectedDate.year,
@@ -296,7 +631,7 @@ class _CalendarPageState extends State<CalendarPage> {
         date: _selectedDate,
       ),
     ]);
-    
+
     final habitCategories = results[0] as List<CategoryRecord>;
     final taskCategories = results[1] as List<CategoryRecord>;
     final allCategories = [...habitCategories, ...taskCategories];
@@ -304,12 +639,6 @@ class _CalendarPageState extends State<CalendarPage> {
     final timeLoggedTasks = results[3] as List<ActivityInstanceRecord>;
     final nonProductiveInstances = results[4] as List<ActivityInstanceRecord>;
     final queueItems = results[5] as Map<String, dynamic>;
-    
-    debugPrint(
-        'Calendar: Found ${completedItems.length} completed items for ${_selectedDate}');
-    debugPrint('Calendar: Found ${timeLoggedTasks.length} time logged tasks');
-    debugPrint(
-        'Calendar: Found ${nonProductiveInstances.length} non-productive instances');
 
     // Combine all items into a map to handle duplicates (keyed by instance ID)
     final allItemsMap = <String, ActivityInstanceRecord>{};
@@ -331,9 +660,6 @@ class _CalendarPageState extends State<CalendarPage> {
     // Show ALL time logged on the selected date, regardless of completion status
     // This allows users to see partial progress (e.g., 10 min of 1 hour goal)
     for (final item in allItemsMap.values) {
-      debugPrint(
-          'Calendar: Processing item ${item.templateName} - status: ${item.status}, dueDate: ${item.dueDate}, completedAt: ${item.completedAt}, sessions: ${item.timeLogSessions.length}');
-
       Color categoryColor;
       if (item.templateCategoryType == 'habit') {
         CategoryRecord? category;
@@ -352,7 +678,9 @@ class _CalendarPageState extends State<CalendarPage> {
         }
         categoryColor =
             category != null ? _parseColor(category.color) : Colors.blue;
-      } else if (item.templateCategoryType == 'non_productive') {
+      } else if (item.templateCategoryType == 'non_productive' ||
+          item.templateCategoryType == 'sequence_item') {
+        // Handle both 'non_productive' and legacy 'sequence_item'
         categoryColor = Colors.grey;
       } else {
         // Tasks default to Dark Charcoal/Black
@@ -386,10 +714,23 @@ class _CalendarPageState extends State<CalendarPage> {
         // If we have sessions for this date, show them
         if (sessionsOnDate.isNotEmpty) {
           // Create a calendar event for each session
-          for (final session in sessionsOnDate) {
+          // We need to find the original session index in the full timeLogSessions array
+          for (int i = 0; i < sessionsOnDate.length; i++) {
+            final session = sessionsOnDate[i];
             final sessionStart = session['startTime'] as DateTime;
             final sessionEnd = session['endTime'] as DateTime?;
             if (sessionEnd == null) continue;
+
+            // Find the original index in the full timeLogSessions array
+            int originalSessionIndex = -1;
+            for (int j = 0; j < item.timeLogSessions.length; j++) {
+              final fullSession = item.timeLogSessions[j];
+              final fullSessionStart = fullSession['startTime'] as DateTime;
+              if (fullSessionStart.isAtSameMomentAs(sessionStart)) {
+                originalSessionIndex = j;
+                break;
+              }
+            }
 
             var actualSessionEnd = sessionEnd;
             if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
@@ -449,6 +790,21 @@ class _CalendarPageState extends State<CalendarPage> {
             if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
               // Use checkmark for completed items, no checkmark for incomplete
               final prefix = item.status == 'completed' ? '✓ ' : '';
+
+              // Create metadata for editing
+              // Migrate legacy 'sequence_item' to 'non_productive' for consistency
+              final categoryType = item.templateCategoryType == 'sequence_item'
+                  ? 'non_productive'
+                  : item.templateCategoryType;
+              final metadata = CalendarEventMetadata(
+                instanceId: item.reference.id,
+                sessionIndex:
+                    originalSessionIndex >= 0 ? originalSessionIndex : i,
+                activityName: item.templateName,
+                activityType: categoryType,
+                templateId: item.templateId,
+              );
+
               completedEvents.add(CalendarEventData(
                 date: _selectedDate,
                 startTime: validStartTime,
@@ -458,6 +814,7 @@ class _CalendarPageState extends State<CalendarPage> {
                     categoryColor, // Removed _muteColor for better visibility
                 description:
                     'Session: ${_formatDuration(validEndTime.difference(validStartTime))}',
+                event: metadata.toMap(), // Store metadata for editing
               ));
             }
           }
@@ -508,6 +865,7 @@ class _CalendarPageState extends State<CalendarPage> {
         title: event.title,
         color: event.color,
         description: event.description,
+        event: event.event, // Preserve metadata during cascading
       ));
     }
 
@@ -521,7 +879,12 @@ class _CalendarPageState extends State<CalendarPage> {
     final plannedItems = queueItems['planned'] ?? [];
 
     // Process planned items
-    for (final item in plannedItems) {
+    // Filter to only include items with a dueTime (only items with due times should appear in planned section)
+    final plannedItemsWithTime = plannedItems
+        .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
+        .toList();
+
+    for (final item in plannedItemsWithTime) {
       Color categoryColor;
       if (item.templateCategoryType == 'habit') {
         CategoryRecord? category;
@@ -540,29 +903,17 @@ class _CalendarPageState extends State<CalendarPage> {
         }
         categoryColor =
             category != null ? _parseColor(category.color) : Colors.blue;
-      } else if (item.templateCategoryType == 'non_productive') {
+      } else if (item.templateCategoryType == 'non_productive' ||
+          item.templateCategoryType == 'sequence_item') {
+        // Handle both 'non_productive' and legacy 'sequence_item'
         categoryColor = Colors.grey;
       } else {
         // Tasks default to Dark Charcoal/Black
         categoryColor = const Color(0xFF1A1A1A);
       }
 
-      // Parse due time
-      DateTime startTime;
-      if (item.dueTime != null && item.dueTime!.isNotEmpty) {
-        startTime = _parseDueTime(item.dueTime!, _selectedDate);
-      } else {
-        // If no due time, use 9:00 AM on selected date or current time if today
-        final today = DateService.todayStart;
-        if (today.year == _selectedDate.year &&
-            today.month == _selectedDate.month &&
-            today.day == _selectedDate.day) {
-          startTime = DateTime.now();
-        } else {
-          startTime = DateTime(
-              _selectedDate.year, _selectedDate.month, _selectedDate.day, 9, 0);
-        }
-      }
+      // Parse due time - no need for else block since we filtered out items without dueTime
+      DateTime startTime = _parseDueTime(item.dueTime!, _selectedDate);
 
       final hasDuration =
           item.templateTrackingType == 'time' && item.templateTarget != null;
@@ -758,6 +1109,16 @@ class _CalendarPageState extends State<CalendarPage> {
         ? _buildInlineLabel(event, isCompleted, isNonProductive)
         : _buildFloatingLabel(event, isCompleted, isNonProductive);
 
+    // Extract metadata from event once for reuse
+    final metadata = CalendarEventMetadata.fromMap(event.event);
+
+    // Handler for long-press on either box or label
+    void handleLongPress() {
+      if (metadata != null) {
+        _showEditEntryDialog(metadata: metadata);
+      }
+    }
+
     if (isThinLine) {
       return OverflowBox(
         minHeight: 0,
@@ -769,16 +1130,19 @@ class _CalendarPageState extends State<CalendarPage> {
             minHeight: actualTimeBoxHeight,
             minWidth: 0,
           ),
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned.fill(child: timeBox),
-              Positioned(
-                left: labelOffset,
-                top: -24.0,
-                child: label,
-              ),
-            ],
+          child: GestureDetector(
+            onLongPress: handleLongPress,
+            child: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                Positioned.fill(child: timeBox),
+                Positioned(
+                  left: labelOffset,
+                  top: -24.0,
+                  child: label,
+                ),
+              ],
+            ),
           ),
         ),
       );
@@ -794,16 +1158,19 @@ class _CalendarPageState extends State<CalendarPage> {
           minHeight: actualTimeBoxHeight,
           minWidth: 0,
         ),
-        child: Stack(
-          clipBehavior: Clip.none,
-          children: [
-            Positioned.fill(child: timeBox),
-            Positioned(
-              left: labelFitsInside ? 4.0 : labelOffset,
-              top: labelFitsInside ? 4.0 : -28.0,
-              child: label,
-            ),
-          ],
+        child: GestureDetector(
+          onLongPress: handleLongPress,
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(child: timeBox),
+              Positioned(
+                left: labelFitsInside ? 4.0 : labelOffset,
+                top: labelFitsInside ? 4.0 : -28.0,
+                child: label,
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -815,14 +1182,53 @@ class _CalendarPageState extends State<CalendarPage> {
     bool isCompleted,
     bool isNonProductive,
   ) {
-    // For completed items, make them solid and distinct (0.85 opacity)
+    // Detect non-productive tasks: check parameter OR grey color
+    final isNonProd = isNonProductive || event.color == Colors.grey;
+
+    // For non-productive tasks, use diagonal stripe pattern
+    if (isNonProd) {
+      // Light base color for non-productive tasks
+      final baseColor = Colors.grey.shade100;
+      final stripeColor = Colors.grey.shade500;
+      final borderColor = Colors.grey.shade600;
+
+      return Container(
+        constraints: const BoxConstraints(
+          minHeight: 1.0,
+          minWidth: 0,
+        ),
+        decoration: BoxDecoration(
+          color: baseColor,
+          borderRadius: BorderRadius.circular(4.0),
+          border: Border.all(
+            color: borderColor,
+            width: 1.5,
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(4.0),
+          child: SizedBox.expand(
+            child: CustomPaint(
+              painter: _DiagonalStripePainter(
+                stripeColor: stripeColor,
+                stripeWidth: 2.0,
+                spacing: 6.0,
+              ),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // For regular tasks and habits, use solid color
+    // For completed items, make them solid and distinct (0.6 opacity)
     // For planned items, keep them lighter (0.3 opacity)
     Color boxColor;
     if (isCompleted) {
       boxColor = event.color.withOpacity(0.6); // Solid color for completed
     } else {
       // Planned items: increased opacity for better visibility and contrast with text
-      boxColor = event.color.withOpacity(0.6);
+      boxColor = event.color.withOpacity(0.3);
     }
 
     return Container(
@@ -837,7 +1243,7 @@ class _CalendarPageState extends State<CalendarPage> {
           color: isCompleted
               ? event.color
               : event.color, // Use strong color for border
-          width: isNonProductive ? 1.5 : 1.0,
+          width: 1.0,
         ),
       ),
     );
@@ -1015,24 +1421,43 @@ class _CalendarPageState extends State<CalendarPage> {
     });
   }
 
-  // Handle vertical pinch gestures
+  // Handle zoom gesture start - capture initial values
+  void _onScaleStart(ScaleStartDetails details) {
+    _initialZoomOnGestureStart = _verticalZoom;
+    _initialScaleOnGestureStart = 1.0; // Scale starts at 1.0
+  }
+
+  // Handle vertical pinch gestures - use relative scale change
   void _onScaleUpdate(ScaleUpdateDetails details) {
-    if (details.scale != 1.0) {
-      final oldHeight = _calculateHeightPerMinute();
-      final newZoom = _verticalZoom * details.scale;
-      final clampedZoom = newZoom.clamp(_minVerticalZoom, _maxVerticalZoom);
-
-      if ((clampedZoom - _verticalZoom).abs() < 0.001) return;
-
-      // Calculate new offset
-      final newHeight = _baseHeightPerMinute * clampedZoom;
-      final ratio = newHeight / oldHeight;
-      _initialScrollOffset = _currentScrollOffset * ratio;
-
-      setState(() {
-        _verticalZoom = clampedZoom;
-      });
+    if (_initialZoomOnGestureStart == null ||
+        _initialScaleOnGestureStart == null) {
+      return; // Gesture not properly initialized
     }
+
+    // Calculate relative scale change from gesture start
+    final scaleChange = details.scale / _initialScaleOnGestureStart!;
+
+    // Apply scale change to initial zoom (not current zoom)
+    final oldHeight = _calculateHeightPerMinute();
+    final newZoom = _initialZoomOnGestureStart! * scaleChange;
+    final clampedZoom = newZoom.clamp(_minVerticalZoom, _maxVerticalZoom);
+
+    if ((clampedZoom - _verticalZoom).abs() < 0.001) return;
+
+    // Calculate new offset
+    final newHeight = _baseHeightPerMinute * clampedZoom;
+    final ratio = newHeight / oldHeight;
+    _initialScrollOffset = _currentScrollOffset * ratio;
+
+    setState(() {
+      _verticalZoom = clampedZoom;
+    });
+  }
+
+  // Handle zoom gesture end - reset tracking
+  void _onScaleEnd(ScaleEndDetails details) {
+    _initialZoomOnGestureStart = null;
+    _initialScaleOnGestureStart = null;
   }
 
   @override
@@ -1068,281 +1493,323 @@ class _CalendarPageState extends State<CalendarPage> {
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: _showManualEntryDialog,
+        heroTag: 'add_entry',
         child: const Icon(Icons.add),
         tooltip: 'Log Time Entry',
       ),
-      body: Container(
-        color: Colors.white,
-        child: Column(
-          children: [
-            // Header: Date Navigation and Toggle
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.05),
-                    blurRadius: 2,
-                    offset: const Offset(0, 2),
-                  ),
-                ],
-              ),
-              child: Column(
-                children: [
-                  // Date Navigation Row
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      IconButton(
-                        icon: const Icon(Icons.chevron_left),
-                        onPressed: () => _changeDate(-1),
-                      ),
-                      GestureDetector(
-                        onTap: _resetDate,
-                        child: Text(
-                          DateFormat('EEEE, MMM d, y').format(_selectedDate),
-                          style: const TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.chevron_right),
-                        onPressed: () => _changeDate(1),
+      body: Stack(
+        children: [
+          Container(
+            color: Colors.white,
+            child: Column(
+              children: [
+                // Header: Date Navigation and Toggle
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(0.05),
+                        blurRadius: 2,
+                        offset: const Offset(0, 2),
                       ),
                     ],
                   ),
-                  const SizedBox(height: 8),
-                  // View Toggle (Planned vs Completed)
-                  Container(
-                    width: double.infinity,
-                    decoration: BoxDecoration(
-                      color: Colors.grey.shade200,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    padding: const EdgeInsets.all(4),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              if (!_showPlanned) {
-                                setState(() {
-                                  _showPlanned = true;
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              decoration: BoxDecoration(
-                                color: _showPlanned
-                                    ? Colors.white
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(6),
-                                boxShadow: _showPlanned
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.1),
-                                          blurRadius: 2,
-                                          offset: const Offset(0, 1),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  'Planned',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: _showPlanned
-                                        ? Colors.blue.shade700
-                                        : Colors.grey.shade600,
-                                  ),
-                                ),
+                  child: Column(
+                    children: [
+                      // Date Navigation Row
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            icon: const Icon(Icons.chevron_left),
+                            onPressed: () => _changeDate(-1),
+                          ),
+                          GestureDetector(
+                            onTap: _resetDate,
+                            child: Text(
+                              DateFormat('EEEE, MMM d, y')
+                                  .format(_selectedDate),
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.bold,
                               ),
                             ),
                           ),
-                        ),
-                        Expanded(
-                          child: GestureDetector(
-                            onTap: () {
-                              if (_showPlanned) {
-                                setState(() {
-                                  _showPlanned = false;
-                                });
-                              }
-                            },
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(vertical: 8),
-                              decoration: BoxDecoration(
-                                color: !_showPlanned
-                                    ? Colors.white
-                                    : Colors.transparent,
-                                borderRadius: BorderRadius.circular(6),
-                                boxShadow: !_showPlanned
-                                    ? [
-                                        BoxShadow(
-                                          color: Colors.black.withOpacity(0.1),
-                                          blurRadius: 2,
-                                          offset: const Offset(0, 1),
-                                        ),
-                                      ]
-                                    : null,
-                              ),
-                              child: Center(
-                                child: Text(
-                                  'Completed',
-                                  style: TextStyle(
-                                    fontWeight: FontWeight.w600,
-                                    color: !_showPlanned
-                                        ? Colors.green.shade700
-                                        : Colors.grey.shade600,
-                                  ),
-                                ),
-                              ),
-                            ),
+                          IconButton(
+                            icon: const Icon(Icons.chevron_right),
+                            onPressed: () => _changeDate(1),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
-
-            // Calendar Body
-            Expanded(
-              child: GestureDetector(
-                onScaleUpdate: _onScaleUpdate,
-                child: NotificationListener<ScrollNotification>(
-                  onNotification: (notification) {
-                    if (notification is ScrollUpdateNotification &&
-                        notification.metrics.axis == Axis.vertical) {
-                      _currentScrollOffset = notification.metrics.pixels;
-                    }
-                    return false;
-                  },
-                  child: Listener(
-                    onPointerDown: (event) {
-                      // Capture the local position of the tap within the viewport
-                      _lastTapDownPosition = event.localPosition;
-                    },
-                    child: DayView(
-                      // Use unique key to force rebuild when switching views or dates OR zooming
-                      key: _dayViewKey,
-                      scrollOffset: _initialScrollOffset,
-                      controller: _showPlanned
-                          ? _plannedEventController
-                          : _completedEventController,
-                      // Assuming initialDay sets the date
-                      initialDay: _selectedDate,
-                      heightPerMinute: _calculateHeightPerMinute(),
-                      backgroundColor: Colors.white,
-                      timeLineWidth: 50,
-                      hourIndicatorSettings: HourIndicatorSettings(
-                        color: Colors.grey.shade300,
+                        ],
                       ),
-                      eventTileBuilder: (date, events, a, b, c) {
-                        return _buildEventTile(events.first, !_showPlanned);
-                      },
-                      dayTitleBuilder: (date) {
-                        return const SizedBox.shrink(); // Hide default header
-                      },
-                      onDateLongPress: (date) {
-                        // Calculate precise time from touch position details
-                        // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
-                        // use _lastTapDownPosition + scrollOffset to get pixels from top.
-                        if (_lastTapDownPosition != null) {
-                          // tapY is relative to the Listener widget, which wraps the DayView
-                          // The Listener is at the top of the Expanded widget (below the header)
-                          // So tapY is already relative to the DayView's content area
-                          final double tapY = _lastTapDownPosition!.dy;
+                      const SizedBox(height: 8),
+                      // View Toggle (Planned vs Completed)
+                      Container(
+                        width: double.infinity,
+                        decoration: BoxDecoration(
+                          color: Colors.grey.shade200,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        padding: const EdgeInsets.all(4),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (!_showPlanned) {
+                                    setState(() {
+                                      _showPlanned = true;
+                                    });
+                                    _saveTabState(true);
+                                  }
+                                },
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: _showPlanned
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(6),
+                                    boxShadow: _showPlanned
+                                        ? [
+                                            BoxShadow(
+                                              color:
+                                                  Colors.black.withOpacity(0.1),
+                                              blurRadius: 2,
+                                              offset: const Offset(0, 1),
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      'Planned',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: _showPlanned
+                                            ? Colors.blue.shade700
+                                            : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                            Expanded(
+                              child: GestureDetector(
+                                onTap: () {
+                                  if (_showPlanned) {
+                                    setState(() {
+                                      _showPlanned = false;
+                                    });
+                                    _saveTabState(false);
+                                  }
+                                },
+                                child: Container(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 8),
+                                  decoration: BoxDecoration(
+                                    color: !_showPlanned
+                                        ? Colors.white
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(6),
+                                    boxShadow: !_showPlanned
+                                        ? [
+                                            BoxShadow(
+                                              color:
+                                                  Colors.black.withOpacity(0.1),
+                                              blurRadius: 2,
+                                              offset: const Offset(0, 1),
+                                            ),
+                                          ]
+                                        : null,
+                                  ),
+                                  child: Center(
+                                    child: Text(
+                                      'Completed',
+                                      style: TextStyle(
+                                        fontWeight: FontWeight.w600,
+                                        color: !_showPlanned
+                                            ? Colors.green.shade700
+                                            : Colors.grey.shade600,
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
 
-                          // Get the actual scroll position from DayView if possible
-                          // Otherwise use the tracked _currentScrollOffset
-                          double scrollOffset = _currentScrollOffset;
-
-                          // Try to get scroll position directly from DayView state
-                          try {
-                            final dayViewState = _dayViewKey.currentState;
-                            if (dayViewState != null) {
-                              // Access scrollController if available
-                              final dynamic state = dayViewState;
-                              if (state.scrollController != null) {
-                                scrollOffset =
-                                    state.scrollController.position.pixels;
-                              }
-                            }
-                          } catch (e) {
-                            // Fallback to tracked offset
-                          }
-
-                          // Calculate total pixels from top of timeline (midnight)
-                          // tapY is the position in the visible viewport
-                          // scrollOffset is how far we've scrolled from the top
-                          final double totalPixels = tapY + scrollOffset;
-                          final double totalMinutes =
-                              totalPixels / _calculateHeightPerMinute();
-
-                          // Convert total minutes to HH:MM on the selected date
-                          final int totalMinutesInt = totalMinutes.toInt();
-                          final int hours = totalMinutesInt ~/ 60;
-                          final int minutes = totalMinutesInt % 60;
-
-                          // Round minutes to nearest 5
-                          final int remainder = minutes % 5;
-                          final int roundedMinute = remainder >= 2.5
-                              ? minutes + (5 - remainder)
-                              : minutes - remainder;
-
-                          final startTime = DateTime(
-                            _selectedDate.year,
-                            _selectedDate.month,
-                            _selectedDate.day,
-                            hours,
-                            0, // Start from 0 minutes and add rounded minutes
-                          ).add(Duration(minutes: roundedMinute));
-
-                          final endTime =
-                              startTime.add(const Duration(minutes: 10));
-
-                          _showManualEntryDialog(
-                            startTime: startTime,
-                            endTime: endTime,
-                          );
-                        } else {
-                          // Fallback to old logic if no tap position (unlikely)
-                          final minute = date.minute;
-                          final remainder = minute % 5;
-                          final roundedMinute = remainder >= 2.5
-                              ? minute + (5 - remainder)
-                              : minute - remainder;
-
-                          final startTime = DateTime(
-                            date.year,
-                            date.month,
-                            date.day,
-                            date.hour,
-                            roundedMinute,
-                          );
-                          final endTime =
-                              startTime.add(const Duration(minutes: 10));
-
-                          _showManualEntryDialog(
-                            startTime: startTime,
-                            endTime: endTime,
-                          );
+                // Calendar Body
+                Expanded(
+                  child: GestureDetector(
+                    onScaleStart: _onScaleStart,
+                    onScaleUpdate: _onScaleUpdate,
+                    onScaleEnd: _onScaleEnd,
+                    child: NotificationListener<ScrollNotification>(
+                      onNotification: (notification) {
+                        if (notification is ScrollUpdateNotification &&
+                            notification.metrics.axis == Axis.vertical) {
+                          _currentScrollOffset = notification.metrics.pixels;
                         }
+                        return false;
                       },
+                      child: GestureDetector(
+                        // Block horizontal drag gestures to prevent date navigation via swipe
+                        onHorizontalDragStart: (details) {
+                          // Absorb the gesture - do nothing
+                        },
+                        onHorizontalDragUpdate: (details) {
+                          // Absorb the gesture - do nothing
+                        },
+                        onHorizontalDragEnd: (details) {
+                          // Absorb the gesture - do nothing
+                        },
+                        child: Listener(
+                          onPointerDown: (event) {
+                            // Capture the local position of the tap within the viewport
+                            _lastTapDownPosition = event.localPosition;
+                          },
+                          child: DayView(
+                            // Use unique key to force rebuild when switching views or dates OR zooming
+                            key: _dayViewKey,
+                            scrollOffset: _initialScrollOffset,
+                            controller: _showPlanned
+                                ? _plannedEventController
+                                : _completedEventController,
+                            // Assuming initialDay sets the date
+                            initialDay: _selectedDate,
+                            heightPerMinute: _calculateHeightPerMinute(),
+                            backgroundColor: Colors.white,
+                            timeLineWidth: 50,
+                            hourIndicatorSettings: HourIndicatorSettings(
+                              color: Colors.grey.shade300,
+                            ),
+                            eventTileBuilder: (date, events, a, b, c) {
+                              return _buildEventTile(
+                                  events.first, !_showPlanned);
+                            },
+                            dayTitleBuilder: (date) {
+                              return const SizedBox
+                                  .shrink(); // Hide default header
+                            },
+                            onDateLongPress: (date) {
+                              // Calculate precise time from touch position details
+                              // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
+                              // use _lastTapDownPosition + scrollOffset to get pixels from top.
+                              if (_lastTapDownPosition != null) {
+                                // tapY is relative to the Listener widget, which wraps the DayView
+                                // The Listener is at the top of the Expanded widget (below the header)
+                                // So tapY is already relative to the DayView's content area
+                                final double tapY = _lastTapDownPosition!.dy;
+
+                                // Get the actual scroll position from DayView if possible
+                                // Otherwise use the tracked _currentScrollOffset
+                                double scrollOffset = _currentScrollOffset;
+
+                                // Try to get scroll position directly from DayView state
+                                try {
+                                  final dayViewState = _dayViewKey.currentState;
+                                  if (dayViewState != null) {
+                                    // Access scrollController if available
+                                    final dynamic state = dayViewState;
+                                    if (state.scrollController != null) {
+                                      scrollOffset = state
+                                          .scrollController.position.pixels;
+                                    }
+                                  }
+                                } catch (e) {
+                                  // Fallback to tracked offset
+                                }
+
+                                // Calculate total pixels from top of timeline (midnight)
+                                // tapY is the position in the visible viewport
+                                // scrollOffset is how far we've scrolled from the top
+                                final double totalPixels = tapY + scrollOffset;
+                                final double totalMinutes =
+                                    totalPixels / _calculateHeightPerMinute();
+
+                                // Convert total minutes to HH:MM on the selected date
+                                final int totalMinutesInt =
+                                    totalMinutes.toInt();
+                                final int hours = totalMinutesInt ~/ 60;
+                                final int minutes = totalMinutesInt % 60;
+
+                                // Round minutes to nearest 5
+                                final int remainder = minutes % 5;
+                                final int roundedMinute = remainder >= 2.5
+                                    ? minutes + (5 - remainder)
+                                    : minutes - remainder;
+
+                                final startTime = DateTime(
+                                  _selectedDate.year,
+                                  _selectedDate.month,
+                                  _selectedDate.day,
+                                  hours,
+                                  0, // Start from 0 minutes and add rounded minutes
+                                ).add(Duration(minutes: roundedMinute));
+
+                                final endTime =
+                                    startTime.add(const Duration(minutes: 10));
+
+                                _showManualEntryDialog(
+                                  startTime: startTime,
+                                  endTime: endTime,
+                                );
+                              } else {
+                                // Fallback to old logic if no tap position (unlikely)
+                                final minute = date.minute;
+                                final remainder = minute % 5;
+                                final roundedMinute = remainder >= 2.5
+                                    ? minute + (5 - remainder)
+                                    : minute - remainder;
+
+                                final startTime = DateTime(
+                                  date.year,
+                                  date.month,
+                                  date.day,
+                                  date.hour,
+                                  roundedMinute,
+                                );
+                                final endTime =
+                                    startTime.add(const Duration(minutes: 10));
+
+                                _showManualEntryDialog(
+                                  startTime: startTime,
+                                  endTime: endTime,
+                                );
+                              }
+                            },
+                          ),
+                        ),
+                      ),
                     ),
                   ),
                 ),
-              ),
+              ],
             ),
-          ],
-        ),
+          ),
+          // Time breakdown FAB positioned at bottom left
+          Positioned(
+            left: 16,
+            bottom: 16,
+            child: FloatingActionButton(
+              onPressed: _showTimeBreakdownChart,
+              heroTag: 'pie_chart',
+              child: const Icon(Icons.pie_chart),
+              tooltip: 'Time Breakdown',
+              backgroundColor: FlutterFlowTheme.of(context).primary,
+            ),
+          ),
+        ],
       ),
     );
   }

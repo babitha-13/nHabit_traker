@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
 import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
 
 /// Service for managing local notifications
@@ -106,6 +107,12 @@ class NotificationService {
 
   /// Handle notification action button clicks
   static void _handleNotificationAction(String actionId, String? payload) {
+    // Handle timer notification actions (no context needed)
+    if (actionId == 'stop_all' && payload == 'timer_notification') {
+      TimerNotificationService.handleAction(actionId);
+      return;
+    }
+
     final context = navigatorKey.currentContext;
     if (context == null) return;
 
@@ -453,21 +460,30 @@ class NotificationService {
       }
       print(
           'NotificationService: Scheduled reminder for $title at $scheduledTime (TZDateTime: $tzDateTime) with ID: ${id.hashCode}');
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - notification scheduling failures are non-critical
+      print('Error scheduling notification: $e');
+    }
   }
 
   /// Cancel a specific notification
   static Future<void> cancelNotification(String id) async {
     try {
       await _notificationsPlugin.cancel(id.hashCode);
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - notification cancellation failures are non-critical
+      print('Error canceling notification $id: $e');
+    }
   }
 
   /// Cancel all notifications
   static Future<void> cancelAllNotifications() async {
     try {
       await _notificationsPlugin.cancelAll();
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - notification cancellation failures are non-critical
+      print('Error canceling all notifications: $e');
+    }
   }
 
   /// Get pending notifications
@@ -554,7 +570,10 @@ class NotificationService {
         ),
         payload: payload,
       );
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - immediate notification failures are non-critical
+      print('Error showing immediate notification: $e');
+    }
   }
 
   /// Log all pending notifications for debugging
@@ -565,7 +584,10 @@ class NotificationService {
         // Log notification details if needed
         print('Pending notification: ${notification.id}');
       }
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - logging pending notifications is non-critical
+      print('Error logging pending notifications: $e');
+    }
   }
 
   /// Cancel all day-end notifications
@@ -575,7 +597,10 @@ class NotificationService {
       await cancelNotification('day_end_1hr');
       await cancelNotification('day_end_30min');
       await cancelNotification('day_end_15min');
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - day-end notification cancellation is non-critical
+      print('Error canceling day-end notifications: $e');
+    }
   }
 
   /// Schedule day-end notifications (1hr, 30min, 15min before processing)
@@ -621,7 +646,10 @@ class NotificationService {
           );
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      // Log error but don't fail - day-end notification scheduling is non-critical
+      print('Error scheduling day-end notifications: $e');
+    }
   }
 
   /// Reschedule day-end notifications after snooze

@@ -689,8 +689,14 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           try {
             await ReminderScheduler.rescheduleReminderForInstance(
                 updatedInstance);
-          } catch (e) {}
-        } catch (e) {}
+          } catch (e) {
+            // Log error but don't fail - reminder rescheduling is non-critical
+            print('Error rescheduling reminder in activity editor: $e');
+          }
+        } catch (e) {
+          // Log error but don't fail - instance update is non-critical in this context
+          print('Error updating instance in activity editor: $e');
+        }
       }
     } catch (e) {
       // ignore

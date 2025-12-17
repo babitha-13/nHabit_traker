@@ -11,10 +11,20 @@ import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Helper/backend/milestone_service.dart';
 import 'package:habit_tracker/Helper/utils/cumulative_score_line_painter.dart';
 import 'package:habit_tracker/Screens/Progress/habit_statistics_tab.dart';
 import 'package:habit_tracker/Screens/Progress/category_statistics_tab.dart';
 import 'package:flutter/foundation.dart';
+import 'package:habit_tracker/Helper/utils/constants.dart';
+import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
+import 'package:habit_tracker/Helper/Response/login_response.dart';
+import 'package:habit_tracker/main.dart';
+import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
+import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
+import 'package:habit_tracker/Screens/Habits/habits_page.dart';
+import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
+import 'package:intl/intl.dart';
 
 class ProgressPage extends StatefulWidget {
   const ProgressPage({Key? key}) : super(key: key);
@@ -35,12 +45,30 @@ class _ProgressPageState extends State<ProgressPage> {
   // Cumulative score data
   double _cumulativeScore = 0.0;
   double _dailyScoreGain = 0.0;
+  int _achievedMilestones = 0;
   List<Map<String, dynamic>> _cumulativeScoreHistory = [];
   bool _show30Days = false;
   // Projected score data for today
   double _projectedCumulativeScore = 0.0;
   double _projectedDailyGain = 0.0;
   bool _hasProjection = false;
+  // Breakdown components for tooltip
+  double _dailyScore = 0.0;
+  double _consistencyBonus = 0.0;
+  double _recoveryBonus = 0.0;
+  double _decayPenalty = 0.0;
+  double _categoryNeglectPenalty = 0.0;
+  // Aggregate statistics
+  double _averageDailyScore7Day = 0.0;
+  double _averageDailyScore30Day = 0.0;
+  double _bestDailyScoreGain = 0.0;
+  double _worstDailyScoreGain = 0.0;
+  int _positiveDaysCount7Day = 0;
+  int _positiveDaysCount30Day = 0;
+  double _scoreGrowthRate7Day = 0.0;
+  double _scoreGrowthRate30Day = 0.0;
+  double _averageCumulativeScore7Day = 0.0;
+  double _averageCumulativeScore30Day = 0.0;
   @override
   void initState() {
     super.initState();
@@ -129,7 +157,6 @@ class _ProgressPageState extends State<ProgressPage> {
       return;
     }
     // Debug logging
-    print('ProgressPage: Showing breakdown for ${date.toIso8601String()}');
     if (dayData.habitBreakdown.isNotEmpty) {}
     if (dayData.taskBreakdown.isNotEmpty) {}
     // If no breakdown data exists, calculate it on-demand
@@ -227,14 +254,6 @@ class _ProgressPageState extends State<ProgressPage> {
       );
 
       // Debug logging to understand the 153% issue
-      print('=== TODAY\'S PROGRESS DEBUG ===');
-      print('Total Target: ${result['target']}');
-      print('Total Earned: ${result['earned']}');
-      print('Percentage: ${result['percentage']}%');
-      print('Habit Target: ${result['habitTarget']}');
-      print('Habit Earned: ${result['habitEarned']}');
-      print('Task Target: ${result['taskTarget']}');
-      print('Task Earned: ${result['taskEarned']}');
 
       return {
         'habitBreakdown':
@@ -243,7 +262,7 @@ class _ProgressPageState extends State<ProgressPage> {
             result['taskBreakdown'] as List<Map<String, dynamic>>? ?? [],
       };
     } catch (e) {
-      print('Error calculating today\'s breakdown: $e');
+      // Error calculating today's breakdown
       return {
         'habitBreakdown': <Map<String, dynamic>>[],
         'taskBreakdown': <Map<String, dynamic>>[],
@@ -312,9 +331,10 @@ class _ProgressPageState extends State<ProgressPage> {
         }
         return;
       }
-      // Load progress data incrementally: start with 7 days, expand to 30/90 on demand
+      // Load at least 30 days of progress data for statistics calculation
       final endDate = DateService.currentDate;
-      final startDate = endDate.subtract(Duration(days: _historyDays));
+      final daysToLoad = _historyDays > 30 ? _historyDays : 30;
+      final startDate = endDate.subtract(Duration(days: daysToLoad));
       final query = await DailyProgressRecord.collectionForUser(userId)
           .where('date', isGreaterThanOrEqualTo: startDate)
           .where('date', isLessThanOrEqualTo: endDate)
@@ -328,6 +348,8 @@ class _ProgressPageState extends State<ProgressPage> {
           _progressHistory = progressData;
           _isLoading = false;
         });
+        // Recalculate statistics after loading history
+        _calculateStatisticsFromHistory();
       }
     } catch (e) {
       if (mounted) {
@@ -357,6 +379,17 @@ class _ProgressPageState extends State<ProgressPage> {
         setState(() {
           _cumulativeScore = userStats.cumulativeScore;
           _dailyScoreGain = userStats.lastDailyGain;
+          // Load aggregate statistics
+          _averageDailyScore7Day = userStats.averageDailyScore7Day;
+          _averageDailyScore30Day = userStats.averageDailyScore30Day;
+          _bestDailyScoreGain = userStats.bestDailyScoreGain;
+          _worstDailyScoreGain = userStats.worstDailyScoreGain;
+          _positiveDaysCount7Day = userStats.positiveDaysCount7Day;
+          _positiveDaysCount30Day = userStats.positiveDaysCount30Day;
+          _scoreGrowthRate7Day = userStats.scoreGrowthRate7Day;
+          _scoreGrowthRate30Day = userStats.scoreGrowthRate30Day;
+          _averageCumulativeScore7Day = userStats.averageCumulativeScore7Day;
+          _averageCumulativeScore30Day = userStats.averageCumulativeScore30Day;
         });
       }
 
@@ -365,8 +398,11 @@ class _ProgressPageState extends State<ProgressPage> {
 
       // Load cumulative score history
       await _loadCumulativeScoreHistory();
+
+      // Calculate statistics from loaded progress history
+      await _calculateStatisticsFromHistory();
     } catch (e) {
-      print('Error loading cumulative score: $e');
+      // Error loading cumulative score
     }
   }
 
@@ -381,38 +417,57 @@ class _ProgressPageState extends State<ProgressPage> {
             await CumulativeScoreService.calculateProjectedDailyScore(
           userId,
           _todayPercentage,
+          _todayEarned,
         );
 
         if (mounted) {
           setState(() {
-            _projectedCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
+            _projectedCumulativeScore =
+                projectionData['projectedCumulative'] ?? 0.0;
             _projectedDailyGain = projectionData['projectedGain'] ?? 0.0;
             _hasProjection = true;
+            // Store breakdown components for tooltip
+            _dailyScore =
+                (projectionData['dailyScore'] as num?)?.toDouble() ?? 0.0;
+            _consistencyBonus =
+                (projectionData['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
+            _recoveryBonus =
+                (projectionData['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
+            _decayPenalty =
+                (projectionData['decayPenalty'] as num?)?.toDouble() ?? 0.0;
+            _categoryNeglectPenalty =
+                0.0; // Not included in projected score calculation
           });
-          
+
           // Publish cumulative score to shared state
           TodayProgressState().updateCumulativeScore(
             cumulativeScore: _projectedCumulativeScore,
             dailyGain: _projectedDailyGain,
             hasLiveScore: true,
           );
+
+          // Update today's entry in history if available
+          _updateTodayInHistory();
         }
       } else {
         if (mounted) {
           setState(() {
             _hasProjection = false;
           });
-          
+
           // Publish base cumulative score (without projection)
           TodayProgressState().updateCumulativeScore(
             cumulativeScore: _cumulativeScore,
             dailyGain: _dailyScoreGain,
             hasLiveScore: false,
           );
+
+          // Update today's entry in history if available
+          _updateTodayInHistory();
         }
       }
     } catch (e) {
-      print('Error updating projected score: $e');
+      // Error updating projected score
     }
   }
 
@@ -421,7 +476,8 @@ class _ProgressPageState extends State<ProgressPage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      final endDate = DateService.currentDate;
+      // Use todayStart for consistent midnight-to-midnight querying
+      final endDate = DateService.todayStart;
       final startDate = endDate.subtract(const Duration(days: 30));
 
       final query = await DailyProgressRecord.collectionForUser(userId)
@@ -430,15 +486,105 @@ class _ProgressPageState extends State<ProgressPage> {
           .orderBy('date', descending: false)
           .get();
 
-      final history = <Map<String, dynamic>>[];
+      // Create a map for quick lookup of existing records
+      final recordMap = <String, DailyProgressRecord>{};
       for (final doc in query.docs) {
         final record = DailyProgressRecord.fromSnapshot(doc);
-        if (record.cumulativeScoreSnapshot > 0) {
+        if (record.date != null) {
+          final dateKey = DateFormat('yyyy-MM-dd').format(record.date!);
+          recordMap[dateKey] = record;
+        }
+      }
+
+      final history = <Map<String, dynamic>>[];
+
+      double lastKnownScore = 0.0;
+
+      // Fetch the last record BEFORE the start date to get the baseline score
+      try {
+        final lastPriorRecordQuery =
+            await DailyProgressRecord.collectionForUser(userId)
+                .where('date', isLessThan: startDate)
+                .orderBy('date', descending: true)
+                .limit(1)
+                .get();
+
+        if (lastPriorRecordQuery.docs.isNotEmpty) {
+          final priorRec =
+              DailyProgressRecord.fromSnapshot(lastPriorRecordQuery.docs.first);
+          if (priorRec.cumulativeScoreSnapshot > 0) {
+            lastKnownScore = priorRec.cumulativeScoreSnapshot;
+          }
+        } else {
+          // If no prior record exists, use the first record in our current range as baseline
+          if (recordMap.isNotEmpty) {
+            final sortedDates = recordMap.keys.toList()..sort();
+            final firstRecord = recordMap[sortedDates.first]!;
+            if (firstRecord.cumulativeScoreSnapshot > 0) {
+              // Use the score from the day BEFORE the first record
+              lastKnownScore = firstRecord.cumulativeScoreSnapshot -
+                  firstRecord.dailyScoreGain;
+              if (lastKnownScore < 0) lastKnownScore = 0;
+            }
+          }
+        }
+      } catch (e) {
+        // Error fetching prior cumulative score
+      }
+
+      // Iterate day by day from startDate to endDate (30 days)
+      for (int i = 0; i <= 30; i++) {
+        final date = startDate.add(Duration(days: i));
+        final dateKey = DateFormat('yyyy-MM-dd').format(date);
+
+        if (recordMap.containsKey(dateKey)) {
+          final record = recordMap[dateKey]!;
+          // Use cumulativeScoreSnapshot if available, otherwise calculate from lastKnownScore
+          if (record.cumulativeScoreSnapshot > 0) {
+            lastKnownScore = record.cumulativeScoreSnapshot;
+          } else if (record.hasDailyScoreGain()) {
+            // If no snapshot but has gain, calculate from last known score
+            lastKnownScore = (lastKnownScore + record.dailyScoreGain)
+                .clamp(0.0, double.infinity);
+          }
           history.add({
-            'date': record.date,
-            'score': record.cumulativeScoreSnapshot,
+            'date': date,
+            'score': lastKnownScore,
             'gain': record.dailyScoreGain,
           });
+        } else {
+          // No record for this day, carry forward the last cumulative score
+          history.add({
+            'date': date,
+            'score': lastKnownScore,
+            'gain': 0.0,
+          });
+        }
+      }
+
+      // Update today's entry with live score if available
+      if (history.isNotEmpty) {
+        final lastItem = history.last;
+        final lastDate = lastItem['date'] as DateTime;
+        final today = DateService.currentDate;
+
+        if (lastDate.year == today.year &&
+            lastDate.month == today.month &&
+            lastDate.day == today.day) {
+          // Update today's entry with live values if we have a valid score
+          if (_hasProjection && _projectedCumulativeScore > 0) {
+            history[history.length - 1] = {
+              'date': lastDate,
+              'score': _projectedCumulativeScore,
+              'gain': _projectedDailyGain,
+            };
+          } else if (_cumulativeScore > 0) {
+            history[history.length - 1] = {
+              'date': lastDate,
+              'score': _cumulativeScore,
+              'gain': _dailyScoreGain,
+            };
+          }
         }
       }
 
@@ -448,7 +594,221 @@ class _ProgressPageState extends State<ProgressPage> {
         });
       }
     } catch (e) {
-      print('Error loading cumulative score history: $e');
+      // Error loading cumulative score history
+    }
+  }
+
+  void _updateTodayInHistory() {
+    if (_cumulativeScoreHistory.isEmpty) return;
+
+    final today = DateService.currentDate;
+    final lastItem = _cumulativeScoreHistory.last;
+    final lastDate = lastItem['date'] as DateTime;
+
+    if (lastDate.year == today.year &&
+        lastDate.month == today.month &&
+        lastDate.day == today.day) {
+      // Update today's entry with current values
+      if (_hasProjection && _projectedCumulativeScore > 0) {
+        _cumulativeScoreHistory[_cumulativeScoreHistory.length - 1] = {
+          'date': lastDate,
+          'score': _projectedCumulativeScore,
+          'gain': _projectedDailyGain,
+        };
+      } else if (_cumulativeScore > 0) {
+        _cumulativeScoreHistory[_cumulativeScoreHistory.length - 1] = {
+          'date': lastDate,
+          'score': _cumulativeScore,
+          'gain': _dailyScoreGain,
+        };
+      }
+      if (mounted) {
+        setState(() {
+          // Trigger rebuild
+        });
+      }
+    }
+  }
+
+  /// Calculate effective gain for a day
+  /// If previous cumulative was 0 and gain is negative, it's ineffective (return 0)
+  /// Otherwise, use actual gain
+  double _getEffectiveGain(double previousCumulative, double dailyGain) {
+    // If previous cumulative was 0 and gain is negative, it's ineffective
+    if (previousCumulative <= 0 && dailyGain < 0) {
+      return 0.0;
+    }
+    // Otherwise, use actual gain
+    return dailyGain;
+  }
+
+  Future<void> _calculateStatisticsFromHistory() async {
+    try {
+      if (_progressHistory.isEmpty) return;
+
+      final today = DateService.currentDate;
+      final cutoff7Days = today.subtract(const Duration(days: 6));
+      final cutoff30Days = today.subtract(const Duration(days: 29));
+
+      // Filter and sort records for last 30 days (we need 30 for both 7d and 30d stats)
+      final last30DaysRecords = _progressHistory.where((record) {
+        if (record.date == null) return false;
+        return !record.date!.isBefore(cutoff30Days) &&
+            !record.date!.isAfter(today);
+      }).toList();
+
+      // Sort by date ascending to process chronologically
+      last30DaysRecords.sort((a, b) {
+        if (a.date == null || b.date == null) return 0;
+        return a.date!.compareTo(b.date!);
+      });
+
+      // Build day-by-day data structure with effective gains
+      final dayData = <Map<String, dynamic>>[];
+      double previousCumulative = 0.0;
+
+      // Process historical records
+      for (final record in last30DaysRecords) {
+        if (!record.hasDailyScoreGain()) continue;
+
+        final recordDate = record.date!;
+        final actualGain = record.dailyScoreGain;
+        final effectiveGain = _getEffectiveGain(previousCumulative, actualGain);
+        final cumulativeAtStart = previousCumulative;
+        final cumulativeAtEnd = record.cumulativeScoreSnapshot;
+
+        dayData.add({
+          'date': recordDate,
+          'actualGain': actualGain,
+          'effectiveGain': effectiveGain,
+          'cumulativeAtStart': cumulativeAtStart,
+          'cumulativeAtEnd': cumulativeAtEnd,
+        });
+
+        // Update previous cumulative for next iteration
+        previousCumulative = cumulativeAtEnd;
+      }
+
+      // Add today's data if available
+      final todayDate = DateTime(today.year, today.month, today.day);
+      final isTodayInRange =
+          !todayDate.isBefore(cutoff30Days) && !todayDate.isAfter(today);
+
+      if (isTodayInRange) {
+        // Get today's gain and cumulative score
+        double todayActualGain = 0.0;
+        double todayCumulative = 0.0;
+
+        if (_hasProjection && _todayPercentage > 0) {
+          todayActualGain = _projectedDailyGain;
+          todayCumulative = _projectedCumulativeScore;
+        } else {
+          todayActualGain = _dailyScoreGain;
+          todayCumulative = _cumulativeScore;
+        }
+
+        // Only add today if we have valid data
+        if (todayActualGain != 0.0 || todayCumulative > 0.0) {
+          final todayEffectiveGain =
+              _getEffectiveGain(previousCumulative, todayActualGain);
+          final todayCumulativeAtEnd = todayCumulative;
+
+          dayData.add({
+            'date': todayDate,
+            'actualGain': todayActualGain,
+            'effectiveGain': todayEffectiveGain,
+            'cumulativeAtStart': previousCumulative,
+            'cumulativeAtEnd': todayCumulativeAtEnd,
+          });
+        }
+      }
+
+      // Filter for 7-day and 30-day periods
+      final dayData7Days = dayData.where((day) {
+        final dayDate = day['date'] as DateTime;
+        return !dayDate.isBefore(cutoff7Days) && !dayDate.isAfter(today);
+      }).toList();
+
+      final dayData30Days = dayData;
+
+      // Calculate averages using effective gains
+      double avg7Day = 0.0;
+      double avg30Day = 0.0;
+      if (dayData7Days.isNotEmpty) {
+        final effectiveGains7 =
+            dayData7Days.map((d) => d['effectiveGain'] as double).toList();
+        avg7Day = effectiveGains7.fold(0.0, (sum, gain) => sum + gain) /
+            effectiveGains7.length;
+      }
+      if (dayData30Days.isNotEmpty) {
+        final effectiveGains30 =
+            dayData30Days.map((d) => d['effectiveGain'] as double).toList();
+        avg30Day = effectiveGains30.fold(0.0, (sum, gain) => sum + gain) /
+            effectiveGains30.length;
+      }
+
+      // Calculate best/worst from actual gains (not effective)
+      double bestDay = 0.0;
+      double worstDay = 0.0;
+      if (dayData30Days.isNotEmpty) {
+        final actualGains30 =
+            dayData30Days.map((d) => d['actualGain'] as double).toList();
+        bestDay = actualGains30.reduce((a, b) => a > b ? a : b);
+        worstDay = actualGains30.reduce((a, b) => a < b ? a : b);
+      }
+
+      // Calculate positive days count using effective gains
+      final positive7Day =
+          dayData7Days.where((d) => (d['effectiveGain'] as double) > 0).length;
+      final positive30Day =
+          dayData30Days.where((d) => (d['effectiveGain'] as double) > 0).length;
+
+      // Calculate average cumulative scores
+      double avgCumulative7Day = 0.0;
+      double avgCumulative30Day = 0.0;
+      if (dayData7Days.isNotEmpty) {
+        final cumulativeScores7 = dayData7Days
+            .where((d) => (d['cumulativeAtEnd'] as double) > 0)
+            .map((d) => d['cumulativeAtEnd'] as double)
+            .toList();
+        if (cumulativeScores7.isNotEmpty) {
+          avgCumulative7Day =
+              cumulativeScores7.fold(0.0, (sum, score) => sum + score) /
+                  cumulativeScores7.length;
+        }
+      }
+      if (dayData30Days.isNotEmpty) {
+        final cumulativeScores30 = dayData30Days
+            .where((d) => (d['cumulativeAtEnd'] as double) > 0)
+            .map((d) => d['cumulativeAtEnd'] as double)
+            .toList();
+        if (cumulativeScores30.isNotEmpty) {
+          avgCumulative30Day =
+              cumulativeScores30.fold(0.0, (sum, score) => sum + score) /
+                  cumulativeScores30.length;
+        }
+      }
+
+      // Calculate growth rates (same as average of effective gains)
+      double growthRate7Day = avg7Day;
+      double growthRate30Day = avg30Day;
+
+      if (mounted) {
+        setState(() {
+          _averageDailyScore7Day = avg7Day;
+          _averageDailyScore30Day = avg30Day;
+          _bestDailyScoreGain = bestDay;
+          _worstDailyScoreGain = worstDay;
+          _positiveDaysCount7Day = positive7Day;
+          _positiveDaysCount30Day = positive30Day;
+          _scoreGrowthRate7Day = growthRate7Day;
+          _scoreGrowthRate30Day = growthRate30Day;
+          _averageCumulativeScore7Day = avgCumulative7Day;
+          _averageCumulativeScore30Day = avgCumulative30Day;
+        });
+      }
+    } catch (e) {
+      // Error calculating statistics from history
     }
   }
 
@@ -460,9 +820,14 @@ class _ProgressPageState extends State<ProgressPage> {
       child: Scaffold(
         key: scaffoldKey,
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        drawer: _buildDrawer(context),
         appBar: AppBar(
           backgroundColor: FlutterFlowTheme.of(context).primary,
-          automaticallyImplyLeading: false,
+          automaticallyImplyLeading: true,
+          leading: IconButton(
+            icon: const Icon(Icons.arrow_back, color: Colors.white),
+            onPressed: () => Navigator.of(context).pop(),
+          ),
           title: Text(
             'Progress History',
             style: FlutterFlowTheme.of(context).headlineMedium.override(
@@ -561,6 +926,8 @@ class _ProgressPageState extends State<ProgressPage> {
           _buildCumulativeScoreCard(),
           const SizedBox(height: 16),
           _buildSummaryCards(),
+          const SizedBox(height: 16),
+          _buildAggregateStatsSection(),
           const SizedBox(height: 24),
           _buildTrendChart(),
         ],
@@ -600,6 +967,178 @@ class _ProgressPageState extends State<ProgressPage> {
           ),
         ),
       ],
+    );
+  }
+
+  Widget _buildAggregateStatsSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Score Statistics',
+          style: FlutterFlowTheme.of(context).titleMedium.override(
+                fontFamily: 'Readex Pro',
+                fontWeight: FontWeight.w600,
+              ),
+        ),
+        const SizedBox(height: 12),
+        // Daily Score Statistics Row
+        Row(
+          children: [
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Avg Daily Score (7d)',
+                _averageDailyScore7Day.toStringAsFixed(1),
+                Icons.trending_up,
+                _averageDailyScore7Day >= 0 ? Colors.green : Colors.red,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Avg Daily Score (30d)',
+                _averageDailyScore30Day.toStringAsFixed(1),
+                Icons.calendar_month,
+                _averageDailyScore30Day >= 0 ? Colors.green : Colors.red,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Best/Worst Row
+        Row(
+          children: [
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Best Day',
+                _bestDailyScoreGain.toStringAsFixed(1),
+                Icons.arrow_upward,
+                Colors.green,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Worst Day',
+                _worstDailyScoreGain.toStringAsFixed(1),
+                Icons.arrow_downward,
+                Colors.red,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Positive Days Row
+        Row(
+          children: [
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Positive Days (7d)',
+                '$_positiveDaysCount7Day/7',
+                Icons.check_circle,
+                _positiveDaysCount7Day >= 5 ? Colors.green : Colors.orange,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Positive Days (30d)',
+                '$_positiveDaysCount30Day/30',
+                Icons.check_circle_outline,
+                _positiveDaysCount30Day >= 20 ? Colors.green : Colors.orange,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Growth Rate Row
+        Row(
+          children: [
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Growth Rate (7d)',
+                '${_scoreGrowthRate7Day >= 0 ? '+' : ''}${_scoreGrowthRate7Day.toStringAsFixed(2)}',
+                Icons.show_chart,
+                _scoreGrowthRate7Day >= 0 ? Colors.green : Colors.red,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Growth Rate (30d)',
+                '${_scoreGrowthRate30Day >= 0 ? '+' : ''}${_scoreGrowthRate30Day.toStringAsFixed(2)}',
+                Icons.timeline,
+                _scoreGrowthRate30Day >= 0 ? Colors.green : Colors.red,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+        // Average Cumulative Score Row
+        Row(
+          children: [
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Avg Cumulative (7d)',
+                _averageCumulativeScore7Day.toStringAsFixed(0),
+                Icons.bar_chart,
+                FlutterFlowTheme.of(context).primary,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: _buildAggregateStatCard(
+                'Avg Cumulative (30d)',
+                _averageCumulativeScore30Day.toStringAsFixed(0),
+                Icons.assessment,
+                FlutterFlowTheme.of(context).primary,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  Widget _buildAggregateStatCard(
+    String title,
+    String value,
+    IconData icon,
+    Color color,
+  ) {
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).secondaryBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate,
+          width: 1,
+        ),
+      ),
+      child: Column(
+        children: [
+          Icon(icon, color: color, size: 20),
+          const SizedBox(height: 8),
+          Text(
+            value,
+            style: FlutterFlowTheme.of(context).bodyLarge.override(
+                  fontFamily: 'Readex Pro',
+                  fontWeight: FontWeight.bold,
+                  color: color,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            title,
+            style: FlutterFlowTheme.of(context).bodySmall.override(
+                  fontFamily: 'Readex Pro',
+                  fontSize: 10,
+                ),
+            textAlign: TextAlign.center,
+          ),
+        ],
+      ),
     );
   }
 
@@ -653,9 +1192,10 @@ class _ProgressPageState extends State<ProgressPage> {
   Widget _buildCumulativeScoreCard() {
     // Use live score if today has progress, otherwise use stored cumulative score
     final showLive = _hasProjection && _todayPercentage > 0;
-    final displayScore = showLive ? _projectedCumulativeScore : _cumulativeScore;
+    final displayScore =
+        showLive ? _projectedCumulativeScore : _cumulativeScore;
     final displayGain = showLive ? _projectedDailyGain : _dailyScoreGain;
-    
+
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;
     final gainText = displayGain >= 0
@@ -725,36 +1265,365 @@ class _ProgressPageState extends State<ProgressPage> {
                   ],
                 ),
               ),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.end,
-                children: [
-                  Row(
+              Tooltip(
+                message: 'Tap to see score breakdown',
+                child: GestureDetector(
+                  onTap: () => _showScoreBreakdownDialog(displayGain),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
                     children: [
-                      Icon(gainIcon, color: gainColor, size: 16),
-                      const SizedBox(width: 4),
+                      Row(
+                        children: [
+                          Icon(gainIcon, color: gainColor, size: 16),
+                          const SizedBox(width: 4),
+                          Text(
+                            gainText,
+                            style: FlutterFlowTheme.of(context)
+                                .bodyMedium
+                                .override(
+                                  fontFamily: 'Readex Pro',
+                                  color: gainColor,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            Icons.info_outline,
+                            color: gainColor,
+                            size: 14,
+                          ),
+                        ],
+                      ),
                       Text(
-                        gainText,
-                        style: FlutterFlowTheme.of(context).bodyMedium.override(
+                        'Today',
+                        style: FlutterFlowTheme.of(context).bodySmall.override(
                               fontFamily: 'Readex Pro',
-                              color: gainColor,
-                              fontWeight: FontWeight.w600,
+                              color: FlutterFlowTheme.of(context).secondaryText,
                             ),
                       ),
                     ],
                   ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          _buildMilestoneProgress(displayScore),
+          const SizedBox(height: 12),
+          _buildCumulativeScoreGraph(),
+        ],
+      ),
+    );
+  }
+
+  void _showScoreBreakdownDialog(double displayGain) {
+    showDialog(
+      context: context,
+      builder: (BuildContext context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Container(
+            constraints: const BoxConstraints(maxWidth: 400),
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Header
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text(
+                      'Score Breakdown',
+                      style: FlutterFlowTheme.of(context).titleLarge.override(
+                            fontFamily: 'Readex Pro',
+                            fontWeight: FontWeight.bold,
+                          ),
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close),
+                      onPressed: () => Navigator.of(context).pop(),
+                      padding: EdgeInsets.zero,
+                      constraints: const BoxConstraints(),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+                // Breakdown items
+                if (_hasProjection) ...[
+                  _buildBreakdownRow(
+                    context,
+                    'Completion Score',
+                    _dailyScore,
+                    Colors.blue,
+                  ),
+                  if (_consistencyBonus > 0)
+                    _buildBreakdownRow(
+                      context,
+                      'Consistency Bonus',
+                      _consistencyBonus,
+                      Colors.green,
+                    ),
+                  if (_recoveryBonus > 0)
+                    _buildBreakdownRow(
+                      context,
+                      'Recovery Bonus',
+                      _recoveryBonus,
+                      Colors.green,
+                    ),
+                  if (_decayPenalty > 0)
+                    _buildBreakdownRow(
+                      context,
+                      'Low Performance Penalty',
+                      -_decayPenalty,
+                      Colors.red,
+                    ),
+                  if (_categoryNeglectPenalty > 0)
+                    _buildBreakdownRow(
+                      context,
+                      'Category Neglect Penalty',
+                      -_categoryNeglectPenalty,
+                      Colors.red,
+                    ),
+                ] else ...[
                   Text(
-                    'Today',
-                    style: FlutterFlowTheme.of(context).bodySmall.override(
+                    'Breakdown available only for today\'s live score',
+                    style: FlutterFlowTheme.of(context).bodyMedium.override(
                           fontFamily: 'Readex Pro',
                           color: FlutterFlowTheme.of(context).secondaryText,
                         ),
                   ),
                 ],
+                const SizedBox(height: 16),
+                // Total
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color:
+                        FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Total Change',
+                        style: FlutterFlowTheme.of(context).bodyMedium.override(
+                              fontFamily: 'Readex Pro',
+                              fontWeight: FontWeight.w600,
+                            ),
+                      ),
+                      Text(
+                        displayGain >= 0
+                            ? '+${displayGain.toStringAsFixed(1)}'
+                            : displayGain.toStringAsFixed(1),
+                        style: FlutterFlowTheme.of(context).bodyMedium.override(
+                              fontFamily: 'Readex Pro',
+                              fontWeight: FontWeight.bold,
+                              color:
+                                  displayGain >= 0 ? Colors.green : Colors.red,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildBreakdownRow(
+    BuildContext context,
+    String label,
+    double value,
+    Color color,
+  ) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 12),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(
+            label,
+            style: FlutterFlowTheme.of(context).bodyMedium.override(
+                  fontFamily: 'Readex Pro',
+                ),
+          ),
+          Text(
+            value >= 0
+                ? '+${value.toStringAsFixed(1)}'
+                : value.toStringAsFixed(1),
+            style: FlutterFlowTheme.of(context).bodyMedium.override(
+                  fontFamily: 'Readex Pro',
+                  fontWeight: FontWeight.w600,
+                  color: color,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMilestoneProgress(double currentScore) {
+    final nextMilestone = MilestoneService.getNextMilestone(currentScore);
+    final progress = MilestoneService.getProgressToNextMilestone(currentScore);
+    final achievedMilestones =
+        MilestoneService.getAchievedMilestones(_achievedMilestones);
+
+    if (nextMilestone == null) {
+      // All milestones achieved
+      return Container(
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: Colors.amber.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(
+            color: Colors.amber.withOpacity(0.3),
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.emoji_events, color: Colors.amber, size: 20),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                'All Milestones Achieved! 🎉',
+                style: FlutterFlowTheme.of(context).bodyMedium.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                      color: Colors.amber.shade800,
+                    ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final pointsToNext = nextMilestone - currentScore;
+    final progressPercent = (progress * 100).toStringAsFixed(0);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Next Milestone: $nextMilestone points',
+                style: FlutterFlowTheme.of(context).bodyMedium.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+              Text(
+                '$progressPercent%',
+                style: FlutterFlowTheme.of(context).bodySmall.override(
+                      fontFamily: 'Readex Pro',
+                      color: FlutterFlowTheme.of(context).primary,
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
             ],
           ),
-          const SizedBox(height: 12),
-          _buildCumulativeScoreGraph(),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 8,
+              backgroundColor:
+                  FlutterFlowTheme.of(context).alternate.withOpacity(0.2),
+              valueColor: AlwaysStoppedAnimation<Color>(
+                FlutterFlowTheme.of(context).primary,
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                '${currentScore.toStringAsFixed(1)} / $nextMilestone',
+                style: FlutterFlowTheme.of(context).bodySmall.override(
+                      fontFamily: 'Readex Pro',
+                      color: FlutterFlowTheme.of(context).secondaryText,
+                    ),
+              ),
+              Text(
+                '${pointsToNext.toStringAsFixed(1)} points to go',
+                style: FlutterFlowTheme.of(context).bodySmall.override(
+                      fontFamily: 'Readex Pro',
+                      color: FlutterFlowTheme.of(context).secondaryText,
+                    ),
+              ),
+            ],
+          ),
+          if (achievedMilestones.isNotEmpty) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: achievedMilestones.map((milestone) {
+                final isMajor = MilestoneService.isMajorMilestone(milestone);
+                return Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  decoration: BoxDecoration(
+                    color: isMajor
+                        ? Colors.amber.withOpacity(0.2)
+                        : Colors.blue.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: isMajor
+                          ? Colors.amber.withOpacity(0.5)
+                          : Colors.blue.withOpacity(0.5),
+                      width: 1,
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        isMajor ? Icons.emoji_events : Icons.star,
+                        size: 14,
+                        color: isMajor
+                            ? Colors.amber.shade800
+                            : Colors.blue.shade800,
+                      ),
+                      const SizedBox(width: 4),
+                      Text(
+                        '$milestone',
+                        style: FlutterFlowTheme.of(context).bodySmall.override(
+                              fontFamily: 'Readex Pro',
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                              color: isMajor
+                                  ? Colors.amber.shade800
+                                  : Colors.blue.shade800,
+                            ),
+                      ),
+                    ],
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
         ],
       ),
     );
@@ -763,7 +1632,10 @@ class _ProgressPageState extends State<ProgressPage> {
   Widget _buildCumulativeScoreGraph() {
     final displayData = _show30Days
         ? _cumulativeScoreHistory
-        : _cumulativeScoreHistory.take(7).toList();
+        : _cumulativeScoreHistory.length > 7
+            ? _cumulativeScoreHistory
+                .sublist(_cumulativeScoreHistory.length - 7)
+            : _cumulativeScoreHistory;
 
     if (displayData.isEmpty) {
       return Container(
@@ -841,21 +1713,56 @@ class _ProgressPageState extends State<ProgressPage> {
   Widget _buildLineChart(List<Map<String, dynamic>> data) {
     if (data.isEmpty) return const SizedBox();
 
-    final minScore =
-        data.map((d) => d['score'] as double).reduce((a, b) => a < b ? a : b);
-    final maxScore =
-        data.map((d) => d['score'] as double).reduce((a, b) => a > b ? a : b);
-    final scoreRange = maxScore - minScore;
+    final scores = data.map((d) => d['score'] as double).toList();
+    final minScore = scores.reduce((a, b) => a < b ? a : b);
+    final maxScore = scores.reduce((a, b) => a > b ? a : b);
+    // Adjust maxScore to ensure proper rendering when all values are the same
+    final adjustedMaxScore = maxScore == minScore ? minScore + 10.0 : maxScore;
+    final adjustedRange = adjustedMaxScore - minScore;
 
-    return CustomPaint(
-      painter: CumulativeScoreLinePainter(
-        data: data,
-        minScore: minScore,
-        maxScore: maxScore,
-        scoreRange: scoreRange,
-        color: FlutterFlowTheme.of(context).primary,
-      ),
-      size: const Size(double.infinity, double.infinity),
+    // Generate scale labels (3-5 labels)
+    final numLabels = 5;
+    final scaleLabels = <double>[];
+    for (int i = 0; i < numLabels; i++) {
+      final value = minScore + (adjustedRange * i / (numLabels - 1));
+      scaleLabels.add(value);
+    }
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Y-axis scale labels
+        Column(
+          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          crossAxisAlignment: CrossAxisAlignment.end,
+          children: scaleLabels.reversed.map((value) {
+            return Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: Text(
+                value.toStringAsFixed(0),
+                style: FlutterFlowTheme.of(context).bodySmall.override(
+                      fontFamily: 'Readex Pro',
+                      fontSize: 9,
+                      color: FlutterFlowTheme.of(context).secondaryText,
+                    ),
+              ),
+            );
+          }).toList(),
+        ),
+        // Chart
+        Expanded(
+          child: CustomPaint(
+            painter: CumulativeScoreLinePainter(
+              data: data,
+              minScore: minScore,
+              maxScore: adjustedMaxScore,
+              scoreRange: adjustedRange,
+              color: FlutterFlowTheme.of(context).primary,
+            ),
+            size: const Size(double.infinity, double.infinity),
+          ),
+        ),
+      ],
     );
   }
 
@@ -990,7 +1897,7 @@ class _ProgressPageState extends State<ProgressPage> {
   Widget _build7DayColumnChart(List<DailyProgressRecord> data) {
     // Pre-calculate chart data to simplify widget tree for compiler
     final chartData = _prepareChartData();
-    
+
     // Find max target for scaling
     double maxTarget = 100.0;
     if (chartData.isNotEmpty) {
@@ -1022,12 +1929,12 @@ class _ProgressPageState extends State<ProgressPage> {
   List<Map<String, dynamic>> _prepareChartData() {
     final List<Map<String, dynamic>> chartData = [];
     final today = DateService.currentDate;
-    
+
     for (int i = 6; i >= 0; i--) {
       // Use explicit Duration constant to avoid optimization issues
       final date = today.subtract(Duration(days: i));
       final isToday = _isSameDay(date, today);
-      
+
       if (isToday) {
         chartData.add({
           'date': date,
@@ -1055,7 +1962,7 @@ class _ProgressPageState extends State<ProgressPage> {
     final earned = dayData['earned'] as double;
     final percentage = dayData['percentage'] as double;
     final dayName = dayData['dayName'] as String;
-    
+
     final targetHeight = (target / maxTarget) * 100;
     final earnedHeight = target > 0 ? (earned / target) * targetHeight : 0.0;
 
@@ -1175,6 +2082,161 @@ class _ProgressPageState extends State<ProgressPage> {
       return days[date.weekday - 1];
     }
   }
+
+  Widget _buildDrawer(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
+    final SharedPref sharedPref = SharedPref();
+
+    return Drawer(
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Container(
+                    color: theme.primary,
+                    padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Today',
+                          style: theme.headlineSmall.override(
+                            fontFamily: 'Outfit',
+                            color: Colors.white,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          currentUserEmail.isNotEmpty
+                              ? currentUserEmail
+                              : "email",
+                          style: theme.bodyMedium.override(
+                            fontFamily: 'Readex Pro',
+                            color: Colors.white70,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Expanded(
+                    child: ListView(
+                      children: [
+                        _DrawerItem(
+                          icon: Icons.home,
+                          label: 'Home',
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.pushReplacementNamed(context, home);
+                          },
+                        ),
+                        _DrawerItem(
+                          icon: Icons.repeat,
+                          label: 'Habits',
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const HabitsPage(showCompleted: true),
+                              ),
+                            );
+                          },
+                        ),
+                        _DrawerItem(
+                          icon: Icons.category,
+                          label: 'Manage Categories',
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => const ManageCategories(),
+                              ),
+                            );
+                          },
+                        ),
+                        _DrawerItem(
+                          icon: Icons.access_time,
+                          label: 'Non-Productive Items',
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const NonProductiveTemplatesPage(),
+                              ),
+                            );
+                          },
+                        ),
+                        _DrawerItem(
+                          icon: Icons.trending_up,
+                          label: 'Progress History',
+                          onTap: () {
+                            Navigator.pop(context);
+                            // Already on Progress History page, just close drawer
+                          },
+                        ),
+                        // Development/Testing only - show in debug mode
+                        if (kDebugMode) ...[
+                          _DrawerItem(
+                            icon: Icons.science,
+                            label: 'Testing Tools',
+                            onTap: () {
+                              Navigator.pop(context);
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const SimpleTestingPage(),
+                                ),
+                              );
+                            },
+                          ),
+                        ],
+                        const Divider(),
+                        _DrawerItem(
+                          icon: Icons.settings,
+                          label: 'Settings',
+                          onTap: () {
+                            Navigator.pop(context);
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) =>
+                                    const NotificationSettingsPage(),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            _DrawerItem(
+              icon: Icons.logout,
+              label: 'Log Out',
+              onTap: () {
+                sharedPref
+                    .remove(SharedPreference.name.sUserDetails)
+                    .then((value) {
+                  users = LoginResponse();
+                  Navigator.pushReplacementNamed(context, login);
+                });
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Custom painter for simple line chart
@@ -1213,4 +2275,24 @@ class LineChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+}
+
+class _DrawerItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+  const _DrawerItem({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+  @override
+  Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
+    return ListTile(
+      leading: Icon(icon, color: theme.primary),
+      title: Text(label, style: theme.bodyLarge),
+      onTap: onTap,
+    );
+  }
 }

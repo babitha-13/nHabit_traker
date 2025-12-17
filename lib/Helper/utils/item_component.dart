@@ -327,189 +327,225 @@ class _ItemComponentState extends State<ItemComponent>
             width: 1,
           ),
         ),
-        child: IntrinsicHeight(
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              _buildLeftStripe(),
-              const SizedBox(width: 5),
-              SizedBox(
-                width: 36,
-                child: Center(child: _buildLeftControlsCompact()),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Left stripe - match content height
+            ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 50),
+              child: _buildLeftStripe(),
+            ),
+            const SizedBox(width: 5),
+            // Left controls - centered vertically
+            Align(
+              alignment: Alignment.center,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 50),
+                child: SizedBox(
+                  width: 36,
+                  child: Center(child: _buildLeftControlsCompact()),
+                ),
               ),
-              const SizedBox(width: 5),
-              Expanded(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () {
-                    setState(() {
-                      _isExpanded = !_isExpanded;
-                      // Check for reminders when expanding
-                      if (_isExpanded && _hasReminders == null) {
-                        _checkForReminders();
-                      }
-                    });
-                  },
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(minHeight: 50),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          widget.instance.templateName,
-                          maxLines: _isExpanded ? null : 1,
-                          overflow: _isExpanded
-                              ? TextOverflow.visible
-                              : TextOverflow.ellipsis,
-                          style: FlutterFlowTheme.of(context)
-                              .bodyMedium
-                              .override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                                decoration: _isCompleted
-                                    ? TextDecoration.lineThrough
-                                    : TextDecoration.none,
-                                color: _isCompleted
-                                    ? FlutterFlowTheme.of(context).secondaryText
-                                    : FlutterFlowTheme.of(context).primaryText,
-                              ),
-                        ),
-                        if (_getEnhancedSubtitle(includeProgress: _isExpanded)
-                            .isNotEmpty) ...[
-                          const SizedBox(height: 2),
+            ),
+            const SizedBox(width: 5),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, constraints) {
+                  return GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: () {
+                      setState(() {
+                        _isExpanded = !_isExpanded;
+                        // Check for reminders when expanding
+                        if (_isExpanded && _hasReminders == null) {
+                          _checkForReminders();
+                        }
+                      });
+                    },
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(minHeight: 50),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
                           Text(
-                            _getEnhancedSubtitle(includeProgress: _isExpanded),
+                            widget.instance.templateName,
                             maxLines: _isExpanded ? null : 1,
                             overflow: _isExpanded
                                 ? TextOverflow.visible
                                 : TextOverflow.ellipsis,
-                            style:
-                                FlutterFlowTheme.of(context).bodySmall.override(
-                                      fontFamily: 'Readex Pro',
-                                      color: FlutterFlowTheme.of(context)
-                                          .secondaryText,
-                                      fontSize: 12,
-                                    ),
-                          ),
-                        ],
-                        if (_isExpanded) ...[
-                          const SizedBox(height: 4),
-                          ItemExpandedDetails(
-                            instance: widget.instance,
-                            page: widget.page,
-                            subtitle: widget.subtitle,
-                            isHabit: widget.isHabit,
-                            isRecurring: _isRecurringItem(),
-                            frequencyDisplay: _getFrequencyDisplay(),
-                            hasReminders: _hasReminders,
-                            reminderDisplayText: _reminderDisplayText,
-                            onEdit: _editActivity,
-                          ),
-                        ],
-                        // Progress bar inside the text container for proper vertical centering
-                        if (widget.instance.templateTrackingType !=
-                            'binary') ...[
-                          const SizedBox(height: 4),
-                          Container(
-                            height: 3,
-                            decoration: BoxDecoration(
-                              color: Colors.white,
-                              border: Border.all(
-                                color: _leftStripeColor,
-                                width: 1,
-                              ),
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                            child: Stack(
-                              children: [
-                                Container(
-                                  width: double.infinity,
-                                  height: 3,
-                                  decoration: BoxDecoration(
-                                    color: Colors.white,
-                                    borderRadius: BorderRadius.circular(2),
-                                  ),
+                            style: FlutterFlowTheme.of(context)
+                                .bodyMedium
+                                .override(
+                                  fontFamily: 'Readex Pro',
+                                  fontWeight: FontWeight.w600,
+                                  decoration: _isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : TextDecoration.none,
+                                  color: _isCompleted
+                                      ? FlutterFlowTheme.of(context)
+                                          .secondaryText
+                                      : FlutterFlowTheme.of(context)
+                                          .primaryText,
                                 ),
-                                FractionallySizedBox(
-                                  alignment: Alignment.centerLeft,
-                                  widthFactor: _progressPercentClamped,
-                                  child: Container(
+                          ),
+                          if (_getEnhancedSubtitle(includeProgress: _isExpanded)
+                                  .isNotEmpty &&
+                              !_isNonProductive) ...[
+                            const SizedBox(height: 2),
+                            Text(
+                              _getEnhancedSubtitle(
+                                  includeProgress: _isExpanded),
+                              maxLines: _isExpanded ? null : 1,
+                              overflow: _isExpanded
+                                  ? TextOverflow.visible
+                                  : TextOverflow.ellipsis,
+                              style: FlutterFlowTheme.of(context)
+                                  .bodySmall
+                                  .override(
+                                    fontFamily: 'Readex Pro',
+                                    color: FlutterFlowTheme.of(context)
+                                        .primaryText
+                                        .withOpacity(0.7),
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w500,
+                                  ),
+                            ),
+                          ],
+                          if (_isExpanded && !_isNonProductive) ...[
+                            const SizedBox(height: 4),
+                            ItemExpandedDetails(
+                              instance: widget.instance,
+                              page: widget.page,
+                              subtitle: widget.subtitle,
+                              isHabit: widget.isHabit,
+                              isRecurring: _isRecurringItem(),
+                              frequencyDisplay: _getFrequencyDisplay(),
+                              hasReminders: _hasReminders,
+                              reminderDisplayText: _reminderDisplayText,
+                              onEdit: _editActivity,
+                            ),
+                          ],
+                          // Progress bar inside the text container for proper vertical centering
+                          if (widget.instance.templateTrackingType !=
+                              'binary') ...[
+                            const SizedBox(height: 4),
+                            Container(
+                              height: 3,
+                              decoration: BoxDecoration(
+                                color: Colors.white,
+                                border: Border.all(
+                                  color: _leftStripeColor,
+                                  width: 1,
+                                ),
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                              child: Stack(
+                                children: [
+                                  Container(
+                                    width: double.infinity,
                                     height: 3,
                                     decoration: BoxDecoration(
-                                      color: _leftStripeColor,
+                                      color: Colors.white,
                                       borderRadius: BorderRadius.circular(2),
                                     ),
                                   ),
-                                ),
-                              ],
+                                  FractionallySizedBox(
+                                    alignment: Alignment.centerLeft,
+                                    widthFactor: _progressPercentClamped,
+                                    child: Container(
+                                      height: 3,
+                                      decoration: BoxDecoration(
+                                        color: _leftStripeColor,
+                                        borderRadius: BorderRadius.circular(2),
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
                             ),
-                          ),
+                          ],
                         ],
-                      ],
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+            // Right controls - centered vertically, match content height
+            Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.center,
+              children: [
+                // Icons container - match content height (50) for alignment, but use padding to reduce visual space
+                ConstrainedBox(
+                  constraints: const BoxConstraints(minHeight: 50),
+                  child: Padding(
+                    padding: EdgeInsets.only(
+                      bottom: _isExpanded && !_isNonProductive ? 6.0 : 0.0,
+                    ),
+                    child: Center(
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(width: 5),
+                          if (_isExpanded && widget.isHabit) ...[
+                            GestureDetector(
+                              onTap: () {
+                                Navigator.push(
+                                  context,
+                                  MaterialPageRoute(
+                                    builder: (context) =>
+                                        HabitDetailStatisticsPage(
+                                      habitName: widget.instance.templateName,
+                                    ),
+                                  ),
+                                );
+                              },
+                              child: Icon(
+                                Icons.bar_chart,
+                                size: 20,
+                                color: FlutterFlowTheme.of(context).primary,
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                          ],
+                          if (!_isNonProductive) ...[
+                            Builder(
+                              builder: (btnCtx) => GestureDetector(
+                                onTap: () {
+                                  _showScheduleMenu(btnCtx);
+                                },
+                                child:
+                                    const Icon(Icons.calendar_month, size: 20),
+                              ),
+                            ),
+                            const SizedBox(width: 5),
+                          ],
+                          if (!_isNonProductive) ...[
+                            Builder(
+                              builder: (btnCtx) => GestureDetector(
+                                onTap: () {
+                                  _showHabitOverflowMenu(btnCtx);
+                                },
+                                child: const Icon(Icons.more_vert, size: 20),
+                              ),
+                            ),
+                          ],
+                        ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-              Column(
-                mainAxisSize: MainAxisSize.min,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const SizedBox(width: 5),
-                      if (_isExpanded && widget.isHabit) ...[
-                        GestureDetector(
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => HabitDetailStatisticsPage(
-                                  habitName: widget.instance.templateName,
-                                ),
-                              ),
-                            );
-                          },
-                          child: Icon(
-                            Icons.bar_chart,
-                            size: 20,
-                            color: FlutterFlowTheme.of(context).primary,
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                      ],
-                      if (!_isNonProductive) ...[
-                        Builder(
-                          builder: (btnCtx) => GestureDetector(
-                            onTap: () {
-                              _showScheduleMenu(btnCtx);
-                            },
-                            child: const Icon(Icons.calendar_month, size: 20),
-                          ),
-                        ),
-                        const SizedBox(width: 5),
-                      ],
-                      if (!_isNonProductive) ...[
-                        Builder(
-                          builder: (btnCtx) => GestureDetector(
-                            onTap: () {
-                              _showHabitOverflowMenu(btnCtx);
-                            },
-                            child: const Icon(Icons.more_vert, size: 20),
-                          ),
-                        ),
-                      ],
-                    ],
+                // Priority stars - centered horizontally relative to icons above
+                if (_isExpanded && !_isNonProductive) ...[
+                  Center(
+                    child: _buildHabitPriorityStars(),
                   ),
-                  if (_isExpanded && !_isNonProductive) ...[
-                    const SizedBox(height: 10),
-                    _buildHabitPriorityStars(),
-                  ],
                 ],
-              ),
-            ],
-          ),
+              ],
+            ),
+          ],
         ),
       ),
     );
@@ -558,12 +594,6 @@ class _ItemComponentState extends State<ItemComponent>
       // Get the updated instance data
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
-      );
-      // Show confirmation
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-            content: Text(
-                'Priority set to $newPriority star${newPriority > 1 ? 's' : ''}')),
       );
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
@@ -1096,7 +1126,9 @@ class _ItemComponentState extends State<ItemComponent>
     if (hex != null && hex.isNotEmpty) {
       try {
         return Color(int.parse(hex.replaceFirst('#', '0xFF')));
-      } catch (_) {}
+      } catch (_) {
+        // Silently ignore color parsing errors - fallback to default color
+      }
     }
     return Colors.black;
   }
@@ -1108,15 +1140,24 @@ class _ItemComponentState extends State<ItemComponent>
   Widget _buildLeftStripe() {
     if (_isNonProductive) {
       // Dotted stripe for non-productive items
-      return SizedBox(
-        width: 3,
-        child: CustomPaint(
-          size: Size(3, double.infinity),
-          painter: _DottedLinePainter(color: _leftStripeColor),
-        ),
+      // ConstrainedBox wrapper provides height constraints
+      return LayoutBuilder(
+        builder: (context, constraints) {
+          final height = constraints.maxHeight.isFinite
+              ? constraints.maxHeight
+              : constraints.minHeight;
+          return SizedBox(
+            width: 3,
+            height: height,
+            child: CustomPaint(
+              size: Size(3, height),
+              painter: _DottedLinePainter(color: _leftStripeColor),
+            ),
+          );
+        },
       );
     } else {
-      // Solid stripe for productive items
+      // Solid stripe for productive items - expands to fill ConstrainedBox height
       return Container(
         width: 3,
         decoration: BoxDecoration(
@@ -1798,7 +1839,10 @@ class _ItemComponentState extends State<ItemComponent>
           instanceId: instance.reference.id,
         );
         widget.onInstanceUpdated?.call(completedInstance);
-      } catch (e) {}
+      } catch (e) {
+        // Log error but don't fail - instance update callback is non-critical
+        print('Error updating instance in item component: $e');
+      }
     }
   }
 
@@ -1831,6 +1875,18 @@ class _ItemComponentState extends State<ItemComponent>
         side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
       ),
       items: [
+        const PopupMenuItem<String>(
+          value: 'reset',
+          height: 36,
+          child: Row(
+            children: [
+              Icon(Icons.refresh, size: 18),
+              SizedBox(width: 8),
+              Text('Reset to Zero')
+            ],
+          ),
+        ),
+        const PopupMenuDivider(height: 6),
         const PopupMenuItem<String>(
           value: 'inc',
           height: 36,
@@ -1869,7 +1925,10 @@ class _ItemComponentState extends State<ItemComponent>
         ),
       ],
     );
-    if (selected == 'inc') {
+    if (selected == null) return;
+    if (selected == 'reset') {
+      await _resetQuantity();
+    } else if (selected == 'inc') {
       await _updateProgress(1);
     } else if (selected == 'dec' && canDecrement) {
       await _updateProgress(-1);
@@ -2035,6 +2094,61 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
+  Future<void> _resetQuantity() async {
+    if (_isUpdating) return;
+    setState(() {
+      _isUpdating = true;
+      // Clear optimistic state override
+      _quantProgressOverride = null;
+    });
+    try {
+      // Get current instance to check status
+      final instance = widget.instance;
+      // Reset quantity by updating the instance directly
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(widget.instance.reference.id);
+      await instanceRef.update({
+        'currentValue': 0,
+        'lastUpdated': DateTime.now(),
+      });
+      // If the item was completed or skipped based on quantity, uncomplete it
+      if (instance.status == 'completed' || instance.status == 'skipped') {
+        // Check if quantity was the only progress (for quantitative tracking)
+        if (instance.templateTrackingType == 'quantitative') {
+          await ActivityInstanceService.uncompleteInstance(
+            instanceId: widget.instance.reference.id,
+          );
+        }
+      }
+      // Get the updated instance data
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      // Call the instance update callback for real-time updates
+      widget.onInstanceUpdated?.call(updatedInstance);
+      // Broadcast update
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Quantity reset to 0')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error resetting quantity: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isUpdating = false;
+        });
+      }
+    }
+  }
+
   Future<void> _markTimerComplete() async {
     if (_isUpdating) return;
     setState(() {
@@ -2094,7 +2208,58 @@ class _ItemComponentState extends State<ItemComponent>
         newAccumulatedTime = targetMs.toInt();
       }
 
-      // Step 5: Complete with the determined accumulated time
+      // Step 5: Create a time log session with the full target duration
+      // This ensures the calendar shows the complete 3 hours, not just the timer duration
+      final completionTime = DateTime.now();
+      final sessionStartTime =
+          await ActivityInstanceService.calculateStackedStartTime(
+        userId: currentUserUid,
+        completionTime: completionTime,
+        durationMs: newAccumulatedTime,
+        instanceId: updatedInstance.reference.id,
+      );
+
+      // Get fresh instance to check existing sessions
+      final instanceBeforeSession =
+          await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+
+      // Create new session with full target duration
+      final newSession = {
+        'startTime': sessionStartTime,
+        'endTime': completionTime,
+        'durationMilliseconds': newAccumulatedTime,
+      };
+
+      // Add to existing sessions (or replace if we want to use only the completion session)
+      final existingSessions = List<Map<String, dynamic>>.from(
+          instanceBeforeSession.timeLogSessions);
+
+      // For timer tasks marked as complete, we want to show the full target duration
+      // So we'll add a new session with the full duration
+      // This ensures the calendar displays the complete time, not just partial timer sessions
+      existingSessions.add(newSession);
+
+      // Calculate total time across all sessions
+      final totalTime = existingSessions.fold<int>(
+        0,
+        (sum, session) => sum + (session['durationMilliseconds'] as int? ?? 0),
+      );
+
+      // Update instance with the new session before completing
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(updatedInstance.reference.id);
+      await instanceRef.update({
+        'timeLogSessions': existingSessions,
+        'totalTimeLogged': totalTime,
+        'accumulatedTime': newAccumulatedTime,
+        'currentValue': newAccumulatedTime,
+        'lastUpdated': DateTime.now(),
+      });
+
+      // Step 6: Complete with the determined accumulated time
       await ActivityInstanceService.completeInstance(
         instanceId: widget.instance.reference.id,
         finalValue:

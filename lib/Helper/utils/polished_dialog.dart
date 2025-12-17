@@ -41,7 +41,14 @@ class PolishedDialog extends StatelessWidget {
             color: theme.surfaceBorderColor,
             width: 1,
           ),
-          boxShadow: theme.neumorphicShadowsRaised,
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.05),
+              offset: const Offset(0, 2),
+              blurRadius: 4,
+              spreadRadius: 0,
+            ),
+          ],
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
