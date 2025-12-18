@@ -1116,14 +1116,16 @@ Future<void> updateLastDayValuesForWindowedHabits({
     throw Exception('No authenticated user');
   }
   // Get all active windowed habit instances
-  final query = ActivityInstanceRecord.collectionForUser(uid)
-      .where('templateCategoryType', isEqualTo: 'habit')
-      .where('status', isEqualTo: 'pending')
-      .where('windowDuration', isGreaterThan: 1);
-  final querySnapshot = await query.get();
-  final instances = querySnapshot.docs
-      .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-      .toList();
+  // Filter windowDuration in memory to match Index 2 prefix order
+  try {
+    final query = ActivityInstanceRecord.collectionForUser(uid)
+        .where('templateCategoryType', isEqualTo: 'habit')
+        .where('status', isEqualTo: 'pending');
+    final querySnapshot = await query.get();
+    final instances = querySnapshot.docs
+        .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+        .where((instance) => instance.windowDuration > 1)
+        .toList();
   if (instances.isEmpty) return;
   final batch = FirebaseFirestore.instance.batch();
   final now = DateTime.now();

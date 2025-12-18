@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/backend/historical_edit_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -167,13 +166,13 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
             false; // Snooze doesn't affect yesterday's progress
       }
 
-      // Recalculate yesterday's progress if needed
-      if (needsRecalculation) {
-        await HistoricalEditService.recalculateDailyProgress(
-          userId: currentUserUid,
-          date: yesterday,
-        );
-      }
+      // Historical edit functionality removed - progress recalculation disabled
+      // if (needsRecalculation) {
+      //   await HistoricalEditService.recalculateDailyProgress(
+      //     userId: currentUserUid,
+      //     date: yesterday,
+      //   );
+      // }
 
       // Mark as processed
       setState(() {

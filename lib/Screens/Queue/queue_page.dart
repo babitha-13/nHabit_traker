@@ -62,9 +62,6 @@ class _QueuePageState extends State<QueuePage> {
   List<Map<String, dynamic>> _cumulativeScoreHistory = [];
   bool _isLoadingCumulativeScore = false; // Guard against recursive loads
   bool _pendingCumulativeScoreReload = false;
-  // Aggregate statistics
-  double _averageDailyScore7Day = 0.0;
-  int _positiveDaysCount7Day = 0;
   // Removed legacy Recent Completions expansion state; now uses standard sections
   // Search functionality
   String _searchQuery = '';
@@ -376,6 +373,79 @@ class _QueuePageState extends State<QueuePage> {
       earned: _pointsEarned,
       percentage: _dailyPercentage,
     );
+    // Update cumulative score live when progress changes
+    _updateCumulativeScoreLive();
+  }
+
+  /// Update cumulative score live without reloading full history
+  /// This provides instant updates similar to daily progress chart
+  Future<void> _updateCumulativeScoreLive() async {
+    if (_isLoadingCumulativeScore) return;
+    
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+
+      // Get today's progress
+      final todayPercentage = _dailyPercentage;
+      final todayEarned = _pointsEarned;
+
+      double currentCumulativeScore = 0.0;
+      double currentDailyGain = 0.0;
+
+      if (todayPercentage > 0) {
+        // Calculate projected score including today's progress
+        final projectionData =
+            await CumulativeScoreService.calculateProjectedDailyScore(
+          userId,
+          todayPercentage,
+          todayEarned,
+        );
+
+        currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
+        currentDailyGain = projectionData['projectedGain'] ?? 0.0;
+      } else {
+        // No progress today, use base score from Firestore
+        final userStats =
+            await CumulativeScoreService.getCumulativeScore(userId);
+        if (userStats != null) {
+          currentCumulativeScore = userStats.cumulativeScore;
+          currentDailyGain = userStats.lastDailyGain;
+        }
+      }
+
+      // Update cumulative score values
+      if (mounted) {
+        setState(() {
+          _cumulativeScore = currentCumulativeScore;
+          _dailyScoreGain = currentDailyGain;
+          
+          // Update today's entry in history if it exists
+          if (_cumulativeScoreHistory.isNotEmpty) {
+            final today = DateService.currentDate;
+            final lastItem = _cumulativeScoreHistory.last;
+            final lastDate = lastItem['date'] as DateTime;
+            
+            if (lastDate.year == today.year &&
+                lastDate.month == today.month &&
+                lastDate.day == today.day) {
+              // Update today's entry with live values
+              _cumulativeScoreHistory.last['score'] = currentCumulativeScore;
+              _cumulativeScoreHistory.last['gain'] = currentDailyGain;
+            }
+          }
+        });
+      }
+
+      // Publish to shared state for other pages
+      TodayProgressState().updateCumulativeScore(
+        cumulativeScore: currentCumulativeScore,
+        dailyGain: currentDailyGain,
+        hasLiveScore: todayPercentage > 0,
+      );
+    } catch (e) {
+      // Error updating cumulative score live - non-critical, continue silently
+    }
   }
 
   Future<void> _loadCumulativeScore() async {
@@ -442,27 +512,11 @@ class _QueuePageState extends State<QueuePage> {
         }
       }
 
-      // Load aggregate statistics
-      double avgDailyScore7Day = 0.0;
-      int positiveDays7Day = 0;
-      try {
-        final userStats =
-            await CumulativeScoreService.getCumulativeScore(userId);
-        if (userStats != null) {
-          avgDailyScore7Day = userStats.averageDailyScore7Day;
-          positiveDays7Day = userStats.positiveDaysCount7Day;
-        }
-      } catch (e) {
-        // Error loading aggregate stats
-      }
-
       // Update state with calculated values
       if (mounted) {
         setState(() {
           _cumulativeScore = currentCumulativeScore;
           _dailyScoreGain = currentDailyGain;
-          _averageDailyScore7Day = avgDailyScore7Day;
-          _positiveDaysCount7Day = positiveDays7Day;
         });
       }
 
@@ -534,8 +588,14 @@ class _QueuePageState extends State<QueuePage> {
 
         if (recordMap.containsKey(dateKey)) {
           final record = recordMap[dateKey]!;
+          // Use cumulativeScoreSnapshot if available, otherwise calculate from lastKnownScore
+          // This matches Progress page logic to ensure consistent data
           if (record.cumulativeScoreSnapshot > 0) {
             lastKnownScore = record.cumulativeScoreSnapshot;
+          } else if (record.hasDailyScoreGain()) {
+            // If no snapshot but has gain, calculate from last known score
+            lastKnownScore = (lastKnownScore + record.dailyScoreGain)
+                .clamp(0.0, double.infinity);
           }
           history.add({
             'date': date,
@@ -564,12 +624,10 @@ class _QueuePageState extends State<QueuePage> {
         if (lastDate.year == today.year &&
             lastDate.month == today.month &&
             lastDate.day == today.day) {
-          // Only update today's entry with live values if we have a valid score
-          // Don't overwrite with zeros
-          if (currentCumulativeScore > 0) {
-            history.last['score'] = currentCumulativeScore;
-            history.last['gain'] = currentDailyGain;
-          }
+          // Always update today's entry with current values to match Progress page behavior
+          // Use projected score if available (hasLiveScore), otherwise use base score
+          history.last['score'] = currentCumulativeScore;
+          history.last['gain'] = currentDailyGain;
         }
       }
 
@@ -1263,8 +1321,8 @@ class _QueuePageState extends State<QueuePage> {
               Column(
                 children: [
                   Container(
-                    width: 80,
-                    height: 80,
+                    width: 140,
+                    height: 100,
                     child: _buildCumulativeScoreMiniGraph(),
                   ),
                   const SizedBox(height: 8),
@@ -1276,58 +1334,30 @@ class _QueuePageState extends State<QueuePage> {
                         ),
                   ),
                   Text(
-                    '${_cumulativeScore.toStringAsFixed(0)} pts',
+                    _cumulativeScoreHistory.isNotEmpty
+                        ? '${(_cumulativeScoreHistory.last['score'] as double).toStringAsFixed(0)} pts'
+                        : '0 pts',
                     style: FlutterFlowTheme.of(context).bodySmall.override(
                           fontFamily: 'Readex Pro',
                           color: FlutterFlowTheme.of(context).secondaryText,
                         ),
                   ),
-                  if (_dailyScoreGain != 0)
-                    Text(
-                      _dailyScoreGain >= 0
-                          ? '+${_dailyScoreGain.toStringAsFixed(1)}'
-                          : _dailyScoreGain.toStringAsFixed(1),
-                      style: FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            color: _dailyScoreGain >= 0
-                                ? Colors.green
-                                : Colors.red,
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                  // Aggregate stats (compact display)
-                  if (_averageDailyScore7Day != 0 ||
-                      _positiveDaysCount7Day > 0) ...[
-                    const SizedBox(height: 8),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
-                      decoration: BoxDecoration(
-                        color: FlutterFlowTheme.of(context)
-                            .alternate
-                            .withOpacity(0.3),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Column(
-                        children: [
-                          Text(
-                            '7d Avg: ${_averageDailyScore7Day.toStringAsFixed(1)}',
-                            style:
-                                FlutterFlowTheme.of(context).bodySmall.override(
-                                      fontFamily: 'Readex Pro',
-                                      fontSize: 10,
-                                    ),
-                          ),
-                          Text(
-                            'Positive: $_positiveDaysCount7Day/7',
-                            style:
-                                FlutterFlowTheme.of(context).bodySmall.override(
-                                      fontFamily: 'Readex Pro',
-                                      fontSize: 10,
-                                    ),
-                          ),
-                        ],
-                      ),
+                  if (_cumulativeScoreHistory.isNotEmpty) ...[
+                    Builder(
+                      builder: (context) {
+                        final dailyGain = _cumulativeScoreHistory.last['gain'] as double;
+                        if (dailyGain == 0) return const SizedBox.shrink();
+                        return Text(
+                          dailyGain >= 0
+                              ? '+${dailyGain.toStringAsFixed(1)}'
+                              : dailyGain.toStringAsFixed(1),
+                          style: FlutterFlowTheme.of(context).bodySmall.override(
+                                fontFamily: 'Readex Pro',
+                                color: dailyGain >= 0 ? Colors.green : Colors.red,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        );
+                      },
                     ),
                   ],
                 ],
@@ -1945,6 +1975,60 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
           scaleLabels.add(value);
         }
 
+        // Calculate date labels - ensure minimum 1-day interval between labels
+        final dateLabels = <Map<String, dynamic>>[];
+        if (widget.history.isNotEmpty) {
+          // Always include the first date
+          final firstDate = widget.history[0]['date'] as DateTime;
+          dateLabels.add({
+            'index': 0,
+            'date': firstDate,
+          });
+          
+          // Track the last displayed date to ensure minimum 1-day spacing
+          DateTime? lastDisplayedDate = firstDate;
+          
+          // Iterate through remaining dates, ensuring at least 1 day apart
+          for (int i = 1; i < widget.history.length; i++) {
+            final currentDate = widget.history[i]['date'] as DateTime;
+            final daysSinceLastLabel = currentDate.difference(lastDisplayedDate!).inDays;
+            
+            // Only add label if at least 1 day has passed since last label
+            // Also limit to approximately 5 labels total to avoid crowding
+            if (daysSinceLastLabel >= 1 && dateLabels.length < 5) {
+              dateLabels.add({
+                'index': i,
+                'date': currentDate,
+              });
+              lastDisplayedDate = currentDate;
+            }
+          }
+          
+          // Always include the last date if not already included
+          final lastIndex = widget.history.length - 1;
+          final lastDate = widget.history[lastIndex]['date'] as DateTime;
+          final alreadyIncluded = dateLabels.any((label) => label['index'] == lastIndex);
+          if (!alreadyIncluded) {
+            // Check if last date is at least 1 day from the previous label
+            final lastLabelDate = dateLabels.isNotEmpty 
+                ? dateLabels.last['date'] as DateTime 
+                : null;
+            if (lastLabelDate == null || lastDate.difference(lastLabelDate).inDays >= 1) {
+              dateLabels.add({
+                'index': lastIndex,
+                'date': lastDate,
+              });
+            } else {
+              // Replace the last label with the actual last date if they're too close
+              dateLabels.removeLast();
+              dateLabels.add({
+                'index': lastIndex,
+                'date': lastDate,
+              });
+            }
+          }
+        }
+
         return Container(
           decoration: BoxDecoration(
             color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
@@ -1971,23 +2055,53 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                   }).toList(),
                 ),
               ),
-              // Chart with horizontal scroll
+              // Chart and date labels with horizontal scroll
               Expanded(
                 child: SingleChildScrollView(
                   controller: _scrollController,
                   scrollDirection: Axis.horizontal,
                   child: SizedBox(
                     width: totalWidth,
-                    height:
-                        constraints.maxHeight > 0 ? constraints.maxHeight : 100,
-                    child: CustomPaint(
-                      painter: CumulativeScoreLinePainter(
-                        data: widget.history,
-                        minScore: minScore,
-                        maxScore: adjustedMaxScore,
-                        scoreRange: adjustedRange,
-                        color: widget.color,
-                      ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Graph area
+                        SizedBox(
+                          height: constraints.maxHeight > 0 ? constraints.maxHeight - 20 : 80,
+                          child: CustomPaint(
+                            painter: CumulativeScoreLinePainter(
+                              data: widget.history,
+                              minScore: minScore,
+                              maxScore: adjustedMaxScore,
+                              scoreRange: adjustedRange,
+                              color: widget.color,
+                            ),
+                          ),
+                        ),
+                        // X-axis date labels
+                        Container(
+                          height: 20,
+                          padding: const EdgeInsets.symmetric(horizontal: 4),
+                          child: Stack(
+                            children: dateLabels.map((label) {
+                              final index = label['index'] as int;
+                              final date = label['date'] as DateTime;
+                              final xPosition = (index / (widget.history.length > 1 ? widget.history.length - 1 : 1)) * totalWidth;
+                              return Positioned(
+                                left: xPosition - 15, // Center the label
+                                child: Text(
+                                  DateFormat('MM/dd').format(date),
+                                  style: FlutterFlowTheme.of(context).bodySmall.override(
+                                        fontFamily: 'Readex Pro',
+                                        fontSize: 8,
+                                        color: FlutterFlowTheme.of(context).secondaryText,
+                                      ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

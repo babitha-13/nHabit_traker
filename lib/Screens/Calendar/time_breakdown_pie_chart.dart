@@ -163,107 +163,96 @@ class TimeBreakdownChartWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-    final totalMinutes = segments.fold<double>(0, (sum, s) => sum + s.value);
+    // Calculate total logged time excluding unlogged segment
+    final totalLoggedMinutes = segments
+        .where((s) => s.category != 'unlogged')
+        .fold<double>(0, (sum, s) => sum + s.value);
     final totalHours = 24.0 * 60.0; // 24 hours in minutes
 
-    return Container(
-      padding: const EdgeInsets.all(24.0),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // Title row with close button
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Expanded(
-                child: Text(
-                  'Time Breakdown - ${DateFormat('MMM d, y').format(selectedDate)}',
-                  style: theme.titleLarge.copyWith(
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ),
-              IconButton(
-                icon: const Icon(Icons.close),
-                onPressed: () => Navigator.of(context).pop(),
-                tooltip: 'Close',
-              ),
-            ],
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Date subtitle
+        Text(
+          DateFormat('MMM d, y').format(selectedDate),
+          style: theme.titleMedium.copyWith(
+            fontWeight: FontWeight.w600,
+            color: theme.secondaryText,
           ),
-          const SizedBox(height: 8),
-          Text(
-            'Total Logged: ${_formatDuration(totalMinutes)} / 24h',
-            style: theme.bodyMedium.copyWith(
-              color: theme.secondaryText,
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Total Logged: ${_formatDuration(totalLoggedMinutes)} / 24h',
+          style: theme.bodyMedium.copyWith(
+            color: theme.secondaryText,
+          ),
+        ),
+        const SizedBox(height: 24),
+
+        // Chart and Legend
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Pie Chart - increased size
+            TimeBreakdownPieChart(
+              segments: segments,
+              size: 240.0,
             ),
-          ),
-          const SizedBox(height: 24),
+            const SizedBox(width: 24),
 
-          // Chart and Legend
-          Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              // Pie Chart
-              TimeBreakdownPieChart(
-                segments: segments,
-                size: 200.0,
-              ),
-              const SizedBox(width: 24),
-
-              // Legend
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: segments.map((segment) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 12.0),
-                      child: Row(
-                        children: [
-                          // Color indicator
-                          Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: segment.color,
-                              shape: BoxShape.circle,
-                              border: Border.all(
-                                color: Colors.white,
-                                width: 2,
+            // Legend
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: segments.map((segment) {
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 12.0),
+                    child: Row(
+                      children: [
+                        // Color indicator
+                        Container(
+                          width: 16,
+                          height: 16,
+                          decoration: BoxDecoration(
+                            color: segment.color,
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white,
+                              width: 2,
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        // Label and value
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                segment.label,
+                                style: theme.bodyMedium.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                ),
                               ),
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          // Label and value
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  segment.label,
-                                  style: theme.bodyMedium.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
+                              Text(
+                                '${_formatDuration(segment.value)} • ${_formatPercentage(segment.value, totalHours)}',
+                                style: theme.bodySmall.copyWith(
+                                  color: theme.secondaryText,
                                 ),
-                                Text(
-                                  '${_formatDuration(segment.value)} • ${_formatPercentage(segment.value, totalHours)}',
-                                  style: theme.bodySmall.copyWith(
-                                    color: theme.secondaryText,
-                                  ),
-                                ),
-                              ],
-                            ),
+                              ),
+                            ],
                           ),
-                        ],
-                      ),
-                    );
-                  }).toList(),
-                ),
+                        ),
+                      ],
+                    ),
+                  );
+                }).toList(),
               ),
-            ],
-          ),
-        ],
-      ),
+            ),
+          ],
+        ),
+      ],
     );
   }
 }

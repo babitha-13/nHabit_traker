@@ -4,6 +4,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 
 /// Global floating timer widget that appears on all pages when timers are active
 class GlobalFloatingTimer extends StatefulWidget {
@@ -25,6 +27,16 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
     super.initState();
     _timerManager.addListener(_onTimerStateChanged);
     
+    // Load existing active timers from Firestore
+    _timerManager.loadActiveTimers();
+    
+    // Listen to instance update events for real-time sync
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceUpdated,
+      _onInstanceUpdated,
+    );
+    
     // Pulse animation for active timer
     _pulseController = AnimationController(
       vsync: this,
@@ -39,6 +51,7 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   @override
   void dispose() {
     _timerManager.removeListener(_onTimerStateChanged);
+    NotificationCenter.removeObserver(this, InstanceEvents.instanceUpdated);
     _pulseController.dispose();
     super.dispose();
   }
@@ -46,6 +59,16 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   void _onTimerStateChanged() {
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  /// Handle instance update events from NotificationCenter
+  void _onInstanceUpdated(Object? data) {
+    if (data is ActivityInstanceRecord) {
+      // Check if it's a timer instance and sync with TimerManager
+      if (data.templateTrackingType == 'time') {
+        _timerManager.updateInstance(data);
+      }
     }
   }
 
@@ -275,47 +298,22 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
               ),
             ),
           ],
-          // Action buttons
+          // Action button
           const SizedBox(height: 8),
-          Row(
-            children: [
-              Expanded(
-                child: ElevatedButton(
-                  onPressed: () => _toggleTimer(instance),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: theme.primary,
-                    foregroundColor: Colors.white,
-                    padding: const EdgeInsets.symmetric(vertical: 8),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: Text(
-                    instance.isTimerActive ? 'Pause' : 'Resume',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                ),
+          ElevatedButton(
+            onPressed: () => _stopTimer(instance),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.redAccent,
+              foregroundColor: Colors.white,
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(8),
               ),
-              const SizedBox(width: 8),
-              ElevatedButton(
-                onPressed: () => _stopTimer(instance),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.redAccent,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 12,
-                    vertical: 8,
-                  ),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                ),
-                child: const Text(
-                  'Stop',
-                  style: TextStyle(fontSize: 12),
-                ),
-              ),
-            ],
+            ),
+            child: const Text(
+              'Stop',
+              style: TextStyle(fontSize: 12),
+            ),
           ),
         ],
       ),
@@ -351,29 +349,11 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
     }
   }
 
-  /// Toggle timer (pause/resume)
-  Future<void> _toggleTimer(ActivityInstanceRecord instance) async {
-    try {
-      await ActivityInstanceService.toggleInstanceTimer(
-        instanceId: instance.reference.id,
-      );
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instance.reference.id,
-      );
-      _timerManager.updateInstance(updatedInstance);
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error controlling timer: $e')),
-        );
-      }
-    }
-  }
-
   /// Stop timer
   Future<void> _stopTimer(ActivityInstanceRecord instance) async {
     try {
-      if (instance.isTimerActive) {
+      final wasActive = instance.isTimerActive;
+      if (wasActive) {
         await ActivityInstanceService.toggleInstanceTimer(
           instanceId: instance.reference.id,
         );
@@ -381,7 +361,13 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
-      _timerManager.updateInstance(updatedInstance);
+      // If timer was stopped, remove it from TimerManager
+      if (wasActive && !updatedInstance.isTimerActive) {
+        _timerManager.stopInstance(updatedInstance);
+      } else {
+        _timerManager.updateInstance(updatedInstance);
+      }
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

@@ -774,7 +774,7 @@ class ActivityInstanceService {
     required String userId,
     required DateTime completionTime,
     required String excludeInstanceId,
-    Duration window = const Duration(seconds: 2),
+    Duration window = const Duration(seconds: 15),
   }) async {
     try {
       final windowStart = completionTime.subtract(window);
@@ -791,6 +791,15 @@ class ActivityInstanceService {
           .where((instance) => instance.reference.id != excludeInstanceId)
           .toList();
     } catch (e) {
+      print('❌ MISSING INDEX: findSimultaneousCompletions needs Index 4');
+      print('Required Index: status (ASC) + completedAt (ASC)');
+      print('Collection: activity_instances');
+      print('Full error: $e');
+      if (e.toString().contains('index') || e.toString().contains('https://')) {
+        print(
+            '📋 Look for the Firestore index creation link in the error message above!');
+        print('   Click the link to create the index automatically.');
+      }
       return [];
     }
   }
@@ -987,6 +996,7 @@ class ActivityInstanceService {
   static Future<void> uncompleteInstance({
     required String instanceId,
     String? userId,
+    bool deleteLogs = false, // New parameter to optionally delete calendar logs
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -1001,24 +1011,50 @@ class ActivityInstanceService {
 
       // For habits, delete any pending future instances that were auto-generated
       if (instance.templateCategoryType == 'habit') {
-        final futureInstancesQuery =
-            ActivityInstanceRecord.collectionForUser(uid)
-                .where('templateId', isEqualTo: instance.templateId)
-                .where('status', isEqualTo: 'pending')
-                .where('belongsToDate', isGreaterThan: instance.belongsToDate);
+        try {
+          final futureInstancesQuery =
+              ActivityInstanceRecord.collectionForUser(uid)
+                  .where('templateId', isEqualTo: instance.templateId)
+                  .where('status', isEqualTo: 'pending')
+                  .where('belongsToDate',
+                      isGreaterThan: instance.belongsToDate);
 
-        final futureInstances = await futureInstancesQuery.get();
-        for (final doc in futureInstances.docs) {
-          await doc.reference.delete();
+          final futureInstances = await futureInstancesQuery.get();
+          for (final doc in futureInstances.docs) {
+            await doc.reference.delete();
+          }
+        } catch (e) {
+          print('❌ MISSING INDEX: uncompleteInstance needs Index 1');
+          print(
+              'Required Index: templateId (ASC) + status (ASC) + belongsToDate (ASC) + dueDate (ASC)');
+          print('Collection: activity_instances');
+          print('Full error: $e');
+          if (e.toString().contains('index') ||
+              e.toString().contains('https://')) {
+            print(
+                '📋 Look for the Firestore index creation link in the error message above!');
+            print('   Click the link to create the index automatically.');
+          }
+          rethrow;
         }
       }
 
-      await instanceRef.update({
+      final updateData = <String, dynamic>{
         'status': 'pending',
         'completedAt': null,
         'skippedAt': null, // Add this to also clear skippedAt
         'lastUpdated': DateService.currentDate,
-      });
+      };
+
+      // If deleteLogs is true, clear all calendar logs and reset time-related fields
+      if (deleteLogs) {
+        updateData['timeLogSessions'] = [];
+        updateData['totalTimeLogged'] = 0;
+        updateData['accumulatedTime'] = 0;
+        updateData['currentValue'] = 0;
+      }
+
+      await instanceRef.update(updateData);
       // Broadcast the instance update event
       final updatedInstance =
           await getUpdatedInstance(instanceId: instanceId, userId: uid);
@@ -1615,7 +1651,20 @@ class ActivityInstanceService {
           .where('status', isEqualTo: 'pending')
           .orderBy('dueDate', descending: false)
           .limit(1);
-      final oldestInstances = await oldestQuery.get();
+      final oldestInstances = await oldestQuery.get().catchError((e) {
+        print('❌ MISSING INDEX: skipUntilDate oldestQuery needs Index 1');
+        print(
+            'Required Index: templateId (ASC) + status (ASC) + belongsToDate (ASC) + dueDate (ASC)');
+        print('Collection: activity_instances');
+        print('Full error: $e');
+        if (e.toString().contains('index') ||
+            e.toString().contains('https://')) {
+          print(
+              '📋 Look for the Firestore index creation link in the error message above!');
+          print('   Click the link to create the index automatically.');
+        }
+        throw e;
+      });
       if (oldestInstances.docs.isEmpty) {
         return;
       }
@@ -1626,41 +1675,58 @@ class ActivityInstanceService {
       // This maintains the recurrence pattern by creating instances at the correct intervals
       while (currentDueDate.isBefore(untilDate)) {
         // Check if instance already exists
-        final existingQuery = ActivityInstanceRecord.collectionForUser(uid)
-            .where('templateId', isEqualTo: templateId)
-            .where('dueDate', isEqualTo: currentDueDate)
-            .where('status', isEqualTo: 'pending');
-        final existingInstances = await existingQuery.get();
-        if (existingInstances.docs.isNotEmpty) {
-          // Instance already exists, just mark as skipped
-          final existingInstance = existingInstances.docs.first;
-          await existingInstance.reference.update({
-            'status': 'skipped',
-            'skippedAt': now,
-            'lastUpdated': now,
-          });
-        } else {
-          // Create new instance and mark as skipped
-          await createActivityInstance(
-            templateId: templateId,
-            dueDate: currentDueDate,
-            dueTime: template.dueTime,
-            template: template,
-            userId: uid,
-          );
-          // Mark the newly created instance as skipped
-          final newInstanceQuery = ActivityInstanceRecord.collectionForUser(uid)
+        try {
+          final existingQuery = ActivityInstanceRecord.collectionForUser(uid)
               .where('templateId', isEqualTo: templateId)
-              .where('dueDate', isEqualTo: currentDueDate)
-              .where('status', isEqualTo: 'pending');
-          final newInstances = await newInstanceQuery.get();
-          if (newInstances.docs.isNotEmpty) {
-            await newInstances.docs.first.reference.update({
+              .where('status', isEqualTo: 'pending')
+              .where('dueDate', isEqualTo: currentDueDate);
+          final existingInstances = await existingQuery.get();
+          if (existingInstances.docs.isNotEmpty) {
+            // Instance already exists, just mark as skipped
+            final existingInstance = existingInstances.docs.first;
+            await existingInstance.reference.update({
               'status': 'skipped',
               'skippedAt': now,
               'lastUpdated': now,
             });
+          } else {
+            // Create new instance and mark as skipped
+            await createActivityInstance(
+              templateId: templateId,
+              dueDate: currentDueDate,
+              dueTime: template.dueTime,
+              template: template,
+              userId: uid,
+            );
+            // Mark the newly created instance as skipped
+            final newInstanceQuery =
+                ActivityInstanceRecord.collectionForUser(uid)
+                    .where('templateId', isEqualTo: templateId)
+                    .where('status', isEqualTo: 'pending')
+                    .where('dueDate', isEqualTo: currentDueDate);
+            final newInstances = await newInstanceQuery.get();
+            if (newInstances.docs.isNotEmpty) {
+              await newInstances.docs.first.reference.update({
+                'status': 'skipped',
+                'skippedAt': now,
+                'lastUpdated': now,
+              });
+            }
           }
+        } catch (e) {
+          print(
+              '❌ MISSING INDEX: skipUntilDate existingQuery/newInstanceQuery needs Index 1');
+          print(
+              'Required Index: templateId (ASC) + status (ASC) + belongsToDate (ASC) + dueDate (ASC)');
+          print('Collection: activity_instances');
+          print('Full error: $e');
+          if (e.toString().contains('index') ||
+              e.toString().contains('https://')) {
+            print(
+                '📋 Look for the Firestore index creation link in the error message above!');
+            print('   Click the link to create the index automatically.');
+          }
+          rethrow;
         }
         // Calculate next due date based on recurrence pattern
         final nextDueDate = _calculateNextDueDate(
@@ -1674,40 +1740,55 @@ class ActivityInstanceService {
       }
       // Step 2: Ensure there's a properly-scheduled instance after untilDate
       // This respects the original recurrence pattern, not the untilDate
-      final futureQuery = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateId', isEqualTo: templateId)
-          .where('status', isEqualTo: 'pending')
-          .where('dueDate', isGreaterThanOrEqualTo: untilDate);
-      final futureInstances = await futureQuery.get();
-      if (futureInstances.docs.isEmpty) {
-        // Create the next properly-scheduled instance
-        // Use the last calculated due date (which respects the pattern)
-        if (currentDueDate.isAtSameMomentAs(untilDate) ||
-            currentDueDate.isAfter(untilDate)) {
-          // The last calculated date is already at or after untilDate, use it
-          await createActivityInstance(
-            templateId: templateId,
-            dueDate: currentDueDate,
-            dueTime: template.dueTime,
-            template: template,
-            userId: uid,
-          );
-        } else {
-          // Need to calculate one more step to get past untilDate
-          final nextProperDate = _calculateNextDueDate(
-            currentDueDate: currentDueDate,
-            template: template,
-          );
-          if (nextProperDate != null) {
+      try {
+        final futureQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateId', isEqualTo: templateId)
+            .where('status', isEqualTo: 'pending')
+            .where('dueDate', isGreaterThanOrEqualTo: untilDate);
+        final futureInstances = await futureQuery.get();
+        if (futureInstances.docs.isEmpty) {
+          // Create the next properly-scheduled instance
+          // Use the last calculated due date (which respects the pattern)
+          if (currentDueDate.isAtSameMomentAs(untilDate) ||
+              currentDueDate.isAfter(untilDate)) {
+            // The last calculated date is already at or after untilDate, use it
             await createActivityInstance(
               templateId: templateId,
-              dueDate: nextProperDate,
+              dueDate: currentDueDate,
               dueTime: template.dueTime,
               template: template,
               userId: uid,
             );
+          } else {
+            // Need to calculate one more step to get past untilDate
+            final nextProperDate = _calculateNextDueDate(
+              currentDueDate: currentDueDate,
+              template: template,
+            );
+            if (nextProperDate != null) {
+              await createActivityInstance(
+                templateId: templateId,
+                dueDate: nextProperDate,
+                dueTime: template.dueTime,
+                template: template,
+                userId: uid,
+              );
+            }
           }
         }
+      } catch (e) {
+        print('❌ MISSING INDEX: skipUntilDate futureQuery needs Index 1');
+        print(
+            'Required Index: templateId (ASC) + status (ASC) + belongsToDate (ASC) + dueDate (ASC)');
+        print('Collection: activity_instances');
+        print('Full error: $e');
+        if (e.toString().contains('index') ||
+            e.toString().contains('https://')) {
+          print(
+              '📋 Look for the Firestore index creation link in the error message above!');
+          print('   Click the link to create the index automatically.');
+        }
+        rethrow;
       }
     } catch (e) {
       rethrow;
@@ -2112,13 +2193,17 @@ class ActivityInstanceService {
           nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
 
       // Check if instance already exists for this template and date
-      final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateId', isEqualTo: instance.templateId)
-          .where('belongsToDate', isEqualTo: nextBelongsToDate)
-          .where('status', isEqualTo: 'pending');
-      final existingInstances = await existingQuery.get();
-      if (existingInstances.docs.isNotEmpty) {
-        return; // Instance already exists, don't create duplicate
+      try {
+        final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateId', isEqualTo: instance.templateId)
+            .where('belongsToDate', isEqualTo: nextBelongsToDate)
+            .where('status', isEqualTo: 'pending');
+        final existingInstances = await existingQuery.get();
+        if (existingInstances.docs.isNotEmpty) {
+          return; // Instance already exists, don't create duplicate
+        }
+      } catch (e) {
+        // If query fails, continue with instance creation
       }
 
       // Create next instance data

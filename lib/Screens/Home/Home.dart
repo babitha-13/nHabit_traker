@@ -42,13 +42,31 @@ class _HomeState extends State<Home> {
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int currentIndex = 2;
-  late Widget cWidget;
+  // List of all pages - initialized once and cached
+  late final List<Widget> _pages;
+  // Map page names to indices for easy lookup
+  final Map<String, int> _pageIndexMap = {
+    "Tasks": 0,
+    "Habits": 1,
+    "Queue": 2,
+    "Sequences": 3,
+    "Timer": 4,
+    "Calendar": 5,
+  };
   // Prevent race conditions in morning catch-up check
   static bool _isCheckingCatchUp = false;
   @override
   void initState() {
     super.initState();
-    cWidget = const QueuePage();
+    // Initialize all pages once - they will be cached in IndexedStack
+    _pages = [
+      const TaskTab(), // index 0
+      const HabitsPage(showCompleted: true), // index 1
+      const QueuePage(), // index 2
+      const Sequences(), // index 3
+      const TimerPage(), // index 4
+      const CalendarPage(), // index 5
+    ];
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.white,
@@ -217,11 +235,8 @@ class _HomeState extends State<Home> {
                                 icon: Icons.home,
                                 label: 'Home',
                                 onTap: () {
-                                  setState(() {
-                                    currentIndex = 2;
-                                    loadPage("Queue");
-                                    Navigator.pop(context);
-                                  });
+                                  loadPage("Queue");
+                                  Navigator.pop(context);
                                 },
                               ),
                               _DrawerItem(
@@ -328,7 +343,13 @@ class _HomeState extends State<Home> {
             child: Stack(
               key: _parentKey,
               children: [
-                Container(color: Colors.white, child: cWidget),
+                Container(
+                  color: Colors.white,
+                  child: IndexedStack(
+                    index: currentIndex,
+                    children: _pages,
+                  ),
+                ),
                 // Global floating timer - appears on all pages when timers are active
                 const GlobalFloatingTimer(),
                 // DEBUG: FAB for testing catch-up dialog (remove after testing)
@@ -360,22 +381,18 @@ class _HomeState extends State<Home> {
             child: BottomNavigationBar(
               currentIndex: currentIndex,
               onTap: (i) {
-                setState(() {
-                  currentIndex = i;
-                  if (i == 0) {
-                    loadPage("Tasks");
-                  } else if (i == 1) {
-                    loadPage("Habits");
-                  } else if (i == 2) {
-                    loadPage("Queue");
-                  } else if (i == 3) {
-                    loadPage("Sequences");
-                  } else if (i == 4) {
-                    loadPage("Timer");
-                  } else if (i == 5) {
-                    loadPage("Calendar");
-                  }
-                });
+                // Map index to page name and load it
+                final pageNames = [
+                  "Tasks",
+                  "Habits",
+                  "Queue",
+                  "Sequences",
+                  "Timer",
+                  "Calendar"
+                ];
+                if (i >= 0 && i < pageNames.length) {
+                  loadPage(pageNames[i]);
+                }
               },
               type: BottomNavigationBarType.fixed,
               backgroundColor: FlutterFlowTheme.of(context).secondaryBackground,
@@ -433,9 +450,9 @@ class _HomeState extends State<Home> {
       }
     } else {
       if (mounted) {
-        title = "Queue";
         setState(() {
-          cWidget = const QueuePage();
+          currentIndex = 2; // Queue page index
+          title = "Queue";
         });
       }
       return false;
@@ -445,37 +462,32 @@ class _HomeState extends State<Home> {
   void loadPage(s) {
     if (mounted) {
       setState(() {
-        if (s == "Queue") {
+        // Check if this is a main navigation page (in bottom nav)
+        if (_pageIndexMap.containsKey(s)) {
+          currentIndex = _pageIndexMap[s]!;
           title = s;
-          cWidget = const QueuePage();
-        }
-        if (s == "Tasks") {
+        } else {
+          // Handle pages not in bottom navigation (Progress, Manage Categories)
+          // These will be shown as overlays or separate routes
           title = s;
-          cWidget = const TaskTab();
-        }
-        if (s == "Habits") {
-          title = s;
-          cWidget = const HabitsPage(showCompleted: true);
-        }
-        if (s == "Progress") {
-          title = s;
-          cWidget = const ProgressPage();
-        }
-        if (s == "Manage Categories") {
-          title = s;
-          cWidget = const ManageCategories();
-        }
-        if (s == "Sequences") {
-          title = s;
-          cWidget = const Sequences();
-        }
-        if (s == "Timer") {
-          title = s;
-          cWidget = const TimerPage();
-        }
-        if (s == "Calendar") {
-          title = s;
-          cWidget = const CalendarPage();
+          if (s == "Progress") {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ProgressPage(),
+              ),
+            );
+            return;
+          }
+          if (s == "Manage Categories") {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ManageCategories(),
+              ),
+            );
+            return;
+          }
         }
       });
     }

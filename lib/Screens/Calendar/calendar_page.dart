@@ -348,24 +348,59 @@ class _CalendarPageState extends State<CalendarPage> {
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
       builder: (BuildContext context) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+        return Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
           ),
-          child: DraggableScrollableSheet(
-            initialChildSize: 0.7,
-            minChildSize: 0.5,
-            maxChildSize: 0.95,
-            builder: (context, scrollController) {
-              return SingleChildScrollView(
-                controller: scrollController,
-                child: TimeBreakdownChartWidget(
-                  segments: segments,
-                  selectedDate: _selectedDate,
+          child: Container(
+            decoration: const BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Fixed header with close button
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom: BorderSide(
+                        color: FlutterFlowTheme.of(context)
+                            .alternate
+                            .withOpacity(0.2),
+                        width: 1,
+                      ),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        'Time Breakdown',
+                        style: FlutterFlowTheme.of(context).titleLarge.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.close),
+                        onPressed: () => Navigator.of(context).pop(),
+                        tooltip: 'Close',
+                      ),
+                    ],
+                  ),
                 ),
-              );
-            },
+                // Content
+                Padding(
+                  padding: const EdgeInsets.all(24.0),
+                  child: TimeBreakdownChartWidget(
+                    segments: segments,
+                    selectedDate: _selectedDate,
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },
@@ -1112,12 +1147,18 @@ class _CalendarPageState extends State<CalendarPage> {
     // Extract metadata from event once for reuse
     final metadata = CalendarEventMetadata.fromMap(event.event);
 
-    // Handler for long-press on either box or label
+    // Handler for long-press on time box only
     void handleLongPress() {
       if (metadata != null) {
         _showEditEntryDialog(metadata: metadata);
       }
     }
+
+    // Wrap only the time box with GestureDetector, not the label
+    final timeBoxWithGesture = GestureDetector(
+      onLongPress: handleLongPress,
+      child: timeBox,
+    );
 
     if (isThinLine) {
       return OverflowBox(
@@ -1130,19 +1171,16 @@ class _CalendarPageState extends State<CalendarPage> {
             minHeight: actualTimeBoxHeight,
             minWidth: 0,
           ),
-          child: GestureDetector(
-            onLongPress: handleLongPress,
-            child: Stack(
-              clipBehavior: Clip.none,
-              children: [
-                Positioned.fill(child: timeBox),
-                Positioned(
-                  left: labelOffset,
-                  top: -24.0,
-                  child: label,
-                ),
-              ],
-            ),
+          child: Stack(
+            clipBehavior: Clip.none,
+            children: [
+              Positioned.fill(child: timeBoxWithGesture),
+              Positioned(
+                left: labelOffset,
+                top: -24.0,
+                child: label,
+              ),
+            ],
           ),
         ),
       );
@@ -1158,19 +1196,16 @@ class _CalendarPageState extends State<CalendarPage> {
           minHeight: actualTimeBoxHeight,
           minWidth: 0,
         ),
-        child: GestureDetector(
-          onLongPress: handleLongPress,
-          child: Stack(
-            clipBehavior: Clip.none,
-            children: [
-              Positioned.fill(child: timeBox),
-              Positioned(
-                left: labelFitsInside ? 4.0 : labelOffset,
-                top: labelFitsInside ? 4.0 : -28.0,
-                child: label,
-              ),
-            ],
-          ),
+        child: Stack(
+          clipBehavior: Clip.none,
+          children: [
+            Positioned.fill(child: timeBoxWithGesture),
+            Positioned(
+              left: labelFitsInside ? 4.0 : labelOffset,
+              top: labelFitsInside ? 4.0 : -28.0,
+              child: label,
+            ),
+          ],
         ),
       ),
     );

@@ -421,31 +421,43 @@ class _GoalDialogState extends State<GoalDialog> {
                   if (!_isEditMode && _currentGoal != null) ...[
                     const SizedBox(height: 8),
                     Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        OutlinedButton(
-                          onPressed: _markAsCompleted,
-                          style: OutlinedButton.styleFrom(
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
+                        Flexible(
+                          child: OutlinedButton(
+                            onPressed: _markAsCompleted,
+                            style: OutlinedButton.styleFrom(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                            child: const Text(
+                              'Mark as Completed',
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          child: const Text('Mark as Completed'),
                         ),
-                        ElevatedButton(
-                          onPressed: () async {
-                            Navigator.of(context).pop();
-                          },
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: theme.primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 24,
-                              vertical: 12,
+                        const SizedBox(width: 8),
+                        Flexible(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              Navigator.of(context).pop();
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: theme.primary,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                                vertical: 12,
+                              ),
+                            ),
+                            child: const Text(
+                              'Yes, I will do it! 💪',
+                              textAlign: TextAlign.center,
+                              overflow: TextOverflow.ellipsis,
                             ),
                           ),
-                          child: const Text('Yes, I will do it! 💪'),
                         ),
                       ],
                     ),

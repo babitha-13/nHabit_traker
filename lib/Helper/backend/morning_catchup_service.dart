@@ -2,7 +2,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/backend/historical_edit_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
@@ -206,72 +205,96 @@ class MorningCatchUpService {
 
       // Get habit instances that belong to yesterday specifically
       // For habits, check if belongsToDate is yesterday OR windowEndDate is yesterday
-      final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateCategoryType', isEqualTo: 'habit')
-          .where('status', isEqualTo: 'pending')
-          .where('windowEndDate', isLessThan: today)
-          .orderBy('windowEndDate', descending: false);
-      final habitSnapshot = await habitQuery.get();
-      // Filter to ONLY yesterday's items: belongsToDate is yesterday OR windowEndDate is yesterday
-      final habitItems = habitSnapshot.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((item) {
-        if (item.status != 'pending' || item.skippedAt != null) {
-          return false; // Exclude skipped/completed items
-        }
-        // Check if this item belongs to yesterday
-        if (item.belongsToDate != null) {
-          final belongsToDateOnly = DateTime(
-            item.belongsToDate!.year,
-            item.belongsToDate!.month,
-            item.belongsToDate!.day,
-          );
-          if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
-            return true; // This habit belongs to yesterday
+      try {
+        final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('status', isEqualTo: 'pending')
+            .where('windowEndDate', isLessThan: today)
+            .orderBy('windowEndDate', descending: false);
+        final habitSnapshot = await habitQuery.get();
+        // Filter to ONLY yesterday's items: belongsToDate is yesterday OR windowEndDate is yesterday
+        final habitItems = habitSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((item) {
+          if (item.status != 'pending' || item.skippedAt != null) {
+            return false; // Exclude skipped/completed items
           }
-        }
-        // Also check windowEndDate - if it's yesterday, the habit window ended yesterday
-        if (item.windowEndDate != null) {
-          final windowEndDateOnly = DateTime(
-            item.windowEndDate!.year,
-            item.windowEndDate!.month,
-            item.windowEndDate!.day,
-          );
-          if (windowEndDateOnly.isAtSameMomentAs(yesterday)) {
-            return true; // This habit's window ended yesterday
+          // Check if this item belongs to yesterday
+          if (item.belongsToDate != null) {
+            final belongsToDateOnly = DateTime(
+              item.belongsToDate!.year,
+              item.belongsToDate!.month,
+              item.belongsToDate!.day,
+            );
+            if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
+              return true; // This habit belongs to yesterday
+            }
           }
+          // Also check windowEndDate - if it's yesterday, the habit window ended yesterday
+          if (item.windowEndDate != null) {
+            final windowEndDateOnly = DateTime(
+              item.windowEndDate!.year,
+              item.windowEndDate!.month,
+              item.windowEndDate!.day,
+            );
+            if (windowEndDateOnly.isAtSameMomentAs(yesterday)) {
+              return true; // This habit's window ended yesterday
+            }
+          }
+          return false; // Not from yesterday
+        }).toList();
+        items.addAll(habitItems);
+      } catch (e) {
+        print('❌ MISSING INDEX: getIncompleteItemsFromYesterday habitQuery needs Index 2');
+        print('Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+        print('Collection: activity_instances');
+        print('Full error: $e');
+        if (e.toString().contains('index') || e.toString().contains('https://')) {
+          print('📋 Look for the Firestore index creation link in the error message above!');
+          print('   Click the link to create the index automatically.');
         }
-        return false; // Not from yesterday
-      }).toList();
-      items.addAll(habitItems);
+        // Continue with tasks even if habits query fails
+      }
 
       // Get task instances that are due specifically on yesterday (not older)
-      final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateCategoryType', isEqualTo: 'task')
-          .where('status', isEqualTo: 'pending')
-          .where('dueDate', isGreaterThanOrEqualTo: yesterday)
-          .where('dueDate', isLessThan: today)
-          .orderBy('dueDate', descending: false);
-      final taskSnapshot = await taskQuery.get();
-      // Filter to ONLY yesterday's tasks: dueDate is exactly yesterday
-      final taskItems = taskSnapshot.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((item) {
-        if (item.status != 'pending' || item.skippedAt != null) {
-          return false; // Exclude skipped/completed items
+      try {
+        final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'task')
+            .where('status', isEqualTo: 'pending')
+            .where('dueDate', isGreaterThanOrEqualTo: yesterday)
+            .where('dueDate', isLessThan: today)
+            .orderBy('dueDate', descending: false);
+        final taskSnapshot = await taskQuery.get();
+        // Filter to ONLY yesterday's tasks: dueDate is exactly yesterday
+        final taskItems = taskSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((item) {
+          if (item.status != 'pending' || item.skippedAt != null) {
+            return false; // Exclude skipped/completed items
+          }
+          // Check if dueDate is exactly yesterday
+          if (item.dueDate != null) {
+            final dueDateOnly = DateTime(
+              item.dueDate!.year,
+              item.dueDate!.month,
+              item.dueDate!.day,
+            );
+            return dueDateOnly.isAtSameMomentAs(yesterday);
+          }
+          return false;
+        }).toList();
+        items.addAll(taskItems);
+      } catch (e) {
+        print('❌ MISSING INDEX: getIncompleteItemsFromYesterday taskQuery needs Index 2');
+        print('Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+        print('Collection: activity_instances');
+        print('Full error: $e');
+        if (e.toString().contains('index') || e.toString().contains('https://')) {
+          print('📋 Look for the Firestore index creation link in the error message above!');
+          print('   Click the link to create the index automatically.');
         }
-        // Check if dueDate is exactly yesterday
-        if (item.dueDate != null) {
-          final dueDateOnly = DateTime(
-            item.dueDate!.year,
-            item.dueDate!.month,
-            item.dueDate!.day,
-          );
-          return dueDateOnly.isAtSameMomentAs(yesterday);
-        }
-        return false;
-      }).toList();
-      items.addAll(taskItems);
+        // Return items collected so far
+      }
 
       return items;
     } catch (e) {
@@ -425,22 +448,23 @@ class MorningCatchUpService {
         const maxConcurrency = 5; // Process up to 5 dates in parallel
         final datesList = affectedDates.toList();
         
+        // Historical edit functionality removed - progress recalculation disabled
         // Process dates in batches
-        for (int i = 0; i < datesList.length; i += maxConcurrency) {
-          final batch = datesList.skip(i).take(maxConcurrency).toList();
-          await Future.wait(
-            batch.map((date) async {
-              try {
-                await HistoricalEditService.recalculateDailyProgress(
-                  userId: userId,
-                  date: date,
-                );
-              } catch (e) {
-                // Error recalculating progress for date
-              }
-            }),
-          );
-        }
+        // for (int i = 0; i < datesList.length; i += maxConcurrency) {
+        //   final batch = datesList.skip(i).take(maxConcurrency).toList();
+        //   await Future.wait(
+        //     batch.map((date) async {
+        //       try {
+        //         await HistoricalEditService.recalculateDailyProgress(
+        //           userId: userId,
+        //           date: date,
+        //         );
+        //       } catch (e) {
+        //         // Error recalculating progress for date
+        //       }
+        //     }),
+        //   );
+        // }
       }
 
       // Create records for all missed days between last record and yesterday

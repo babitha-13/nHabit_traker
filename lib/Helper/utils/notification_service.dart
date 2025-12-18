@@ -16,6 +16,7 @@ import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
 class NotificationService {
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
+  static bool _timezoneInitialized = false;
 
   /// Initialize the notification service
   static Future<void> initialize() async {
@@ -24,6 +25,7 @@ class NotificationService {
     // Set timezone to a common timezone (you can change this to your local timezone)
     // Common options: 'Asia/Kolkata', 'America/New_York', 'Europe/London', 'Asia/Tokyo'
     tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+    _timezoneInitialized = true;
     // Android initialization settings
     const AndroidInitializationSettings androidSettings =
         AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -376,6 +378,16 @@ class NotificationService {
     }
   }
 
+  /// Ensure timezone is initialized before use
+  static void _ensureTimezoneInitialized() {
+    if (!_timezoneInitialized) {
+      // Timezone not initialized, initialize it now
+      tz.initializeTimeZones();
+      tz.setLocalLocation(tz.getLocation('Asia/Kolkata'));
+      _timezoneInitialized = true;
+    }
+  }
+
   /// Schedule a reminder notification
   static Future<void> scheduleReminder({
     required String id,
@@ -387,6 +399,9 @@ class NotificationService {
     List<AndroidNotificationAction>? actions,
   }) async {
     try {
+      // Ensure timezone is initialized before using tz.local
+      _ensureTimezoneInitialized();
+      
       // Create TZDateTime directly from the scheduled time components
       final tzDateTime = tz.TZDateTime(
         tz.local,

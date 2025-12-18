@@ -47,26 +47,40 @@ class DayEndProcessor {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     // Query active habit instances with windows that are still open
-    final query = ActivityInstanceRecord.collectionForUser(userId)
-        .where('templateCategoryType', isEqualTo: 'habit')
-        .where('status', isEqualTo: 'pending')
-        .where('windowEndDate', isGreaterThan: normalizedDate);
-    final querySnapshot = await query.get();
-    final instances = querySnapshot.docs
-        .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-        .toList();
-    if (instances.isEmpty) return;
-    final batch = FirebaseFirestore.instance.batch();
-    final now = DateTime.now();
-    for (final instance in instances) {
-      // Update lastDayValue to current value for next day's differential calculation
-      final instanceRef = instance.reference;
-      batch.update(instanceRef, {
-        'lastDayValue': instance.currentValue,
-        'lastUpdated': now,
-      });
+    try {
+      final query = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('status', isEqualTo: 'pending')
+          .where('windowEndDate', isGreaterThan: normalizedDate);
+      final querySnapshot = await query.get();
+      final instances = querySnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      if (instances.isEmpty) return;
+      final batch = FirebaseFirestore.instance.batch();
+      final now = DateTime.now();
+      for (final instance in instances) {
+        // Update lastDayValue to current value for next day's differential calculation
+        final instanceRef = instance.reference;
+        batch.update(instanceRef, {
+          'lastDayValue': instance.currentValue,
+          'lastUpdated': now,
+        });
+      }
+      await batch.commit();
+    } catch (e) {
+      print('❌ MISSING INDEX: _updateLastDayValues needs Index 2');
+      print(
+          'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+      print('Collection: activity_instances');
+      print('Full error: $e');
+      if (e.toString().contains('index') || e.toString().contains('https://')) {
+        print(
+            '📋 Look for the Firestore index creation link in the error message above!');
+        print('   Click the link to create the index automatically.');
+      }
+      rethrow;
     }
-    await batch.commit();
   }
 
   /// Close habit instances whose windows have expired
@@ -78,31 +92,45 @@ class DayEndProcessor {
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     // Query habit instances where window has expired (windowEndDate <= targetDate) AND status is pending
     // For a daily habit: windowEndDate = 15th, should be closed when processing day-end on 15th (going into 16th)
-    final query = ActivityInstanceRecord.collectionForUser(userId)
-        .where('templateCategoryType', isEqualTo: 'habit')
-        .where('status', isEqualTo: 'pending')
-        .where('windowEndDate', isLessThanOrEqualTo: normalizedDate);
-    final querySnapshot = await query.get();
-    final instances = querySnapshot.docs
-        .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-        .toList();
-    final batch = FirebaseFirestore.instance.batch();
-    // Use the targetDate being processed (normalizedDate) for skippedAt
-    // Oct 15 window closes at Oct 16 midnight
-    final skippedAtDate = normalizedDate;
-    for (final instance in instances) {
-      // Mark as skipped (preserve currentValue for partial completions)
-      final instanceRef = instance.reference;
-      batch.update(instanceRef, {
-        'status': 'skipped',
-        'skippedAt': skippedAtDate, // Use the date being processed
-        'lastUpdated': DateTime.now(), // Real time for audit trail
-      });
-      // Generate next instance for this habit
-      await _generateNextInstance(instance, userId, batch);
-    }
-    if (instances.isNotEmpty) {
-      await batch.commit();
+    try {
+      final query = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('status', isEqualTo: 'pending')
+          .where('windowEndDate', isLessThanOrEqualTo: normalizedDate);
+      final querySnapshot = await query.get();
+      final instances = querySnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      final batch = FirebaseFirestore.instance.batch();
+      // Use the targetDate being processed (normalizedDate) for skippedAt
+      // Oct 15 window closes at Oct 16 midnight
+      final skippedAtDate = normalizedDate;
+      for (final instance in instances) {
+        // Mark as skipped (preserve currentValue for partial completions)
+        final instanceRef = instance.reference;
+        batch.update(instanceRef, {
+          'status': 'skipped',
+          'skippedAt': skippedAtDate, // Use the date being processed
+          'lastUpdated': DateTime.now(), // Real time for audit trail
+        });
+        // Generate next instance for this habit
+        await _generateNextInstance(instance, userId, batch);
+      }
+      if (instances.isNotEmpty) {
+        await batch.commit();
+      }
+    } catch (e) {
+      print('❌ MISSING INDEX: _closeOpenHabitInstances needs Index 2');
+      print(
+          'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+      print('Collection: activity_instances');
+      print('Full error: $e');
+      if (e.toString().contains('index') || e.toString().contains('https://')) {
+        print(
+            '📋 Look for the Firestore index creation link in the error message above!');
+        print('   Click the link to create the index automatically.');
+      }
+      rethrow;
     }
   }
 
@@ -119,12 +147,28 @@ class DayEndProcessor {
       final nextWindowEndDate =
           nextBelongsToDate.add(Duration(days: instance.windowDuration - 1));
       // Check if instance already exists for this template and date
-      final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateId', isEqualTo: instance.templateId)
-          .where('belongsToDate', isEqualTo: nextBelongsToDate)
-          .where('status', isEqualTo: 'pending');
-      final existingInstances = await existingQuery.get();
-      if (existingInstances.docs.isNotEmpty) {
+      try {
+        final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateId', isEqualTo: instance.templateId)
+            .where('belongsToDate', isEqualTo: nextBelongsToDate)
+            .where('status', isEqualTo: 'pending');
+        final existingInstances = await existingQuery.get();
+        if (existingInstances.docs.isNotEmpty) {
+          return;
+        }
+      } catch (e) {
+        print('❌ MISSING INDEX: _generateNextInstance needs Index 1');
+        print(
+            'Required Index: templateId (ASC) + status (ASC) + belongsToDate (ASC) + dueDate (ASC)');
+        print('Collection: activity_instances');
+        print('Full error: $e');
+        if (e.toString().contains('index') ||
+            e.toString().contains('https://')) {
+          print(
+              '📋 Look for the Firestore index creation link in the error message above!');
+          print('   Click the link to create the index automatically.');
+        }
+        // Don't rethrow - we don't want to fail the entire batch
         return;
       }
       // Create next instance data
@@ -311,7 +355,8 @@ class DayEndProcessor {
     final taskBreakdown =
         calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
     // Calculate category neglect penalty
-    final categoryNeglectPenalty = CumulativeScoreService.calculateCategoryNeglectPenalty(
+    final categoryNeglectPenalty =
+        CumulativeScoreService.calculateCategoryNeglectPenalty(
       categories,
       allForMath,
       normalizedDate,
@@ -327,7 +372,7 @@ class DayEndProcessor {
         earnedPoints,
         categoryNeglectPenalty: categoryNeglectPenalty,
       );
-      
+
       // Show bonus notifications
       final bonuses = CumulativeScoreService.getBonusNotifications(
         cumulativeScoreData,
@@ -337,7 +382,8 @@ class DayEndProcessor {
       }
 
       // Show milestone achievements
-      final newMilestones = cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
+      final newMilestones =
+          cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
       if (newMilestones.isNotEmpty) {
         final milestoneValues = newMilestones.map((m) => m as int).toList();
         MilestoneToastService.showMultipleMilestones(milestoneValues);
@@ -375,18 +421,36 @@ class DayEndProcessor {
 
   /// Check if day-end processing is needed
   /// Returns true if last processing was more than 24 hours ago
+  /// Simplified version - no longer uses Index 3 query
   static Future<bool> shouldProcessDayEnd(String userId) async {
     try {
-      // Check if we have any open habit instances from yesterday or earlier
+      // Simplified check: query all habit instances and filter in memory
+      // This avoids needing Index 3 for historical edit functionality
       final yesterday = DateTime.now().subtract(const Duration(days: 1));
       final normalizedYesterday =
           DateTime(yesterday.year, yesterday.month, yesterday.day);
-      final query = ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateCategoryType', isEqualTo: 'habit')
-          .where('dayState', isEqualTo: 'open')
-          .where('belongsToDate', isLessThan: normalizedYesterday);
-      final snapshot = await query.limit(1).get();
-      return snapshot.docs.isNotEmpty;
+      try {
+        final query = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'habit');
+        final snapshot = await query.limit(50).get(); // Get a reasonable sample
+        // Filter in memory for open instances from yesterday or earlier
+        final hasOpenInstance = snapshot.docs.any((doc) {
+          final instance = ActivityInstanceRecord.fromSnapshot(doc);
+          if (instance.dayState != 'open') return false;
+          if (instance.belongsToDate == null) return false;
+          final belongsToDateOnly = DateTime(
+            instance.belongsToDate!.year,
+            instance.belongsToDate!.month,
+            instance.belongsToDate!.day,
+          );
+          return belongsToDateOnly.isBefore(normalizedYesterday) ||
+              belongsToDateOnly.isAtSameMomentAs(normalizedYesterday);
+        });
+        return hasOpenInstance;
+      } catch (e) {
+        // If query fails, return false (don't process day-end)
+        return false;
+      }
     } catch (e) {
       return false;
     }

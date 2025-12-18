@@ -95,10 +95,14 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _quantProgressOverride = null);
       }
     }
-    // Reset timer state override when backend catches up
+    // Reset timer state override when backend catches up or when external change detected
     if (widget.instance.templateTrackingType == 'time' &&
         _timerStateOverride != null) {
       if (widget.instance.isTimerActive == _timerStateOverride) {
+        setState(() => _timerStateOverride = null);
+      } else if (widget.instance.isTimerActive != _timerStateOverride &&
+          widget.instance.isTimerActive != oldWidget.instance.isTimerActive) {
+        // External change detected - clear override to sync with actual state
         setState(() => _timerStateOverride = null);
       }
     }
@@ -285,6 +289,18 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
+  /// Determine if progress should be shown in subtitle
+  /// For timer tasks: show when expanded OR when timer is running
+  /// For other tasks: show only when expanded
+  bool get _shouldShowProgress {
+    if (_isExpanded) return true;
+    // For timer tasks, also show when timer is running (even in compact form)
+    if (widget.instance.templateTrackingType == 'time' && _isTimerActiveLocal) {
+      return true;
+    }
+    return false;
+  }
+
   bool get _isFullyCompleted {
     return widget.instance.status == 'completed' ||
         widget.instance.status == 'skipped';
@@ -389,13 +405,13 @@ class _ItemComponentState extends State<ItemComponent>
                                           .primaryText,
                                 ),
                           ),
-                          if (_getEnhancedSubtitle(includeProgress: _isExpanded)
+                          if (_getEnhancedSubtitle(includeProgress: _shouldShowProgress)
                                   .isNotEmpty &&
                               !_isNonProductive) ...[
                             const SizedBox(height: 2),
                             Text(
                               _getEnhancedSubtitle(
-                                  includeProgress: _isExpanded),
+                                  includeProgress: _shouldShowProgress),
                               maxLines: _isExpanded ? null : 1,
                               overflow: _isExpanded
                                   ? TextOverflow.visible
@@ -1086,8 +1102,20 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _handleUnskip() async {
     try {
+      // Check if instance has calendar logs before uncompleting
+      bool deleteLogs = false;
+      if (widget.instance.timeLogSessions.isNotEmpty) {
+        final userChoice = await _showUncompleteDialog();
+        if (userChoice == null || userChoice == 'cancel') {
+          // User cancelled, abort unskip
+          return;
+        }
+        deleteLogs = userChoice == 'delete';
+      }
+
       await ActivityInstanceService.uncompleteInstance(
         instanceId: widget.instance.reference.id,
+        deleteLogs: deleteLogs,
       );
       // Get the updated instance
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
@@ -1711,6 +1739,35 @@ class _ItemComponentState extends State<ItemComponent>
     }
   }
 
+  /// Show dialog asking user what to do with calendar logs when uncompleting
+  /// Returns 'keep', 'delete', or 'cancel'
+  Future<String?> _showUncompleteDialog() async {
+    return await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Uncomplete Task/Habit'),
+        content: const Text(
+            'This task/habit has calendar logs. What would you like to do?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('cancel'),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('keep'),
+            style: TextButton.styleFrom(foregroundColor: Colors.orange),
+            child: const Text('Keep Logs'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop('delete'),
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete Logs'),
+          ),
+        ],
+      ),
+    );
+  }
+
   Future<void> _handleBinaryCompletion(bool completed) async {
     if (_isUpdating) return;
     setState(() {
@@ -1728,6 +1785,22 @@ class _ItemComponentState extends State<ItemComponent>
           instanceId: widget.instance.reference.id,
         );
       } else {
+        // Check if instance has calendar logs before uncompleting
+        bool deleteLogs = false;
+        if (widget.instance.timeLogSessions.isNotEmpty) {
+          final userChoice = await _showUncompleteDialog();
+          if (userChoice == null || userChoice == 'cancel') {
+            // User cancelled, abort uncomplete
+            if (mounted) {
+              setState(() {
+                _isUpdating = false;
+              });
+            }
+            return;
+          }
+          deleteLogs = userChoice == 'delete';
+        }
+
         // NEW: Reset counter to 0 when uncompleting
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
@@ -1735,6 +1808,7 @@ class _ItemComponentState extends State<ItemComponent>
         );
         await ActivityInstanceService.uncompleteInstance(
           instanceId: widget.instance.reference.id,
+          deleteLogs: deleteLogs,
         );
       }
       // Get the updated instance data
@@ -2053,6 +2127,7 @@ class _ItemComponentState extends State<ItemComponent>
               .doc(widget.instance.reference.id);
       await instanceRef.update({
         'accumulatedTime': 0,
+        'totalTimeLogged': 0, // Reset cumulative session time for progress bar
         'isTimerActive': false,
         'timerStartTime': null,
         'lastUpdated': DateTime.now(),
@@ -2061,8 +2136,10 @@ class _ItemComponentState extends State<ItemComponent>
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if timer was the only progress (for time-based tracking)
         if (instance.templateTrackingType == 'time') {
+          // Auto-delete logs when resetting timer (silent deletion, no dialog)
           await ActivityInstanceService.uncompleteInstance(
             instanceId: widget.instance.reference.id,
+            deleteLogs: true, // Automatically delete logs when timer is reset
           );
         }
       }
@@ -2116,8 +2193,25 @@ class _ItemComponentState extends State<ItemComponent>
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if quantity was the only progress (for quantitative tracking)
         if (instance.templateTrackingType == 'quantitative') {
+          // Check if instance has calendar logs before uncompleting
+          bool deleteLogs = false;
+          if (instance.timeLogSessions.isNotEmpty) {
+            final userChoice = await _showUncompleteDialog();
+            if (userChoice == null || userChoice == 'cancel') {
+              // User cancelled, abort uncomplete
+              if (mounted) {
+                setState(() {
+                  _isUpdating = false;
+                });
+              }
+              return;
+            }
+            deleteLogs = userChoice == 'delete';
+          }
+
           await ActivityInstanceService.uncompleteInstance(
             instanceId: widget.instance.reference.id,
+            deleteLogs: deleteLogs,
           );
         }
       }
@@ -2442,8 +2536,32 @@ class _ItemComponentState extends State<ItemComponent>
           (updatedInstance.status == 'completed' ||
               updatedInstance.status == 'skipped')) {
         // If custom time is less than target and was previously completed, uncomplete it
+        // Check if instance has calendar logs before uncompleting
+        bool deleteLogs = false;
+        if (updatedInstance.timeLogSessions.isNotEmpty) {
+          final userChoice = await _showUncompleteDialog();
+          if (userChoice == null || userChoice == 'cancel') {
+            // User cancelled, abort uncomplete
+            // Revert the time update
+            await instanceRef.update({
+              'accumulatedTime': updatedInstance.accumulatedTime,
+              'currentValue': updatedInstance.currentValue,
+              'totalTimeLogged': updatedInstance.totalTimeLogged,
+              'lastUpdated': DateTime.now(),
+            });
+            if (mounted) {
+              setState(() {
+                _isUpdating = false;
+              });
+            }
+            return;
+          }
+          deleteLogs = userChoice == 'delete';
+        }
+
         await ActivityInstanceService.uncompleteInstance(
           instanceId: widget.instance.reference.id,
+          deleteLogs: deleteLogs,
         );
       }
 

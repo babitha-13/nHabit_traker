@@ -1318,7 +1318,17 @@ class TaskInstanceService {
                       .where('isActive', isEqualTo: true)
                       .orderBy('lastUpdated', descending: true)
                       .limit(1);
-              final allInstancesResult = await allInstancesQuery.get();
+              final allInstancesResult = await allInstancesQuery.get().catchError((e) {
+                print('❌ MISSING INDEX: addTimeLogSession allInstancesQuery needs Index 4');
+                print('Required Index: isActive (ASC) + templateId (ASC) + lastUpdated (DESC)');
+                print('Collection: activity_instances');
+                print('Full error: $e');
+                if (e.toString().contains('index') || e.toString().contains('https://')) {
+                  print('📋 Look for the Firestore index creation link in the error message above!');
+                  print('   Click the link to create the index automatically.');
+                }
+                throw e;
+              });
               if (allInstancesResult.docs.isNotEmpty) {
                 final instanceDoc = allInstancesResult.docs.first;
                 final instance =

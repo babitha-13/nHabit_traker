@@ -20,6 +20,12 @@ class CumulativeScoreLinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     if (data.isEmpty) return;
 
+    // Padding constants to prevent graph from touching edges
+    const double topPadding = 8.0;
+    const double rightPadding = 8.0;
+    const double bottomPadding = 4.0;
+    const double leftPadding = 0.0;
+
     final paint = Paint()
       ..color = color
       ..strokeWidth = 2.0
@@ -31,13 +37,22 @@ class CumulativeScoreLinePainter extends CustomPainter {
 
     final points = <Offset>[];
     final denominator = data.length > 1 ? data.length - 1 : 1;
+    const double pointRadius = 3.0;
+    
+    // Calculate available drawing area after padding
+    // Account for point radius on both sides to ensure first and last points are fully visible
+    final availableWidth = size.width - leftPadding - rightPadding - (2 * pointRadius);
+    final availableHeight = size.height - topPadding - bottomPadding;
 
     for (int i = 0; i < data.length; i++) {
       final score = data[i]['score'] as double;
-      final x = (i / denominator) * size.width;
-      final y = size.height -
+      // Position points so both first and last point circles fit within bounds
+      // First point at: leftPadding + pointRadius
+      // Last point at: size.width - rightPadding - pointRadius
+      final x = leftPadding + pointRadius + (i / denominator) * availableWidth;
+      final y = topPadding + availableHeight -
           ((score - minScore) / (scoreRange > 0 ? scoreRange : 1)) *
-              size.height;
+              availableHeight;
       points.add(Offset(x, y));
     }
 
