@@ -207,9 +207,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
         } else if (_selectedType == 'task') {
           typeMatch = activity.categoryType == 'task';
         } else if (_selectedType == 'non_productive') {
-          // Include legacy 'sequence_item' as non-productive
-          typeMatch = activity.categoryType == 'non_productive' ||
-              activity.categoryType == 'sequence_item';
+          typeMatch = activity.categoryType == 'non_productive';
         }
 
         if (!typeMatch) return false;
@@ -729,7 +727,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
           if (rootContext.mounted) {
             String message = 'Time entry deleted successfully!';
             if (wasAutoUncompleted) {
-              message += ' Task/habit has been uncompleted because time is now below target.';
+              message +=
+                  ' Task/habit has been uncompleted because time is now below target.';
             } else if (shouldUncomplete) {
               message += ' Task/habit has been uncompleted.';
             }
@@ -1144,7 +1143,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       final target = _selectedTemplate!.target;
       final targetMinutes =
           target is int ? target : (target is double ? target.toInt() : 0);
-      
+
       // Only show completion message if target is set (greater than 0)
       if (targetMinutes > 0) {
         final hours = targetMinutes ~/ 60;

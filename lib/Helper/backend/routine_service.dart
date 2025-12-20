@@ -4,6 +4,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/backend/sequence_order_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 class SequenceService {
@@ -29,7 +31,7 @@ class SequenceService {
       return isDueToday;
     }
 
-    // For tasks and sequence_items: only if due today or overdue
+    // For tasks: only if due today or overdue
     final isTodayOrOverdue =
         dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
     return isTodayOrOverdue;
@@ -45,6 +47,8 @@ class SequenceService {
   }) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = userId ?? currentUser?.uid ?? '';
+    // Get next order index for the new sequence
+    final listOrder = await SequenceOrderService.getNextOrderIndex(userId: uid);
     // Get item names and types from the item IDs
     final itemNames = <String>[];
     final itemTypes = <String>[];
@@ -76,6 +80,7 @@ class SequenceService {
       createdTime: DateTime.now(),
       lastUpdated: DateTime.now(),
       userId: uid,
+      listOrder: listOrder,
     );
     return await SequenceRecord.collectionForUser(uid).add(sequenceData);
   }
@@ -88,6 +93,7 @@ class SequenceService {
     List<String>? itemIds,
     List<String>? itemOrder,
     String? userId,
+    int? listOrder,
   }) async {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = userId ?? currentUser?.uid ?? '';
@@ -122,6 +128,7 @@ class SequenceService {
       updateData['itemTypes'] = itemTypes;
     }
     if (itemOrder != null) updateData['itemOrder'] = itemOrder;
+    if (listOrder != null) updateData['listOrder'] = listOrder;
     await sequenceRef.update(updateData);
   }
 
@@ -153,7 +160,7 @@ class SequenceService {
       if (!sequence.isActive) return null;
 
       // Query ALL instances for the specific items in this sequence
-      // This works for habits, tasks, and sequence_items (no category type restriction)
+      // This works for habits, tasks, and non-productive items (no category type restriction)
       // Handle Firestore's 10-item limit for whereIn by batching if needed
       final allInstances = <ActivityInstanceRecord>[];
       final itemIds = sequence.itemIds;
@@ -217,34 +224,6 @@ class SequenceService {
     }
   }
 
-  /// Create a new sequence item (untracked activity)
-  /// Creates items as non-productive by nature
-  static Future<DocumentReference> createSequenceItem({
-    required String name,
-    String? description,
-    required String trackingType,
-    dynamic target,
-    String? unit,
-    String? userId,
-  }) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final uid = userId ?? currentUser?.uid ?? '';
-    // Create activity with categoryType='non_productive' (sequence items are non-productive)
-    final activityData = createActivityRecordData(
-      name: name,
-      categoryName: 'Non-Productive', // Default category for sequence items
-      trackingType: trackingType,
-      target: target,
-      description: description,
-      unit: unit,
-      isActive: true,
-      createdTime: DateTime.now(),
-      lastUpdated: DateTime.now(),
-      categoryType: 'non_productive', // Sequence items are non-productive
-    );
-    return await ActivityRecord.collectionForUser(uid).add(activityData);
-  }
-
   /// Create an instance for a sequence item on-the-fly
   /// Returns null for non-productive items (UI should show time log dialog instead)
   static Future<ActivityInstanceRecord?> createInstanceForSequenceItem({
@@ -264,9 +243,9 @@ class SequenceService {
       if (activityData == null) {
         return null;
       }
-      // For non-productive items (including legacy sequence_item), return null - UI should show time log dialog
+      // For non-productive items, return null - UI should show time log dialog
       final categoryType = activityData['categoryType'] ?? 'habit';
-      if (categoryType == 'non_productive' || categoryType == 'sequence_item') {
+      if (categoryType == 'non_productive') {
         return null; // Signal to UI to show time log dialog
       }
       final trackingType = activityData['trackingType'] ?? 'binary';
@@ -291,6 +270,20 @@ class SequenceService {
       // Create the instance data
       final today = DateTime.now();
       final todayStart = DateTime(today.year, today.month, today.day);
+      // Inherit order from previous instance of the same template
+      int? queueOrder;
+      int? habitsOrder;
+      int? tasksOrder;
+      try {
+        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            itemId, 'queue', uid);
+        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            itemId, 'habits', uid);
+        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            itemId, 'tasks', uid);
+      } catch (e) {
+        // If order lookup fails, continue with null values (will use default sorting)
+      }
       final instanceData = createActivityInstanceRecordData(
         templateId: itemId,
         templateName: activityData['name'] ?? 'Unknown Item',
@@ -307,6 +300,10 @@ class SequenceService {
         createdTime: DateTime.now(),
         lastUpdated: DateTime.now(),
         isActive: true,
+        // Inherit order from previous instance
+        queueOrder: queueOrder,
+        habitsOrder: habitsOrder,
+        tasksOrder: tasksOrder,
       );
       // Create the instance
       final instanceRef =
@@ -338,13 +335,12 @@ class SequenceService {
 
     try {
       // Iterate through items and reset only non-productive items that are completed
-      // (sequence_item is legacy, now all are non_productive)
       for (int i = 0; i < itemIds.length; i++) {
         final itemId = itemIds[i];
         final itemType = i < itemTypes.length ? itemTypes[i] : 'habit';
 
-        // Only process non-productive items (including legacy sequence_item)
-        if (itemType != 'non_productive' && itemType != 'sequence_item') continue;
+        // Only process non-productive items
+        if (itemType != 'non_productive') continue;
 
         final instance = currentInstances[itemId];
 
@@ -376,13 +372,35 @@ class SequenceService {
     try {
       final query = SequenceRecord.collectionForUser(uid)
           .where('isActive', isEqualTo: true)
+          .orderBy('listOrder')
           .orderBy('name');
       final result = await query.get();
-      return result.docs
-          .map((doc) => SequenceRecord.fromSnapshot(doc))
-          .toList();
+      final sequences =
+          result.docs.map((doc) => SequenceRecord.fromSnapshot(doc)).toList();
+      // Fallback sort by listOrder locally if Firestore ordering fails
+      sequences.sort((a, b) {
+        final orderCompare = a.listOrder.compareTo(b.listOrder);
+        if (orderCompare != 0) return orderCompare;
+        return a.name.compareTo(b.name);
+      });
+      return sequences;
     } catch (e) {
-      return [];
+      // If orderBy fails (e.g., no index), fallback to local sort
+      try {
+        final query = SequenceRecord.collectionForUser(uid)
+            .where('isActive', isEqualTo: true);
+        final result = await query.get();
+        final sequences =
+            result.docs.map((doc) => SequenceRecord.fromSnapshot(doc)).toList();
+        sequences.sort((a, b) {
+          final orderCompare = a.listOrder.compareTo(b.listOrder);
+          if (orderCompare != 0) return orderCompare;
+          return a.name.compareTo(b.name);
+        });
+        return sequences;
+      } catch (e2) {
+        return [];
+      }
     }
   }
 }

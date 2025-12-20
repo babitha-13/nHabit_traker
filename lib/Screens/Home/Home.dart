@@ -89,7 +89,10 @@ class _HomeState extends State<Home> {
       ]).then((_) {
         // Check notification onboarding after goal onboarding completes
         // (it depends on goal onboarding being completed)
-        _checkNotificationOnboarding();
+        // Only proceed if widget is still mounted to prevent disposed widget errors
+        if (mounted) {
+          _checkNotificationOnboarding();
+        }
       });
     });
   }
@@ -240,19 +243,17 @@ class _HomeState extends State<Home> {
                                 },
                               ),
                               _DrawerItem(
-                                icon: Icons.repeat,
-                                label: 'Habits',
-                                onTap: () {
-                                  loadPage("Habits");
-                                  Navigator.pop(context);
-                                },
-                              ),
-                              _DrawerItem(
                                 icon: Icons.category,
                                 label: 'Manage Categories',
                                 onTap: () {
-                                  loadPage("Manage Categories");
                                   Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const ManageCategories(),
+                                    ),
+                                  );
                                 },
                               ),
                               _DrawerItem(

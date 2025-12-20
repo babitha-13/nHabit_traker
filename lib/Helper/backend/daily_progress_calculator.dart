@@ -21,12 +21,11 @@ class DailyProgressCalculator {
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     // Build instances within window for the target date (status-agnostic)
     // This set is used for target calculations and counts
-    // Exclude non-productive and legacy sequence_item types
+    // Exclude non-productive types
     final inWindowHabits = allInstances
         .where((inst) =>
             inst.templateCategoryType == 'habit' &&
             inst.templateCategoryType != 'non_productive' &&
-            inst.templateCategoryType != 'sequence_item' &&
             _isWithinWindow(inst, normalizedDate))
         .toList();
     // For UI/display list: pending + completed-on-date (unchanged behavior)
@@ -71,11 +70,10 @@ class DailyProgressCalculator {
     final displayTasks = [...pendingTasks, ...completedTasksOnDate];
     // For task target calculation: include all tasks that should be counted for this date
     // This includes pending tasks due on/before the date AND completed tasks completed on the date
-    // Exclude non-productive items and legacy sequence_items
+    // Exclude non-productive items
     final allTasksForMath = taskInstances.where((task) {
-      // Skip non-productive items and legacy sequence_items
-      if (task.templateCategoryType == 'non_productive' ||
-          task.templateCategoryType == 'sequence_item') return false;
+      // Skip non-productive items
+      if (task.templateCategoryType == 'non_productive') return false;
       // Include if completed on the target date
       if (task.status == 'completed' && task.completedAt != null) {
         final completedDate = DateTime(
@@ -124,20 +122,20 @@ class DailyProgressCalculator {
         final target = PointsService.calculateDailyTarget(habit, category);
         final earned = PointsService.calculatePointsEarned(habit, category);
         final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
-        
+
         // Extract additional data for statistics
         dynamic quantity;
         if (habit.hasCurrentValue() && habit.currentValue is num) {
           quantity = (habit.currentValue as num).toDouble();
         }
-        
+
         int? timeSpent; // milliseconds
         if (habit.hasTotalTimeLogged() && habit.totalTimeLogged > 0) {
           timeSpent = habit.totalTimeLogged;
         } else if (habit.hasAccumulatedTime() && habit.accumulatedTime > 0) {
           timeSpent = habit.accumulatedTime;
         }
-        
+
         habitBreakdown.add({
           'name': habit.templateName,
           'status': habit.status,

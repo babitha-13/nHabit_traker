@@ -46,6 +46,8 @@ class _HabitsPageState extends State<HabitsPage> {
   int _habitInstancesHashCode = 0;
   String _lastSearchQuery = '';
   bool _lastShowCompleted = false;
+  Set<String> _reorderingInstanceIds =
+      {}; // Track instances being reordered to prevent stale updates
   @override
   void initState() {
     super.initState();
@@ -68,6 +70,11 @@ class _HabitsPageState extends State<HabitsPage> {
         setState(() {
           _loadHabits();
         });
+      }
+    });
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _loadHabitsSilently();
       }
     });
     // Listen for instance events (only habit instances)
@@ -152,17 +159,18 @@ class _HabitsPageState extends State<HabitsPage> {
   Map<String, List<ActivityInstanceRecord>> get groupedByCategory {
     // Check if cache is still valid
     final currentInstancesHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
     final cacheInvalid = _cachedGroupedByCategory == null ||
         currentInstancesHash != _habitInstancesHashCode ||
         _searchQuery != _lastSearchQuery ||
         _showCompleted != _lastShowCompleted;
-    
+
     if (!cacheInvalid && _cachedGroupedByCategory != null) {
       return _cachedGroupedByCategory!;
     }
-    
+
     // Recalculate grouping
     final grouped = <String, List<ActivityInstanceRecord>>{};
     // Filter instances by search query if active
@@ -190,13 +198,13 @@ class _HabitsPageState extends State<HabitsPage> {
             InstanceOrderService.sortInstancesByOrder(items, 'habits');
       }
     }
-    
+
     // Update cache
     _cachedGroupedByCategory = grouped;
     _habitInstancesHashCode = currentInstancesHash;
     _lastSearchQuery = _searchQuery;
     _lastShowCompleted = _showCompleted;
-    
+
     return grouped;
   }
 
@@ -238,12 +246,17 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   Future<void> _loadHabits() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final instances = await queryLatestHabitInstances(userId: userId);
-        final categories = await queryHabitCategoriesOnce(userId: userId);
+        if (!mounted) return;
+        final categories = await queryHabitCategoriesOnce(
+          userId: userId,
+          callerTag: 'HabitsPage._loadHabits',
+        );
         if (mounted) {
           setState(() {
             _habitInstances = instances;
@@ -303,7 +316,7 @@ class _HabitsPageState extends State<HabitsPage> {
             //   onHabitUpdated: (updated) => {}, // _updateHabitInLocalState(updated),
             // ),
             // Search FAB at bottom-left
-            const SearchFAB(),
+            const SearchFAB(heroTag: 'search_fab_habits'),
             // Existing FABs at bottom-right
             Positioned(
               right: 16,
@@ -337,7 +350,8 @@ class _HabitsPageState extends State<HabitsPage> {
                     onPressed: _showAddCategoryDialog,
                     tooltip: 'Add Category',
                     backgroundColor: FlutterFlowTheme.of(context).secondary,
-                    child: const Icon(Icons.create_new_folder, color: Colors.white),
+                    child: const Icon(Icons.create_new_folder,
+                        color: Colors.white),
                   ),
                 ],
               ),
@@ -723,6 +737,10 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+    // Skip updates for instances currently being reordered to prevent stale data overwrites
+    if (_reorderingInstanceIds.contains(instance.reference.id)) {
+      return;
+    }
     setState(() {
       final index = _habitInstances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
@@ -751,10 +769,15 @@ class _HabitsPageState extends State<HabitsPage> {
   /// Handle reordering of items within a category
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String categoryName) async {
+    final reorderingIds = <String>{};
     try {
       final groupedHabits = groupedByCategory;
       final items = groupedHabits[categoryName]!;
-      if (oldIndex >= items.length || newIndex >= items.length) return;
+      // Allow dropping at the end (newIndex can equal items.length)
+      if (oldIndex < 0 ||
+          oldIndex >= items.length ||
+          newIndex < 0 ||
+          newIndex > items.length) return;
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
       // Adjust newIndex for the case where we're moving down
@@ -769,6 +792,8 @@ class _HabitsPageState extends State<HabitsPage> {
       // Update order values in the local _habitInstances list
       for (int i = 0; i < reorderedItems.length; i++) {
         final instance = reorderedItems[i];
+        final instanceId = instance.reference.id;
+        reorderingIds.add(instanceId);
         // Create updated instance with new habits order
         final updatedData = Map<String, dynamic>.from(instance.snapshotData);
         updatedData['habitsOrder'] = i;
@@ -778,11 +803,15 @@ class _HabitsPageState extends State<HabitsPage> {
         );
         // Update in _habitInstances
         final habitIndex = _habitInstances
-            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+            .indexWhere((inst) => inst.reference.id == instanceId);
         if (habitIndex != -1) {
           _habitInstances[habitIndex] = updatedInstance;
         }
       }
+      // Add instance IDs to reordering set to prevent stale updates
+      _reorderingInstanceIds.addAll(reorderingIds);
+      // Invalidate cache to ensure UI uses updated order
+      _cachedGroupedByCategory = null;
       // Trigger setState to update UI immediately (eliminates twitch)
       if (mounted) {
         setState(() {
@@ -794,9 +823,13 @@ class _HabitsPageState extends State<HabitsPage> {
         reorderedItems,
         'habits',
         oldIndex,
-        newIndex,
+        adjustedNewIndex,
       );
+      // Clear reordering set after successful database update
+      _reorderingInstanceIds.removeAll(reorderingIds);
     } catch (e) {
+      // Clear reordering set even on error
+      _reorderingInstanceIds.removeAll(reorderingIds);
       // Revert to correct state by refreshing data
       await _loadHabits();
       // Show error to user

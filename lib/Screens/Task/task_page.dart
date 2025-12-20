@@ -61,6 +61,8 @@ class _TaskPageState extends State<TaskPage> {
   String _lastSearchQuery = '';
   int _lastCompletionTimeFrame = 2;
   String? _lastCategoryName;
+  Set<String> _reorderingInstanceIds =
+      {}; // Track instances being reordered to prevent stale updates
   @override
   void initState() {
     super.initState();
@@ -89,6 +91,11 @@ class _TaskPageState extends State<TaskPage> {
         (param) {
       if (param is ActivityInstanceRecord && mounted) {
         _handleInstanceDeleted(param);
+      }
+    });
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _loadDataSilently();
       }
     });
   }
@@ -167,7 +174,7 @@ class _TaskPageState extends State<TaskPage> {
                   child: const Icon(Icons.add, color: Colors.white),
                 ),
               ),
-              const SearchFAB(),
+              const SearchFAB(heroTag: 'search_fab_tasks'),
             ],
           );
     return returnedWidget;
@@ -183,15 +190,23 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> _loadData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) {
-        setState(() => _isLoading = false);
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
         return;
       }
       final instances = await queryAllTaskInstances(userId: uid);
-      final categories = await queryTaskCategoriesOnce(userId: uid);
+      if (!mounted) return;
+      final categories = await queryTaskCategoriesOnce(
+        userId: uid,
+        callerTag: 'TaskPage._loadDataSilently.${widget.categoryName ?? 'all'}',
+      );
+      if (!mounted) return;
       // DEBUG: Print instance details
       // for (final inst in instances) {
       // }
@@ -1483,17 +1498,17 @@ class _TaskPageState extends State<TaskPage> {
     // Check if cache is still valid
     final currentInstancesHash = _taskInstances.length.hashCode ^
         _taskInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+
     final cacheInvalid = _cachedBucketedItems == null ||
         currentInstancesHash != _taskInstancesHashCode ||
         _searchQuery != _lastSearchQuery ||
         _completionTimeFrame != _lastCompletionTimeFrame ||
         widget.categoryName != _lastCategoryName;
-    
+
     if (!cacheInvalid && _cachedBucketedItems != null) {
       return _cachedBucketedItems!;
     }
-    
+
     // Recalculate buckets
     final Map<String, List<dynamic>> buckets = {
       'Overdue': [],
@@ -1669,14 +1684,14 @@ class _TaskPageState extends State<TaskPage> {
         }
       }
     }
-    
+
     // Update cache
     _cachedBucketedItems = buckets;
     _taskInstancesHashCode = currentInstancesHash;
     _lastSearchQuery = _searchQuery;
     _lastCompletionTimeFrame = _completionTimeFrame;
     _lastCategoryName = widget.categoryName;
-    
+
     buckets.forEach((key, value) {});
     return buckets;
   }
@@ -1846,7 +1861,10 @@ class _TaskPageState extends State<TaskPage> {
       final uid = currentUserUid;
       if (uid.isEmpty) return;
       final instances = await queryAllTaskInstances(userId: uid);
-      final categories = await queryTaskCategoriesOnce(userId: uid);
+      final categories = await queryTaskCategoriesOnce(
+        userId: uid,
+        callerTag: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
+      );
       if (mounted) {
         setState(() {
           _categories = categories;
@@ -1908,6 +1926,10 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+    // Skip updates for instances currently being reordered to prevent stale data overwrites
+    if (_reorderingInstanceIds.contains(instance.reference.id)) {
+      return;
+    }
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
@@ -1947,10 +1969,15 @@ class _TaskPageState extends State<TaskPage> {
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
+    final reorderingIds = <String>{};
     try {
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
-      if (oldIndex >= items.length || newIndex >= items.length) return;
+      // Allow dropping at the end (newIndex can equal items.length)
+      if (oldIndex < 0 ||
+          oldIndex >= items.length ||
+          newIndex < 0 ||
+          newIndex > items.length) return;
       // Create a copy of the items list for reordering
       final reorderedItems = List<ActivityInstanceRecord>.from(items);
       // Adjust newIndex for the case where we're moving down
@@ -1965,6 +1992,8 @@ class _TaskPageState extends State<TaskPage> {
       // Update order values in _taskInstances
       for (int i = 0; i < reorderedItems.length; i++) {
         final instance = reorderedItems[i];
+        final instanceId = instance.reference.id;
+        reorderingIds.add(instanceId);
         // Create updated instance with new tasks order
         final updatedData = Map<String, dynamic>.from(instance.snapshotData);
         updatedData['tasksOrder'] = i;
@@ -1974,11 +2003,15 @@ class _TaskPageState extends State<TaskPage> {
         );
         // Update in _taskInstances
         final taskIndex = _taskInstances
-            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+            .indexWhere((inst) => inst.reference.id == instanceId);
         if (taskIndex != -1) {
           _taskInstances[taskIndex] = updatedInstance;
         }
       }
+      // Add instance IDs to reordering set to prevent stale updates
+      _reorderingInstanceIds.addAll(reorderingIds);
+      // Invalidate cache to ensure UI uses updated order
+      _cachedBucketedItems = null;
       // Trigger setState to update UI immediately (eliminates twitch)
       if (mounted) {
         setState(() {
@@ -1990,9 +2023,13 @@ class _TaskPageState extends State<TaskPage> {
         reorderedItems,
         'tasks',
         oldIndex,
-        newIndex,
+        adjustedNewIndex,
       );
+      // Clear reordering set after successful database update
+      _reorderingInstanceIds.removeAll(reorderingIds);
     } catch (e) {
+      // Clear reordering set even on error
+      _reorderingInstanceIds.removeAll(reorderingIds);
       // Revert to correct state by refreshing data
       await _loadData();
       // Show error to user

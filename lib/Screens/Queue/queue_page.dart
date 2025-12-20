@@ -52,6 +52,8 @@ class _QueuePageState extends State<QueuePage> {
   bool _shouldReloadOnReturn = false;
   bool _isLoadingData = false; // Guard against concurrent loads
   bool _ignoreInstanceEvents = true; // Ignore events during initial load
+  Set<String> _reorderingInstanceIds =
+      {}; // Track instances being reordered to prevent stale updates
   // Progress tracking variables
   double _dailyTarget = 0.0;
   double _pointsEarned = 0.0;
@@ -239,6 +241,7 @@ class _QueuePageState extends State<QueuePage> {
   Future<void> _loadData() async {
     // Prevent concurrent loads
     if (_isLoadingData) return;
+    if (!mounted) return;
     _isLoadingData = true;
     _ignoreInstanceEvents = true; // Temporarily ignore events during load
     setState(() => _isLoading = true);
@@ -248,9 +251,16 @@ class _QueuePageState extends State<QueuePage> {
         // Batch Firestore queries in parallel for faster loading
         final results = await Future.wait([
           queryAllInstances(userId: userId),
-          queryHabitCategoriesOnce(userId: userId),
-          queryTaskCategoriesOnce(userId: userId),
+          queryHabitCategoriesOnce(
+            userId: userId,
+            callerTag: 'QueuePage._loadData.habits',
+          ),
+          queryTaskCategoriesOnce(
+            userId: userId,
+            callerTag: 'QueuePage._loadData.tasks',
+          ),
         ]);
+        if (!mounted) return;
         final allInstances = results[0] as List<ActivityInstanceRecord>;
         final habitCategories = results[1] as List<CategoryRecord>;
         final taskCategories = results[2] as List<CategoryRecord>;
@@ -381,7 +391,7 @@ class _QueuePageState extends State<QueuePage> {
   /// This provides instant updates similar to daily progress chart
   Future<void> _updateCumulativeScoreLive() async {
     if (_isLoadingCumulativeScore) return;
-    
+
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
@@ -419,13 +429,13 @@ class _QueuePageState extends State<QueuePage> {
         setState(() {
           _cumulativeScore = currentCumulativeScore;
           _dailyScoreGain = currentDailyGain;
-          
+
           // Update today's entry in history if it exists
           if (_cumulativeScoreHistory.isNotEmpty) {
             final today = DateService.currentDate;
             final lastItem = _cumulativeScoreHistory.last;
             final lastDate = lastItem['date'] as DateTime;
-            
+
             if (lastDate.year == today.year &&
                 lastDate.month == today.month &&
                 lastDate.day == today.day) {
@@ -1245,7 +1255,7 @@ class _QueuePageState extends State<QueuePage> {
                 ),
               ],
             ),
-            const SearchFAB(),
+            const SearchFAB(heroTag: 'search_fab_queue'),
           ],
         ),
       ),
@@ -1275,7 +1285,7 @@ class _QueuePageState extends State<QueuePage> {
       },
       child: Container(
         margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         decoration: BoxDecoration(
           color: FlutterFlowTheme.of(context).secondaryBackground,
           borderRadius: BorderRadius.circular(12),
@@ -1300,7 +1310,7 @@ class _QueuePageState extends State<QueuePage> {
                     pointsEarned: _pointsEarned,
                     size: 80,
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
                     'Daily Progress',
                     style: FlutterFlowTheme.of(context).bodyMedium.override(
@@ -1319,13 +1329,14 @@ class _QueuePageState extends State<QueuePage> {
               ),
               // Cumulative Score Graph
               Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   Container(
-                    width: 140,
-                    height: 100,
+                    width: 120,
+                    height: 80,
                     child: _buildCumulativeScoreMiniGraph(),
                   ),
-                  const SizedBox(height: 8),
+                  const SizedBox(height: 4),
                   Text(
                     'Cumulative Score',
                     style: FlutterFlowTheme.of(context).bodyMedium.override(
@@ -1333,33 +1344,44 @@ class _QueuePageState extends State<QueuePage> {
                           fontWeight: FontWeight.w600,
                         ),
                   ),
-                  Text(
-                    _cumulativeScoreHistory.isNotEmpty
-                        ? '${(_cumulativeScoreHistory.last['score'] as double).toStringAsFixed(0)} pts'
-                        : '0 pts',
-                    style: FlutterFlowTheme.of(context).bodySmall.override(
-                          fontFamily: 'Readex Pro',
-                          color: FlutterFlowTheme.of(context).secondaryText,
+                  Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        _cumulativeScoreHistory.isNotEmpty
+                            ? '${(_cumulativeScoreHistory.last['score'] as double).toStringAsFixed(0)} pts'
+                            : '0 pts',
+                        style: FlutterFlowTheme.of(context).bodySmall.override(
+                              fontFamily: 'Readex Pro',
+                              color: FlutterFlowTheme.of(context).secondaryText,
+                            ),
+                      ),
+                      if (_cumulativeScoreHistory.isNotEmpty) ...[
+                        const SizedBox(width: 8),
+                        Builder(
+                          builder: (context) {
+                            final dailyGain =
+                                _cumulativeScoreHistory.last['gain'] as double;
+                            if (dailyGain == 0) return const SizedBox.shrink();
+                            return Text(
+                              dailyGain >= 0
+                                  ? '+${dailyGain.toStringAsFixed(1)}'
+                                  : dailyGain.toStringAsFixed(1),
+                              style: FlutterFlowTheme.of(context)
+                                  .bodySmall
+                                  .override(
+                                    fontFamily: 'Readex Pro',
+                                    color: dailyGain >= 0
+                                        ? Colors.green
+                                        : Colors.red,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                            );
+                          },
                         ),
+                      ],
+                    ],
                   ),
-                  if (_cumulativeScoreHistory.isNotEmpty) ...[
-                    Builder(
-                      builder: (context) {
-                        final dailyGain = _cumulativeScoreHistory.last['gain'] as double;
-                        if (dailyGain == 0) return const SizedBox.shrink();
-                        return Text(
-                          dailyGain >= 0
-                              ? '+${dailyGain.toStringAsFixed(1)}'
-                              : dailyGain.toStringAsFixed(1),
-                          style: FlutterFlowTheme.of(context).bodySmall.override(
-                                fontFamily: 'Readex Pro',
-                                color: dailyGain >= 0 ? Colors.green : Colors.red,
-                                fontWeight: FontWeight.w600,
-                              ),
-                        );
-                      },
-                    ),
-                  ],
                 ],
               ),
             ],
@@ -1501,11 +1523,11 @@ class _QueuePageState extends State<QueuePage> {
                   subtitle: _getSubtitle(item, key),
                   instance: item,
                   categoryColorHex: _getCategoryColor(item),
-                  onRefresh: _loadData,
+                  onRefresh: _refreshWithoutFlicker,
                   onInstanceUpdated: _updateInstanceInLocalState,
                   onInstanceDeleted: _removeInstanceFromLocalState,
                   onHabitUpdated: (updated) => {},
-                  onHabitDeleted: (deleted) async => _loadData(),
+                  onHabitDeleted: (deleted) async => _refreshWithoutFlicker(),
                   isHabit: isHabit,
                   showTypeIcon: true,
                   showRecurringIcon: true,
@@ -1756,6 +1778,10 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+    // Skip updates for instances currently being reordered to prevent stale data overwrites
+    if (_reorderingInstanceIds.contains(instance.reference.id)) {
+      return;
+    }
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
@@ -1788,8 +1814,14 @@ class _QueuePageState extends State<QueuePage> {
       // Batch Firestore queries in parallel for faster loading
       final results = await Future.wait([
         queryAllInstances(userId: userId),
-        queryHabitCategoriesOnce(userId: userId),
-        queryTaskCategoriesOnce(userId: userId),
+        queryHabitCategoriesOnce(
+          userId: userId,
+          callerTag: 'QueuePage._silentRefreshInstances.habits',
+        ),
+        queryTaskCategoriesOnce(
+          userId: userId,
+          callerTag: 'QueuePage._silentRefreshInstances.tasks',
+        ),
       ]);
       final allInstances = results[0] as List<ActivityInstanceRecord>;
       final habitCategories = results[1] as List<CategoryRecord>;
@@ -1817,9 +1849,15 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
+  /// Wrapper for silent refresh to use as callback
+  Future<void> _refreshWithoutFlicker() async {
+    await _silentRefreshInstances();
+  }
+
   /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
+    final reorderingIds = <String>{};
     try {
       // If a sort is active, clear it immediately so the manual order sticks
       if (_currentSort.isActive) {
@@ -1855,8 +1893,10 @@ class _QueuePageState extends State<QueuePage> {
       // Update order values in the local _instances list
       for (int i = 0; i < reorderedItems.length; i++) {
         final instance = reorderedItems[i];
-        final index = _instances
-            .indexWhere((inst) => inst.reference.id == instance.reference.id);
+        final instanceId = instance.reference.id;
+        reorderingIds.add(instanceId);
+        final index =
+            _instances.indexWhere((inst) => inst.reference.id == instanceId);
         if (index != -1) {
           // Create updated instance with new queue order by creating new data map
           final updatedData = Map<String, dynamic>.from(instance.snapshotData);
@@ -1868,6 +1908,10 @@ class _QueuePageState extends State<QueuePage> {
           _instances[index] = updatedInstance;
         }
       }
+      // Add instance IDs to reordering set to prevent stale updates
+      _reorderingInstanceIds.addAll(reorderingIds);
+      // Invalidate cache to ensure UI uses updated order
+      _cachedBucketedItems = null;
       // Trigger setState to update UI immediately (eliminates twitch)
       if (mounted) {
         setState(() {
@@ -1881,7 +1925,11 @@ class _QueuePageState extends State<QueuePage> {
         oldIndex,
         adjustedNewIndex,
       );
+      // Clear reordering set after successful database update
+      _reorderingInstanceIds.removeAll(reorderingIds);
     } catch (e) {
+      // Clear reordering set even on error
+      _reorderingInstanceIds.removeAll(reorderingIds);
       // Revert to correct state by refreshing data
       await _loadData();
       // Show error to user
@@ -1984,15 +2032,16 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
             'index': 0,
             'date': firstDate,
           });
-          
+
           // Track the last displayed date to ensure minimum 1-day spacing
           DateTime? lastDisplayedDate = firstDate;
-          
+
           // Iterate through remaining dates, ensuring at least 1 day apart
           for (int i = 1; i < widget.history.length; i++) {
             final currentDate = widget.history[i]['date'] as DateTime;
-            final daysSinceLastLabel = currentDate.difference(lastDisplayedDate!).inDays;
-            
+            final daysSinceLastLabel =
+                currentDate.difference(lastDisplayedDate!).inDays;
+
             // Only add label if at least 1 day has passed since last label
             // Also limit to approximately 5 labels total to avoid crowding
             if (daysSinceLastLabel >= 1 && dateLabels.length < 5) {
@@ -2003,17 +2052,19 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
               lastDisplayedDate = currentDate;
             }
           }
-          
+
           // Always include the last date if not already included
           final lastIndex = widget.history.length - 1;
           final lastDate = widget.history[lastIndex]['date'] as DateTime;
-          final alreadyIncluded = dateLabels.any((label) => label['index'] == lastIndex);
+          final alreadyIncluded =
+              dateLabels.any((label) => label['index'] == lastIndex);
           if (!alreadyIncluded) {
             // Check if last date is at least 1 day from the previous label
-            final lastLabelDate = dateLabels.isNotEmpty 
-                ? dateLabels.last['date'] as DateTime 
+            final lastLabelDate = dateLabels.isNotEmpty
+                ? dateLabels.last['date'] as DateTime
                 : null;
-            if (lastLabelDate == null || lastDate.difference(lastLabelDate).inDays >= 1) {
+            if (lastLabelDate == null ||
+                lastDate.difference(lastLabelDate).inDays >= 1) {
               dateLabels.add({
                 'index': lastIndex,
                 'date': lastDate,
@@ -2067,7 +2118,9 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                       children: [
                         // Graph area
                         SizedBox(
-                          height: constraints.maxHeight > 0 ? constraints.maxHeight - 20 : 80,
+                          height: constraints.maxHeight > 0
+                              ? constraints.maxHeight - 20
+                              : 80,
                           child: CustomPaint(
                             painter: CumulativeScoreLinePainter(
                               data: widget.history,
@@ -2086,15 +2139,22 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                             children: dateLabels.map((label) {
                               final index = label['index'] as int;
                               final date = label['date'] as DateTime;
-                              final xPosition = (index / (widget.history.length > 1 ? widget.history.length - 1 : 1)) * totalWidth;
+                              final xPosition = (index /
+                                      (widget.history.length > 1
+                                          ? widget.history.length - 1
+                                          : 1)) *
+                                  totalWidth;
                               return Positioned(
                                 left: xPosition - 15, // Center the label
                                 child: Text(
                                   DateFormat('MM/dd').format(date),
-                                  style: FlutterFlowTheme.of(context).bodySmall.override(
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
                                         fontFamily: 'Readex Pro',
                                         fontSize: 8,
-                                        color: FlutterFlowTheme.of(context).secondaryText,
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
                                       ),
                                 ),
                               );

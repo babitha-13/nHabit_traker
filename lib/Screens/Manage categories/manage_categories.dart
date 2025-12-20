@@ -22,24 +22,55 @@ class _ManageCategoriesState extends State<ManageCategories> {
     _loadCategories();
   }
 
-  Future<void> _loadCategories() async {
-    setState(() {
-      _isLoading = true;
-    });
+  Future<void> _loadCategories({bool showLoading = true}) async {
+    if (showLoading && mounted) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     try {
       final userId = currentUserUid;
-      if (userId.isNotEmpty) {
-        // Load only user-created categories (exclude system categories like Inbox)
-        final categories = await queryUserCategoriesOnce(userId: userId);
+      if (userId.isEmpty) {
+        if (mounted) {
+          setState(() {
+            if (showLoading) {
+              _isLoading = false;
+            }
+          });
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('User not authenticated'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+      // Load only user-created categories (exclude system categories like Inbox)
+      final categories = await queryUserCategoriesOnce(userId: userId);
+      if (mounted) {
         setState(() {
           _categories = categories;
-          _isLoading = false;
+          if (showLoading) {
+            _isLoading = false;
+          }
         });
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      print('Error loading categories: $e');
+      if (mounted) {
+        setState(() {
+          if (showLoading) {
+            _isLoading = false;
+          }
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error loading categories: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -79,11 +110,14 @@ class _ManageCategoriesState extends State<ManageCategories> {
     }
   }
 
-  void _showEditCategoryDialog(CategoryRecord category) {
-    showDialog(
+  Future<void> _showEditCategoryDialog(CategoryRecord category) async {
+    final didUpdate = await showDialog<bool>(
       context: context,
       builder: (context) => CreateCategory(category: category),
     );
+    if (didUpdate == true) {
+      await _loadCategories(showLoading: false);
+    }
   }
 
   @override
@@ -91,6 +125,16 @@ class _ManageCategoriesState extends State<ManageCategories> {
     return Scaffold(
       key: scaffoldKey,
       backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+      appBar: AppBar(
+        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        automaticallyImplyLeading: true,
+        title: Text(
+          'Manage Categories',
+          style: FlutterFlowTheme.of(context).headlineMedium,
+        ),
+        centerTitle: false,
+        elevation: 0,
+      ),
       body: SafeArea(
         top: true,
         child: _isLoading
@@ -366,10 +410,13 @@ class _ManageCategoriesState extends State<ManageCategories> {
     );
   }
 
-  void _showAddCategoryDialog() {
-    showPolishedDialog(
+  Future<void> _showAddCategoryDialog() async {
+    final didCreate = await showDialog<bool>(
       context: context,
-      content: const CreateCategory(),
+      builder: (context) => const CreateCategory(),
     );
+    if (didCreate == true) {
+      await _loadCategories(showLoading: false);
+    }
   }
 }

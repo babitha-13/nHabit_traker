@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/sequence_service.dart';
+import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -54,7 +54,8 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
       _isCreating = true;
     });
     try {
-      final sequenceItem = await SequenceService.createSequenceItem(
+      final templateRef =
+          await NonProductiveService.createNonProductiveTemplate(
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim().isEmpty
             ? null
@@ -67,9 +68,7 @@ class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
         userId: currentUserUid,
       );
       // Get the created activity record
-      final activityDoc = await ActivityRecord.collectionForUser(currentUserUid)
-          .doc(sequenceItem.id)
-          .get();
+      final activityDoc = await templateRef.get();
       if (activityDoc.exists) {
         final activity = ActivityRecord.fromSnapshot(activityDoc);
         widget.onItemCreated(activity);

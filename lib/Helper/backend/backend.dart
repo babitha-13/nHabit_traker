@@ -252,12 +252,9 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
     final result = await query.get();
     final activities =
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
-    // Filter out non-productive/sequence_item types unless explicitly requested
-    // (sequence_item is legacy, now all are non_productive)
+    // Filter out non-productive types unless explicitly requested
     final filteredActivities = activities.where((activity) {
-      if (!includeSequenceItems &&
-          (activity.categoryType == 'sequence_item' ||
-              activity.categoryType == 'non_productive')) {
+      if (!includeSequenceItems && activity.categoryType == 'non_productive') {
         return false;
       }
       return true;
@@ -282,21 +279,81 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
 /// Query to get categories for a specific user
 Future<List<CategoryRecord>> queryCategoriesRecordOnce({
   required String userId,
+  String callerTag = 'queryCategoriesRecordOnce',
 }) async {
-  final query = CategoryRecord.collectionForUser(userId)
-      .where('isActive', isEqualTo: true)
-      .orderBy('name');
-  final result = await query.get();
-  return result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+  try {
+    // TEMPORARY: Log caller info to debug hot reload hang
+    try {
+      final stackTrace = StackTrace.current;
+      final stackLines = stackTrace.toString().split('\n');
+      // Find the first line that references a screen/widget file
+      String? callerInfo;
+      for (final line in stackLines) {
+        // Try to match packages/habit_tracker path format
+        if (line.contains('packages/habit_tracker/')) {
+          final match =
+              RegExp(r'packages/habit_tracker/([^:]+):(\d+):').firstMatch(line);
+          if (match != null) {
+            final path = match.group(1)!;
+            final lineNum = match.group(2)!;
+            // Extract just the filename
+            final fileName = path.split('/').last;
+            callerInfo = '$fileName:$lineNum';
+            break;
+          }
+        }
+        // Also try lib/ path format
+        if (line.contains('lib/Screens/') ||
+            line.contains('lib/Helper/') ||
+            line.contains('lib/main.dart')) {
+          final match = RegExp(r'([^/]+\.dart):(\d+):').firstMatch(line);
+          if (match != null) {
+            callerInfo = '${match.group(1)}:${match.group(2)}';
+            break;
+          }
+        }
+      }
+      print(
+          '🔍 queryCategoriesRecordOnce called from tag "$callerTag", stack hints: ${callerInfo ?? 'unknown'}');
+      if (callerInfo == null && stackLines.length > 2) {
+        // Print relevant stack lines for debugging
+        final relevantLines = stackLines
+            .where((l) =>
+                l.contains('packages/habit_tracker') || l.contains('lib/'))
+            .take(3);
+        if (relevantLines.isNotEmpty) {
+          print('   Stack hints: ${relevantLines.join(' | ')}');
+        }
+      }
+    } catch (e) {
+      print('🔍 queryCategoriesRecordOnce: Error logging caller: $e');
+    }
+
+    // Use simple query without orderBy to avoid Firestore composite index requirements
+    final query = CategoryRecord.collectionForUser(userId)
+        .where('isActive', isEqualTo: true);
+    final result = await query.get();
+    final categories =
+        result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+    // Sort in memory instead of in query
+    categories.sort((a, b) => a.name.compareTo(b.name));
+    return categories;
+  } catch (e) {
+    return []; // Return empty list on error
+  }
 }
 
 /// Query to get habit categories for a specific user
 Future<List<CategoryRecord>> queryHabitCategoriesOnce({
   required String userId,
+  String callerTag = 'queryHabitCategoriesOnce',
 }) async {
   try {
     // Use simple query and filter in memory to avoid Firestore composite index requirements
-    final allCategories = await queryCategoriesRecordOnce(userId: userId);
+    final allCategories = await queryCategoriesRecordOnce(
+      userId: userId,
+      callerTag: callerTag,
+    );
     // Filter in memory (no Firestore index needed)
     final habitCategories =
         allCategories.where((c) => c.categoryType == 'habit').toList();
@@ -311,10 +368,14 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
 /// Query to get task categories for a specific user
 Future<List<CategoryRecord>> queryTaskCategoriesOnce({
   required String userId,
+  String callerTag = 'queryTaskCategoriesOnce',
 }) async {
   try {
     // Use simple query and filter in memory to avoid Firestore composite index requirements
-    final allCategories = await queryCategoriesRecordOnce(userId: userId);
+    final allCategories = await queryCategoriesRecordOnce(
+      userId: userId,
+      callerTag: callerTag,
+    );
     // Filter in memory (no Firestore index needed)
     final taskCategories =
         allCategories.where((c) => c.categoryType == 'task').toList();
@@ -420,14 +481,39 @@ Future<List<SequenceRecord>> querySequenceRecordOnce({
   try {
     final query = SequenceRecord.collectionForUser(userId)
         .where('isActive', isEqualTo: true)
+        .orderBy('listOrder')
         .orderBy('name');
     final result = await query.get();
     final sequences = result.docs.map((doc) {
       return SequenceRecord.fromSnapshot(doc);
     }).toList();
+    // Fallback sort by listOrder locally if Firestore ordering fails
+    sequences.sort((a, b) {
+      final orderCompare = a.listOrder.compareTo(b.listOrder);
+      if (orderCompare != 0) return orderCompare;
+      return a.name.compareTo(b.name);
+    });
     return sequences;
   } catch (e) {
-    if (e is FirebaseException) {}
+    if (e is FirebaseException) {
+      // If orderBy fails (e.g., no index), fallback to local sort
+      try {
+        final query = SequenceRecord.collectionForUser(userId)
+            .where('isActive', isEqualTo: true);
+        final result = await query.get();
+        final sequences = result.docs.map((doc) {
+          return SequenceRecord.fromSnapshot(doc);
+        }).toList();
+        sequences.sort((a, b) {
+          final orderCompare = a.listOrder.compareTo(b.listOrder);
+          if (orderCompare != 0) return orderCompare;
+          return a.name.compareTo(b.name);
+        });
+        return sequences;
+      } catch (e2) {
+        rethrow;
+      }
+    }
     rethrow;
   }
 }
@@ -496,9 +582,9 @@ Future<DocumentReference> createActivity({
     habitRef = await ActivityRecord.collectionForUser(uid)
         .add(habitData)
         .timeout(const Duration(seconds: 10));
-  } on TimeoutException catch (e) {
+  } on TimeoutException {
     rethrow;
-  } catch (e) {
+  } catch (_) {
     rethrow;
   }
   // Create initial activity instance
@@ -544,7 +630,10 @@ Future<DocumentReference> createCategory({
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-  final existingCategories = await queryCategoriesRecordOnce(userId: uid);
+  final existingCategories = await queryCategoriesRecordOnce(
+    userId: uid,
+    callerTag: 'backend.createCategory',
+  );
   final nameExists = existingCategories.any((cat) =>
       cat.name.toString().trim().toLowerCase() ==
       name.toString().trim().toLowerCase());
@@ -576,7 +665,10 @@ Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
   }
   try {
     // Use simple query to avoid Firestore composite index requirements
-    final allCategories = await queryTaskCategoriesOnce(userId: uid);
+    final allCategories = await queryTaskCategoriesOnce(
+      userId: uid,
+      callerTag: 'backend.getOrCreateInboxCategory',
+    );
     // Find inbox category in memory
     final inboxCategory = allCategories.firstWhere(
       (c) => c.name == 'Inbox' && c.isSystemCategory,
@@ -608,7 +700,10 @@ Future<List<CategoryRecord>> queryUserCategoriesOnce({
 }) async {
   try {
     // Use simple query and filter in memory to avoid Firestore composite index requirements
-    final allCategories = await queryCategoriesRecordOnce(userId: userId);
+    final allCategories = await queryCategoriesRecordOnce(
+      userId: userId,
+      callerTag: 'backend.queryUserCategoriesOnce',
+    );
     // Filter in memory (no Firestore index needed)
     var filtered = allCategories.where((c) => !c.isSystemCategory);
     if (categoryType != null) {
@@ -1139,12 +1234,16 @@ Future<void> updateLastDayValuesForWindowedHabits({
   await batch.commit();
 }
 */
-/// Update category name and cascade to all templates and instances
-Future<void> updateCategoryNameCascade({
+/// Update category metadata (name/color) and cascade to all templates and instances
+Future<void> updateCategoryCascade({
   required String categoryId,
-  required String newCategoryName,
   required String userId,
+  String? newCategoryName,
+  String? newCategoryColor,
 }) async {
+  if (newCategoryName == null && newCategoryColor == null) {
+    return;
+  }
   try {
     // 1. Find all templates with this categoryId
     final templatesQuery = ActivityRecord.collectionForUser(userId)
@@ -1154,13 +1253,16 @@ Future<void> updateCategoryNameCascade({
     // 2. Update all templates
     for (final templateDoc in templates) {
       try {
-        await templateDoc.reference.update({
-          'categoryName': newCategoryName,
+        final updateData = <String, dynamic>{
           'lastUpdated': DateTime.now(),
-        });
+        };
+        if (newCategoryName != null) {
+          updateData['categoryName'] = newCategoryName;
+        }
+        await templateDoc.reference.update(updateData);
       } catch (e) {
         // Log error but continue with other templates - individual template update failures are non-critical
-        print('Error updating template category name: $e');
+        print('Error updating template category metadata: $e');
       }
     }
     // 3. Find ALL instances (pending AND completed) with this categoryId
@@ -1174,20 +1276,28 @@ Future<void> updateCategoryNameCascade({
       final batch = instances.skip(i).take(batchSize);
       await Future.wait(batch.map((instanceDoc) async {
         try {
-          await instanceDoc.reference.update({
-            'templateCategoryName': newCategoryName,
+          final updateData = <String, dynamic>{
             'lastUpdated': DateTime.now(),
-          });
+          };
+          if (newCategoryName != null) {
+            updateData['templateCategoryName'] = newCategoryName;
+          }
+          if (newCategoryColor != null) {
+            updateData['templateCategoryColor'] = newCategoryColor;
+          }
+          await instanceDoc.reference.update(updateData);
         } catch (e) {
           // Continue on error
         }
       }));
     }
     // Notify all pages that categories have been updated
-    NotificationCenter.post('categoryUpdated', {
+    final payload = <String, dynamic>{
       'categoryId': categoryId,
-      'newCategoryName': newCategoryName,
-    });
+      if (newCategoryName != null) 'newCategoryName': newCategoryName,
+      if (newCategoryColor != null) 'newCategoryColor': newCategoryColor,
+    };
+    NotificationCenter.post('categoryUpdated', payload);
   } catch (e) {
     throw e;
   }

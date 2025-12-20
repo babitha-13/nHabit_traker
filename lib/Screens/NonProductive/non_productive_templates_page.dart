@@ -311,7 +311,7 @@ class _NonProductiveTemplatesPageState
                       ),
                     ),
           // Search FAB at bottom-left
-          const SearchFAB(),
+          const SearchFAB(heroTag: 'search_fab_non_productive'),
           // Existing FAB at bottom-right
           Positioned(
             right: 16,

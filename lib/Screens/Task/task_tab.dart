@@ -16,6 +16,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   late TabController _tabController;
   List<CategoryRecord> _categories = [];
   List<String> _tabNames = ["Inbox"];
+  static bool _hasEnsuredInbox = false;
   @override
   void initState() {
     super.initState();
@@ -31,29 +32,62 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   }
 
   Future<void> _loadCategories() async {
-    final fetched = await queryTaskCategoriesOnce(userId: currentUserUid);
-    final inboxExists = fetched.any((c) => c.name.toLowerCase() == 'inbox');
-    if (!inboxExists) {
+    if (!mounted) return;
+    final fetched = await queryTaskCategoriesOnce(
+      userId: currentUserUid,
+      callerTag: 'TaskTab._loadCategories.initial',
+    );
+    if (!mounted) return;
+
+    await _ensureInboxCategory(fetched);
+    if (!mounted) return;
+
+    final updatedFetched = await queryTaskCategoriesOnce(
+      userId: currentUserUid,
+      callerTag: 'TaskTab._loadCategories.updated',
+    );
+    if (!mounted) return;
+
+    final otherCategories =
+        updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
+    if (mounted) {
+      setState(() {
+        _categories = updatedFetched;
+        _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
+        _tabController.removeListener(_onTabChanged);
+        _tabController.dispose();
+        _tabController = TabController(length: _tabNames.length, vsync: this);
+        _tabController.addListener(_onTabChanged);
+      });
+    }
+  }
+
+  Future<void> _ensureInboxCategory(List<CategoryRecord> categories) async {
+    if (_hasEnsuredInbox) return;
+    final userId = currentUserUid;
+    if (userId.isEmpty) return;
+    final inboxExists = categories.any(
+      (c) => c.name.toLowerCase() == 'inbox' && c.isSystemCategory,
+    );
+    if (inboxExists) {
+      _hasEnsuredInbox = true;
+      return;
+    }
+    try {
       await createCategory(
         name: 'Inbox',
         description: 'Inbox task category',
         weight: 1.0,
         color: '#2F4F4F', // Dark Slate Gray (charcoal) for tasks
         categoryType: 'task',
+        userId: userId,
+        isSystemCategory: true,
       );
+      _hasEnsuredInbox = true;
+    } catch (e) {
+      // Ignore duplicate creation errors; another instance likely created it.
+      debugPrint('TaskTab: Unable to ensure Inbox category: $e');
     }
-    final updatedFetched =
-        await queryTaskCategoriesOnce(userId: currentUserUid);
-    final otherCategories =
-        updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
-    setState(() {
-      _categories = updatedFetched;
-      _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
-      _tabController.removeListener(_onTabChanged);
-      _tabController.dispose();
-      _tabController = TabController(length: _tabNames.length, vsync: this);
-      _tabController.addListener(_onTabChanged);
-    });
   }
 
   @override

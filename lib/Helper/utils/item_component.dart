@@ -72,6 +72,7 @@ class _ItemComponentState extends State<ItemComponent>
   Timer? _timer;
   num? _quantProgressOverride;
   bool? _timerStateOverride;
+  bool? _binaryCompletionOverride;
   bool _isExpanded = false;
   bool? _hasReminders; // Cache for reminder check
   String? _reminderDisplayText; // Cache for reminder display text
@@ -104,6 +105,15 @@ class _ItemComponentState extends State<ItemComponent>
           widget.instance.isTimerActive != oldWidget.instance.isTimerActive) {
         // External change detected - clear override to sync with actual state
         setState(() => _timerStateOverride = null);
+      }
+    }
+    // Reset binary completion override when backend catches up or instance changes
+    if (_binaryCompletionOverride != null) {
+      final backendCompleted = _isBackendCompleted;
+      final instanceChanged = widget.instance.reference.id !=
+          oldWidget.instance.reference.id;
+      if (backendCompleted == _binaryCompletionOverride || instanceChanged) {
+        setState(() => _binaryCompletionOverride = null);
       }
     }
     // Handle timer state changes (existing logic)
@@ -208,9 +218,13 @@ class _ItemComponentState extends State<ItemComponent>
     super.dispose();
   }
 
-  bool get _isCompleted {
+  bool get _isBackendCompleted {
     return widget.instance.status == 'completed' ||
         widget.instance.status == 'skipped';
+  }
+
+  bool get _isCompleted {
+    return _binaryCompletionOverride ?? _isBackendCompleted;
   }
 
   Color get _impactLevelColor {
@@ -302,8 +316,7 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isFullyCompleted {
-    return widget.instance.status == 'completed' ||
-        widget.instance.status == 'skipped';
+    return _isCompleted;
   }
 
   @override
@@ -1770,9 +1783,20 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _handleBinaryCompletion(bool completed) async {
     if (_isUpdating) return;
-    setState(() {
-      _isUpdating = true;
-    });
+    bool deleteLogs = false;
+    if (!completed && widget.instance.timeLogSessions.isNotEmpty) {
+      final userChoice = await _showUncompleteDialog();
+      if (userChoice == null || userChoice == 'cancel') {
+        return;
+      }
+      deleteLogs = userChoice == 'delete';
+    }
+    if (mounted) {
+      setState(() {
+        _isUpdating = true;
+        _binaryCompletionOverride = completed;
+      });
+    }
     try {
       if (completed) {
         // NEW: For binary habits, set currentValue to 1 (counter)
@@ -1785,22 +1809,6 @@ class _ItemComponentState extends State<ItemComponent>
           instanceId: widget.instance.reference.id,
         );
       } else {
-        // Check if instance has calendar logs before uncompleting
-        bool deleteLogs = false;
-        if (widget.instance.timeLogSessions.isNotEmpty) {
-          final userChoice = await _showUncompleteDialog();
-          if (userChoice == null || userChoice == 'cancel') {
-            // User cancelled, abort uncomplete
-            if (mounted) {
-              setState(() {
-                _isUpdating = false;
-              });
-            }
-            return;
-          }
-          deleteLogs = userChoice == 'delete';
-        }
-
         // NEW: Reset counter to 0 when uncompleting
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
@@ -1824,6 +1832,11 @@ class _ItemComponentState extends State<ItemComponent>
         widget.onRefresh?.call();
       }
     } catch (e) {
+      if (mounted) {
+        setState(() {
+          _binaryCompletionOverride = null;
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating completion: $e')),
@@ -2128,6 +2141,8 @@ class _ItemComponentState extends State<ItemComponent>
       await instanceRef.update({
         'accumulatedTime': 0,
         'totalTimeLogged': 0, // Reset cumulative session time for progress bar
+        'timeLogSessions': [],
+        'currentSessionStartTime': null,
         'isTimerActive': false,
         'timerStartTime': null,
         'lastUpdated': DateTime.now(),

@@ -22,6 +22,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   bool _isProcessing = false;
   List<ActivityInstanceRecord> _items = [];
   final Set<String> _processedItemIds = {};
+  // Optimistic UI tracking
+  final Set<String> _optimisticProcessingIds = {};
+  final Map<String, ActivityInstanceRecord> _optimisticSnapshots = {};
   int _reminderCount = 0;
   String _processingStatus = '';
   int _processedCount = 0;
@@ -43,7 +46,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     try {
       await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
       // Reload items after ensuring instances exist
-      await _loadItems();
+      if (mounted) {
+        await _loadItems();
+      }
     } catch (e) {
       print('Error ensuring instances exist in dialog: $e');
     }
@@ -94,15 +99,17 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       final userId = currentUserUid;
       final items =
           await MorningCatchUpService.getIncompleteItemsFromYesterday(userId);
-      setState(() {
-        _items = items;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
       if (mounted) {
+        setState(() {
+          _items = items;
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading items: $e')),
         );
@@ -110,18 +117,75 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     }
   }
 
+  /// Apply optimistic UI update - removes item from list immediately
+  void _applyOptimisticState(ActivityInstanceRecord instance) {
+    if (!mounted) return;
+
+    // Save snapshot for potential rollback
+    _optimisticSnapshots[instance.reference.id] = instance;
+
+    setState(() {
+      _optimisticProcessingIds.add(instance.reference.id);
+      _processedItemIds.add(instance.reference.id);
+    });
+  }
+
+  /// Revert optimistic UI update - restores item if backend operation failed
+  void _revertOptimisticState(String instanceId) {
+    if (!mounted) return;
+
+    final originalInstance = _optimisticSnapshots[instanceId];
+    if (originalInstance == null) return;
+
+    setState(() {
+      _optimisticProcessingIds.remove(instanceId);
+      _processedItemIds.remove(instanceId);
+      _optimisticSnapshots.remove(instanceId);
+
+      // Restore item to list if it still exists and wasn't replaced
+      final exists = _items.any((item) => item.reference.id == instanceId);
+      if (!exists) {
+        // Item was removed, try to restore from snapshot
+        // Find insertion point (maintain order if possible)
+        _items.add(originalInstance);
+        // Sort by template name to maintain some order
+        _items.sort((a, b) => a.templateName.compareTo(b.templateName));
+      }
+    });
+  }
+
+  /// Clear optimistic state after successful backend operation
+  void _clearOptimisticState(String instanceId) {
+    if (!mounted) return;
+
+    setState(() {
+      _optimisticProcessingIds.remove(instanceId);
+      _optimisticSnapshots.remove(instanceId);
+    });
+  }
+
   /// Handle instance updates from ItemComponent
   /// This intercepts completions and skips to backdate them to yesterday
+  /// Uses optimistic UI updates for instant feedback
   Future<void> _handleInstanceUpdated(
       ActivityInstanceRecord updatedInstance) async {
-    if (_processedItemIds.contains(updatedInstance.reference.id)) return;
+    final instanceId = updatedInstance.reference.id;
+
+    // Prevent duplicate processing
+    if (_processedItemIds.contains(instanceId) ||
+        _optimisticProcessingIds.contains(instanceId)) {
+      return;
+    }
+
+    // OPTIMISTIC UPDATE: Apply UI changes immediately
+    _applyOptimisticState(updatedInstance);
 
     final yesterday = DateService.yesterdayStart;
     final yesterdayEnd =
         DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
     final today = DateService.todayStart;
-    bool needsRecalculation = false;
 
+    // Process backend operations asynchronously
     try {
       // Check if item was just completed and needs backdating
       if (updatedInstance.status == 'completed' &&
@@ -129,16 +193,11 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
         final completedAt = updatedInstance.completedAt!;
         // If completed today, backdate to yesterday
         if (completedAt.isAfter(today)) {
-          needsRecalculation = true;
-
           await ActivityInstanceService.completeInstanceWithBackdate(
-            instanceId: updatedInstance.reference.id,
+            instanceId: instanceId,
             finalValue: updatedInstance.currentValue,
             completedAt: yesterdayEnd,
           );
-        } else {
-          // Already backdated or completed yesterday, just mark as processed
-          needsRecalculation = true;
         }
       }
 
@@ -148,59 +207,57 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
         final skippedAt = updatedInstance.skippedAt!;
         // If skipped today, backdate to yesterday
         if (skippedAt.isAfter(today)) {
-          needsRecalculation = true;
-
           await ActivityInstanceService.skipInstance(
-            instanceId: updatedInstance.reference.id,
+            instanceId: instanceId,
             skippedAt: yesterdayEnd,
           );
-        } else {
-          // Already backdated or skipped yesterday, just mark as processed
-          needsRecalculation = true;
         }
       }
-
-      // If item was snoozed, just mark as processed (no backdating needed)
-      if (updatedInstance.status == 'snoozed') {
-        needsRecalculation =
-            false; // Snooze doesn't affect yesterday's progress
-      }
-
-      // Historical edit functionality removed - progress recalculation disabled
-      // if (needsRecalculation) {
-      //   await HistoricalEditService.recalculateDailyProgress(
-      //     userId: currentUserUid,
-      //     date: yesterday,
-      //   );
-      // }
-
-      // Mark as processed
-      setState(() {
-        _processedItemIds.add(updatedInstance.reference.id);
-      });
 
       // Reset reminder count when user completes/skips items
       await MorningCatchUpService.resetReminderCount();
-      await _loadReminderCount();
+      if (mounted) {
+        await _loadReminderCount();
+      }
 
-      // Reload items to get updated instances
-      await _loadItems();
+      // Clear optimistic state now that backend operation succeeded
+      _clearOptimisticState(instanceId);
+
+      // Only reload if we need to check for new instances (e.g., habit completion may create new instance)
+      // For most cases, optimistic removal is sufficient
+      if (updatedInstance.templateCategoryType == 'habit' &&
+          updatedInstance.status == 'completed') {
+        // Habits may generate new instances, so reload
+        await _loadItems();
+      }
 
       // Auto-close dialog if all items are processed
-      final remainingAfterUpdate = _items
-          .where((item) => !_processedItemIds.contains(item.reference.id))
-          .toList();
-      if (remainingAfterUpdate.isEmpty && mounted) {
-        await Future.delayed(const Duration(seconds: 2));
-        final finalRemaining = _items
-            .where((item) => !_processedItemIds.contains(item.reference.id))
+      if (mounted) {
+        final remainingAfterUpdate = _items
+            .where((item) =>
+                !_processedItemIds.contains(item.reference.id) &&
+                !_optimisticProcessingIds.contains(item.reference.id))
             .toList();
-        if (mounted && finalRemaining.isEmpty) {
-          await MorningCatchUpService.markDialogAsShown();
-          Navigator.of(context).pop();
+        if (remainingAfterUpdate.isEmpty) {
+          // Wait a brief moment for any final state updates
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            final finalRemaining = _items
+                .where((item) =>
+                    !_processedItemIds.contains(item.reference.id) &&
+                    !_optimisticProcessingIds.contains(item.reference.id))
+                .toList();
+            if (finalRemaining.isEmpty) {
+              await MorningCatchUpService.markDialogAsShown();
+              Navigator.of(context).pop();
+            }
+          }
         }
       }
     } catch (e) {
+      // ROLLBACK: Revert optimistic update on error
+      _revertOptimisticState(instanceId);
+
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -261,6 +318,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       return;
     }
 
+    if (!mounted) return;
     setState(() {
       _isProcessing = true;
       _totalToProcess = remainingHabits.length;
@@ -408,13 +466,17 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     final yesterdayLabel = DateFormat('EEEE, MMM d').format(yesterday);
 
     final remainingItems = _items
-        .where((item) => !_processedItemIds.contains(item.reference.id))
+        .where((item) =>
+            !_processedItemIds.contains(item.reference.id) &&
+            !_optimisticProcessingIds.contains(item.reference.id))
         .toList();
+
+    final processingCount = _optimisticProcessingIds.length;
 
     return WillPopScope(
       onWillPop: () async {
-        // Allow dismissal if all items are processed
-        if (remainingItems.isEmpty) {
+        // Allow dismissal if all items are processed (including optimistic ones)
+        if (remainingItems.isEmpty && processingCount == 0) {
           await MorningCatchUpService.markDialogAsShown();
           return true;
         }
@@ -565,10 +627,17 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         onRefresh: _loadItems,
                         onInstanceUpdated: _handleInstanceUpdated,
                         onInstanceDeleted: (deletedInstance) {
-                          setState(() {
-                            _processedItemIds.add(deletedInstance.reference.id);
+                          // Optimistically remove deleted item immediately
+                          _applyOptimisticState(deletedInstance);
+                          // Clear optimistic state after a brief delay (item is already deleted)
+                          Future.delayed(const Duration(milliseconds: 300), () {
+                            if (mounted) {
+                              _clearOptimisticState(
+                                  deletedInstance.reference.id);
+                              // Reload to ensure UI is in sync
+                              _loadItems();
+                            }
                           });
-                          _loadItems();
                         },
                         onHabitUpdated: (_) {},
                         onHabitDeleted: (_) async => _loadItems(),
@@ -597,6 +666,47 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
+                    // Show processing status if items are syncing
+                    if (processingCount > 0)
+                      Container(
+                        margin: const EdgeInsets.only(bottom: 12),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 12,
+                          vertical: 8,
+                        ),
+                        decoration: BoxDecoration(
+                          color: theme.primary.withOpacity(0.1),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: theme.primary.withOpacity(0.3),
+                            width: 1,
+                          ),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(
+                                  theme.primary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              'Syncing $processingCount item${processingCount == 1 ? '' : 's'}...',
+                              style: theme.bodySmall.override(
+                                fontFamily: 'Readex Pro',
+                                color: theme.primary,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     if (remainingItems.isEmpty)
                       SizedBox(
                         width: double.infinity,
@@ -619,7 +729,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                       SizedBox(
                         width: double.infinity,
                         child: ElevatedButton(
-                          onPressed: _isProcessing ? null : _skipAllRemaining,
+                          onPressed: (_isProcessing || processingCount > 0)
+                              ? null
+                              : _skipAllRemaining,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: theme.error,
                             foregroundColor: Colors.white,
@@ -635,7 +747,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         SizedBox(
                           width: double.infinity,
                           child: OutlinedButton(
-                            onPressed: _isProcessing ? null : _snoozeDialog,
+                            onPressed: (_isProcessing || processingCount > 0)
+                                ? null
+                                : _snoozeDialog,
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),

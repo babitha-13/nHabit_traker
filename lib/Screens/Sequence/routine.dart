@@ -4,9 +4,11 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
+import 'package:habit_tracker/Helper/backend/sequence_order_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
 import 'package:habit_tracker/Screens/Sequence/sequence_detail_page.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
@@ -26,21 +28,29 @@ class _SequencesState extends State<Sequences> {
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
-  
+  // Track sequences being reordered to prevent stale updates
+  Set<String> _reorderingSequenceIds = {};
+
   @override
   void initState() {
     super.initState();
     _loadData();
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _loadData();
+      }
+    });
   }
-  
+
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this);
     _searchManager.removeListener(_onSearchChanged);
     super.dispose();
   }
-  
+
   void _onSearchChanged(String query) {
     if (mounted) {
       setState(() {
@@ -48,7 +58,7 @@ class _SequencesState extends State<Sequences> {
       });
     }
   }
-  
+
   List<SequenceRecord> get _filteredSequences {
     if (_searchQuery.isEmpty) {
       return _sequences;
@@ -56,7 +66,8 @@ class _SequencesState extends State<Sequences> {
     final query = _searchQuery.toLowerCase();
     return _sequences.where((sequence) {
       final nameMatch = sequence.name.toLowerCase().contains(query);
-      final descriptionMatch = sequence.description.toLowerCase().contains(query);
+      final descriptionMatch =
+          sequence.description.toLowerCase().contains(query);
       return nameMatch || descriptionMatch;
     }).toList();
   }
@@ -69,17 +80,17 @@ class _SequencesState extends State<Sequences> {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final sequences = await querySequenceRecordOnce(userId: userId);
-        // Debug each sequence
-        for (int i = 0; i < sequences.length; i++) {
-          final seq = sequences[i];
-          print('🔍 DEBUG: Sequence $i: ${seq.name} (ID: ${seq.reference.id})');
-        }
         final habits = await queryActivitiesRecordOnce(userId: userId);
+        // Sort sequences by order to ensure consistent display
+        final sortedSequences =
+            SequenceOrderService.sortSequencesByOrder(sequences);
         setState(() {
-          _sequences = sequences;
+          _sequences = sortedSequences;
           _habits = habits;
           _isLoading = false;
         });
+        // Initialize order values for sequences that don't have them
+        SequenceOrderService.initializeOrderValues(_sequences);
       } else {}
     } catch (e) {
       if (e is FirebaseException) {}
@@ -223,24 +234,58 @@ class _SequencesState extends State<Sequences> {
                 ? const Center(child: CircularProgressIndicator())
                 : Column(
                     children: [
-                      // Create New Sequence button at the top
-                      if (_filteredSequences.isNotEmpty)
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: SizedBox(
-                        width: double.infinity,
-                        child: ElevatedButton.icon(
-                          onPressed: _navigateToCreateSequence,
-                          icon: const Icon(Icons.add),
-                          label: const Text('Create New Sequence'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: FlutterFlowTheme.of(context).primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12),
+                      // Search indicator banner when search is active
+                      if (_searchQuery.isNotEmpty &&
+                          _filteredSequences.isNotEmpty)
+                        Container(
+                          width: double.infinity,
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 8),
+                          color: FlutterFlowTheme.of(context)
+                              .secondaryBackground
+                              .withOpacity(0.7),
+                          child: Row(
+                            children: [
+                              Icon(
+                                Icons.info_outline,
+                                size: 16,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  'Drag and drop is disabled while searching',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontSize: 12,
+                                      ),
+                                ),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ),
+                      // Create New Sequence button at the top
+                      if (_filteredSequences.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.all(16.0),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: ElevatedButton.icon(
+                              onPressed: _navigateToCreateSequence,
+                              icon: const Icon(Icons.add),
+                              label: const Text('Create New Sequence'),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor:
+                                    FlutterFlowTheme.of(context).primary,
+                                foregroundColor: Colors.white,
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                              ),
+                            ),
+                          ),
+                        ),
                       // Sequences list
                       Expanded(
                         child: _filteredSequences.isEmpty
@@ -259,16 +304,16 @@ class _SequencesState extends State<Sequences> {
                                       _searchQuery.isNotEmpty
                                           ? 'No sequences found'
                                           : 'No sequences yet',
-                                      style:
-                                          FlutterFlowTheme.of(context).titleMedium,
+                                      style: FlutterFlowTheme.of(context)
+                                          .titleMedium,
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
                                       _searchQuery.isNotEmpty
                                           ? 'Try a different search term'
                                           : 'Create sequences to group related habits and tasks!',
-                                      style:
-                                          FlutterFlowTheme.of(context).bodyMedium,
+                                      style: FlutterFlowTheme.of(context)
+                                          .bodyMedium,
                                     ),
                                     if (_searchQuery.isEmpty) ...[
                                       const SizedBox(height: 16),
@@ -280,124 +325,38 @@ class _SequencesState extends State<Sequences> {
                                   ],
                                 ),
                               )
-                            : ListView.builder(
-                                itemCount: _filteredSequences.length,
-                                itemBuilder: (context, index) {
-                                  final sequence = _filteredSequences[index];
-                              final itemNames = sequence.itemNames.isNotEmpty
-                                  ? sequence.itemNames
-                                  : _getItemNames(sequence.itemIds);
-                              return Container(
-                                margin: const EdgeInsets.symmetric(
-                                    horizontal: 16, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: FlutterFlowTheme.of(context)
-                                      .secondaryBackground,
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(
-                                    color:
-                                        FlutterFlowTheme.of(context).alternate,
-                                    width: 1,
+                            : _searchQuery.isEmpty
+                                ? ReorderableListView.builder(
+                                    itemCount: _sequences.length,
+                                    onReorder: _handleReorder,
+                                    itemBuilder: (context, index) {
+                                      final sequence = _sequences[index];
+                                      final itemNames =
+                                          sequence.itemNames.isNotEmpty
+                                              ? sequence.itemNames
+                                              : _getItemNames(sequence.itemIds);
+                                      return _buildSequenceTile(
+                                        sequence,
+                                        itemNames,
+                                        key: Key(sequence.reference.id),
+                                      );
+                                    },
+                                  )
+                                : ListView.builder(
+                                    itemCount: _filteredSequences.length,
+                                    itemBuilder: (context, index) {
+                                      final sequence =
+                                          _filteredSequences[index];
+                                      final itemNames =
+                                          sequence.itemNames.isNotEmpty
+                                              ? sequence.itemNames
+                                              : _getItemNames(sequence.itemIds);
+                                      return _buildSequenceTile(
+                                        sequence,
+                                        itemNames,
+                                      );
+                                    },
                                   ),
-                                ),
-                                child: ListTile(
-                                  onTap: () =>
-                                      _navigateToSequenceDetail(sequence),
-                                  leading: Container(
-                                    width: 40,
-                                    height: 40,
-                                    decoration: BoxDecoration(
-                                      color:
-                                          FlutterFlowTheme.of(context).primary,
-                                      shape: BoxShape.circle,
-                                    ),
-                                    child: const Icon(
-                                      Icons.playlist_play,
-                                      color: Colors.white,
-                                      size: 20,
-                                    ),
-                                  ),
-                                  title: Text(
-                                    sequence.name,
-                                    style: FlutterFlowTheme.of(context)
-                                        .titleMedium,
-                                  ),
-                                  subtitle: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      if (sequence.description.isNotEmpty)
-                                        Text(
-                                          sequence.description,
-                                          style: FlutterFlowTheme.of(context)
-                                              .bodyMedium,
-                                        ),
-                                      const SizedBox(height: 4),
-                                      Text(
-                                        '${itemNames.length} items',
-                                        style: FlutterFlowTheme.of(context)
-                                            .bodySmall,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      Wrap(
-                                        spacing: 4,
-                                        children: itemNames
-                                            .take(3)
-                                            .map(
-                                              (name) => Container(
-                                                padding:
-                                                    const EdgeInsets.symmetric(
-                                                        horizontal: 6,
-                                                        vertical: 2),
-                                                decoration: BoxDecoration(
-                                                  color: FlutterFlowTheme.of(
-                                                          context)
-                                                      .primary
-                                                      .withOpacity(0.1),
-                                                  borderRadius:
-                                                      BorderRadius.circular(8),
-                                                ),
-                                                child: Text(
-                                                  name,
-                                                  style: TextStyle(
-                                                    fontSize: 10,
-                                                    color: FlutterFlowTheme.of(
-                                                            context)
-                                                        .primary,
-                                                  ),
-                                                ),
-                                              ),
-                                            )
-                                            .toList(),
-                                      ),
-                                      if (itemNames.length > 3)
-                                        Text(
-                                          '+${itemNames.length - 3} more',
-                                          style: FlutterFlowTheme.of(context)
-                                              .bodySmall
-                                              .override(
-                                                fontFamily: 'Readex Pro',
-                                                color:
-                                                    FlutterFlowTheme.of(context)
-                                                        .secondaryText,
-                                              ),
-                                        ),
-                                    ],
-                                  ),
-                                  trailing: Builder(
-                                    builder: (context) => IconButton(
-                                      icon: const Icon(Icons.more_vert),
-                                      onPressed: () =>
-                                          _showSequenceOverflowMenu(
-                                              context, sequence),
-                                      color: FlutterFlowTheme.of(context)
-                                          .secondaryText,
-                                    ),
-                                  ),
-                                ),
-                              );
-                                },
-                              ),
                       ),
                       // Non-Productive Tasks Button at the bottom
                       // Add horizontal padding to avoid overlapping with FABs
@@ -408,9 +367,11 @@ class _SequencesState extends State<Sequences> {
                           icon: const Icon(Icons.access_time),
                           label: const Text('Non Productive Tasks'),
                           style: ElevatedButton.styleFrom(
-                            backgroundColor: FlutterFlowTheme.of(context).primary,
+                            backgroundColor:
+                                FlutterFlowTheme.of(context).primary,
                             foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
+                            padding: const EdgeInsets.symmetric(
+                                vertical: 12, horizontal: 16),
                           ),
                         ),
                       ),
@@ -423,7 +384,8 @@ class _SequencesState extends State<Sequences> {
               right: 16,
               bottom: 16,
               child: FloatingActionButton(
-                heroTag: 'fab_add_non_productive_sequence',
+                heroTag:
+                    null, // Disable Hero animation to avoid conflicts during navigation
                 onPressed: _showCreateNonProductiveDialog,
                 backgroundColor: FlutterFlowTheme.of(context).primary,
                 child: const Icon(
@@ -504,5 +466,144 @@ class _SequencesState extends State<Sequences> {
         ],
       ),
     );
+  }
+
+  Widget _buildSequenceTile(
+    SequenceRecord sequence,
+    List<String> itemNames, {
+    Key? key,
+  }) {
+    return Container(
+      key: key,
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      decoration: BoxDecoration(
+        color: FlutterFlowTheme.of(context).secondaryBackground,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).alternate,
+          width: 1,
+        ),
+      ),
+      child: ListTile(
+        onTap: () => _navigateToSequenceDetail(sequence),
+        leading: Container(
+          width: 40,
+          height: 40,
+          decoration: BoxDecoration(
+            color: FlutterFlowTheme.of(context).primary,
+            shape: BoxShape.circle,
+          ),
+          child: const Icon(
+            Icons.playlist_play,
+            color: Colors.white,
+            size: 20,
+          ),
+        ),
+        title: Text(
+          sequence.name,
+          style: FlutterFlowTheme.of(context).titleMedium,
+        ),
+        subtitle: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (sequence.description.isNotEmpty)
+              Text(
+                sequence.description,
+                style: FlutterFlowTheme.of(context).bodyMedium,
+              ),
+            const SizedBox(height: 4),
+            Text(
+              '${itemNames.length} items',
+              style: FlutterFlowTheme.of(context).bodySmall,
+            ),
+          ],
+        ),
+        trailing: Builder(
+          builder: (context) => IconButton(
+            icon: const Icon(Icons.more_vert),
+            onPressed: () => _showSequenceOverflowMenu(context, sequence),
+            color: FlutterFlowTheme.of(context).secondaryText,
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Handle reordering of sequences
+  Future<void> _handleReorder(int oldIndex, int newIndex) async {
+    final reorderingIds = <String>{};
+    try {
+      // Allow dropping at the end (newIndex can equal sequences.length)
+      if (oldIndex < 0 ||
+          oldIndex >= _sequences.length ||
+          newIndex < 0 ||
+          newIndex > _sequences.length) return;
+
+      // Create a copy of the sequences list for reordering
+      final reorderedSequences = List<SequenceRecord>.from(_sequences);
+
+      // Adjust newIndex for the case where we're moving down
+      int adjustedNewIndex = newIndex;
+      if (oldIndex < newIndex) {
+        adjustedNewIndex -= 1;
+      }
+
+      // Get the sequence being moved
+      final movedSequence = reorderedSequences.removeAt(oldIndex);
+      reorderedSequences.insert(adjustedNewIndex, movedSequence);
+
+      // OPTIMISTIC UI UPDATE: Update local state immediately
+      // Update order values and create updated sequences
+      final updatedSequences = <SequenceRecord>[];
+      for (int i = 0; i < reorderedSequences.length; i++) {
+        final sequence = reorderedSequences[i];
+        final sequenceId = sequence.reference.id;
+        reorderingIds.add(sequenceId);
+
+        // Create updated sequence with new listOrder
+        final updatedData = Map<String, dynamic>.from(sequence.snapshotData);
+        updatedData['listOrder'] = i;
+        final updatedSequence = SequenceRecord.getDocumentFromData(
+          updatedData,
+          sequence.reference,
+        );
+
+        updatedSequences.add(updatedSequence);
+      }
+
+      // Add sequence IDs to reordering set to prevent stale updates
+      _reorderingSequenceIds.addAll(reorderingIds);
+
+      // Replace _sequences with the reordered list (this is the key fix!)
+      if (mounted) {
+        setState(() {
+          _sequences = updatedSequences;
+        });
+      }
+
+      // Perform database update in background
+      await SequenceOrderService.reorderSequences(
+        updatedSequences,
+        oldIndex,
+        adjustedNewIndex,
+      );
+
+      // Clear reordering set after successful database update
+      _reorderingSequenceIds.removeAll(reorderingIds);
+    } catch (e) {
+      // Clear reordering set even on error
+      _reorderingSequenceIds.removeAll(reorderingIds);
+      // Revert to correct state by refreshing data
+      await _loadData();
+      // Show error to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error reordering sequences: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
   }
 }

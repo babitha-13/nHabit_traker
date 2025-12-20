@@ -62,9 +62,29 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           userId: userId,
           includeSequenceItems: true,
         );
+        // Filter out completed/skipped one-time tasks (keep recurring tasks, habits, and non-productive items)
+        final filteredActivities = activities.where((activity) {
+          // Keep all habits (always recurring)
+          if (activity.categoryType == 'habit') return true;
+          // Keep all non-productive items
+          if (activity.categoryType == 'non_productive') return true;
+          // For tasks: exclude completed/skipped one-time tasks
+          if (activity.categoryType == 'task') {
+            // Keep recurring tasks (regardless of status)
+            if (activity.isRecurring) return true;
+            // For one-time tasks:
+            // - Exclude if inactive (completed tasks get marked inactive)
+            // - Exclude if status is explicitly 'complete' or 'skipped'
+            if (!activity.isActive) return false;
+            return activity.status != 'complete' &&
+                activity.status != 'skipped';
+          }
+          // Keep everything else by default
+          return true;
+        }).toList();
         setState(() {
-          _allActivities = activities;
-          _filteredActivities = activities;
+          _allActivities = filteredActivities;
+          _filteredActivities = filteredActivities;
           _isLoading = false;
         });
         // If editing, load existing items
@@ -181,8 +201,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content:
-                Text('Non-productive item "${activity.name}" deleted successfully'),
+            content: Text(
+                'Non-productive item "${activity.name}" deleted successfully'),
             backgroundColor: Colors.green,
           ),
         );
@@ -247,12 +267,10 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           userId: currentUserUid,
         );
         if (mounted) {
-          // Create instances for newly created non-productive items first
-          await _createInstancesForNewItems();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Sequence "${_nameController.text.trim()}" updated successfully!${_newlyCreatedItemIds.isNotEmpty ? ' Instances created for new items.' : ''}'),
+                  'Sequence "${_nameController.text.trim()}" updated successfully!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -270,12 +288,10 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           userId: currentUserUid,
         );
         if (mounted) {
-          // Create instances for newly created non-productive items first
-          await _createInstancesForNewItems();
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Sequence "${_nameController.text.trim()}" created successfully!${_newlyCreatedItemIds.isNotEmpty ? ' Instances created for new items.' : ''}'),
+                  'Sequence "${_nameController.text.trim()}" created successfully!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -300,35 +316,12 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     }
   }
 
-  Future<void> _createInstancesForNewItems() async {
-    if (_newlyCreatedItemIds.isEmpty) return;
-    try {
-      for (final itemId in _newlyCreatedItemIds) {
-        try {
-          final instance = await SequenceService.createInstanceForSequenceItem(
-            itemId: itemId,
-            userId: currentUserUid,
-          );
-          if (instance != null) {
-          } else {}
-        } catch (e) {
-          // Log error but continue with other items - individual instance creation failures are non-critical
-          print('Error creating instance for sequence item $itemId: $e');
-        }
-      }
-    } catch (e) {
-      // Log error but don't fail - instance creation for new items is non-critical
-      print('Error creating instances for new sequence items: $e');
-    }
-  }
-
   Color _getItemTypeColor(String categoryType) {
     switch (categoryType) {
       case 'habit':
         return Colors.green;
       case 'task':
         return const Color(0xFF2F4F4F); // Dark Slate Gray (charcoal) for tasks
-      case 'sequence_item':
       case 'non_productive':
         return Colors.grey.shade600; // Muted color for non-productive
       default:
@@ -350,8 +343,9 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     return _getItemTypeColor(activity.categoryType);
   }
 
-  Widget _buildTextField(FlutterFlowTheme theme, TextEditingController controller,
-      String hint, {int maxLines = 1}) {
+  Widget _buildTextField(
+      FlutterFlowTheme theme, TextEditingController controller, String hint,
+      {int maxLines = 1}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -383,13 +377,11 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
   Widget _buildSimplifiedItemCard(ActivityRecord activity, bool isSelected) {
     final theme = FlutterFlowTheme.of(context);
     final stripeColor = _getStripeColor(activity);
-    final isNonProductive = activity.categoryType == 'non_productive' ||
-        activity.categoryType == 'sequence_item';
+    final isNonProductive = activity.categoryType == 'non_productive';
 
     return GestureDetector(
-      onLongPress: isNonProductive
-          ? () => _showDeleteConfirmation(activity)
-          : null,
+      onLongPress:
+          isNonProductive ? () => _showDeleteConfirmation(activity) : null,
       onTap: () {
         if (isSelected) {
           _removeItem(activity);
@@ -502,9 +494,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                       width: 32,
                       height: 32,
                       decoration: BoxDecoration(
-                        color: isSelected
-                            ? theme.primary
-                            : Colors.transparent,
+                        color: isSelected ? theme.primary : Colors.transparent,
                         borderRadius: BorderRadius.circular(4),
                         border: isSelected
                             ? null
@@ -567,7 +557,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                 style: TextButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                 ),
                 child: _isSaving
                     ? const SizedBox(
@@ -700,7 +691,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
                                     horizontal: 12,
-                                    vertical: 8,
+                                    vertical: 4,
                                   ),
                                   decoration: BoxDecoration(
                                     color: theme.tertiary.withOpacity(0.3),
@@ -715,18 +706,25 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                     style: theme.bodyMedium,
                                     decoration: InputDecoration(
                                       hintText:
-                                          'Search habits, tasks, or non-productive items...',
+                                          'Search habits, tasks, or non-produc...',
                                       hintStyle: TextStyle(
                                         color: theme.secondaryText,
                                         fontSize: 14,
                                       ),
                                       border: InputBorder.none,
                                       isDense: true,
-                                      contentPadding: EdgeInsets.zero,
+                                      contentPadding:
+                                          const EdgeInsets.symmetric(
+                                              vertical: 8),
                                       prefixIcon: Icon(
                                         Icons.search,
                                         color: theme.secondaryText,
                                         size: 20,
+                                      ),
+                                      prefixIconConstraints:
+                                          const BoxConstraints(
+                                        minWidth: 40,
+                                        minHeight: 20,
                                       ),
                                     ),
                                     onChanged: _filterActivities,
@@ -750,7 +748,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                       vertical: 12,
                                     ),
                                   ),
-                                  icon: const Icon(Icons.add, color: Colors.white),
+                                  icon: const Icon(Icons.add,
+                                      color: Colors.white),
                                   label: Text(
                                     'New Item',
                                     style: theme.bodyMedium.override(
@@ -874,7 +873,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                     ),
                                     const SizedBox(height: 8),
                                     SizedBox(
-                                      height: 200, // Max height for selected items
+                                      height:
+                                          200, // Max height for selected items
                                       child: ReorderableListView.builder(
                                         shrinkWrap: true,
                                         physics:
@@ -882,23 +882,23 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                         itemCount: _selectedItems.length,
                                         onReorder: _reorderItems,
                                         itemBuilder: (context, index) {
-                                          final activity = _selectedItems[index];
+                                          final activity =
+                                              _selectedItems[index];
                                           final stripeColor =
                                               _getStripeColor(activity);
                                           final isNonProductive =
                                               activity.categoryType ==
-                                                      'non_productive' ||
-                                                  activity.categoryType ==
-                                                      'sequence_item';
+                                                  'non_productive';
                                           return Container(
-                                            key: ValueKey(activity.reference.id),
+                                            key:
+                                                ValueKey(activity.reference.id),
                                             margin: const EdgeInsets.only(
                                                 bottom: 4),
                                             padding: const EdgeInsets.fromLTRB(
                                                 6, 6, 6, 6),
                                             decoration: BoxDecoration(
-                                              gradient:
-                                                  theme.neumorphicGradientSubtle,
+                                              gradient: theme
+                                                  .neumorphicGradientSubtle,
                                               borderRadius:
                                                   BorderRadius.circular(12),
                                               border: Border.all(
@@ -918,7 +918,8 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                                           child: CustomPaint(
                                                             size: const Size(
                                                                 3,
-                                                                double.infinity),
+                                                                double
+                                                                    .infinity),
                                                             painter:
                                                                 _DottedLinePainter(
                                                                     color:
@@ -955,8 +956,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                                           activity.categoryType ==
                                                                   'habit'
                                                               ? Icons.flag
-                                                              : activity
-                                                                          .categoryType ==
+                                                              : activity.categoryType ==
                                                                       'task'
                                                                   ? Icons
                                                                       .assignment
@@ -1026,12 +1026,13 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                                     mainAxisSize:
                                                         MainAxisSize.min,
                                                     mainAxisAlignment:
-                                                        MainAxisAlignment.center,
+                                                        MainAxisAlignment
+                                                            .center,
                                                     children: [
                                                       Icon(
                                                         Icons.drag_handle,
-                                                        color: theme
-                                                            .secondaryText,
+                                                        color:
+                                                            theme.secondaryText,
                                                         size: 20,
                                                       ),
                                                     ],

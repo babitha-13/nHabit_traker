@@ -9,8 +9,10 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
 import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/time_validation_helper.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -66,6 +68,20 @@ class TaskInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
+    // Inherit order from previous instance of the same template
+    int? queueOrder;
+    int? habitsOrder;
+    int? tasksOrder;
+    try {
+      queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'queue', uid);
+      habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'habits', uid);
+      tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'tasks', uid);
+    } catch (e) {
+      // If order lookup fails, continue with null values (will use default sorting)
+    }
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: dueDate,
@@ -83,6 +99,10 @@ class TaskInstanceService {
       templateUnit: template.unit,
       templateDescription: template.description,
       templateShowInFloatingTimer: template.showInFloatingTimer,
+      // Inherit order from previous instance
+      queueOrder: queueOrder,
+      habitsOrder: habitsOrder,
+      tasksOrder: tasksOrder,
     );
     return await ActivityInstanceRecord.collectionForUser(uid)
         .add(instanceData);
@@ -115,6 +135,12 @@ class TaskInstanceService {
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
+
+      // Broadcast the instance update event for real-time UI updates
+      final updatedInstance =
+          await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
       // Get the template to check if it's recurring
       final templateRef =
           ActivityRecord.collectionForUser(uid).doc(instance.templateId);
@@ -154,6 +180,13 @@ class TaskInstanceService {
               dueDate: null,
             );
           }
+        } else if (!template.isRecurring) {
+          // Mark one-time task template as inactive after completion
+          await templateRef.update({
+            'isActive': false,
+            'status': 'complete',
+            'lastUpdated': now,
+          });
         }
       }
     } catch (e) {
@@ -222,6 +255,13 @@ class TaskInstanceService {
               dueDate: null,
             );
           }
+        } else if (!template.isRecurring) {
+          // Mark one-time task template as inactive after skipping
+          await templateRef.update({
+            'isActive': false,
+            'status': 'skipped',
+            'lastUpdated': now,
+          });
         }
       }
     } catch (e) {
@@ -1271,8 +1311,9 @@ class TaskInstanceService {
           // This ensures we find the same instance that's displayed in the queue for that date
           try {
             // Extract date from startTime (the selected calendar date)
-            final targetDate = DateTime(startTime.year, startTime.month, startTime.day);
-            
+            final targetDate =
+                DateTime(startTime.year, startTime.month, startTime.day);
+
             final habitInstances =
                 await ActivityInstanceService.getHabitInstancesForDate(
                     targetDate: targetDate, userId: uid);
@@ -1318,13 +1359,18 @@ class TaskInstanceService {
                       .where('isActive', isEqualTo: true)
                       .orderBy('lastUpdated', descending: true)
                       .limit(1);
-              final allInstancesResult = await allInstancesQuery.get().catchError((e) {
-                print('❌ MISSING INDEX: addTimeLogSession allInstancesQuery needs Index 4');
-                print('Required Index: isActive (ASC) + templateId (ASC) + lastUpdated (DESC)');
+              final allInstancesResult =
+                  await allInstancesQuery.get().catchError((e) {
+                print(
+                    '❌ MISSING INDEX: addTimeLogSession allInstancesQuery needs Index 4');
+                print(
+                    'Required Index: isActive (ASC) + templateId (ASC) + lastUpdated (DESC)');
                 print('Collection: activity_instances');
                 print('Full error: $e');
-                if (e.toString().contains('index') || e.toString().contains('https://')) {
-                  print('📋 Look for the Firestore index creation link in the error message above!');
+                if (e.toString().contains('index') ||
+                    e.toString().contains('https://')) {
+                  print(
+                      '📋 Look for the Firestore index creation link in the error message above!');
                   print('   Click the link to create the index automatically.');
                 }
                 throw e;
@@ -1381,14 +1427,9 @@ class TaskInstanceService {
             'currentValue': newTotalLogged, // Update current value for progress
             'lastUpdated': DateTime.now(),
           };
-          
+
           // Fix: Ensure templateCategoryType is correct for non-productive items
-          // Migrate legacy 'sequence_item' to 'non_productive'
           if (activityType == 'non_productive') {
-            updateData['templateCategoryType'] = 'non_productive';
-            updateData['templateCategoryName'] = 'Non-Productive';
-          } else if (existingInstance.templateCategoryType == 'sequence_item') {
-            // Migrate legacy sequence_item to non_productive
             updateData['templateCategoryType'] = 'non_productive';
             updateData['templateCategoryName'] = 'Non-Productive';
           }
@@ -1397,6 +1438,34 @@ class TaskInstanceService {
           // targetInstanceRef already points to the correct collection, so we can use it directly
           try {
             await targetInstanceRef.update(updateData);
+
+            // Broadcast the instance update event for real-time UI updates
+            final updatedInstance =
+                await ActivityInstanceRecord.getDocumentOnce(targetInstanceRef);
+            InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+            // Handle auto-completion for time-target tasks/habits
+            // Check if adding this time log now meets or exceeds the target
+            if (existingInstance.status != 'completed' &&
+                existingInstance.templateTrackingType == 'time' &&
+                existingInstance.templateTarget != null) {
+              final target = existingInstance.templateTarget;
+              if (target is num && target > 0) {
+                final targetMs =
+                    (target.toInt()) * 60000; // Convert minutes to milliseconds
+                if (newTotalLogged >= targetMs) {
+                  // Auto-complete when time meets/exceeds target
+                  // Note: completeTaskInstance will broadcast again with completion status
+                  await completeTaskInstance(
+                    instanceId: targetInstanceRef.id,
+                    finalValue: newTotalLogged,
+                    finalAccumulatedTime: newTotalLogged,
+                    userId: uid,
+                  );
+                }
+              }
+            }
+
             return; // Done
           } catch (e) {
             // Error updating instance
@@ -1450,7 +1519,8 @@ class TaskInstanceService {
               template.target != null) {
             final target = template.target;
             if (target is num && target > 0) {
-              final targetMs = (target.toInt()) * 60000; // Convert minutes to milliseconds
+              final targetMs =
+                  (target.toInt()) * 60000; // Convert minutes to milliseconds
               if (totalTime >= targetMs) {
                 // Only complete if time meets/exceeds target
                 await completeTaskInstance(
@@ -1615,6 +1685,38 @@ class TaskInstanceService {
         'currentValue': totalTime,
         'lastUpdated': DateTime.now(),
       });
+
+      // Broadcast the instance update event immediately for time changes
+      final updatedInstance =
+          await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+      // Handle auto-completion/uncompletion for time-target tasks/habits
+      if (instance.templateTrackingType == 'time' &&
+          instance.templateTarget != null) {
+        final target = instance.templateTarget;
+        if (target is num && target > 0) {
+          final targetMs =
+              (target.toInt()) * 60000; // Convert minutes to milliseconds
+
+          // Auto-complete if not completed and time meets/exceeds target
+          if (instance.status != 'completed' && totalTime >= targetMs) {
+            await completeTaskInstance(
+              instanceId: instanceId,
+              finalValue: totalTime,
+              finalAccumulatedTime: totalTime,
+              userId: uid,
+            );
+          }
+          // Auto-uncomplete if completed but time is now below target
+          else if (instance.status == 'completed' && totalTime < targetMs) {
+            await ActivityInstanceService.uncompleteInstance(
+              instanceId: instanceId,
+              userId: uid,
+            );
+          }
+        }
+      }
     } catch (e) {
       rethrow;
     }
@@ -1668,7 +1770,8 @@ class TaskInstanceService {
           instance.templateTarget != null) {
         final target = instance.templateTarget;
         if (target is num && target > 0) {
-          final targetMs = (target.toInt()) * 60000; // Convert minutes to milliseconds
+          final targetMs =
+              (target.toInt()) * 60000; // Convert minutes to milliseconds
           if (totalTime < targetMs) {
             // Auto-uncomplete for timer types when time falls below target
             await ActivityInstanceService.uncompleteInstance(

@@ -12,6 +12,8 @@ import 'package:from_css_color/from_css_color.dart';
 import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
 import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -22,6 +24,9 @@ class CalendarEventMetadata {
   final String activityName;
   final String activityType; // 'task', 'habit', 'non_productive'
   final String? templateId;
+  final String? categoryId;
+  final String? categoryName;
+  final String? categoryColorHex;
 
   CalendarEventMetadata({
     required this.instanceId,
@@ -29,6 +34,9 @@ class CalendarEventMetadata {
     required this.activityName,
     required this.activityType,
     this.templateId,
+    this.categoryId,
+    this.categoryName,
+    this.categoryColorHex,
   });
 
   Map<String, dynamic> toMap() {
@@ -38,6 +46,9 @@ class CalendarEventMetadata {
       'activityName': activityName,
       'activityType': activityType,
       'templateId': templateId,
+      'categoryId': categoryId,
+      'categoryName': categoryName,
+      'categoryColorHex': categoryColorHex,
     };
   }
 
@@ -49,6 +60,9 @@ class CalendarEventMetadata {
         activityName: data['activityName'] as String,
         activityType: data['activityType'] as String,
         templateId: data['templateId'] as String?,
+        categoryId: data['categoryId'] as String?,
+        categoryName: data['categoryName'] as String?,
+        categoryColorHex: data['categoryColorHex'] as String?,
       );
     }
     return null;
@@ -192,6 +206,17 @@ class _CalendarPageState extends State<CalendarPage> {
     super.initState();
     _calculateInitialScrollOffset();
     _initializeTabState();
+    // Listen for instance updates to refresh calendar
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceUpdated,
+      _handleInstanceUpdated,
+    );
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _loadEvents();
+      }
+    });
   }
 
   /// Initialize tab state by loading saved preference
@@ -254,20 +279,22 @@ class _CalendarPageState extends State<CalendarPage> {
   /// Calculate time breakdown by category from events
   /// NOTE: This processes ALL time-logged events, not just completed ones
   /// The name "_sortedCompletedEvents" is misleading - it contains all events with time logs
-  List<PieChartSegment> _calculateTimeBreakdown() {
-    // Map to store total time per category (in minutes)
-    final categoryTimeMap = <String, double>{
-      'habit': 0.0,
-      'task': 0.0,
-      'non_productive': 0.0,
-    };
+  TimeBreakdownData _calculateTimeBreakdown() {
+    // Track totals per type
+    double habitMinutes = 0.0;
+    double taskMinutes = 0.0;
+    double nonProductiveMinutes = 0.0;
 
-    // Map to store activity names per category (for grouping)
-    final categoryActivitiesMap = <String, Set<String>>{
-      'habit': <String>{},
-      'task': <String>{},
-      'non_productive': <String>{},
-    };
+    // Map to store minutes per category (keyed by categoryId or categoryName)
+    // For habits: Map<categoryId or categoryName, minutes>
+    final habitCategoryTimeMap = <String, double>{};
+    final habitCategoryColorMap =
+        <String, String>{}; // Store color hex per category
+
+    // For tasks: Map<categoryId or categoryName, minutes>
+    final taskCategoryTimeMap = <String, double>{};
+    final taskCategoryColorMap =
+        <String, String>{}; // Store color hex per category
 
     // Process all events with time logs
     for (final event in _sortedCompletedEvents) {
@@ -281,50 +308,111 @@ class _CalendarPageState extends State<CalendarPage> {
       final duration = event.endTime!.difference(event.startTime!);
       final minutes = duration.inMinutes.toDouble();
 
-      // Add to category total
-      final category = metadata.activityType;
-      if (categoryTimeMap.containsKey(category)) {
-        categoryTimeMap[category] = categoryTimeMap[category]! + minutes;
-        categoryActivitiesMap[category]!.add(metadata.activityName);
+      // Add to type totals
+      if (metadata.activityType == 'habit') {
+        habitMinutes += minutes;
+      } else if (metadata.activityType == 'task') {
+        taskMinutes += minutes;
+      } else if (metadata.activityType == 'non_productive') {
+        nonProductiveMinutes += minutes;
+      }
+
+      // For habits and tasks, accumulate per category
+      if (metadata.activityType == 'habit' || metadata.activityType == 'task') {
+        // Prefer categoryName over categoryId for display, use categoryId as fallback
+        final categoryKey = metadata.categoryName?.isNotEmpty == true
+            ? metadata.categoryName!
+            : (metadata.categoryId?.isNotEmpty == true
+                ? metadata.categoryId!
+                : 'Uncategorized');
+
+        // Get color hex from metadata
+        String? colorHex = metadata.categoryColorHex;
+
+        if (metadata.activityType == 'habit') {
+          habitCategoryTimeMap[categoryKey] =
+              (habitCategoryTimeMap[categoryKey] ?? 0.0) + minutes;
+          // Set color from metadata if available, otherwise keep existing or use default
+          if (colorHex != null && colorHex.isNotEmpty) {
+            habitCategoryColorMap[categoryKey] = colorHex;
+          } else if (!habitCategoryColorMap.containsKey(categoryKey)) {
+            // Only use default if no color has been set yet
+            habitCategoryColorMap[categoryKey] = '#FF9800'; // Orange default
+          }
+        } else {
+          taskCategoryTimeMap[categoryKey] =
+              (taskCategoryTimeMap[categoryKey] ?? 0.0) + minutes;
+          // Set color from metadata if available, otherwise keep existing or use default
+          if (colorHex != null && colorHex.isNotEmpty) {
+            taskCategoryColorMap[categoryKey] = colorHex;
+          } else if (!taskCategoryColorMap.containsKey(categoryKey)) {
+            // Only use default if no color has been set yet
+            taskCategoryColorMap[categoryKey] =
+                '#1A1A1A'; // Dark charcoal default
+          }
+        }
       }
     }
 
-    // Create segments
+    // Create segments - ordered: habit categories, task categories, non-productive, unlogged
     final segments = <PieChartSegment>[];
 
-    // Habits segment
-    if (categoryTimeMap['habit']! > 0) {
-      segments.add(PieChartSegment(
-        label: 'Habits',
-        value: categoryTimeMap['habit']!,
-        color: Colors.orange,
-        category: 'habit',
-      ));
+    // Add habit category segments
+    final habitCategoryKeys = habitCategoryTimeMap.keys.toList()
+      ..sort(); // Sort for consistent ordering
+    for (final categoryKey in habitCategoryKeys) {
+      final minutes = habitCategoryTimeMap[categoryKey]!;
+      if (minutes > 0) {
+        final colorHex = habitCategoryColorMap[categoryKey] ?? '#FF9800';
+        Color categoryColor;
+        try {
+          categoryColor = fromCssColor(colorHex);
+        } catch (e) {
+          categoryColor = Colors.orange; // Fallback
+        }
+        segments.add(PieChartSegment(
+          label: categoryKey,
+          value: minutes,
+          color: categoryColor,
+          category: 'habit',
+        ));
+      }
     }
 
-    // Tasks segment
-    if (categoryTimeMap['task']! > 0) {
-      segments.add(PieChartSegment(
-        label: 'Tasks',
-        value: categoryTimeMap['task']!,
-        color: const Color(0xFF1A1A1A),
-        category: 'task',
-      ));
+    // Add task category segments
+    final taskCategoryKeys = taskCategoryTimeMap.keys.toList()
+      ..sort(); // Sort for consistent ordering
+    for (final categoryKey in taskCategoryKeys) {
+      final minutes = taskCategoryTimeMap[categoryKey]!;
+      if (minutes > 0) {
+        final colorHex = taskCategoryColorMap[categoryKey] ?? '#1A1A1A';
+        Color categoryColor;
+        try {
+          categoryColor = fromCssColor(colorHex);
+        } catch (e) {
+          categoryColor = const Color(0xFF1A1A1A); // Fallback
+        }
+        segments.add(PieChartSegment(
+          label: categoryKey,
+          value: minutes,
+          color: categoryColor,
+          category: 'task',
+        ));
+      }
     }
 
-    // Non-productive segment
-    if (categoryTimeMap['non_productive']! > 0) {
+    // Add non-productive segment (single segment)
+    if (nonProductiveMinutes > 0) {
       segments.add(PieChartSegment(
         label: 'Non-Productive',
-        value: categoryTimeMap['non_productive']!,
+        value: nonProductiveMinutes,
         color: Colors.grey,
         category: 'non_productive',
       ));
     }
 
     // Calculate unlogged time (24 hours = 1440 minutes)
-    final totalLogged =
-        categoryTimeMap.values.fold<double>(0, (sum, val) => sum + val);
+    final totalLogged = habitMinutes + taskMinutes + nonProductiveMinutes;
     final unloggedMinutes = (24 * 60) - totalLogged;
 
     if (unloggedMinutes > 0) {
@@ -336,12 +424,17 @@ class _CalendarPageState extends State<CalendarPage> {
       ));
     }
 
-    return segments;
+    return TimeBreakdownData(
+      habitMinutes: habitMinutes,
+      taskMinutes: taskMinutes,
+      nonProductiveMinutes: nonProductiveMinutes,
+      segments: segments,
+    );
   }
 
   /// Show pie chart bottom sheet
   void _showTimeBreakdownChart() {
-    final segments = _calculateTimeBreakdown();
+    final breakdownData = _calculateTimeBreakdown();
 
     showModalBottomSheet(
       context: context,
@@ -395,7 +488,7 @@ class _CalendarPageState extends State<CalendarPage> {
                 Padding(
                   padding: const EdgeInsets.all(24.0),
                   child: TimeBreakdownChartWidget(
-                    segments: segments,
+                    breakdownData: breakdownData,
                     selectedDate: _selectedDate,
                   ),
                 ),
@@ -624,10 +717,59 @@ class _CalendarPageState extends State<CalendarPage> {
     _loadEvents();
   }
 
+  /// Handle instance updates - refresh calendar if the instance affects the selected date
+  void _handleInstanceUpdated(dynamic param) {
+    if (param is! ActivityInstanceRecord) return;
+    if (!mounted) return;
+
+    final instance = param;
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+
+    // Check if instance has time logs on the selected date
+    bool shouldRefresh = false;
+
+    // Check if instance has timeLogSessions on the selected date
+    if (instance.timeLogSessions.isNotEmpty) {
+      for (final session in instance.timeLogSessions) {
+        final sessionStart = session['startTime'] as DateTime;
+        final sessionDate = DateTime(
+          sessionStart.year,
+          sessionStart.month,
+          sessionStart.day,
+        );
+        if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
+          shouldRefresh = true;
+          break;
+        }
+      }
+    }
+
+    // Also refresh if instance belongs to the selected date (for habits and tasks)
+    // This covers cases where completion/uncompletion might add/remove time logs
+    if (instance.belongsToDate != null) {
+      final belongsToDateOnly = DateTime(
+        instance.belongsToDate!.year,
+        instance.belongsToDate!.month,
+        instance.belongsToDate!.day,
+      );
+      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        shouldRefresh = true;
+      }
+    }
+
+    // Refresh if the instance affects the selected date
+    if (shouldRefresh) {
+      _loadEvents();
+    }
+  }
+
   Future<void> _loadEvents() async {
-    // Clear existing events
-    _completedEventController.removeWhere((e) => true);
-    _plannedEventController.removeWhere((e) => true);
+    // Don't clear events yet - keep old events visible while loading new ones
+    // This prevents the flicker effect
 
     // Get categories for color lookup
     final userId = currentUserUid;
@@ -645,8 +787,14 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Batch all Firestore queries in parallel for faster loading
     final results = await Future.wait([
-      queryHabitCategoriesOnce(userId: userId),
-      queryTaskCategoriesOnce(userId: userId),
+      queryHabitCategoriesOnce(
+        userId: userId,
+        callerTag: 'CalendarPage._loadEvents.habits',
+      ),
+      queryTaskCategoriesOnce(
+        userId: userId,
+        callerTag: 'CalendarPage._loadEvents.tasks',
+      ),
       CalendarQueueService.getCompletedItems(
         userId: userId,
         date: _selectedDate,
@@ -713,9 +861,7 @@ class _CalendarPageState extends State<CalendarPage> {
         }
         categoryColor =
             category != null ? _parseColor(category.color) : Colors.blue;
-      } else if (item.templateCategoryType == 'non_productive' ||
-          item.templateCategoryType == 'sequence_item') {
-        // Handle both 'non_productive' and legacy 'sequence_item'
+      } else if (item.templateCategoryType == 'non_productive') {
         categoryColor = Colors.grey;
       } else {
         // Tasks default to Dark Charcoal/Black
@@ -826,11 +972,37 @@ class _CalendarPageState extends State<CalendarPage> {
               // Use checkmark for completed items, no checkmark for incomplete
               final prefix = item.status == 'completed' ? '✓ ' : '';
 
+              // Look up category color from loaded categories (same logic as calendar event color)
+              String? categoryColorHex;
+              if (item.templateCategoryType == 'habit' ||
+                  item.templateCategoryType == 'task') {
+                CategoryRecord? category;
+                try {
+                  category = allCategories.firstWhere(
+                    (c) => c.reference.id == item.templateCategoryId,
+                  );
+                } catch (e) {
+                  try {
+                    category = allCategories.firstWhere(
+                      (c) => c.name == item.templateCategoryName,
+                    );
+                  } catch (e2) {
+                    // Category not found, will use fallback
+                  }
+                }
+                if (category != null) {
+                  categoryColorHex = category.color;
+                } else if (item.templateCategoryColor.isNotEmpty) {
+                  // Fallback to instance's cached color if category not found
+                  categoryColorHex = item.templateCategoryColor;
+                }
+              } else if (item.templateCategoryType == 'non_productive') {
+                // Non-productive uses grey
+                categoryColorHex = '#808080'; // Grey hex
+              }
+
               // Create metadata for editing
-              // Migrate legacy 'sequence_item' to 'non_productive' for consistency
-              final categoryType = item.templateCategoryType == 'sequence_item'
-                  ? 'non_productive'
-                  : item.templateCategoryType;
+              final categoryType = item.templateCategoryType;
               final metadata = CalendarEventMetadata(
                 instanceId: item.reference.id,
                 sessionIndex:
@@ -838,6 +1010,13 @@ class _CalendarPageState extends State<CalendarPage> {
                 activityName: item.templateName,
                 activityType: categoryType,
                 templateId: item.templateId,
+                categoryId: item.templateCategoryId.isNotEmpty
+                    ? item.templateCategoryId
+                    : null,
+                categoryName: item.templateCategoryName.isNotEmpty
+                    ? item.templateCategoryName
+                    : null,
+                categoryColorHex: categoryColorHex,
               );
 
               completedEvents.add(CalendarEventData(
@@ -938,9 +1117,7 @@ class _CalendarPageState extends State<CalendarPage> {
         }
         categoryColor =
             category != null ? _parseColor(category.color) : Colors.blue;
-      } else if (item.templateCategoryType == 'non_productive' ||
-          item.templateCategoryType == 'sequence_item') {
-        // Handle both 'non_productive' and legacy 'sequence_item'
+      } else if (item.templateCategoryType == 'non_productive') {
         categoryColor = Colors.grey;
       } else {
         // Tasks default to Dark Charcoal/Black
@@ -992,7 +1169,10 @@ class _CalendarPageState extends State<CalendarPage> {
     // The original code loaded them all. We should filter.
     // Simplifying for now to focus on the requested feature.
 
-    // Add events to respective controllers
+    // Clear and update controllers all at once to prevent flicker
+    // Old events stay visible until new ones are ready
+    _completedEventController.removeWhere((e) => true);
+    _plannedEventController.removeWhere((e) => true);
     _completedEventController.addAll(cascadedEvents);
     _plannedEventController.addAll(plannedEvents);
 
@@ -1497,6 +1677,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this);
     _completedEventController.dispose();
     _plannedEventController.dispose();
     super.dispose();

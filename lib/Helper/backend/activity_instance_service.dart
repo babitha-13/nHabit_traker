@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
@@ -73,6 +74,20 @@ class ActivityInstanceService {
     } catch (e) {
       // If category fetch fails, continue without color
     }
+    // Inherit order from previous instance of the same template
+    int? queueOrder;
+    int? habitsOrder;
+    int? tasksOrder;
+    try {
+      queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'queue', uid);
+      habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'habits', uid);
+      tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'tasks', uid);
+    } catch (e) {
+      // If order lookup fails, continue with null values (will use default sorting)
+    }
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       dueDate: initialDueDate,
@@ -86,10 +101,7 @@ class ActivityInstanceService {
       templateName: template.name,
       templateCategoryId: template.categoryId,
       templateCategoryName: template.categoryName,
-      // Migrate legacy 'sequence_item' to 'non_productive'
-      templateCategoryType: template.categoryType == 'sequence_item'
-          ? 'non_productive'
-          : template.categoryType,
+      templateCategoryType: template.categoryType,
       templateCategoryColor: categoryColor,
       templatePriority: template.priority,
       templateTrackingType: template.trackingType,
@@ -108,6 +120,10 @@ class ActivityInstanceService {
       belongsToDate: template.categoryType == 'habit' ? normalizedDate : null,
       windowEndDate: windowEndDate,
       windowDuration: windowDuration,
+      // Inherit order from previous instance
+      queueOrder: queueOrder,
+      habitsOrder: habitsOrder,
+      tasksOrder: tasksOrder,
     );
     final result =
         await ActivityInstanceRecord.collectionForUser(uid).add(instanceData);
@@ -523,14 +539,12 @@ class ActivityInstanceService {
         statusCounts[inst.status] = (statusCounts[inst.status] ?? 0) + 1;
       }
       // Separate tasks and habits for different filtering logic
-      // Exclude non-productive/sequence_item types from normal queries
-      // (sequence_item is legacy, now all are non_productive)
+      // Exclude non-productive types from normal queries
       // Also filter out inactive instances to match tasks page behavior
       final taskInstances = allInstances
           .where((inst) =>
               inst.templateCategoryType == 'task' &&
               inst.templateCategoryType != 'non_productive' &&
-              inst.templateCategoryType != 'sequence_item' &&
               inst.isActive) // Filter inactive instances
           .toList();
       final habitInstances = allInstances
@@ -755,13 +769,16 @@ class ActivityInstanceService {
       return 600000; // 10 minutes
     } else if (trackingType == 'quantitative') {
       // Quantity items: 10/x minutes where x is currentValue
+      // For non-time-target-based activities, default to 10 minutes if currentValue < 1
       final quantity = instance.currentValue ?? 1;
       final quantityNum = quantity is num ? quantity.toDouble() : 1.0;
-      if (quantityNum > 0) {
+      if (quantityNum > 0 && quantityNum >= 1) {
+        // Only use formula for values >= 1 (whole numbers make sense)
         final minutes =
             (10.0 / quantityNum).clamp(1.0, 60.0); // Min 1 min, max 60 min
         return (minutes * 60000).toInt();
       }
+      // Default to 10 minutes for fractional values (< 1) or zero
       return 600000; // Default 10 minutes
     } else {
       // Binary items: 10 minutes default
@@ -1055,6 +1072,25 @@ class ActivityInstanceService {
       }
 
       await instanceRef.update(updateData);
+
+      // For one-time tasks, reactivate the template if it was marked inactive
+      if (instance.templateCategoryType == 'task') {
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+        final templateDoc = await templateRef.get();
+        if (templateDoc.exists) {
+          final template = ActivityRecord.fromSnapshot(templateDoc);
+          // Reactivate one-time task templates
+          if (!template.isRecurring && !template.isActive) {
+            await templateRef.update({
+              'isActive': true,
+              'status': 'incomplete',
+              'lastUpdated': DateService.currentDate,
+            });
+          }
+        }
+      }
+
       // Broadcast the instance update event
       final updatedInstance =
           await getUpdatedInstance(instanceId: instanceId, userId: uid);
@@ -2206,6 +2242,21 @@ class ActivityInstanceService {
         // If query fails, continue with instance creation
       }
 
+      // Inherit order from previous instance of the same template
+      int? queueOrder;
+      int? habitsOrder;
+      int? tasksOrder;
+      try {
+        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'queue', userId);
+        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'habits', userId);
+        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'tasks', userId);
+      } catch (e) {
+        // If order lookup fails, continue with null values (will use default sorting)
+      }
+
       // Create next instance data
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,
@@ -2235,6 +2286,10 @@ class ActivityInstanceService {
         belongsToDate: nextBelongsToDate,
         windowEndDate: nextWindowEndDate,
         windowDuration: nextWindowDuration,
+        // Inherit order from previous instance
+        queueOrder: queueOrder,
+        habitsOrder: habitsOrder,
+        tasksOrder: tasksOrder,
       );
       // Add to Firestore
       final newInstanceRef =

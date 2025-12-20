@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
 import 'package:collection/collection.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 
 class SequenceDetailPage extends StatefulWidget {
   final SequenceRecord sequence;
@@ -29,9 +30,15 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
   void initState() {
     super.initState();
     _loadSequenceWithInstances();
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _refreshSequence();
+      }
+    });
   }
 
   Future<void> _loadSequenceWithInstances() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
@@ -43,10 +50,14 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
       );
 
       // Load categories for color lookup
-      final habitCategories =
-          await queryHabitCategoriesOnce(userId: currentUserUid);
-      final taskCategories =
-          await queryTaskCategoriesOnce(userId: currentUserUid);
+      final habitCategories = await queryHabitCategoriesOnce(
+        userId: currentUserUid,
+        callerTag: 'SequenceDetailPage._loadSequence.habits',
+      );
+      final taskCategories = await queryTaskCategoriesOnce(
+        userId: currentUserUid,
+        callerTag: 'SequenceDetailPage._loadSequence.tasks',
+      );
       final allCategories = [...habitCategories, ...taskCategories];
 
       // Automatically create instances for items without them (habits and tasks only)
@@ -85,8 +96,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
               // Silently fail for individual instance creation - item will show as missing
               // This prevents one failed instance from breaking the entire sequence load
             }
-          } else if (itemType == 'non_productive' ||
-              itemType == 'sequence_item') {
+          } else if (itemType == 'non_productive') {
             // Create pending instance for non-productive items so they can use ItemComponent
             try {
               final newInstance =
@@ -107,20 +117,30 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
         );
       }
 
-      setState(() {
-        _sequenceWithInstances = updatedSequenceWithInstances;
-        _categories = allCategories;
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _sequenceWithInstances = updatedSequenceWithInstances;
+          _categories = allCategories;
+          _isLoading = false;
+        });
+      }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 
   Future<void> _refreshSequence() async {
     await _loadSequenceWithInstances();
+  }
+
+  @override
+  void dispose() {
+    NotificationCenter.removeObserver(this);
+    super.dispose();
   }
 
   void _editSequence() {
@@ -206,9 +226,8 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
 
   Future<void> _resetSequenceItems() async {
     // Check if there are any non-productive items to reset
-    // (sequence_item is legacy, now all are non_productive)
-    final hasSequenceItems = _sequenceWithInstances?.sequence.itemTypes.any(
-            (type) => type == 'sequence_item' || type == 'non_productive') ??
+    final hasSequenceItems = _sequenceWithInstances?.sequence.itemTypes
+            .any((type) => type == 'non_productive') ??
         false;
 
     if (!hasSequenceItems) {

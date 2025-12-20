@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 
 /// Service to manage non-productive items (sleep, travel, rest, etc.)
 /// These items track time but don't earn points
@@ -72,6 +73,20 @@ class NonProductiveService {
     };
     // Calculate total time (for this instance, it's just this session)
     final totalTimeLogged = duration.inMilliseconds;
+    // Inherit order from previous instance of the same template
+    int? queueOrder;
+    int? habitsOrder;
+    int? tasksOrder;
+    try {
+      queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'queue', uid);
+      habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'habits', uid);
+      tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+          templateId, 'tasks', uid);
+    } catch (e) {
+      // If order lookup fails, continue with null values (will use default sorting)
+    }
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       status:
@@ -93,6 +108,10 @@ class NonProductiveService {
       timeLogSessions: [timeLogSession],
       totalTimeLogged: totalTimeLogged,
       accumulatedTime: totalTimeLogged,
+      // Inherit order from previous instance
+      queueOrder: queueOrder,
+      habitsOrder: habitsOrder,
+      tasksOrder: tasksOrder,
     );
     return await ActivityInstanceRecord.collectionForUser(uid)
         .add(instanceData);

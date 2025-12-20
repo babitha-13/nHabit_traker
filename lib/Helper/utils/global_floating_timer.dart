@@ -21,6 +21,13 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   bool _isExpanded = false;
   late AnimationController _pulseController;
   late Animation<double> _pulseAnimation;
+  
+  // Drag state
+  double _bottomOffset = 16.0;
+  double _rightOffset = 16.0;
+  double _initialBottomOffset = 16.0;
+  double _initialRightOffset = 16.0;
+  Offset? _initialDragPosition;
 
   @override
   void initState() {
@@ -81,11 +88,53 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
     }
 
     return Positioned(
-      bottom: 16,
-      right: 16,
-      child: _isExpanded
-          ? _buildExpandedCard(activeTimers)
-          : _buildCompactBubble(activeTimers),
+      bottom: _bottomOffset,
+      right: _rightOffset,
+      child: GestureDetector(
+        onTap: _isExpanded ? null : () {
+          setState(() => _isExpanded = true);
+        },
+        onPanStart: (details) {
+          _initialDragPosition = details.globalPosition;
+          _initialBottomOffset = _bottomOffset;
+          _initialRightOffset = _rightOffset;
+        },
+        onPanUpdate: (details) {
+          if (_initialDragPosition == null) return;
+          
+          final delta = details.globalPosition - _initialDragPosition!;
+          
+          // Only start dragging if movement is significant (prevents accidental drags on taps)
+          if (delta.distance < 5) return;
+          
+          // Get screen size to constrain dragging
+          final screenHeight = MediaQuery.of(context).size.height;
+          final screenWidth = MediaQuery.of(context).size.width;
+          
+          // Calculate new position (invert Y axis since bottom is from bottom)
+          double newBottom = _initialBottomOffset - delta.dy;
+          double newRight = _initialRightOffset - delta.dx;
+          
+          // Constrain to screen bounds
+          final widgetHeight = _isExpanded ? 400.0 : 64.0;
+          final widgetWidth = _isExpanded ? 320.0 : 64.0;
+          
+          newBottom = newBottom.clamp(0.0, screenHeight - widgetHeight - 16);
+          newRight = newRight.clamp(0.0, screenWidth - widgetWidth - 16);
+          
+          setState(() {
+            _bottomOffset = newBottom;
+            _rightOffset = newRight;
+          });
+        },
+        onPanEnd: (details) {
+          _initialDragPosition = null;
+        },
+        behavior: HitTestBehavior.opaque,
+        child: _isExpanded
+            ? _buildExpandedCard(activeTimers)
+            : _buildCompactBubble(activeTimers),
+      ),
     );
   }
 
@@ -93,11 +142,7 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   Widget _buildCompactBubble(List<ActivityInstanceRecord> activeTimers) {
     final theme = FlutterFlowTheme.of(context);
 
-    return GestureDetector(
-      onTap: () {
-        setState(() => _isExpanded = true);
-      },
-      child: AnimatedBuilder(
+    return AnimatedBuilder(
         animation: _pulseAnimation,
         builder: (context, child) {
           return Transform.scale(
@@ -149,7 +194,6 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
             ),
           );
         },
-      ),
     );
   }
 
@@ -158,7 +202,7 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
     final theme = FlutterFlowTheme.of(context);
 
     return Container(
-      width: 280,
+      width: 320,
       constraints: const BoxConstraints(maxHeight: 400),
       decoration: BoxDecoration(
         color: theme.secondaryBackground,
@@ -178,9 +222,9 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // Header
+          // Header (draggable area - drag handle icon indicates draggability)
           Container(
-            padding: const EdgeInsets.all(12),
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: BoxDecoration(
               color: theme.primary.withOpacity(0.1),
               borderRadius: const BorderRadius.only(
@@ -191,9 +235,15 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
             child: Row(
               children: [
                 Icon(
+                  Icons.drag_handle,
+                  color: theme.primary.withOpacity(0.6),
+                  size: 16,
+                ),
+                const SizedBox(width: 8),
+                Icon(
                   Icons.timer,
                   color: theme.primary,
-                  size: 20,
+                  size: 18,
                 ),
                 const SizedBox(width: 8),
                 Expanded(
@@ -202,11 +252,12 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
                     style: theme.titleSmall.override(
                       fontFamily: 'Readex Pro',
                       fontWeight: FontWeight.w600,
+                      fontSize: 14,
                     ),
                   ),
                 ),
                 IconButton(
-                  icon: const Icon(Icons.close, size: 20),
+                  icon: const Icon(Icons.close, size: 18),
                   onPressed: () {
                     setState(() => _isExpanded = false);
                   },
@@ -236,12 +287,10 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   Widget _buildTimerItem(
       ActivityInstanceRecord instance, FlutterFlowTheme theme) {
     final currentTime = _getCurrentTime(instance);
-    final target = instance.templateTarget ?? 0;
-    final progress = target > 0 ? (currentTime / (target * 60 * 1000)).clamp(0.0, 1.0) : 0.0;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
       decoration: BoxDecoration(
         color: theme.alternate.withOpacity(0.1),
         borderRadius: BorderRadius.circular(12),
@@ -250,69 +299,52 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
           width: 1,
         ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          // Timer name and time
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  instance.templateName,
-                  style: theme.bodyMedium.override(
-                    fontFamily: 'Readex Pro',
-                    fontWeight: FontWeight.w600,
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ),
-              Text(
-                _formatDuration(currentTime),
-                style: theme.titleSmall.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.w600,
-                  color: theme.primary,
-                ),
-              ),
-            ],
-          ),
-          // Progress bar (if target is set)
-          if (target > 0) ...[
-            const SizedBox(height: 8),
-            ClipRRect(
-              borderRadius: BorderRadius.circular(4),
-              child: LinearProgressIndicator(
-                value: progress,
-                backgroundColor: theme.alternate.withOpacity(0.3),
-                valueColor: AlwaysStoppedAnimation<Color>(theme.primary),
-                minHeight: 4,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              '${(progress * 100).toStringAsFixed(0)}% of ${target} min',
-              style: theme.bodySmall.override(
+          // Timer name
+          Expanded(
+            child: Text(
+              instance.templateName,
+              style: theme.bodyMedium.override(
                 fontFamily: 'Readex Pro',
-                fontSize: 10,
+                fontWeight: FontWeight.w600,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          // Elapsed time
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: Text(
+              _formatDuration(currentTime),
+              style: theme.titleSmall.override(
+                fontFamily: 'Readex Pro',
+                fontWeight: FontWeight.w600,
+                color: theme.primary,
+                fontSize: 16,
               ),
             ),
-          ],
-          // Action button
-          const SizedBox(height: 8),
-          ElevatedButton(
-            onPressed: () => _stopTimer(instance),
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.redAccent,
-              foregroundColor: Colors.white,
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+          ),
+          // Stop button
+          SizedBox(
+            width: 60,
+            child: ElevatedButton(
+              onPressed: () => _stopTimer(instance),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.redAccent,
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                minimumSize: Size.zero,
+                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
               ),
-            ),
-            child: const Text(
-              'Stop',
-              style: TextStyle(fontSize: 12),
+              child: const Text(
+                'Stop',
+                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+              ),
             ),
           ),
         ],

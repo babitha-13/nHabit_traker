@@ -107,20 +107,22 @@ class ExpansionStateManager {
     final isNewSession = await isNewAppSession();
     
     if (isNewSession) {
-      // New app session - return default (empty or specific sections as needed)
-      return {};
+      // New app session - return Pending and Overdue as default
+      return {'Pending', 'Overdue'};
     }
     
     final storedValue = prefs.getString(_queueKey);
     if (storedValue == null) {
-      return {};
+      // No saved state - use defaults
+      return {'Pending', 'Overdue'};
     }
     
     try {
       final List<dynamic> decoded = jsonDecode(storedValue);
       return decoded.cast<String>().toSet();
     } catch (e) {
-      return {};
+      // Error parsing - use defaults
+      return {'Pending', 'Overdue'};
     }
   }
   

@@ -1,6 +1,7 @@
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:habit_tracker/Helper/backend/schema/sequence_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+
 class SequenceInstanceService {
   /// Get or create today's sequence instance
   static Future<SequenceInstanceRecord?> getOrCreateSequenceInstance({
@@ -45,6 +46,7 @@ class SequenceInstanceService {
       return null;
     }
   }
+
   /// Get all item instances for a sequence on a specific date
   static Future<Map<String, ActivityInstanceRecord>> getInstancesForSequence({
     required String sequenceId,
@@ -78,14 +80,14 @@ class SequenceInstanceService {
             instances[itemId] =
                 ActivityInstanceRecord.fromSnapshot(instanceDoc);
           }
-        } catch (e) {
-        }
+        } catch (e) {}
       }
       return instances;
     } catch (e) {
       return {};
     }
   }
+
   /// Link an activity instance to a sequence
   static Future<void> linkInstanceToSequence({
     required String sequenceId,
@@ -117,9 +119,9 @@ class SequenceInstanceService {
         'itemInstanceIds': updatedItemInstanceIds,
         'lastUpdated': DateTime.now(),
       });
-    } catch (e) {
-    }
+    } catch (e) {}
   }
+
   /// Update sequence instance status
   static Future<void> updateSequenceStatus({
     required String sequenceId,
@@ -156,9 +158,9 @@ class SequenceInstanceService {
       await SequenceInstanceRecord.collectionForUser(uid)
           .doc(sequenceInstance.reference.id)
           .update(updateData);
-    } catch (e) {
-    }
+    } catch (e) {}
   }
+
   /// Get sequence instance for a specific date
   static Future<SequenceInstanceRecord?> getSequenceInstance({
     required String sequenceId,

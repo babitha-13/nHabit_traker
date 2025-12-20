@@ -181,6 +181,45 @@ class InstanceOrderService {
         return 0;
     }
   }
+  /// Get order value from the most recent instance of the same template
+  /// Returns null if no previous instance exists or if order is not set
+  static Future<int?> getOrderFromPreviousInstance(
+    String templateId,
+    String pageType,
+    String userId,
+  ) async {
+    try {
+      if (userId.isEmpty || templateId.isEmpty) return null;
+      // Query for the most recent instance of this template, sorted by createdTime descending
+      final query = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateId', isEqualTo: templateId)
+          .orderBy('createdTime', descending: true)
+          .limit(1);
+      final querySnapshot = await query.get();
+      if (querySnapshot.docs.isEmpty) return null;
+      final previousInstance = ActivityInstanceRecord.fromSnapshot(
+          querySnapshot.docs.first);
+      // Get the order value for the specified page type
+      final orderValue = getOrderValue(previousInstance, pageType);
+      // Return null if order is 0 (default) and instance doesn't have explicit order
+      // This distinguishes between "no order set" and "order is 0"
+      switch (pageType) {
+        case 'queue':
+          if (!previousInstance.hasQueueOrder()) return null;
+          break;
+        case 'habits':
+          if (!previousInstance.hasHabitsOrder()) return null;
+          break;
+        case 'tasks':
+          if (!previousInstance.hasTasksOrder()) return null;
+          break;
+      }
+      return orderValue;
+    } catch (e) {
+      // If query fails, return null to allow instance creation to continue
+      return null;
+    }
+  }
   /// Sort instances by their order for a specific page
   static List<ActivityInstanceRecord> sortInstancesByOrder(
     List<ActivityInstanceRecord> instances,

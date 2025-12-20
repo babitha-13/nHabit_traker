@@ -37,11 +37,15 @@ class _CreateCategoryState extends State<CreateCategory> {
 
   Future<void> _loadExistingCategories() async {
     try {
-      final fetchedCategories =
-          await queryCategoriesRecordOnce(userId: currentUserUid);
-      setState(() {
-        existingCategories = fetchedCategories;
-      });
+      final fetchedCategories = await queryCategoriesRecordOnce(
+        userId: currentUserUid,
+        callerTag: 'CreateCategory._loadExistingCategories',
+      );
+      if (mounted) {
+        setState(() {
+          existingCategories = fetchedCategories;
+        });
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -61,124 +65,160 @@ class _CreateCategoryState extends State<CreateCategory> {
 
     return PolishedDialog(
       title: isEdit ? 'Edit Category' : 'Create New Category',
-      content: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
+      content: AbsorbPointer(
+        absorbing: _isValidating,
+        child: Stack(
           children: [
-            // Category Name Field
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.tertiary.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: theme.surfaceBorderColor,
-                  width: 1,
-                ),
-              ),
-              child: TextField(
-                controller: nameController,
-                style: theme.bodyMedium,
-                decoration: InputDecoration(
-                  labelText: 'Category Name *',
-                  labelStyle: TextStyle(color: theme.secondaryText),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
-                ),
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Description Field
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-              decoration: BoxDecoration(
-                color: theme.tertiary.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: theme.surfaceBorderColor,
-                  width: 1,
-                ),
-              ),
-              child: TextField(
-                controller: descriptionController,
-                style: theme.bodyMedium,
-                decoration: InputDecoration(
-                  labelText: 'Description (Optional)',
-                  labelStyle: TextStyle(color: theme.secondaryText),
-                  border: InputBorder.none,
-                  contentPadding: EdgeInsets.zero,
-                ),
-                maxLines: 2,
-              ),
-            ),
-            const SizedBox(height: 20),
-            // Color Selection
-            Text(
-              'Color',
-              style: theme.titleSmall.override(
-                color: theme.primaryText,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: theme.accent2.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(
-                  color: theme.surfaceBorderColor,
-                  width: 1,
-                ),
-              ),
-              child: Wrap(
-                spacing: 12,
-                runSpacing: 12,
-                children: CategoryColorUtil.palette.map((color) {
-                  final isSelected = selectedColor == color;
-                  return GestureDetector(
-                    onTap: () => setState(() => selectedColor = color),
-                    child: Container(
-                      width: 36,
-                      height: 36,
-                      decoration: BoxDecoration(
-                        color:
-                            Color(int.parse(color.replaceFirst('#', '0xFF'))),
-                        shape: BoxShape.circle,
-                        border: Border.all(
-                          color:
-                              isSelected ? theme.accent1 : Colors.transparent,
-                          width: 3,
-                        ),
-                        boxShadow: isSelected
-                            ? [
-                                BoxShadow(
-                                  color: theme.accent1.withOpacity(0.3),
-                                  offset: const Offset(0, 2),
-                                  blurRadius: 4,
-                                ),
-                              ]
-                            : null,
+            SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Category Name Field
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: theme.tertiary.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.surfaceBorderColor,
+                        width: 1,
                       ),
-                      child: isSelected
-                          ? Icon(
-                              Icons.check,
-                              size: 18,
-                              color: Colors.white,
-                            )
-                          : null,
                     ),
-                  );
-                }).toList(),
+                    child: TextField(
+                      controller: nameController,
+                      style: theme.bodyMedium,
+                      decoration: InputDecoration(
+                        labelText: 'Category Name *',
+                        labelStyle: TextStyle(color: theme.secondaryText),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Description Field
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: theme.tertiary.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.surfaceBorderColor,
+                        width: 1,
+                      ),
+                    ),
+                    child: TextField(
+                      controller: descriptionController,
+                      style: theme.bodyMedium,
+                      decoration: InputDecoration(
+                        labelText: 'Description (Optional)',
+                        labelStyle: TextStyle(color: theme.secondaryText),
+                        border: InputBorder.none,
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      maxLines: 2,
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  // Color Selection
+                  Text(
+                    'Color',
+                    style: theme.titleSmall.override(
+                      color: theme.primaryText,
+                      fontWeight: FontWeight.w500,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.accent2.withOpacity(0.3),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(
+                        color: theme.surfaceBorderColor,
+                        width: 1,
+                      ),
+                    ),
+                    child: Wrap(
+                      spacing: 12,
+                      runSpacing: 12,
+                      children: CategoryColorUtil.palette.map((color) {
+                        final isSelected = selectedColor == color;
+                        return GestureDetector(
+                          onTap: () => setState(() => selectedColor = color),
+                          child: Container(
+                            width: 36,
+                            height: 36,
+                            decoration: BoxDecoration(
+                              color: Color(
+                                  int.parse(color.replaceFirst('#', '0xFF'))),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: isSelected
+                                    ? theme.accent1
+                                    : Colors.transparent,
+                                width: 3,
+                              ),
+                              boxShadow: isSelected
+                                  ? [
+                                      BoxShadow(
+                                        color: theme.accent1.withOpacity(0.3),
+                                        offset: const Offset(0, 2),
+                                        blurRadius: 4,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                            child: isSelected
+                                ? Icon(
+                                    Icons.check,
+                                    size: 18,
+                                    color: Colors.white,
+                                  )
+                                : null,
+                          ),
+                        );
+                      }).toList(),
+                    ),
+                  ),
+                ],
               ),
             ),
+            if (_isValidating)
+              Positioned.fill(
+                child: Container(
+                  color: Colors.black.withOpacity(0.2),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const CircularProgressIndicator(),
+                        const SizedBox(height: 12),
+                        Text(
+                          isEdit
+                              ? 'Updating category...'
+                              : 'Saving category...',
+                          style: theme.bodyMedium.override(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
           ],
         ),
       ),
       actions: [
         OutlinedButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed:
+              _isValidating ? null : () => Navigator.of(context).pop(false),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             side: BorderSide(color: theme.surfaceBorderColor),
@@ -196,13 +236,16 @@ class _CreateCategoryState extends State<CreateCategory> {
               ? null
               : () async {
                   if (nameController.text.isEmpty) return;
+                  if (!mounted) return;
                   setState(() {
                     _isValidating = true;
                   });
                   try {
                     // Get fresh categories from database
-                    final freshCategories =
-                        await queryCategoriesRecordOnce(userId: currentUserUid);
+                    final freshCategories = await queryCategoriesRecordOnce(
+                      userId: currentUserUid,
+                      callerTag: 'CreateCategory.validateName',
+                    );
                     // Check for duplicate names, but exclude the current category when editing
                     final newName = nameController.text.trim().toLowerCase();
                     final nameExists = freshCategories.any((cat) {
@@ -224,9 +267,11 @@ class _CreateCategoryState extends State<CreateCategory> {
                           ),
                         );
                       }
-                      setState(() {
-                        _isValidating = false;
-                      });
+                      if (mounted) {
+                        setState(() {
+                          _isValidating = false;
+                        });
+                      }
                       return;
                     }
                     if (isEdit) {
@@ -234,6 +279,8 @@ class _CreateCategoryState extends State<CreateCategory> {
                       final oldName = widget.category!.name;
                       final newName = nameController.text.trim();
                       final nameChanged = oldName != newName;
+                      final oldColor = widget.category!.color;
+                      final colorChanged = oldColor != selectedColor;
                       await updateCategory(
                         categoryId: widget.category!.reference.id,
                         name: nameController.text,
@@ -245,13 +292,15 @@ class _CreateCategoryState extends State<CreateCategory> {
                         categoryType:
                             widget.categoryType, // Only update if provided
                       );
-                      // If name changed, cascade the update to all templates and instances
-                      if (nameChanged) {
+                      // If metadata changed, cascade the update to all templates and instances
+                      if (nameChanged || colorChanged) {
                         try {
-                          await updateCategoryNameCascade(
+                          await updateCategoryCascade(
                             categoryId: widget.category!.reference.id,
-                            newCategoryName: newName,
                             userId: currentUserUid,
+                            newCategoryName: nameChanged ? newName : null,
+                            newCategoryColor:
+                                colorChanged ? selectedColor : null,
                           );
                         } catch (e) {
                           // Show warning but don't fail the operation
@@ -259,7 +308,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
                                 content: Text(
-                                    'Warning: Some items may not reflect the new category name immediately'),
+                                    'Warning: Some items may not reflect the updated category immediately'),
                                 backgroundColor: Colors.orange,
                               ),
                             );
@@ -297,7 +346,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                         );
                       }
                     }
-                    Navigator.of(context).pop();
+                    Navigator.of(context).pop(true);
                   } catch (e) {
                     if (mounted) {
                       // Check if it's a duplicate name error from backend

@@ -131,18 +131,27 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   Future<void> _loadCategories() async {
     if (_isLoadingCategories) return;
 
+    if (!mounted) return;
     setState(() => _isLoadingCategories = true);
 
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
-        setState(() => _isLoadingCategories = false);
+        if (mounted) {
+          setState(() => _isLoadingCategories = false);
+        }
         return;
       }
 
       final categories = widget.isHabit
-          ? await queryHabitCategoriesOnce(userId: userId)
-          : await queryTaskCategoriesOnce(userId: userId);
+          ? await queryHabitCategoriesOnce(
+              userId: userId,
+              callerTag: 'ActivityEditorDialog._loadCategories.habits',
+            )
+          : await queryTaskCategoriesOnce(
+              userId: userId,
+              callerTag: 'ActivityEditorDialog._loadCategories.tasks',
+            );
 
       if (mounted) {
         setState(() {

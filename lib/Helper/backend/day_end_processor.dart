@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/utils/score_bonus_toast_service.dart';
 import 'package:habit_tracker/Helper/utils/milestone_toast_service.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
@@ -171,6 +172,20 @@ class DayEndProcessor {
         // Don't rethrow - we don't want to fail the entire batch
         return;
       }
+      // Inherit order from previous instance of the same template
+      int? queueOrder;
+      int? habitsOrder;
+      int? tasksOrder;
+      try {
+        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'queue', userId);
+        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'habits', userId);
+        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'tasks', userId);
+      } catch (e) {
+        // If order lookup fails, continue with null values (will use default sorting)
+      }
       // Create next instance data
       final nextInstanceData = createActivityInstanceRecordData(
         templateId: instance.templateId,
@@ -199,6 +214,10 @@ class DayEndProcessor {
         belongsToDate: nextBelongsToDate,
         windowEndDate: nextWindowEndDate,
         windowDuration: instance.windowDuration,
+        // Inherit order from previous instance
+        queueOrder: queueOrder,
+        habitsOrder: habitsOrder,
+        tasksOrder: tasksOrder,
       );
       // Add to batch
       final nextInstanceRef =

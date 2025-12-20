@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/schema_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+
 class SequenceRecord extends FirestoreRecord {
   SequenceRecord._(
     super.reference,
@@ -24,7 +25,7 @@ class SequenceRecord extends FirestoreRecord {
   String? _description;
   String get description => _description ?? '';
   bool hasDescription() => _description != null;
-  // "itemIds" field - references to activities (habits, tasks, sequence_items).
+  // "itemIds" field - references to activities (habits, tasks, non-productive items).
   List<String>? _itemIds;
   List<String> get itemIds => _itemIds ?? [];
   bool hasItemIds() => _itemIds != null;
@@ -36,7 +37,7 @@ class SequenceRecord extends FirestoreRecord {
   List<String>? _itemOrder;
   List<String> get itemOrder => _itemOrder ?? [];
   bool hasItemOrder() => _itemOrder != null;
-  // "itemTypes" field - cached types ('habit', 'task', 'sequence_item').
+  // "itemTypes" field - cached types ('habit', 'task', 'non_productive').
   List<String>? _itemTypes;
   List<String> get itemTypes => _itemTypes ?? [];
   bool hasItemTypes() => _itemTypes != null;
@@ -63,6 +64,10 @@ class SequenceRecord extends FirestoreRecord {
   String? _userId;
   String get userId => _userId ?? '';
   bool hasUserId() => _userId != null;
+  // "listOrder" field - order of sequence in the list.
+  int? _listOrder;
+  int get listOrder => _listOrder ?? 0;
+  bool hasListOrder() => _listOrder != null;
   void _initializeFields() {
     _uid = snapshotData['uid'] as String?;
     _name = snapshotData['name'] as String?;
@@ -78,7 +83,9 @@ class SequenceRecord extends FirestoreRecord {
     _createdTime = snapshotData['createdTime'] as DateTime?;
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
     _userId = snapshotData['userId'] as String?;
+    _listOrder = snapshotData['listOrder'] as int?;
   }
+
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('sequences');
   static CollectionReference collectionForUser(String userId) =>
@@ -110,6 +117,7 @@ class SequenceRecord extends FirestoreRecord {
       other is SequenceRecord &&
       reference.path.hashCode == other.reference.path.hashCode;
 }
+
 Map<String, dynamic> createSequenceRecordData({
   String? uid,
   String? name,
@@ -125,6 +133,7 @@ Map<String, dynamic> createSequenceRecordData({
   DateTime? createdTime,
   DateTime? lastUpdated,
   String? userId,
+  int? listOrder,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -142,10 +151,12 @@ Map<String, dynamic> createSequenceRecordData({
       'createdTime': createdTime,
       'lastUpdated': lastUpdated,
       'userId': userId,
+      'listOrder': listOrder,
     }.withoutNulls,
   );
   return firestoreData;
 }
+
 class SequenceRecordDocumentEquality implements Equality<SequenceRecord> {
   const SequenceRecordDocumentEquality();
   @override
@@ -162,8 +173,10 @@ class SequenceRecordDocumentEquality implements Equality<SequenceRecord> {
         e1?.isActive == e2?.isActive &&
         e1?.createdTime == e2?.createdTime &&
         e1?.lastUpdated == e2?.lastUpdated &&
-        e1?.userId == e2?.userId;
+        e1?.userId == e2?.userId &&
+        e1?.listOrder == e2?.listOrder;
   }
+
   @override
   int hash(SequenceRecord? e) => const ListEquality().hash([
         e?.uid,
@@ -179,6 +192,7 @@ class SequenceRecordDocumentEquality implements Equality<SequenceRecord> {
         e?.createdTime,
         e?.lastUpdated,
         e?.userId,
+        e?.listOrder,
       ]);
   @override
   bool isValidKey(Object? o) => o is SequenceRecord;

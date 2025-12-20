@@ -18,6 +18,24 @@ class PieChartSegment {
   });
 }
 
+/// Data model for time breakdown with totals and category-level segments
+class TimeBreakdownData {
+  final double habitMinutes;
+  final double taskMinutes;
+  final double nonProductiveMinutes;
+  final List<PieChartSegment> segments;
+
+  TimeBreakdownData({
+    required this.habitMinutes,
+    required this.taskMinutes,
+    required this.nonProductiveMinutes,
+    required this.segments,
+  });
+
+  double get totalLoggedMinutes =>
+      habitMinutes + taskMinutes + nonProductiveMinutes;
+}
+
 /// Custom painter for pie chart
 class PieChartPainter extends CustomPainter {
   final List<PieChartSegment> segments;
@@ -137,12 +155,12 @@ class TimeBreakdownPieChart extends StatelessWidget {
 
 /// Widget to display pie chart with legend
 class TimeBreakdownChartWidget extends StatelessWidget {
-  final List<PieChartSegment> segments;
+  final TimeBreakdownData breakdownData;
   final DateTime selectedDate;
 
   const TimeBreakdownChartWidget({
     super.key,
-    required this.segments,
+    required this.breakdownData,
     required this.selectedDate,
   });
 
@@ -163,11 +181,8 @@ class TimeBreakdownChartWidget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-    // Calculate total logged time excluding unlogged segment
-    final totalLoggedMinutes = segments
-        .where((s) => s.category != 'unlogged')
-        .fold<double>(0, (sum, s) => sum + s.value);
     final totalHours = 24.0 * 60.0; // 24 hours in minutes
+    final totalLoggedMinutes = breakdownData.totalLoggedMinutes;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
@@ -188,6 +203,39 @@ class TimeBreakdownChartWidget extends StatelessWidget {
             color: theme.secondaryText,
           ),
         ),
+        const SizedBox(height: 16),
+
+        // Summary row with totals (Habits, Tasks, Non-Productive)
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            if (breakdownData.habitMinutes > 0)
+              _buildSummaryChip(
+                context,
+                'Habits',
+                breakdownData.habitMinutes,
+                Colors.orange,
+                theme,
+              ),
+            if (breakdownData.taskMinutes > 0)
+              _buildSummaryChip(
+                context,
+                'Tasks',
+                breakdownData.taskMinutes,
+                const Color(0xFF1A1A1A),
+                theme,
+              ),
+            if (breakdownData.nonProductiveMinutes > 0)
+              _buildSummaryChip(
+                context,
+                'Non-Productive',
+                breakdownData.nonProductiveMinutes,
+                Colors.grey,
+                theme,
+              ),
+          ],
+        ),
         const SizedBox(height: 24),
 
         // Chart and Legend
@@ -196,7 +244,7 @@ class TimeBreakdownChartWidget extends StatelessWidget {
           children: [
             // Pie Chart - increased size
             TimeBreakdownPieChart(
-              segments: segments,
+              segments: breakdownData.segments,
               size: 240.0,
             ),
             const SizedBox(width: 24),
@@ -205,7 +253,7 @@ class TimeBreakdownChartWidget extends StatelessWidget {
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
-                children: segments.map((segment) {
+                children: breakdownData.segments.map((segment) {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 12.0),
                     child: Row(
@@ -253,6 +301,47 @@ class TimeBreakdownChartWidget extends StatelessWidget {
           ],
         ),
       ],
+    );
+  }
+
+  Widget _buildSummaryChip(
+    BuildContext context,
+    String label,
+    double minutes,
+    Color color,
+    FlutterFlowTheme theme,
+  ) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: color.withOpacity(0.3),
+          width: 1,
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            width: 12,
+            height: 12,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            '$label: ${_formatDuration(minutes)}',
+            style: theme.bodyMedium.copyWith(
+              fontWeight: FontWeight.w600,
+              color: theme.primaryText,
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

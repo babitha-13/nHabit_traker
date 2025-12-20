@@ -28,9 +28,8 @@ class PointsService {
     ActivityInstanceRecord instance,
     CategoryRecord category,
   ) {
-    // Skip non-productive items and legacy sequence_items - they don't earn points
-    if (instance.templateCategoryType == 'non_productive' ||
-        instance.templateCategoryType == 'sequence_item') {
+    // Skip non-productive items - they don't earn points
+    if (instance.templateCategoryType == 'non_productive') {
       return 0.0;
     }
     final habitPriority = instance.templatePriority.toDouble();
@@ -54,13 +53,11 @@ class PointsService {
     CategoryRecord category,
     ActivityRecord template,
   ) {
-      // Skip non-productive items and legacy sequence_items - they don't earn points
-      if (instance.templateCategoryType == 'non_productive' ||
-          instance.templateCategoryType == 'sequence_item' ||
-          template.categoryType == 'non_productive' ||
-          template.categoryType == 'sequence_item') {
-        return 0.0;
-      }
+    // Skip non-productive items - they don't earn points
+    if (instance.templateCategoryType == 'non_productive' ||
+        template.categoryType == 'non_productive') {
+      return 0.0;
+    }
     final habitPriority = instance.templatePriority.toDouble();
     // Calculate daily frequency from template data
     final dailyFrequency = calculateDailyFrequencyFromTemplate(template);
@@ -123,9 +120,8 @@ class PointsService {
     ActivityInstanceRecord instance,
     CategoryRecord category,
   ) {
-    // Skip non-productive items and legacy sequence_items - they don't earn points
-    if (instance.templateCategoryType == 'non_productive' ||
-        instance.templateCategoryType == 'sequence_item') {
+    // Skip non-productive items - they don't earn points
+    if (instance.templateCategoryType == 'non_productive') {
       return 0.0;
     }
     final habitPriority = instance.templatePriority.toDouble();
@@ -239,10 +235,9 @@ class PointsService {
   ) {
     double totalTarget = 0.0;
     for (final instance in instances) {
-      // Skip non-productive items and legacy sequence_items, only process habits
+      // Skip non-productive items, only process habits
       if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'non_productive' ||
-          instance.templateCategoryType == 'sequence_item') continue;
+          instance.templateCategoryType == 'non_productive') continue;
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) {
         continue;
@@ -262,10 +257,9 @@ class PointsService {
   ) async {
     double totalTarget = 0.0;
     for (final instance in instances) {
-      // Skip non-productive items and legacy sequence_items, only process habits
+      // Skip non-productive items, only process habits
       if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'non_productive' ||
-          instance.templateCategoryType == 'sequence_item') continue;
+          instance.templateCategoryType == 'non_productive') continue;
       final category = _findCategoryForInstance(instance, categories);
       if (category == null) continue;
       try {

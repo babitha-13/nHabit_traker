@@ -85,13 +85,20 @@ class _WeeklyViewState extends State<WeeklyView> {
     }
   }
   Future<void> _loadData() async {
+    if (!mounted) return;
     setState(() => _isLoading = true);
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final allInstances = await queryAllInstances(userId: userId);
-        final habitCategories = await queryHabitCategoriesOnce(userId: userId);
-        final taskCategories = await queryTaskCategoriesOnce(userId: userId);
+        final habitCategories = await queryHabitCategoriesOnce(
+          userId: userId,
+          callerTag: 'WeeklyView._loadData.habits',
+        );
+        final taskCategories = await queryTaskCategoriesOnce(
+          userId: userId,
+          callerTag: 'WeeklyView._loadData.tasks',
+        );
         final allCategories = [...habitCategories, ...taskCategories];
         if (mounted) {
           setState(() {
