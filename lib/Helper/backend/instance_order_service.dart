@@ -1,6 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+
 class InstanceOrderService {
   /// Update the order of a single instance for a specific page
   static Future<void> updateInstanceOrder(
@@ -32,6 +33,7 @@ class InstanceOrderService {
       rethrow;
     }
   }
+
   /// Reorder instances within a section after drag operation
   static Future<void> reorderInstancesInSection(
     List<ActivityInstanceRecord> instances,
@@ -80,6 +82,7 @@ class InstanceOrderService {
       }
     }
   }
+
   /// Validate that order updates were actually saved to the database
   static Future<void> _validateOrderUpdates(
     List<String> instanceIds,
@@ -125,6 +128,7 @@ class InstanceOrderService {
       rethrow;
     }
   }
+
   /// Initialize order values for instances that don't have them
   static Future<void> initializeOrderValues(
     List<ActivityInstanceRecord> instances,
@@ -168,6 +172,7 @@ class InstanceOrderService {
       rethrow;
     }
   }
+
   /// Get the appropriate order field for a page type
   static int getOrderValue(ActivityInstanceRecord instance, String pageType) {
     switch (pageType) {
@@ -181,6 +186,7 @@ class InstanceOrderService {
         return 0;
     }
   }
+
   /// Get order value from the most recent instance of the same template
   /// Returns null if no previous instance exists or if order is not set
   static Future<int?> getOrderFromPreviousInstance(
@@ -197,8 +203,8 @@ class InstanceOrderService {
           .limit(1);
       final querySnapshot = await query.get();
       if (querySnapshot.docs.isEmpty) return null;
-      final previousInstance = ActivityInstanceRecord.fromSnapshot(
-          querySnapshot.docs.first);
+      final previousInstance =
+          ActivityInstanceRecord.fromSnapshot(querySnapshot.docs.first);
       // Get the order value for the specified page type
       final orderValue = getOrderValue(previousInstance, pageType);
       // Return null if order is 0 (default) and instance doesn't have explicit order
@@ -220,6 +226,7 @@ class InstanceOrderService {
       return null;
     }
   }
+
   /// Sort instances by their order for a specific page
   static List<ActivityInstanceRecord> sortInstancesByOrder(
     List<ActivityInstanceRecord> instances,

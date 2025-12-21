@@ -6,6 +6,7 @@ import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:from_css_color/from_css_color.dart';
@@ -14,6 +15,9 @@ import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Helper/utils/planned_duration_resolver.dart';
+import 'package:habit_tracker/Helper/backend/routine_planned_calendar_service.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -158,6 +162,30 @@ class _DiagonalStripePainter extends CustomPainter {
   }
 }
 
+class _PlannedOverlapGroup {
+  final DateTime start;
+  final DateTime end;
+  final List<CalendarEventData> events;
+
+  const _PlannedOverlapGroup({
+    required this.start,
+    required this.end,
+    required this.events,
+  });
+}
+
+class _PlannedOverlapInfo {
+  final int pairCount;
+  final Set<String> overlappedIds;
+  final List<_PlannedOverlapGroup> groups;
+
+  const _PlannedOverlapInfo({
+    required this.pairCount,
+    required this.overlappedIds,
+    required this.groups,
+  });
+}
+
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
   @override
@@ -191,6 +219,11 @@ class _CalendarPageState extends State<CalendarPage> {
   List<CalendarEventData> _sortedCompletedEvents = [];
   List<CalendarEventData> _sortedPlannedEvents = [];
 
+  // Planned schedule overlap detection (prominent conflict UI)
+  int _plannedOverlapPairCount = 0;
+  final Set<String> _plannedOverlappedEventIds = {};
+  List<_PlannedOverlapGroup> _plannedOverlapGroups = const [];
+
   // Key to access DayView state for scrolling
   final GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
 
@@ -201,11 +234,15 @@ class _CalendarPageState extends State<CalendarPage> {
   double? _initialZoomOnGestureStart;
   double? _initialScaleOnGestureStart;
 
+  // Cached default duration for time logging (in minutes)
+  int _defaultDurationMinutes = 10;
+
   @override
   void initState() {
     super.initState();
     _calculateInitialScrollOffset();
     _initializeTabState();
+    _loadDefaultDuration();
     // Listen for instance updates to refresh calendar
     NotificationCenter.addObserver(
       this,
@@ -217,6 +254,25 @@ class _CalendarPageState extends State<CalendarPage> {
         _loadEvents();
       }
     });
+  }
+
+  /// Load user's default duration preference
+  Future<void> _loadDefaultDuration() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isNotEmpty) {
+        final duration = await TimeLoggingPreferencesService
+            .getDefaultDurationMinutes(userId);
+        if (mounted) {
+          setState(() {
+            _defaultDurationMinutes = duration;
+          });
+        }
+      }
+    } catch (e) {
+      // On error, keep default of 10 minutes
+      print('Error loading default duration: $e');
+    }
   }
 
   /// Initialize tab state by loading saved preference
@@ -591,7 +647,7 @@ class _CalendarPageState extends State<CalendarPage> {
     // Ensure end time is after start time
     if (validEndTime.isBefore(validStartTime) ||
         validEndTime.isAtSameMomentAs(validStartTime)) {
-      validEndTime = validStartTime.add(const Duration(minutes: 10));
+      validEndTime = validStartTime.add(Duration(minutes: _defaultDurationMinutes));
     }
 
     // Ensure both times are on the same date as selectedDate
@@ -813,6 +869,7 @@ class _CalendarPageState extends State<CalendarPage> {
         userId: userId,
         date: _selectedDate,
       ),
+      queryRoutineRecordOnce(userId: userId),
     ]);
 
     final habitCategories = results[0] as List<CategoryRecord>;
@@ -822,6 +879,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final timeLoggedTasks = results[3] as List<ActivityInstanceRecord>;
     final nonProductiveInstances = results[4] as List<ActivityInstanceRecord>;
     final queueItems = results[5] as Map<String, dynamic>;
+    final routines = results[6] as List<RoutineRecord>;
 
     // Combine all items into a map to handle duplicates (keyed by instance ID)
     final allItemsMap = <String, ActivityInstanceRecord>{};
@@ -1098,6 +1156,20 @@ class _CalendarPageState extends State<CalendarPage> {
         .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
         .toList();
 
+    // Items already scheduled at explicit times (exclude from routine-duration computation)
+    final explicitlyScheduledTemplateIds =
+        plannedItemsWithTime.map((i) => i.templateId).toSet();
+
+    // Resolve planned duration per instance based on:
+    // time-target -> target minutes
+    // else -> activity estimate (if enabled+present) -> global default (if enabled) -> none
+    final plannedDurationByInstanceId = userId.isEmpty
+        ? <String, int?>{}
+        : await PlannedDurationResolver.resolveDurationMinutesForInstances(
+            userId: userId,
+            instances: plannedItemsWithTime,
+          );
+
     for (final item in plannedItemsWithTime) {
       Color categoryColor;
       if (item.templateCategoryType == 'habit') {
@@ -1127,31 +1199,88 @@ class _CalendarPageState extends State<CalendarPage> {
       // Parse due time - no need for else block since we filtered out items without dueTime
       DateTime startTime = _parseDueTime(item.dueTime!, _selectedDate);
 
-      final hasDuration =
-          item.templateTrackingType == 'time' && item.templateTarget != null;
+      final instanceId = item.reference.id;
+      final durationMinutes = plannedDurationByInstanceId[instanceId];
 
-      if (hasDuration) {
-        final targetMinutes = _getTargetMinutes(item.templateTarget);
-        final endTime = startTime.add(Duration(minutes: targetMinutes));
+      final metadata = CalendarEventMetadata(
+        instanceId: instanceId,
+        sessionIndex: -1,
+        activityName: item.templateName,
+        activityType: item.templateCategoryType,
+        templateId: item.templateId,
+        categoryId:
+            item.templateCategoryId.isNotEmpty ? item.templateCategoryId : null,
+        categoryName:
+            item.templateCategoryName.isNotEmpty ? item.templateCategoryName : null,
+        categoryColorHex: item.templateCategoryColor.isNotEmpty
+            ? item.templateCategoryColor
+            : null,
+      );
+
+      // If duration is null, render as a due-time marker line (very thin tile).
+      final isDueMarker = durationMinutes == null || durationMinutes <= 0;
+      final endTime = isDueMarker
+          ? startTime.add(const Duration(minutes: 1))
+          : startTime.add(Duration(minutes: durationMinutes));
+
+      plannedEvents.add(CalendarEventData(
+        date: _selectedDate,
+        startTime: startTime,
+        endTime: endTime,
+        title: item.templateName,
+        color: categoryColor,
+        description:
+            isDueMarker ? null : _formatDuration(Duration(minutes: durationMinutes)),
+        event: {
+          ...metadata.toMap(),
+          'isDueMarker': isDueMarker,
+        },
+      ));
+    }
+
+    // Add routines with due time as planned events (single block = sum of item durations).
+    // Excludes items already scheduled explicitly in the planned list.
+    if (userId.isNotEmpty && routines.isNotEmpty) {
+      final routinePlanned = await RoutinePlannedCalendarService
+          .getPlannedRoutineEvents(
+        userId: userId,
+        date: _selectedDate,
+        routines: routines,
+        excludedTemplateIds: explicitlyScheduledTemplateIds,
+      );
+
+      for (final r in routinePlanned) {
+        final startTime = _parseDueTime(r.dueTime, _selectedDate);
+        final isDueMarker = r.durationMinutes == null || r.durationMinutes! <= 0;
+        final endTime = isDueMarker
+            ? startTime.add(const Duration(minutes: 1))
+            : startTime.add(Duration(minutes: r.durationMinutes!));
+
+        final metadata = CalendarEventMetadata(
+          instanceId: 'routine:${r.routineId}',
+          sessionIndex: -1,
+          activityName: r.name,
+          activityType: 'routine',
+          templateId: null,
+          categoryId: null,
+          categoryName: null,
+          categoryColorHex: null,
+        );
 
         plannedEvents.add(CalendarEventData(
           date: _selectedDate,
           startTime: startTime,
           endTime: endTime,
-          title: item.templateName,
-          color: categoryColor, // Pass full color, opacity handled in UI
-          description: targetMinutes > 15
-              ? '${_formatDuration(Duration(minutes: targetMinutes))}'
-              : null,
-        ));
-      } else {
-        plannedEvents.add(CalendarEventData(
-          date: _selectedDate,
-          startTime: startTime,
-          endTime: startTime.add(const Duration(minutes: 10)),
-          title: item.templateName,
-          color: categoryColor,
-          description: null,
+          title: 'Routine: ${r.name}',
+          color: Colors.deepPurple,
+          description: isDueMarker
+              ? null
+              : _formatDuration(Duration(minutes: r.durationMinutes!)),
+          event: {
+            ...metadata.toMap(),
+            'routineId': r.routineId,
+            'isDueMarker': isDueMarker,
+          },
         ));
       }
     }
@@ -1162,6 +1291,14 @@ class _CalendarPageState extends State<CalendarPage> {
       return a.startTime!.compareTo(b.startTime!);
     });
     _sortedPlannedEvents = plannedEvents;
+
+    // Detect overlaps in the planned schedule (for prominent conflict highlighting)
+    final overlapInfo = _computePlannedOverlaps(plannedEvents);
+    _plannedOverlapPairCount = overlapInfo.pairCount;
+    _plannedOverlappedEventIds
+      ..clear()
+      ..addAll(overlapInfo.overlappedIds);
+    _plannedOverlapGroups = overlapInfo.groups;
 
     // Add legacy/timer events if any (optional, maybe filter by date?)
     // For now, skipping legacy complex timer logic for past dates to keep it simple,
@@ -1195,17 +1332,6 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  /// Get target minutes from templateTarget
-  int _getTargetMinutes(dynamic templateTarget) {
-    if (templateTarget == null) return 0;
-    if (templateTarget is int) return templateTarget;
-    if (templateTarget is double) return templateTarget.toInt();
-    if (templateTarget is String) {
-      return int.tryParse(templateTarget) ?? 0;
-    }
-    return 0;
-  }
-
   /// Parse color string (hex) to Color
   Color _parseColor(String colorString) {
     try {
@@ -1213,6 +1339,297 @@ class _CalendarPageState extends State<CalendarPage> {
     } catch (e) {
       return Colors.blue; // Default color
     }
+  }
+
+  String? _stableEventId(CalendarEventData event) {
+    final metadata = CalendarEventMetadata.fromMap(event.event);
+    final id = metadata?.instanceId;
+    if (id != null && id.isNotEmpty) return id;
+    if (event.startTime == null || event.endTime == null) return null;
+    return '${event.title}_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
+  }
+
+  _PlannedOverlapInfo _computePlannedOverlaps(List<CalendarEventData> planned) {
+    final events = planned
+        .where((e) => e.startTime != null && e.endTime != null)
+        .toList()
+      ..sort((a, b) => a.startTime!.compareTo(b.startTime!));
+
+    int overlapPairs = 0;
+    final overlappedIds = <String>{};
+    final groups = <_PlannedOverlapGroup>[];
+
+    // Active list for accurate pair counting
+    final active = <CalendarEventData>[];
+
+    // Group tracking (overlap chains)
+    final currentGroup = <CalendarEventData>[];
+    DateTime? currentGroupStart;
+    DateTime? currentGroupEnd;
+
+    void finalizeGroupIfNeeded() {
+      if (currentGroup.length <= 1) {
+        currentGroup.clear();
+        currentGroupStart = null;
+        currentGroupEnd = null;
+        return;
+      }
+      final start = currentGroupStart!;
+      final end = currentGroupEnd!;
+      groups.add(
+        _PlannedOverlapGroup(
+          start: start,
+          end: end,
+          events: List.of(currentGroup),
+        ),
+      );
+      for (final e in currentGroup) {
+        final id = _stableEventId(e);
+        if (id != null) overlappedIds.add(id);
+      }
+      currentGroup.clear();
+      currentGroupStart = null;
+      currentGroupEnd = null;
+    }
+
+    for (final e in events) {
+      final start = e.startTime!;
+      final end = e.endTime!;
+
+      // Remove inactive events (end <= start doesn't overlap)
+      active.removeWhere((a) => !a.endTime!.isAfter(start));
+
+      if (active.isNotEmpty) {
+        overlapPairs += active.length;
+        final id = _stableEventId(e);
+        if (id != null) overlappedIds.add(id);
+        for (final a in active) {
+          final aid = _stableEventId(a);
+          if (aid != null) overlappedIds.add(aid);
+        }
+      }
+
+      active.add(e);
+
+      // Overlap group (chain-based)
+      if (currentGroup.isEmpty) {
+        currentGroup.add(e);
+        currentGroupStart = start;
+        currentGroupEnd = end;
+      } else {
+        final groupEnd = currentGroupEnd!;
+        if (start.isBefore(groupEnd)) {
+          currentGroup.add(e);
+          if (end.isAfter(groupEnd)) currentGroupEnd = end;
+        } else {
+          finalizeGroupIfNeeded();
+          currentGroup.add(e);
+          currentGroupStart = start;
+          currentGroupEnd = end;
+        }
+      }
+    }
+    finalizeGroupIfNeeded();
+
+    return _PlannedOverlapInfo(
+      pairCount: overlapPairs,
+      overlappedIds: overlappedIds,
+      groups: groups,
+    );
+  }
+
+  bool _isSelectedDateToday() {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final selected =
+        DateTime(_selectedDate.year, _selectedDate.month, _selectedDate.day);
+    return selected.isAtSameMomentAs(today);
+  }
+
+  Future<void> _showOverlapDetailsSheet() async {
+    if (_plannedOverlapGroups.isEmpty) return;
+
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  children: [
+                    Container(
+                      width: 36,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade300,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      icon: const Icon(Icons.close),
+                      tooltip: 'Close',
+                    ),
+                  ],
+                ),
+                const Text(
+                  'Schedule overlaps',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'These planned items overlap in time. Adjust due times to resolve.',
+                  style: TextStyle(color: Colors.grey.shade700),
+                ),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _plannedOverlapGroups.length,
+                    separatorBuilder: (_, __) => const SizedBox(height: 10),
+                    itemBuilder: (context, index) {
+                      final group = _plannedOverlapGroups[index];
+                      final timeRange =
+                          '${DateFormat('HH:mm').format(group.start)}–${DateFormat('HH:mm').format(group.end)}';
+
+                      return Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: Colors.red.withOpacity(0.05),
+                          borderRadius: BorderRadius.circular(12),
+                          border:
+                              Border.all(color: Colors.red.withOpacity(0.35)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                const Icon(Icons.warning_amber_rounded,
+                                    color: Colors.red),
+                                const SizedBox(width: 8),
+                                Text(
+                                  timeRange,
+                                  style: const TextStyle(
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 8),
+                            ...group.events.map((e) {
+                              final st = e.startTime!;
+                              final et = e.endTime!;
+                              return Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 4),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Container(
+                                      width: 10,
+                                      height: 10,
+                                      margin: const EdgeInsets.only(top: 4),
+                                      decoration: BoxDecoration(
+                                        color: e.color,
+                                        shape: BoxShape.circle,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Expanded(
+                                      child: Text(
+                                        '${DateFormat('HH:mm').format(st)}–${DateFormat('HH:mm').format(et)}  ${e.title}',
+                                        style: const TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              );
+                            }),
+                          ],
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildOverlapBanner() {
+    final isToday = _isSelectedDateToday();
+    final headline = isToday
+        ? '${_plannedOverlapPairCount} overlap${_plannedOverlapPairCount == 1 ? '' : 's'} in today\'s schedule'
+        : '${_plannedOverlapPairCount} overlap${_plannedOverlapPairCount == 1 ? '' : 's'} in this day\'s schedule';
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 6),
+      child: Material(
+        color: Colors.red.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(12),
+          onTap: _showOverlapDetailsSheet,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: Colors.red.withOpacity(0.35)),
+            ),
+            child: Row(
+              children: [
+                const Icon(Icons.warning_amber_rounded, color: Colors.red),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        headline,
+                        style: const TextStyle(
+                          fontWeight: FontWeight.w800,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        'Tap to review conflicts',
+                        style: TextStyle(
+                          color: Colors.grey.shade800,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const Icon(Icons.chevron_right, color: Colors.red),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 
   /// Calculate horizontal offset for floating labels to avoid overlap
@@ -1303,7 +1720,10 @@ class _CalendarPageState extends State<CalendarPage> {
 
     final duration = event.endTime!.difference(event.startTime!);
     final isNonProductive = event.title.startsWith('NP:');
-    final isThinLine = duration.inMinutes <= 5 && isCompleted;
+    final rawEvent = event.event;
+    final isDueMarker =
+        rawEvent is Map && (rawEvent['isDueMarker'] == true);
+    final isThinLine = duration.inMinutes <= 5 && (isCompleted || isDueMarker);
 
     final timeBoxHeight = duration.inMinutes * _calculateHeightPerMinute();
     final cappedHeight = math.max(1.0, timeBoxHeight);
@@ -1313,23 +1733,29 @@ class _CalendarPageState extends State<CalendarPage> {
 
     final labelFitsInside = actualTimeBoxHeight >= 24.0;
 
+    // Extract metadata from event once for reuse
+    final metadata = CalendarEventMetadata.fromMap(event.event);
+    final eventId = _stableEventId(event);
+    final isConflict = !isCompleted &&
+        eventId != null &&
+        _plannedOverlappedEventIds.contains(eventId);
+
     final timeBox = _buildTimeBox(
       event,
       actualTimeBoxHeight,
       isCompleted,
       isNonProductive,
+      isConflict: isConflict,
     );
 
     final label = labelFitsInside
         ? _buildInlineLabel(event, isCompleted, isNonProductive)
         : _buildFloatingLabel(event, isCompleted, isNonProductive);
 
-    // Extract metadata from event once for reuse
-    final metadata = CalendarEventMetadata.fromMap(event.event);
-
     // Handler for long-press on time box only
     void handleLongPress() {
-      if (metadata != null) {
+      // Only completed items should allow editing logged sessions
+      if (isCompleted && metadata != null && metadata.sessionIndex >= 0) {
         _showEditEntryDialog(metadata: metadata);
       }
     }
@@ -1396,6 +1822,7 @@ class _CalendarPageState extends State<CalendarPage> {
     double height,
     bool isCompleted,
     bool isNonProductive,
+    {required bool isConflict}
   ) {
     // Detect non-productive tasks: check parameter OR grey color
     final isNonProd = isNonProductive || event.color == Colors.grey;
@@ -1446,21 +1873,47 @@ class _CalendarPageState extends State<CalendarPage> {
       boxColor = event.color.withOpacity(0.3);
     }
 
-    return Container(
-      constraints: const BoxConstraints(
-        minHeight: 1.0,
-        minWidth: 0,
-      ),
-      decoration: BoxDecoration(
-        color: boxColor,
-        borderRadius: BorderRadius.circular(4.0),
-        border: Border.all(
-          color: isCompleted
-              ? event.color
-              : event.color, // Use strong color for border
-          width: 1.0,
+    final conflictBorderColor = Colors.red.shade700;
+    final baseBorderColor = event.color;
+
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Container(
+          constraints: const BoxConstraints(
+            minHeight: 1.0,
+            minWidth: 0,
+          ),
+          decoration: BoxDecoration(
+            color: boxColor,
+            borderRadius: BorderRadius.circular(4.0),
+            border: Border.all(
+              color: isConflict ? conflictBorderColor : baseBorderColor,
+              width: isConflict ? 2.0 : 1.0,
+            ),
+            boxShadow: isConflict
+                ? [
+                    BoxShadow(
+                      color: Colors.red.withOpacity(0.25),
+                      blurRadius: 6,
+                      offset: const Offset(0, 2),
+                    ),
+                  ]
+                : null,
+          ),
         ),
-      ),
+        if (isConflict)
+          ClipRRect(
+            borderRadius: BorderRadius.circular(4.0),
+            child: CustomPaint(
+              painter: _DiagonalStripePainter(
+                stripeColor: Colors.red.withOpacity(0.18),
+                stripeWidth: 3.0,
+                spacing: 7.0,
+              ),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1864,6 +2317,10 @@ class _CalendarPageState extends State<CalendarPage> {
                   ),
                 ),
 
+                // Prominent planned-schedule conflict banner
+                if (_showPlanned && _plannedOverlapPairCount > 0)
+                  _buildOverlapBanner(),
+
                 // Calendar Body
                 Expanded(
                   child: GestureDetector(
@@ -1974,7 +2431,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                 ).add(Duration(minutes: roundedMinute));
 
                                 final endTime =
-                                    startTime.add(const Duration(minutes: 10));
+                                    startTime.add(Duration(minutes: _defaultDurationMinutes));
 
                                 _showManualEntryDialog(
                                   startTime: startTime,
@@ -1996,7 +2453,7 @@ class _CalendarPageState extends State<CalendarPage> {
                                   roundedMinute,
                                 );
                                 final endTime =
-                                    startTime.add(const Duration(minutes: 10));
+                                    startTime.add(Duration(minutes: _defaultDurationMinutes));
 
                                 _showManualEntryDialog(
                                   startTime: startTime,

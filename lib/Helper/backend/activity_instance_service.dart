@@ -8,6 +8,7 @@ import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/utils/time_estimate_resolver.dart';
 
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
@@ -745,44 +746,45 @@ class ActivityInstanceService {
   }
 
   // ==================== INSTANCE COMPLETION ====================
-  /// Calculate duration for time log session based on tracking type
+  /// Calculate duration for time log session based on tracking type and user preferences
+  /// Returns 0 if no session should be created (estimates disabled, time-target, or already has sessions)
+  /// [effectiveEstimateMinutes] should be resolved via TimeEstimateResolver.getEffectiveEstimateMinutes
   static int calculateCompletionDuration(
     ActivityInstanceRecord instance,
-    DateTime completedAt,
-  ) {
+    DateTime completedAt, {
+    int? effectiveEstimateMinutes,
+  }) {
     // If already has sessions, don't create default
     if (instance.timeLogSessions.isNotEmpty) {
       return 0; // Signal to skip creation
     }
 
+    // If no effective estimate (disabled or time-target), return 0
+    if (effectiveEstimateMinutes == null) {
+      return 0;
+    }
+
+    final estimateMs = effectiveEstimateMinutes * 60000; // Convert to milliseconds
     final trackingType = instance.templateTrackingType;
 
     if (trackingType == 'time') {
-      // Timer items: use actual accumulated time
+      // For time-target items: use actual accumulated time if available
       final accumulatedMs = instance.accumulatedTime > 0
           ? instance.accumulatedTime
           : (instance.totalTimeLogged > 0 ? instance.totalTimeLogged : 0);
       if (accumulatedMs > 0) {
         return accumulatedMs;
       }
-      // Fallback to 10 minutes if no time logged
-      return 600000; // 10 minutes
+      // If we reach here, it's a non-time-target time tracking activity
+      // Use the effective estimate
+      return estimateMs;
     } else if (trackingType == 'quantitative') {
-      // Quantity items: 10/x minutes where x is currentValue
-      // For non-time-target-based activities, default to 10 minutes if currentValue < 1
-      final quantity = instance.currentValue ?? 1;
-      final quantityNum = quantity is num ? quantity.toDouble() : 1.0;
-      if (quantityNum > 0 && quantityNum >= 1) {
-        // Only use formula for values >= 1 (whole numbers make sense)
-        final minutes =
-            (10.0 / quantityNum).clamp(1.0, 60.0); // Min 1 min, max 60 min
-        return (minutes * 60000).toInt();
-      }
-      // Default to 10 minutes for fractional values (< 1) or zero
-      return 600000; // Default 10 minutes
+      // Quantity items: use the effective estimate as-is (per completion)
+      // The estimate represents the total time for the full target
+      return estimateMs;
     } else {
-      // Binary items: 10 minutes default
-      return 600000; // 10 minutes
+      // Binary items: use effective estimate
+      return estimateMs;
     }
   }
 
@@ -827,6 +829,7 @@ class ActivityInstanceService {
     required DateTime completionTime,
     required int durationMs,
     required String instanceId,
+    int? effectiveEstimateMinutes,
   }) async {
     // Find other items completed at the same time (within 2 seconds before this completion)
     final simultaneous = await findSimultaneousCompletions(
@@ -841,7 +844,7 @@ class ActivityInstanceService {
     }
 
     // Calculate total duration of simultaneous items
-    // Use actual session durations if they exist, otherwise calculate duration
+    // Use actual session durations if they exist, otherwise calculate duration using estimates
     int totalDurationMs = 0;
     for (final item in simultaneous) {
       if (item.timeLogSessions.isNotEmpty) {
@@ -851,10 +854,36 @@ class ActivityInstanceService {
             lastSession['durationMilliseconds'] as int? ?? 0;
         totalDurationMs += sessionDuration;
       } else {
-        // Calculate duration (for items that might not have sessions yet)
+        // Load template for this item to resolve effective estimate
+        ActivityRecord? itemTemplate;
+        if (item.hasTemplateId()) {
+          try {
+            final itemTemplateRef = ActivityRecord.collectionForUser(userId)
+                .doc(item.templateId);
+            final itemTemplateDoc = await itemTemplateRef.get();
+            if (itemTemplateDoc.exists) {
+              itemTemplate = ActivityRecord.fromSnapshot(itemTemplateDoc);
+            }
+          } catch (e) {
+            // Continue without template (will use global default)
+          }
+        }
+
+        // Resolve effective estimate for this simultaneous item
+        final itemEffectiveEstimate = await TimeEstimateResolver
+            .getEffectiveEstimateMinutes(
+          userId: userId,
+          trackingType: item.templateTrackingType,
+          target: item.templateTarget,
+          hasExplicitSessions: item.timeLogSessions.isNotEmpty,
+          template: itemTemplate,
+        );
+
+        // Calculate duration for this item
         final itemDuration = calculateCompletionDuration(
           item,
           item.completedAt ?? completionTime,
+          effectiveEstimateMinutes: itemEffectiveEstimate,
         );
         if (itemDuration > 0) {
           totalDurationMs += itemDuration;
@@ -914,7 +943,37 @@ class ActivityInstanceService {
       // Auto-create time log session if none exists
       final existingSessions =
           List<Map<String, dynamic>>.from(instance.timeLogSessions);
-      final durationMs = calculateCompletionDuration(instance, completionTime);
+      
+      // Load template to check for per-activity estimate
+      ActivityRecord? template;
+      if (instance.hasTemplateId()) {
+        try {
+          final templateRef =
+              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+          final templateDoc = await templateRef.get();
+          if (templateDoc.exists) {
+            template = ActivityRecord.fromSnapshot(templateDoc);
+          }
+        } catch (e) {
+          // If template load fails, continue without it (will use global default)
+        }
+      }
+
+      // Resolve effective estimate minutes
+      final effectiveEstimateMinutes =
+          await TimeEstimateResolver.getEffectiveEstimateMinutes(
+        userId: uid,
+        trackingType: instance.templateTrackingType,
+        target: instance.templateTarget,
+        hasExplicitSessions: existingSessions.isNotEmpty,
+        template: template,
+      );
+
+      final durationMs = calculateCompletionDuration(
+        instance,
+        completionTime,
+        effectiveEstimateMinutes: effectiveEstimateMinutes,
+      );
       final updateData = <String, dynamic>{
         'status': 'completed',
         'completedAt': completionTime,
@@ -931,6 +990,7 @@ class ActivityInstanceService {
           completionTime: completionTime,
           durationMs: durationMs,
           instanceId: instanceId,
+          effectiveEstimateMinutes: effectiveEstimateMinutes,
         );
 
         final newSession = {
@@ -1038,7 +1098,12 @@ class ActivityInstanceService {
 
           final futureInstances = await futureInstancesQuery.get();
           for (final doc in futureInstances.docs) {
+            // IMPORTANT: uncompleting a habit can delete auto-generated future
+            // pending instances. Broadcast deletions so any mounted screens
+            // can remove stale references and avoid writing to deleted docs.
+            final deletedInstance = ActivityInstanceRecord.fromSnapshot(doc);
             await doc.reference.delete();
+            InstanceEvents.broadcastInstanceDeleted(deletedInstance);
           }
         } catch (e) {
           print('❌ MISSING INDEX: uncompleteInstance needs Index 1');
@@ -1117,11 +1182,84 @@ class ActivityInstanceService {
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
+      final oldValue = instance.currentValue;
+      final oldValueNum = oldValue is num ? oldValue.toDouble() : 0.0;
+      final newValueNum = currentValue is num ? currentValue.toDouble() : 0.0;
+      final delta = newValueNum - oldValueNum;
+
       // For windowed habits, update lastDayValue to current value for next day's calculation
       final updateData = <String, dynamic>{
         'currentValue': currentValue,
         'lastUpdated': now,
       };
+
+      // Handle quantitative incremental time estimates
+      if (instance.templateTrackingType == 'quantitative' &&
+          delta > 0 &&
+          instance.timeLogSessions.isEmpty &&
+          instance.templateTarget != null) {
+        // Load template to check for per-activity estimate
+        ActivityRecord? template;
+        if (instance.hasTemplateId()) {
+          try {
+            final templateRef =
+                ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+            final templateDoc = await templateRef.get();
+            if (templateDoc.exists) {
+              template = ActivityRecord.fromSnapshot(templateDoc);
+            }
+          } catch (e) {
+            // Continue without template
+          }
+        }
+
+        // Resolve effective estimate
+        final effectiveEstimateMinutes =
+            await TimeEstimateResolver.getEffectiveEstimateMinutes(
+          userId: uid,
+          trackingType: instance.templateTrackingType,
+          target: instance.templateTarget,
+          hasExplicitSessions: false,
+          template: template,
+        );
+
+        if (effectiveEstimateMinutes != null) {
+          // Calculate per-unit time: estimateMinutes / targetQty
+          final targetQty = instance.templateTarget is num
+              ? (instance.templateTarget as num).toDouble()
+              : 1.0;
+          if (targetQty > 0) {
+            final perUnitMinutes = effectiveEstimateMinutes / targetQty;
+            final deltaMinutes = (perUnitMinutes * delta).clamp(1.0, 600.0);
+            final deltaMs = (deltaMinutes * 60000).toInt();
+
+            // Create a time log session for this delta
+            // Stack backwards from now
+            final sessionEndTime = now;
+            final sessionStartTime = sessionEndTime.subtract(Duration(milliseconds: deltaMs));
+
+            final newSession = {
+              'startTime': sessionStartTime,
+              'endTime': sessionEndTime,
+              'durationMilliseconds': deltaMs,
+            };
+
+            final existingSessions =
+                List<Map<String, dynamic>>.from(instance.timeLogSessions);
+            existingSessions.add(newSession);
+
+            final totalTime = existingSessions.fold<int>(
+              0,
+              (sum, session) =>
+                  sum + (session['durationMilliseconds'] as int? ?? 0),
+            );
+
+            updateData['timeLogSessions'] = existingSessions;
+            updateData['totalTimeLogged'] = totalTime;
+          }
+        }
+      }
+
       // Note: lastDayValue should be updated at day-end, not during progress updates
       // This allows differential progress calculation to work correctly
       await instanceRef.update(updateData);

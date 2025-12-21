@@ -6,8 +6,8 @@ import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/schema_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
-class SequenceRecord extends FirestoreRecord {
-  SequenceRecord._(
+class RoutineRecord extends FirestoreRecord {
+  RoutineRecord._(
     super.reference,
     super.data,
   ) {
@@ -64,10 +64,38 @@ class SequenceRecord extends FirestoreRecord {
   String? _userId;
   String get userId => _userId ?? '';
   bool hasUserId() => _userId != null;
-  // "listOrder" field - order of sequence in the list.
+  // "listOrder" field - order of routine in the list.
   int? _listOrder;
   int get listOrder => _listOrder ?? 0;
   bool hasListOrder() => _listOrder != null;
+  // "dueTime" field - routine start time (stored as "HH:mm" in 24-hour format).
+  String? _dueTime;
+  String? get dueTime => _dueTime;
+  bool hasDueTime() => _dueTime != null;
+  // "reminders" field for reminder configurations (list of maps).
+  List<Map<String, dynamic>>? _reminders;
+  List<Map<String, dynamic>> get reminders => _reminders ?? [];
+  bool hasReminders() => _reminders != null && _reminders!.isNotEmpty;
+  // "reminderFrequencyType" field - recurrence type for reminders: "every_x" or "specific_days".
+  String? _reminderFrequencyType;
+  String get reminderFrequencyType => _reminderFrequencyType ?? '';
+  bool hasReminderFrequencyType() => _reminderFrequencyType != null;
+  // "everyXValue" field - for "every X period" frequency.
+  int? _everyXValue;
+  int get everyXValue => _everyXValue ?? 1;
+  bool hasEveryXValue() => _everyXValue != null;
+  // "everyXPeriodType" field - period type for "every X": "day", "week", or "month".
+  String? _everyXPeriodType;
+  String get everyXPeriodType => _everyXPeriodType ?? '';
+  bool hasEveryXPeriodType() => _everyXPeriodType != null;
+  // "specificDays" field for weekly scheduling (list of day indices: 1=Monday, 7=Sunday).
+  List<int>? _specificDays;
+  List<int> get specificDays => _specificDays ?? const [];
+  bool hasSpecificDays() => _specificDays != null;
+  // "remindersEnabled" field - whether reminders are enabled.
+  bool? _remindersEnabled;
+  bool get remindersEnabled => _remindersEnabled ?? false;
+  bool hasRemindersEnabled() => _remindersEnabled != null;
   void _initializeFields() {
     _uid = snapshotData['uid'] as String?;
     _name = snapshotData['name'] as String?;
@@ -84,6 +112,23 @@ class SequenceRecord extends FirestoreRecord {
     _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
     _userId = snapshotData['userId'] as String?;
     _listOrder = snapshotData['listOrder'] as int?;
+    _dueTime = snapshotData['dueTime'] as String?;
+    // Handle reminders - convert List<dynamic> to List<Map<String, dynamic>>
+    final remindersData = snapshotData['reminders'];
+    if (remindersData != null && remindersData is List) {
+      _reminders = remindersData
+          .map((item) => item is Map ? Map<String, dynamic>.from(item) : null)
+          .where((item) => item != null)
+          .cast<Map<String, dynamic>>()
+          .toList();
+    } else {
+      _reminders = null;
+    }
+    _reminderFrequencyType = snapshotData['reminderFrequencyType'] as String?;
+    _everyXValue = snapshotData['everyXValue'] as int?;
+    _everyXPeriodType = snapshotData['everyXPeriodType'] as String?;
+    _specificDays = (snapshotData['specificDays'] as List?)?.cast<int>();
+    _remindersEnabled = snapshotData['remindersEnabled'] as bool?;
   }
 
   static CollectionReference get collection =>
@@ -93,32 +138,32 @@ class SequenceRecord extends FirestoreRecord {
           .collection('users')
           .doc(userId)
           .collection('sequences');
-  static Stream<SequenceRecord> getDocument(DocumentReference ref) =>
-      ref.snapshots().map((s) => SequenceRecord.fromSnapshot(s));
-  static Future<SequenceRecord> getDocumentOnce(DocumentReference ref) =>
-      ref.get().then((s) => SequenceRecord.fromSnapshot(s));
-  static SequenceRecord fromSnapshot(DocumentSnapshot snapshot) =>
-      SequenceRecord._(
+  static Stream<RoutineRecord> getDocument(DocumentReference ref) =>
+      ref.snapshots().map((s) => RoutineRecord.fromSnapshot(s));
+  static Future<RoutineRecord> getDocumentOnce(DocumentReference ref) =>
+      ref.get().then((s) => RoutineRecord.fromSnapshot(s));
+  static RoutineRecord fromSnapshot(DocumentSnapshot snapshot) =>
+      RoutineRecord._(
         snapshot.reference,
         mapFromFirestore(snapshot.data() as Map<String, dynamic>),
       );
-  static SequenceRecord getDocumentFromData(
+  static RoutineRecord getDocumentFromData(
     Map<String, dynamic> data,
     DocumentReference reference,
   ) =>
-      SequenceRecord._(reference, mapFromFirestore(data));
+      RoutineRecord._(reference, mapFromFirestore(data));
   @override
   String toString() =>
-      'SequenceRecord(reference: ${reference.path}, data: $snapshotData)';
+      'RoutineRecord(reference: ${reference.path}, data: $snapshotData)';
   @override
   int get hashCode => reference.path.hashCode;
   @override
   bool operator ==(other) =>
-      other is SequenceRecord &&
+      other is RoutineRecord &&
       reference.path.hashCode == other.reference.path.hashCode;
 }
 
-Map<String, dynamic> createSequenceRecordData({
+Map<String, dynamic> createRoutineRecordData({
   String? uid,
   String? name,
   String? description,
@@ -134,6 +179,13 @@ Map<String, dynamic> createSequenceRecordData({
   DateTime? lastUpdated,
   String? userId,
   int? listOrder,
+  String? dueTime,
+  List<Map<String, dynamic>>? reminders,
+  String? reminderFrequencyType,
+  int? everyXValue,
+  String? everyXPeriodType,
+  List<int>? specificDays,
+  bool? remindersEnabled,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -152,15 +204,22 @@ Map<String, dynamic> createSequenceRecordData({
       'lastUpdated': lastUpdated,
       'userId': userId,
       'listOrder': listOrder,
+      'dueTime': dueTime,
+      'reminders': reminders,
+      'reminderFrequencyType': reminderFrequencyType,
+      'everyXValue': everyXValue,
+      'everyXPeriodType': everyXPeriodType,
+      'specificDays': specificDays,
+      'remindersEnabled': remindersEnabled,
     }.withoutNulls,
   );
   return firestoreData;
 }
 
-class SequenceRecordDocumentEquality implements Equality<SequenceRecord> {
-  const SequenceRecordDocumentEquality();
+class RoutineRecordDocumentEquality implements Equality<RoutineRecord> {
+  const RoutineRecordDocumentEquality();
   @override
-  bool equals(SequenceRecord? e1, SequenceRecord? e2) {
+  bool equals(RoutineRecord? e1, RoutineRecord? e2) {
     return e1?.uid == e2?.uid &&
         e1?.name == e2?.name &&
         e1?.description == e2?.description &&
@@ -174,11 +233,18 @@ class SequenceRecordDocumentEquality implements Equality<SequenceRecord> {
         e1?.createdTime == e2?.createdTime &&
         e1?.lastUpdated == e2?.lastUpdated &&
         e1?.userId == e2?.userId &&
-        e1?.listOrder == e2?.listOrder;
+        e1?.listOrder == e2?.listOrder &&
+        e1?.dueTime == e2?.dueTime &&
+        listEquals(e1?.reminders, e2?.reminders) &&
+        e1?.reminderFrequencyType == e2?.reminderFrequencyType &&
+        e1?.everyXValue == e2?.everyXValue &&
+        e1?.everyXPeriodType == e2?.everyXPeriodType &&
+        listEquals(e1?.specificDays, e2?.specificDays) &&
+        e1?.remindersEnabled == e2?.remindersEnabled;
   }
 
   @override
-  int hash(SequenceRecord? e) => const ListEquality().hash([
+  int hash(RoutineRecord? e) => const ListEquality().hash([
         e?.uid,
         e?.name,
         e?.description,
@@ -193,7 +259,14 @@ class SequenceRecordDocumentEquality implements Equality<SequenceRecord> {
         e?.lastUpdated,
         e?.userId,
         e?.listOrder,
+        e?.dueTime,
+        e?.reminders,
+        e?.reminderFrequencyType,
+        e?.everyXValue,
+        e?.everyXPeriodType,
+        e?.specificDays,
+        e?.remindersEnabled,
       ]);
   @override
-  bool isValidKey(Object? o) => o is SequenceRecord;
+  bool isValidKey(Object? o) => o is RoutineRecord;
 }

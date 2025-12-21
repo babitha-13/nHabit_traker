@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
 
 class ManualTimeLogModal extends StatefulWidget {
@@ -62,6 +63,10 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
   // Completion controls
   bool _markAsComplete = false; // For binary tasks
   int _quantityValue = 0; // For quantity tasks
+
+  // Cached default duration for time logging (in minutes)
+  int _defaultDurationMinutes = 10;
+  bool _useGlobalDefault = false;
 
   @override
   void initState() {
@@ -117,8 +122,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
         );
       }
     } else {
-      // Default to 10 minutes only when no end time provided (manual calendar entry)
-      _endTime = _startTime.add(const Duration(minutes: 10));
+      // Default to user's configured duration only when no end time provided (manual calendar entry)
+      _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
     }
 
     // Ensure end time is after start time
@@ -126,8 +131,9 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     if (_endTime.isBefore(_startTime) ||
         _endTime.isAtSameMomentAs(_startTime)) {
       // This fallback should only happen for manual calendar entries
-      _endTime = _startTime.add(const Duration(minutes: 10));
+      _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
     }
+    _loadDefaultDuration();
     _loadActivities();
 
     // If editing, prefill the form
@@ -178,6 +184,35 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     _activityController.dispose();
     _activityFocusNode.dispose();
     super.dispose();
+  }
+
+  Future<void> _loadDefaultDuration() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isNotEmpty) {
+        final enableDefaultEstimates =
+            await TimeLoggingPreferencesService.getEnableDefaultEstimates(userId);
+        int durationMinutes = 10; // Default fallback
+        if (enableDefaultEstimates) {
+          durationMinutes = await TimeLoggingPreferencesService
+              .getDefaultDurationMinutes(userId);
+        }
+        if (mounted) {
+          setState(() {
+            _defaultDurationMinutes = durationMinutes;
+            _useGlobalDefault = enableDefaultEstimates;
+            // Update end time if it was set to the old default
+            if (_endTime.isBefore(_startTime) ||
+                _endTime.isAtSameMomentAs(_startTime)) {
+              _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
+            }
+          });
+        }
+      }
+    } catch (e) {
+      // On error, keep default of 10 minutes
+      print('Error loading default duration: $e');
+    }
   }
 
   Future<void> _loadActivities() async {
@@ -374,7 +409,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
         ));
         // Auto-adjust end time if it's before start time
         if (_endTime.isBefore(_startTime)) {
-          _endTime = _startTime.add(const Duration(minutes: 10));
+          _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
         }
         _updatePreview();
       });

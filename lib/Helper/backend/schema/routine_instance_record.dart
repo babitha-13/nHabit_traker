@@ -4,8 +4,8 @@ import 'package:collection/collection.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-class SequenceInstanceRecord extends FirestoreRecord {
-  SequenceInstanceRecord._(
+class RoutineInstanceRecord extends FirestoreRecord {
+  RoutineInstanceRecord._(
     super.reference,
     super.data,
   ) {
@@ -72,32 +72,32 @@ class SequenceInstanceRecord extends FirestoreRecord {
           .collection('users')
           .doc(userId)
           .collection('sequence_instances');
-  static Stream<SequenceInstanceRecord> getDocument(DocumentReference ref) =>
-      ref.snapshots().map((s) => SequenceInstanceRecord.fromSnapshot(s));
-  static Future<SequenceInstanceRecord> getDocumentOnce(
+  static Stream<RoutineInstanceRecord> getDocument(DocumentReference ref) =>
+      ref.snapshots().map((s) => RoutineInstanceRecord.fromSnapshot(s));
+  static Future<RoutineInstanceRecord> getDocumentOnce(
           DocumentReference ref) =>
-      ref.get().then((s) => SequenceInstanceRecord.fromSnapshot(s));
-  static SequenceInstanceRecord fromSnapshot(DocumentSnapshot snapshot) =>
-      SequenceInstanceRecord._(
+      ref.get().then((s) => RoutineInstanceRecord.fromSnapshot(s));
+  static RoutineInstanceRecord fromSnapshot(DocumentSnapshot snapshot) =>
+      RoutineInstanceRecord._(
         snapshot.reference,
         mapFromFirestore(snapshot.data() as Map<String, dynamic>),
       );
-  static SequenceInstanceRecord getDocumentFromData(
+  static RoutineInstanceRecord getDocumentFromData(
     Map<String, dynamic> data,
     DocumentReference reference,
   ) =>
-      SequenceInstanceRecord._(reference, mapFromFirestore(data));
+      RoutineInstanceRecord._(reference, mapFromFirestore(data));
   @override
   String toString() =>
-      'SequenceInstanceRecord(reference: ${reference.path}, data: $snapshotData)';
+      'RoutineInstanceRecord(reference: ${reference.path}, data: $snapshotData)';
   @override
   int get hashCode => reference.path.hashCode;
   @override
   bool operator ==(other) =>
-      other is SequenceInstanceRecord &&
+      other is RoutineInstanceRecord &&
       reference.path.hashCode == other.reference.path.hashCode;
 }
-Map<String, dynamic> createSequenceInstanceRecordData({
+Map<String, dynamic> createRoutineInstanceRecordData({
   String? sequenceId,
   DateTime? date,
   Map<String, String>? itemInstanceIds,
@@ -125,11 +125,11 @@ Map<String, dynamic> createSequenceInstanceRecordData({
   );
   return firestoreData;
 }
-class SequenceInstanceRecordDocumentEquality
-    implements Equality<SequenceInstanceRecord> {
-  const SequenceInstanceRecordDocumentEquality();
+class RoutineInstanceRecordDocumentEquality
+    implements Equality<RoutineInstanceRecord> {
+  const RoutineInstanceRecordDocumentEquality();
   @override
-  bool equals(SequenceInstanceRecord? e1, SequenceInstanceRecord? e2) {
+  bool equals(RoutineInstanceRecord? e1, RoutineInstanceRecord? e2) {
     return e1?.sequenceId == e2?.sequenceId &&
         e1?.date == e2?.date &&
         mapEquals(e1?.itemInstanceIds, e2?.itemInstanceIds) &&
@@ -142,7 +142,7 @@ class SequenceInstanceRecordDocumentEquality
         e1?.userId == e2?.userId;
   }
   @override
-  int hash(SequenceInstanceRecord? e) => const ListEquality().hash([
+  int hash(RoutineInstanceRecord? e) => const ListEquality().hash([
         e?.sequenceId,
         e?.date,
         e?.itemInstanceIds,
@@ -155,5 +155,5 @@ class SequenceInstanceRecordDocumentEquality
         e?.userId,
       ]);
   @override
-  bool isValidKey(Object? o) => o is SequenceInstanceRecord;
+  bool isValidKey(Object? o) => o is RoutineInstanceRecord;
 }

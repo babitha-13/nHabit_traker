@@ -88,12 +88,19 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   }
 
   Future<void> _savePreferences() async {
-    setState(() {
-      _isSaving = true;
-    });
     try {
+      if (!mounted) return;
+      setState(() {
+        _isSaving = true;
+      });
+
       final userId = users.uid;
       if (userId == null || userId.isEmpty) {
+        if (mounted) {
+          setState(() {
+            _isSaving = false;
+          });
+        }
         return;
       }
 
@@ -115,26 +122,21 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
           userId);
 
       // Recalculate notification times for display
-      setState(() {
-        _calculatedMorningTime = NotificationPreferencesService
-            .calculateMorningNotificationTime(_wakeUpTime);
-        _calculatedEveningTime = NotificationPreferencesService
-            .calculateEveningNotificationTime(_sleepTime);
-        _isSaving = false;
-      });
-
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Preferences saved successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        setState(() {
+          _calculatedMorningTime = NotificationPreferencesService
+              .calculateMorningNotificationTime(_wakeUpTime);
+          _calculatedEveningTime = NotificationPreferencesService
+              .calculateEveningNotificationTime(_sleepTime);
+          _isSaving = false;
+        });
       }
     } catch (e) {
-      setState(() {
-        _isSaving = false;
-      });
+      if (mounted) {
+        setState(() {
+          _isSaving = false;
+        });
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -184,6 +186,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         _calculatedMorningTime = NotificationPreferencesService
             .calculateMorningNotificationTime(_wakeUpTime);
       });
+      await _savePreferences();
     }
   }
 
@@ -198,6 +201,7 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         _calculatedEveningTime = NotificationPreferencesService
             .calculateEveningNotificationTime(_sleepTime);
       });
+      await _savePreferences();
     }
   }
 
@@ -209,6 +213,20 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         title: const Text('Notification Settings'),
         backgroundColor: theme.primary,
         foregroundColor: Colors.white,
+        actions: [
+          if (_isSaving)
+            const Padding(
+              padding: EdgeInsets.only(right: 16),
+              child: SizedBox(
+                width: 18,
+                height: 18,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2,
+                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                ),
+              ),
+            ),
+        ],
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
@@ -277,30 +295,10 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     ),
                   ),
                   const SizedBox(height: 16),
-                  // Save button
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: _isSaving ? null : _savePreferences,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: theme.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 16),
-                      ),
-                      child: _isSaving
-                          ? const SizedBox(
-                              width: 20,
-                              height: 20,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor:
-                                    AlwaysStoppedAnimation<Color>(Colors.white),
-                              ),
-                            )
-                          : const Text(
-                              'Save Preferences',
-                              style: TextStyle(fontSize: 16),
-                            ),
+                  Text(
+                    'Changes are saved automatically.',
+                    style: theme.bodySmall.override(
+                      color: Colors.grey.shade600,
                     ),
                   ),
                 ],

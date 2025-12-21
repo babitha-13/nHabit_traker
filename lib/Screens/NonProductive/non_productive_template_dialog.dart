@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/main.dart';
 
 class NonProductiveTemplateDialog extends StatefulWidget {
   final ActivityRecord? existingTemplate;
@@ -31,6 +33,9 @@ class _NonProductiveTemplateDialogState
   dynamic _targetValue;
   bool _isSaving = false;
   final List<String> _trackingTypes = ['binary', 'quantitative', 'time'];
+  int? _timeEstimateMinutes;
+  bool _enableDefaultEstimates = false;
+  bool _enableActivityEstimates = false;
 
   @override
   void initState() {
@@ -41,11 +46,43 @@ class _NonProductiveTemplateDialogState
       _selectedTrackingType = widget.existingTemplate!.trackingType;
       _targetValue = widget.existingTemplate!.target;
       _unitController.text = widget.existingTemplate!.unit;
+      if (widget.existingTemplate!.hasTimeEstimateMinutes()) {
+        _timeEstimateMinutes = widget.existingTemplate!.timeEstimateMinutes;
+      }
       _updateTargetValue();
     } else {
       _selectedTrackingType = 'time';
       _targetValue = 5; // Default 5 minutes for time tracking
     }
+    _loadTimeEstimatePreferences();
+  }
+
+  Future<void> _loadTimeEstimatePreferences() async {
+    try {
+      final userId = users.uid;
+      if (userId != null && userId.isNotEmpty) {
+        final enableDefault = await TimeLoggingPreferencesService
+            .getEnableDefaultEstimates(userId);
+        final enableActivity = await TimeLoggingPreferencesService
+            .getEnableActivityEstimates(userId);
+        if (mounted) {
+          setState(() {
+            _enableDefaultEstimates = enableDefault;
+            _enableActivityEstimates = enableActivity;
+          });
+        }
+      }
+    } catch (e) {
+      // Continue with defaults (false)
+      print('Error loading time estimate preferences: $e');
+    }
+  }
+
+  /// Check if the current template is a time-target template
+  bool _isTimeTarget() {
+    if (_selectedTrackingType != 'time') return false;
+    final targetValue = _targetValue is int ? _targetValue as int : 0;
+    return targetValue > 0;
   }
 
   void _updateTargetValue() {
@@ -101,6 +138,9 @@ class _NonProductiveTemplateDialogState
               ? null
               : _unitController.text.trim(),
           userId: currentUserUid,
+          timeEstimateMinutes: _timeEstimateMinutes != null
+              ? _timeEstimateMinutes!.clamp(1, 600)
+              : null,
         );
         // Fetch updated template
         final updatedDoc = await widget.existingTemplate!.reference.get();
@@ -124,6 +164,9 @@ class _NonProductiveTemplateDialogState
               ? null
               : _unitController.text.trim(),
           userId: currentUserUid,
+          timeEstimateMinutes: _timeEstimateMinutes != null
+              ? _timeEstimateMinutes!.clamp(1, 600)
+              : null,
         );
         // Fetch created template
         final createdDoc = await templateRef.get();
@@ -228,6 +271,13 @@ class _NonProductiveTemplateDialogState
                     _buildQuantitativeFields(theme),
                   ] else if (_selectedTrackingType == 'time') ...[
                     _buildTimeFields(theme),
+                  ],
+                  // Show time estimate field if both switches are enabled and not time-target
+                  if (_enableDefaultEstimates &&
+                      _enableActivityEstimates &&
+                      !_isTimeTarget()) ...[
+                    const SizedBox(height: 12),
+                    _buildTimeEstimateField(theme),
                   ],
                   const SizedBox(height: 16),
                   Container(
@@ -461,6 +511,61 @@ class _NonProductiveTemplateDialogState
           ),
         ],
       ),
+    );
+  }
+
+  Widget _buildTimeEstimateField(FlutterFlowTheme theme) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Time Estimate (minutes)',
+          style: theme.bodySmall.override(
+            color: theme.secondaryText,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: theme.tertiary.withOpacity(0.3),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(
+              color: theme.surfaceBorderColor,
+              width: 1,
+            ),
+          ),
+          child: TextFormField(
+            initialValue: _timeEstimateMinutes?.toString() ?? '',
+            keyboardType: TextInputType.number,
+            style: theme.bodyMedium,
+            decoration: InputDecoration(
+              hintText: 'Leave empty to use default',
+              hintStyle: TextStyle(
+                color: theme.secondaryText,
+                fontSize: 14,
+              ),
+              border: InputBorder.none,
+              isDense: true,
+              contentPadding: EdgeInsets.zero,
+            ),
+            onChanged: (v) {
+              setState(() {
+                _timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
+              });
+            },
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          'Custom time estimate for this activity (1-600 minutes)',
+          style: theme.bodySmall.override(
+            color: theme.secondaryText,
+            fontSize: 11,
+          ),
+        ),
+      ],
     );
   }
 

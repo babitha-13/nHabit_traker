@@ -15,6 +15,8 @@ import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/main.dart';
 import 'package:intl/intl.dart';
 
 class ActivityEditorDialog extends StatefulWidget {
@@ -58,6 +60,9 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   bool _isSaving = false;
   List<CategoryRecord> _loadedCategories = [];
   bool _isLoadingCategories = false;
+  int? _timeEstimateMinutes;
+  bool _enableDefaultEstimates = false;
+  bool _enableActivityEstimates = false;
 
   bool get _isRecurring => quickIsTaskRecurring && _frequencyConfig != null;
 
@@ -124,6 +129,35 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     // Load reminders
     if (t != null && t.hasReminders()) {
       _reminders = ReminderConfigList.fromMapList(t.reminders);
+    }
+
+    // Load time estimate
+    if (t != null && t.hasTimeEstimateMinutes()) {
+      _timeEstimateMinutes = t.timeEstimateMinutes;
+    }
+
+    // Load preferences for time estimates feature
+    _loadTimeEstimatePreferences();
+  }
+
+  Future<void> _loadTimeEstimatePreferences() async {
+    try {
+      final userId = users.uid;
+      if (userId != null && userId.isNotEmpty) {
+        final enableDefault = await TimeLoggingPreferencesService
+            .getEnableDefaultEstimates(userId);
+        final enableActivity = await TimeLoggingPreferencesService
+            .getEnableActivityEstimates(userId);
+        if (mounted) {
+          setState(() {
+            _enableDefaultEstimates = enableDefault;
+            _enableActivityEstimates = enableActivity;
+          });
+        }
+      }
+    } catch (e) {
+      // Continue with defaults (false)
+      print('Error loading time estimate preferences: $e');
     }
   }
 
@@ -427,6 +461,9 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           : null,
       // For one-time tasks that have a specific date
       dueDate: (!quickIsTaskRecurring) ? _dueDate : null,
+      timeEstimateMinutes: _timeEstimateMinutes != null
+          ? _timeEstimateMinutes!.clamp(1, 600)
+          : null,
     );
 
     if (mounted) {
@@ -453,6 +490,9 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           : _selectedTrackingType == 'time'
               ? _targetDuration.inMinutes
               : null,
+      timeEstimateMinutes: _timeEstimateMinutes != null
+          ? _timeEstimateMinutes!.clamp(1, 600)
+          : null,
       dueDate: (!quickIsTaskRecurring) ? _dueDate : null,
       dueTime: _selectedDueTime != null
           ? TimeUtils.timeOfDayToString(_selectedDueTime!)
@@ -814,6 +854,13 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
                     _buildDueTimeField(theme),
                     const SizedBox(height: 12),
                     _buildReminderField(theme),
+                    // Show time estimate field if both switches are enabled and not time-target
+                    if (_enableDefaultEstimates &&
+                        _enableActivityEstimates &&
+                        !_isTimeTarget()) ...[
+                      const SizedBox(height: 12),
+                      _buildTimeEstimateField(theme),
+                    ],
                   ],
                 ),
                 const SizedBox(height: 12),
@@ -1081,6 +1128,68 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
                 )),
               ],
             ),
+    );
+  }
+
+  /// Check if the current activity is a time-target activity
+  bool _isTimeTarget() {
+    if (_selectedTrackingType != 'time') return false;
+    final targetValue = _targetDuration.inMinutes;
+    return targetValue > 0;
+  }
+
+  Widget _buildTimeEstimateField(FlutterFlowTheme theme) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: theme.tertiary.withOpacity(0.3),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Time Estimate (minutes)',
+                  style: theme.bodySmall.override(
+                    color: theme.primary,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                TextFormField(
+                  initialValue: _timeEstimateMinutes?.toString() ?? '',
+                  keyboardType: TextInputType.number,
+                  style: theme.bodyMedium,
+                  decoration: _inputDecoration(
+                    theme,
+                    hint: 'Leave empty to use default',
+                  ),
+                  onChanged: (v) {
+                    setState(() {
+                      _timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
+                    });
+                  },
+                ),
+                const SizedBox(height: 4),
+                Text(
+                  'Custom time estimate for this activity (1-600 minutes)',
+                  style: theme.bodySmall.override(
+                    color: theme.secondaryText,
+                    fontSize: 11,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 

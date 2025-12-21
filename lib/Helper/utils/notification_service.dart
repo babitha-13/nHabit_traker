@@ -11,6 +11,9 @@ import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
 import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
+import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 /// Service for managing local notifications
 class NotificationService {
@@ -100,6 +103,10 @@ class NotificationService {
     // Handle alarm ringing
     else if (payload.startsWith('ALARM_RINGING:')) {
       _handleAlarmRingingTap(payload);
+    }
+    // Handle routine reminders (open Routine detail page)
+    else if (payload.startsWith('routine:')) {
+      _handleRoutineReminderNotificationTap(payload);
     }
     // Handle reminder notifications (open Queue page)
     else if (payload.isNotEmpty && !payload.startsWith('ALARM_RINGING:')) {
@@ -237,6 +244,52 @@ class NotificationService {
         (route) => false,
       );
     }
+  }
+
+  /// Handle routine reminder notification tap (open Routine detail page)
+  static void _handleRoutineReminderNotificationTap(String payload) {
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
+
+    // Extract routine ID from payload (format: "routine:routineId")
+    final routineId = payload.substring('routine:'.length);
+    if (routineId.isEmpty) return;
+
+    Navigator.of(context).pushNamedAndRemoveUntil(
+      home,
+      (route) => false,
+    );
+    Future.delayed(const Duration(milliseconds: 500), () async {
+      final homeContext = navigatorKey.currentContext;
+      if (homeContext == null) return;
+
+      try {
+        final routineDoc = await RoutineRecord.collectionForUser(
+          currentUserUid,
+        ).doc(routineId).get();
+
+        if (routineDoc.exists) {
+          final routine = RoutineRecord.fromSnapshot(routineDoc);
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => RoutineDetailPage(routine: routine),
+            ),
+          );
+        } else {
+          Navigator.of(homeContext).push(
+            MaterialPageRoute(
+              builder: (context) => const QueuePage(),
+            ),
+          );
+        }
+      } catch (e) {
+        Navigator.of(homeContext).push(
+          MaterialPageRoute(
+            builder: (context) => const QueuePage(),
+          ),
+        );
+      }
+    });
   }
 
   /// Handle reminder notification tap (open Queue page)

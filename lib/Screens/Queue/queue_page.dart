@@ -328,8 +328,10 @@ class _QueuePageState extends State<QueuePage> {
           _ignoreInstanceEvents = false;
 
           // Initialize order values for instances that don't have them (run once after load)
-          InstanceOrderService.initializeOrderValues(
-              deduplicatedInstances, 'queue');
+          try {
+            await InstanceOrderService.initializeOrderValues(
+                deduplicatedInstances, 'queue');
+          } catch (_) {}
         } else {
           _isLoadingData = false;
           _ignoreInstanceEvents = false;

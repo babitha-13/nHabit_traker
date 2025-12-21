@@ -4,7 +4,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
@@ -474,42 +474,42 @@ Future<List<ActivityInstanceRecord>> queryAllInstances({
   }
 }
 
-/// Query to get sequences for a specific user
-Future<List<SequenceRecord>> querySequenceRecordOnce({
+/// Query to get routines for a specific user
+Future<List<RoutineRecord>> queryRoutineRecordOnce({
   required String userId,
 }) async {
   try {
-    final query = SequenceRecord.collectionForUser(userId)
+    final query = RoutineRecord.collectionForUser(userId)
         .where('isActive', isEqualTo: true)
         .orderBy('listOrder')
         .orderBy('name');
     final result = await query.get();
-    final sequences = result.docs.map((doc) {
-      return SequenceRecord.fromSnapshot(doc);
+    final routines = result.docs.map((doc) {
+      return RoutineRecord.fromSnapshot(doc);
     }).toList();
     // Fallback sort by listOrder locally if Firestore ordering fails
-    sequences.sort((a, b) {
+    routines.sort((a, b) {
       final orderCompare = a.listOrder.compareTo(b.listOrder);
       if (orderCompare != 0) return orderCompare;
       return a.name.compareTo(b.name);
     });
-    return sequences;
+    return routines;
   } catch (e) {
     if (e is FirebaseException) {
       // If orderBy fails (e.g., no index), fallback to local sort
       try {
-        final query = SequenceRecord.collectionForUser(userId)
+        final query = RoutineRecord.collectionForUser(userId)
             .where('isActive', isEqualTo: true);
         final result = await query.get();
-        final sequences = result.docs.map((doc) {
-          return SequenceRecord.fromSnapshot(doc);
+        final routines = result.docs.map((doc) {
+          return RoutineRecord.fromSnapshot(doc);
         }).toList();
-        sequences.sort((a, b) {
+        routines.sort((a, b) {
           final orderCompare = a.listOrder.compareTo(b.listOrder);
           if (orderCompare != 0) return orderCompare;
           return a.name.compareTo(b.name);
         });
-        return sequences;
+        return routines;
       } catch (e2) {
         rethrow;
       }
@@ -544,6 +544,7 @@ Future<DocumentReference> createActivity({
   DateTime? startDate,
   DateTime? endDate,
   List<Map<String, dynamic>>? reminders,
+  int? timeEstimateMinutes,
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
@@ -576,6 +577,7 @@ Future<DocumentReference> createActivity({
     timesPerPeriod: timesPerPeriod,
     periodType: periodType,
     reminders: reminders,
+    timeEstimateMinutes: timeEstimateMinutes,
   );
   DocumentReference habitRef;
   try {
@@ -800,8 +802,8 @@ Future<DocumentReference> createWorkSession({
   return await WorkSessionRecord.collectionForUser(uid).add(sessionData);
 }
 
-/// Create a new sequence
-Future<DocumentReference> createSequence({
+/// Create a new routine
+Future<DocumentReference> createRoutine({
   required String name,
   String? description,
   required List<String> itemIds,
@@ -829,7 +831,7 @@ Future<DocumentReference> createSequence({
       itemTypes.add('habit');
     }
   }
-  final sequenceData = createSequenceRecordData(
+  final routineData = createRoutineRecordData(
     uid: uid,
     name: name,
     description: description,
@@ -842,7 +844,7 @@ Future<DocumentReference> createSequence({
     lastUpdated: DateTime.now(),
     userId: uid,
   );
-  return await SequenceRecord.collectionForUser(uid).add(sequenceData);
+  return await RoutineRecord.collectionForUser(uid).add(routineData);
 }
 
 /// Update a habit
@@ -934,9 +936,9 @@ Future<void> deleteCategory(String categoryId, {String? userId}) async {
   });
 }
 
-/// Update a sequence
-Future<void> updateSequence({
-  required String sequenceId,
+/// Update a routine
+Future<void> updateRoutine({
+  required String routineId,
   String? name,
   String? description,
   List<String>? itemIds,
@@ -946,7 +948,7 @@ Future<void> updateSequence({
 }) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-  final sequenceRef = SequenceRecord.collectionForUser(uid).doc(sequenceId);
+  final routineRef = RoutineRecord.collectionForUser(uid).doc(routineId);
   final updateData = <String, dynamic>{
     'lastUpdated': DateTime.now(),
   };
@@ -978,15 +980,15 @@ Future<void> updateSequence({
     updateData['itemNames'] = itemNames;
     updateData['itemTypes'] = itemTypes;
   }
-  await sequenceRef.update(updateData);
+  await routineRef.update(updateData);
 }
 
-/// Delete a sequence (soft delete by setting isActive to false)
-Future<void> deleteSequence(String sequenceId, {String? userId}) async {
+/// Delete a routine (soft delete by setting isActive to false)
+Future<void> deleteRoutine(String routineId, {String? userId}) async {
   final currentUser = FirebaseAuth.instance.currentUser;
   final uid = userId ?? currentUser?.uid ?? '';
-  final sequenceRef = SequenceRecord.collectionForUser(uid).doc(sequenceId);
-  await sequenceRef.update({
+  final routineRef = RoutineRecord.collectionForUser(uid).doc(routineId);
+  await routineRef.update({
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });

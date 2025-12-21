@@ -1,28 +1,30 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/sequence_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/backend/category_color_util.dart';
-import 'package:habit_tracker/Screens/Sequence/create_sequence_item_dialog.dart';
+import 'package:habit_tracker/Screens/Routine/create_routine_item_dialog.dart';
+import 'package:habit_tracker/Screens/Routine/widgets/routine_reminder_section.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/backend/routine_service.dart';
 
-class CreateSequencePage extends StatefulWidget {
-  final SequenceRecord? existingSequence;
-  const CreateSequencePage({
+class CreateRoutinePage extends StatefulWidget {
+  final RoutineRecord? existingRoutine;
+  const CreateRoutinePage({
     Key? key,
-    this.existingSequence,
+    this.existingRoutine,
   }) : super(key: key);
   @override
-  _CreateSequencePageState createState() => _CreateSequencePageState();
+  _CreateRoutinePageState createState() => _CreateRoutinePageState();
 }
 
-class _CreateSequencePageState extends State<CreateSequencePage> {
+class _CreateRoutinePageState extends State<CreateRoutinePage> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
-  final _descriptionController = TextEditingController();
   final _searchController = TextEditingController();
   List<ActivityRecord> _allActivities = [];
   List<ActivityRecord> _filteredActivities = [];
@@ -32,12 +34,39 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
   bool _isSaving = false;
   bool _isSelectedItemsExpanded = true;
   bool _wasKeyboardVisible = false;
+  // Reminder state
+  TimeOfDay? _startTime;
+  List<ReminderConfig> _reminders = [];
+  String? _reminderFrequencyType;
+  int _everyXValue = 1;
+  String? _everyXPeriodType;
+  List<int> _specificDays = [];
+  bool _remindersEnabled = false;
+
   @override
   void initState() {
     super.initState();
-    if (widget.existingSequence != null) {
-      _nameController.text = widget.existingSequence!.name;
-      _descriptionController.text = widget.existingSequence!.description;
+    if (widget.existingRoutine != null) {
+      _nameController.text = widget.existingRoutine!.name;
+      // Load existing reminder config
+      if (widget.existingRoutine!.hasDueTime()) {
+        _startTime =
+            TimeUtils.stringToTimeOfDay(widget.existingRoutine!.dueTime);
+      }
+      if (widget.existingRoutine!.hasReminders()) {
+        _reminders =
+            ReminderConfigList.fromMapList(widget.existingRoutine!.reminders);
+      }
+      _reminderFrequencyType =
+          widget.existingRoutine!.reminderFrequencyType.isEmpty
+              ? null
+              : widget.existingRoutine!.reminderFrequencyType;
+      _everyXValue = widget.existingRoutine!.everyXValue;
+      _everyXPeriodType = widget.existingRoutine!.everyXPeriodType.isEmpty
+          ? null
+          : widget.existingRoutine!.everyXPeriodType;
+      _specificDays = List.from(widget.existingRoutine!.specificDays);
+      _remindersEnabled = widget.existingRoutine!.remindersEnabled;
     }
     _loadActivities();
   }
@@ -45,7 +74,6 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
   @override
   void dispose() {
     _nameController.dispose();
-    _descriptionController.dispose();
     _searchController.dispose();
     super.dispose();
   }
@@ -88,7 +116,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
           _isLoading = false;
         });
         // If editing, load existing items
-        if (widget.existingSequence != null) {
+        if (widget.existingRoutine != null) {
           _loadExistingItems();
         }
       }
@@ -100,9 +128,9 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
   }
 
   void _loadExistingItems() {
-    if (widget.existingSequence == null) return;
+    if (widget.existingRoutine == null) return;
     final existingItems = <ActivityRecord>[];
-    for (final itemId in widget.existingSequence!.itemIds) {
+    for (final itemId in widget.existingRoutine!.itemIds) {
       try {
         final activity =
             _allActivities.firstWhere((a) => a.reference.id == itemId);
@@ -222,7 +250,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
   Future<void> _createNewSequenceItem() async {
     showDialog(
       context: context,
-      builder: (context) => CreateSequenceItemDialog(
+      builder: (context) => CreateRoutineItemDialog(
         onItemCreated: (activity) {
           setState(() {
             _allActivities.add(activity);
@@ -235,12 +263,12 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     );
   }
 
-  Future<void> _saveSequence() async {
+  Future<void> _saveRoutine() async {
     if (!_formKey.currentState!.validate()) return;
     if (_selectedItems.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: const Text('Please add at least one item to the sequence'),
+          content: Text('Please add at least one item to the routine'),
           backgroundColor: Colors.red,
         ),
       );
@@ -254,44 +282,70 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       final itemOrder =
           _selectedItems.map((item) => item.reference.id).toList();
       print('🔍 DEBUG: - name: ${_nameController.text.trim()}');
-      if (widget.existingSequence != null) {
-        // Update existing sequence
-        await updateSequence(
-          sequenceId: widget.existingSequence!.reference.id,
+      if (widget.existingRoutine != null) {
+        // Update existing routine
+        await RoutineService.updateRoutine(
+          routineId: widget.existingRoutine!.reference.id,
           name: _nameController.text.trim(),
-          description: _descriptionController.text.trim().isEmpty
-              ? null
-              : _descriptionController.text.trim(),
           itemIds: itemIds,
           itemOrder: itemOrder,
           userId: currentUserUid,
+          dueTime: _startTime != null
+              ? TimeUtils.timeOfDayToString(_startTime!)
+              : null,
+          reminders: _reminders.isNotEmpty
+              ? ReminderConfigList.toMapList(_reminders)
+              : null,
+          reminderFrequencyType: _reminderFrequencyType,
+          everyXValue:
+              _reminderFrequencyType == 'every_x' ? _everyXValue : null,
+          everyXPeriodType:
+              _reminderFrequencyType == 'every_x' ? _everyXPeriodType : null,
+          specificDays: _reminderFrequencyType == 'specific_days' &&
+                  _specificDays.isNotEmpty
+              ? _specificDays
+              : null,
+          remindersEnabled: _remindersEnabled,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Sequence "${_nameController.text.trim()}" updated successfully!'),
+                  'Routine "${_nameController.text.trim()}" updated successfully!'),
               backgroundColor: Colors.green,
             ),
           );
           Navigator.of(context).pop(true);
         }
       } else {
-        // Create new sequence
-        await createSequence(
+        // Create new routine
+        await RoutineService.createRoutine(
           name: _nameController.text.trim(),
-          description: _descriptionController.text.trim().isEmpty
-              ? null
-              : _descriptionController.text.trim(),
           itemIds: itemIds,
           itemOrder: itemOrder,
           userId: currentUserUid,
+          dueTime: _startTime != null
+              ? TimeUtils.timeOfDayToString(_startTime!)
+              : null,
+          reminders: _reminders.isNotEmpty
+              ? ReminderConfigList.toMapList(_reminders)
+              : null,
+          reminderFrequencyType: _reminderFrequencyType,
+          everyXValue:
+              _reminderFrequencyType == 'every_x' ? _everyXValue : null,
+          everyXPeriodType:
+              _reminderFrequencyType == 'every_x' ? _everyXPeriodType : null,
+          specificDays: _reminderFrequencyType == 'specific_days' &&
+                  _specificDays.isNotEmpty
+              ? _specificDays
+              : null,
+          remindersEnabled: _remindersEnabled,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Sequence "${_nameController.text.trim()}" created successfully!'),
+                  'Routine "${_nameController.text.trim()}" created successfully!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -302,7 +356,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error saving sequence: $e'),
+            content: Text('Error saving routine: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -341,37 +395,6 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
     }
     // For tasks and non-productive, use type color
     return _getItemTypeColor(activity.categoryType);
-  }
-
-  Widget _buildTextField(
-      FlutterFlowTheme theme, TextEditingController controller, String hint,
-      {int maxLines = 1}) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      decoration: BoxDecoration(
-        color: theme.tertiary.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: theme.surfaceBorderColor,
-          width: 1,
-        ),
-      ),
-      child: TextField(
-        controller: controller,
-        style: theme.bodyMedium,
-        maxLines: maxLines,
-        decoration: InputDecoration(
-          hintText: hint,
-          hintStyle: TextStyle(
-            color: theme.secondaryText,
-            fontSize: 14,
-          ),
-          border: InputBorder.none,
-          isDense: true,
-          contentPadding: EdgeInsets.zero,
-        ),
-      ),
-    );
   }
 
   Widget _buildSimplifiedItemCard(ActivityRecord activity, bool isSelected) {
@@ -538,7 +561,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
         backgroundColor: theme.primaryBackground,
         elevation: 0,
         title: Text(
-          widget.existingSequence != null ? 'Edit Sequence' : 'Create Sequence',
+          widget.existingRoutine != null ? 'Edit Routine' : 'Create Routine',
           style: theme.titleMedium.override(
             fontFamily: 'Readex Pro',
             fontWeight: FontWeight.w600,
@@ -553,7 +576,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                 borderRadius: BorderRadius.circular(theme.buttonRadius),
               ),
               child: TextButton(
-                onPressed: _isSaving ? null : _saveSequence,
+                onPressed: _isSaving ? null : _saveRoutine,
                 style: TextButton.styleFrom(
                   backgroundColor: Colors.transparent,
                   shadowColor: Colors.transparent,
@@ -607,14 +630,14 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                 key: _formKey,
                 child: Column(
                   children: [
-                    // Sequence Details
+                    // Routine Details
                     Padding(
                       padding: const EdgeInsets.all(16),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Sequence Name *',
+                            'Routine Name *',
                             style: theme.bodySmall.override(
                               color: theme.secondaryText,
                             ),
@@ -637,7 +660,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                               controller: _nameController,
                               style: theme.bodyMedium,
                               decoration: InputDecoration(
-                                hintText: 'Enter sequence name',
+                                hintText: 'Enter routine name',
                                 hintStyle: TextStyle(
                                   color: theme.secondaryText,
                                   fontSize: 14,
@@ -648,28 +671,40 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                               ),
                               validator: (value) {
                                 if (value == null || value.trim().isEmpty) {
-                                  return 'Please enter a sequence name';
+                                  return 'Please enter a routine name';
                                 }
                                 return null;
                               },
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Description (Optional)',
-                            style: theme.bodySmall.override(
-                              color: theme.secondaryText,
-                            ),
-                          ),
-                          const SizedBox(height: 8),
-                          _buildTextField(
-                            theme,
-                            _descriptionController,
-                            'Enter description',
-                            maxLines: 2,
-                          ),
                         ],
                       ),
+                    ),
+                    // Reminder Section
+                    RoutineReminderSection(
+                      dueTime: _startTime,
+                      onDueTimeChanged: (newDueTime) {
+                        setState(() {
+                          _startTime = newDueTime;
+                        });
+                      },
+                      reminders: _reminders,
+                      frequencyType: _reminderFrequencyType,
+                      everyXValue: _everyXValue,
+                      everyXPeriodType: _everyXPeriodType,
+                      specificDays: _specificDays,
+                      remindersEnabled: _remindersEnabled,
+                      onConfigChanged: (config) {
+                        setState(() {
+                          _startTime = config.startTime;
+                          _reminders = config.reminders;
+                          _reminderFrequencyType = config.frequencyType;
+                          _everyXValue = config.everyXValue;
+                          _everyXPeriodType = config.everyXPeriodType;
+                          _specificDays = config.specificDays;
+                          _remindersEnabled = config.remindersEnabled;
+                        });
+                      },
                     ),
                     // Search and Add Items
                     Padding(
@@ -866,7 +901,7 @@ class _CreateSequencePageState extends State<CreateSequencePage> {
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Text(
-                                      'Drag to reorder items in the sequence',
+                                      'Drag to reorder items in the routine',
                                       style: theme.bodySmall.override(
                                         color: theme.secondaryText,
                                       ),

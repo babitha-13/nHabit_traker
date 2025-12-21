@@ -23,6 +23,7 @@ class NonProductiveService {
     dynamic target,
     String? unit,
     String? userId,
+    int? timeEstimateMinutes,
   }) async {
     final uid = userId ?? _currentUserId;
     final now = DateTime.now();
@@ -40,6 +41,7 @@ class NonProductiveService {
       lastUpdated: now,
       userId: uid,
       priority: 1, // Default priority (won't affect points)
+      timeEstimateMinutes: timeEstimateMinutes,
     );
     return await ActivityRecord.collectionForUser(uid).add(templateData);
   }
@@ -232,6 +234,7 @@ class NonProductiveService {
     dynamic target,
     String? unit,
     String? userId,
+    int? timeEstimateMinutes,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -253,6 +256,12 @@ class NonProductiveService {
       if (trackingType != null) updateData['trackingType'] = trackingType;
       if (target != null) updateData['target'] = target;
       if (unit != null) updateData['unit'] = unit;
+      // Only update timeEstimateMinutes if it's actually different from current value
+      if (timeEstimateMinutes != template.timeEstimateMinutes) {
+        updateData['timeEstimateMinutes'] = timeEstimateMinutes != null
+            ? timeEstimateMinutes.clamp(1, 600)
+            : null;
+      }
       await templateRef.update(updateData);
     } catch (e) {
       rethrow;

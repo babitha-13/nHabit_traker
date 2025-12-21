@@ -103,11 +103,11 @@ class FFAppState extends ChangeNotifier {
     _isInFocusMode = value;
     notifyListeners();
   }
-  // Current sequence being followed in focus mode
-  String? _currentSequenceId;
-  String? get currentSequenceId => _currentSequenceId;
-  set currentSequenceId(String? value) {
-    _currentSequenceId = value;
+  // Current routine being followed in focus mode
+  String? _currentRoutineId;
+  String? get currentRoutineId => _currentRoutineId;
+  set currentRoutineId(String? value) {
+    _currentRoutineId = value;
     notifyListeners();
   }
 }

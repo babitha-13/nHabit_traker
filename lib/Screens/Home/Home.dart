@@ -8,7 +8,7 @@ import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
-import 'package:habit_tracker/Screens/Sequence/sequence.dart';
+import 'package:habit_tracker/Screens/Routine/routine.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
@@ -19,11 +19,12 @@ import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog.dart';
 import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
 import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
-import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
+import 'package:habit_tracker/Screens/Settings/settings_page.dart';
 import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/routine_reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
@@ -49,7 +50,7 @@ class _HomeState extends State<Home> {
     "Tasks": 0,
     "Habits": 1,
     "Queue": 2,
-    "Sequences": 3,
+    "Routines": 3,
     "Timer": 4,
     "Calendar": 5,
   };
@@ -63,7 +64,7 @@ class _HomeState extends State<Home> {
       const TaskTab(), // index 0
       const HabitsPage(showCompleted: true), // index 1
       const QueuePage(), // index 2
-      const Sequences(), // index 3
+      const Routines(), // index 3
       const TimerPage(), // index 4
       const CalendarPage(), // index 5
     ];
@@ -311,7 +312,7 @@ class _HomeState extends State<Home> {
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) =>
-                                          const NotificationSettingsPage(),
+                                          const SettingsPage(),
                                     ),
                                   );
                                 },
@@ -387,7 +388,7 @@ class _HomeState extends State<Home> {
                   "Tasks",
                   "Habits",
                   "Queue",
-                  "Sequences",
+                  "Routines",
                   "Timer",
                   "Calendar"
                 ];
@@ -416,7 +417,7 @@ class _HomeState extends State<Home> {
                 ),
                 BottomNavigationBarItem(
                   icon: const Icon(Icons.playlist_play),
-                  label: 'Sequences',
+                  label: 'Routines',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(Icons.timer),
@@ -628,6 +629,8 @@ class _HomeState extends State<Home> {
       await EngagementReminderScheduler.initializeEngagementReminders();
       // Schedule all pending task/habit reminders (after user is authenticated)
       await ReminderScheduler.scheduleAllPendingReminders();
+      // Schedule all active routine reminders
+      await RoutineReminderScheduler.scheduleAllActiveRoutineReminders();
       // Check for expired snoozes and reschedule
       await ReminderScheduler.checkExpiredSnoozes();
     } catch (e) {

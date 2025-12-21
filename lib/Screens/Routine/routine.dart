@@ -3,33 +3,33 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
-import 'package:habit_tracker/Helper/backend/sequence_order_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
+import 'package:habit_tracker/Helper/backend/routine_order_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
-import 'package:habit_tracker/Screens/Sequence/sequence_detail_page.dart';
+import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
+import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
 
-class Sequences extends StatefulWidget {
-  const Sequences({super.key});
+class Routines extends StatefulWidget {
+  const Routines({super.key});
   @override
-  _SequencesState createState() => _SequencesState();
+  State<Routines> createState() => _RoutinesState();
 }
 
-class _SequencesState extends State<Sequences> {
+class _RoutinesState extends State<Routines> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  List<SequenceRecord> _sequences = [];
+  List<RoutineRecord> _routines = [];
   List<ActivityRecord> _habits = [];
   bool _isLoading = true;
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
-  // Track sequences being reordered to prevent stale updates
-  Set<String> _reorderingSequenceIds = {};
+  // Track routines being reordered to prevent stale updates
+  Set<String> _reorderingRoutineIds = {};
 
   @override
   void initState() {
@@ -59,15 +59,15 @@ class _SequencesState extends State<Sequences> {
     }
   }
 
-  List<SequenceRecord> get _filteredSequences {
+  List<RoutineRecord> get _filteredRoutines {
     if (_searchQuery.isEmpty) {
-      return _sequences;
+      return _routines;
     }
     final query = _searchQuery.toLowerCase();
-    return _sequences.where((sequence) {
-      final nameMatch = sequence.name.toLowerCase().contains(query);
+    return _routines.where((routine) {
+      final nameMatch = routine.name.toLowerCase().contains(query);
       final descriptionMatch =
-          sequence.description.toLowerCase().contains(query);
+          routine.description.toLowerCase().contains(query);
       return nameMatch || descriptionMatch;
     }).toList();
   }
@@ -79,18 +79,18 @@ class _SequencesState extends State<Sequences> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final sequences = await querySequenceRecordOnce(userId: userId);
+        final routines = await queryRoutineRecordOnce(userId: userId);
         final habits = await queryActivitiesRecordOnce(userId: userId);
-        // Sort sequences by order to ensure consistent display
-        final sortedSequences =
-            SequenceOrderService.sortSequencesByOrder(sequences);
+        // Sort routines by order to ensure consistent display
+        final sortedRoutines =
+            RoutineOrderService.sortRoutinesByOrder(routines);
         setState(() {
-          _sequences = sortedSequences;
+          _routines = sortedRoutines;
           _habits = habits;
           _isLoading = false;
         });
-        // Initialize order values for sequences that don't have them
-        SequenceOrderService.initializeOrderValues(_sequences);
+        // Initialize order values for routines that don't have them
+        RoutineOrderService.initializeOrderValues(_routines);
       } else {}
     } catch (e) {
       if (e is FirebaseException) {}
@@ -100,14 +100,14 @@ class _SequencesState extends State<Sequences> {
     }
   }
 
-  Future<void> _deleteSequence(SequenceRecord sequence) async {
+  Future<void> _deleteRoutine(RoutineRecord routine) async {
     try {
-      await deleteSequence(sequence.reference.id, userId: currentUserUid);
+      await deleteRoutine(routine.reference.id, userId: currentUserUid);
       await _loadData(); // Reload the list
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Sequence "${sequence.name}" deleted successfully!'),
+            content: Text('Routine "${routine.name}" deleted successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -116,7 +116,7 @@ class _SequencesState extends State<Sequences> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting sequence: $e'),
+            content: Text('Error deleting routine: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -124,39 +124,39 @@ class _SequencesState extends State<Sequences> {
     }
   }
 
-  void _navigateToCreateSequence() {
+  void _navigateToCreateRoutine() {
     Navigator.of(context)
         .push(
       MaterialPageRoute(
-        builder: (context) => const CreateSequencePage(),
+        builder: (context) => const CreateRoutinePage(),
       ),
     )
         .then((_) {
-      // Reload the list after creating a sequence
+      // Reload the list after creating a routine
       _loadData();
     });
   }
 
-  void _navigateToEditSequence(SequenceRecord sequence) {
+  void _navigateToEditRoutine(RoutineRecord routine) {
     Navigator.of(context)
         .push(
       MaterialPageRoute(
-        builder: (context) => CreateSequencePage(
-          existingSequence: sequence,
+        builder: (context) => CreateRoutinePage(
+          existingRoutine: routine,
         ),
       ),
     )
         .then((_) {
-      // Reload the list after editing a sequence
+      // Reload the list after editing a routine
       _loadData();
     });
   }
 
-  void _navigateToSequenceDetail(SequenceRecord sequence) {
+  void _navigateToRoutineDetail(RoutineRecord routine) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (context) => SequenceDetailPage(
-          sequence: sequence,
+        builder: (context) => RoutineDetailPage(
+          routine: routine,
         ),
       ),
     );
@@ -201,31 +201,6 @@ class _SequencesState extends State<Sequences> {
     return Scaffold(
       key: scaffoldKey,
       backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
-      appBar: AppBar(
-        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
-        title: const Text('Sequences'),
-        actions: [
-          PopupMenuButton<String>(
-            onSelected: (value) {
-              if (value == 'non_productive') {
-                _navigateToNonProductiveTemplates();
-              }
-            },
-            itemBuilder: (context) => [
-              const PopupMenuItem<String>(
-                value: 'non_productive',
-                child: Row(
-                  children: [
-                    Icon(Icons.access_time, size: 20),
-                    SizedBox(width: 8),
-                    Text('Manage Non-Productive Items'),
-                  ],
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
       body: SafeArea(
         top: true,
         child: Stack(
@@ -236,7 +211,7 @@ class _SequencesState extends State<Sequences> {
                     children: [
                       // Search indicator banner when search is active
                       if (_searchQuery.isNotEmpty &&
-                          _filteredSequences.isNotEmpty)
+                          _filteredRoutines.isNotEmpty)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(
@@ -266,16 +241,16 @@ class _SequencesState extends State<Sequences> {
                             ],
                           ),
                         ),
-                      // Create New Sequence button at the top
-                      if (_filteredSequences.isNotEmpty)
+                      // Create New Routine button at the top
+                      if (_filteredRoutines.isNotEmpty)
                         Padding(
                           padding: const EdgeInsets.all(16.0),
                           child: SizedBox(
                             width: double.infinity,
                             child: ElevatedButton.icon(
-                              onPressed: _navigateToCreateSequence,
+                              onPressed: _navigateToCreateRoutine,
                               icon: const Icon(Icons.add),
-                              label: const Text('Create New Sequence'),
+                              label: const Text('Create New Routine'),
                               style: ElevatedButton.styleFrom(
                                 backgroundColor:
                                     FlutterFlowTheme.of(context).primary,
@@ -286,9 +261,9 @@ class _SequencesState extends State<Sequences> {
                             ),
                           ),
                         ),
-                      // Sequences list
+                      // Routines list
                       Expanded(
-                        child: _filteredSequences.isEmpty
+                        child: _filteredRoutines.isEmpty
                             ? Center(
                                 child: Column(
                                   mainAxisAlignment: MainAxisAlignment.center,
@@ -302,8 +277,8 @@ class _SequencesState extends State<Sequences> {
                                     const SizedBox(height: 16),
                                     Text(
                                       _searchQuery.isNotEmpty
-                                          ? 'No sequences found'
-                                          : 'No sequences yet',
+                                          ? 'No routines found'
+                                          : 'No routines yet',
                                       style: FlutterFlowTheme.of(context)
                                           .titleMedium,
                                     ),
@@ -311,15 +286,15 @@ class _SequencesState extends State<Sequences> {
                                     Text(
                                       _searchQuery.isNotEmpty
                                           ? 'Try a different search term'
-                                          : 'Create sequences to group related habits and tasks!',
+                                          : 'Create routines to group related habits and tasks!',
                                       style: FlutterFlowTheme.of(context)
                                           .bodyMedium,
                                     ),
                                     if (_searchQuery.isEmpty) ...[
                                       const SizedBox(height: 16),
                                       ElevatedButton(
-                                        onPressed: _navigateToCreateSequence,
-                                        child: const Text('Create Sequence'),
+                                        onPressed: _navigateToCreateRoutine,
+                                        child: const Text('Create Routine'),
                                       ),
                                     ],
                                   ],
@@ -327,32 +302,31 @@ class _SequencesState extends State<Sequences> {
                               )
                             : _searchQuery.isEmpty
                                 ? ReorderableListView.builder(
-                                    itemCount: _sequences.length,
+                                    itemCount: _routines.length,
                                     onReorder: _handleReorder,
                                     itemBuilder: (context, index) {
-                                      final sequence = _sequences[index];
+                                      final routine = _routines[index];
                                       final itemNames =
-                                          sequence.itemNames.isNotEmpty
-                                              ? sequence.itemNames
-                                              : _getItemNames(sequence.itemIds);
-                                      return _buildSequenceTile(
-                                        sequence,
+                                          routine.itemNames.isNotEmpty
+                                              ? routine.itemNames
+                                              : _getItemNames(routine.itemIds);
+                                      return _buildRoutineTile(
+                                        routine,
                                         itemNames,
-                                        key: Key(sequence.reference.id),
+                                        key: Key(routine.reference.id),
                                       );
                                     },
                                   )
                                 : ListView.builder(
-                                    itemCount: _filteredSequences.length,
+                                    itemCount: _filteredRoutines.length,
                                     itemBuilder: (context, index) {
-                                      final sequence =
-                                          _filteredSequences[index];
+                                      final routine = _filteredRoutines[index];
                                       final itemNames =
-                                          sequence.itemNames.isNotEmpty
-                                              ? sequence.itemNames
-                                              : _getItemNames(sequence.itemIds);
-                                      return _buildSequenceTile(
-                                        sequence,
+                                          routine.itemNames.isNotEmpty
+                                              ? routine.itemNames
+                                              : _getItemNames(routine.itemIds);
+                                      return _buildRoutineTile(
+                                        routine,
                                         itemNames,
                                       );
                                     },
@@ -378,7 +352,7 @@ class _SequencesState extends State<Sequences> {
                     ],
                   ),
             // Search FAB at bottom-left
-            const SearchFAB(heroTag: 'search_fab_sequences'),
+            const SearchFAB(heroTag: 'search_fab_routines'),
             // Existing FAB at bottom-right
             Positioned(
               right: 16,
@@ -400,8 +374,8 @@ class _SequencesState extends State<Sequences> {
     );
   }
 
-  Future<void> _showSequenceOverflowMenu(
-      BuildContext anchorContext, SequenceRecord sequence) async {
+  Future<void> _showRoutineOverflowMenu(
+      BuildContext anchorContext, RoutineRecord routine) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
         Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
@@ -433,19 +407,19 @@ class _SequencesState extends State<Sequences> {
     );
     if (selected == null) return;
     if (selected == 'edit') {
-      _navigateToEditSequence(sequence);
+      _navigateToEditRoutine(routine);
     } else if (selected == 'delete') {
-      _showDeleteConfirmation(sequence);
+      _showDeleteConfirmation(routine);
     }
   }
 
-  void _showDeleteConfirmation(SequenceRecord sequence) {
+  void _showDeleteConfirmation(RoutineRecord routine) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Sequence'),
+        title: const Text('Delete Routine'),
         content: Text(
-          'Are you sure you want to delete "${sequence.name}"? This action cannot be undone.',
+          'Are you sure you want to delete "${routine.name}"? This action cannot be undone.',
         ),
         actions: [
           TextButton(
@@ -455,7 +429,7 @@ class _SequencesState extends State<Sequences> {
           ElevatedButton(
             onPressed: () {
               Navigator.of(context).pop();
-              _deleteSequence(sequence);
+              _deleteRoutine(routine);
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.red,
@@ -468,8 +442,8 @@ class _SequencesState extends State<Sequences> {
     );
   }
 
-  Widget _buildSequenceTile(
-    SequenceRecord sequence,
+  Widget _buildRoutineTile(
+    RoutineRecord routine,
     List<String> itemNames, {
     Key? key,
   }) {
@@ -485,7 +459,7 @@ class _SequencesState extends State<Sequences> {
         ),
       ),
       child: ListTile(
-        onTap: () => _navigateToSequenceDetail(sequence),
+        onTap: () => _navigateToRoutineDetail(routine),
         leading: Container(
           width: 40,
           height: 40,
@@ -500,15 +474,15 @@ class _SequencesState extends State<Sequences> {
           ),
         ),
         title: Text(
-          sequence.name,
+          routine.name,
           style: FlutterFlowTheme.of(context).titleMedium,
         ),
         subtitle: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            if (sequence.description.isNotEmpty)
+            if (routine.description.isNotEmpty)
               Text(
-                sequence.description,
+                routine.description,
                 style: FlutterFlowTheme.of(context).bodyMedium,
               ),
             const SizedBox(height: 4),
@@ -521,7 +495,7 @@ class _SequencesState extends State<Sequences> {
         trailing: Builder(
           builder: (context) => IconButton(
             icon: const Icon(Icons.more_vert),
-            onPressed: () => _showSequenceOverflowMenu(context, sequence),
+            onPressed: () => _showRoutineOverflowMenu(context, routine),
             color: FlutterFlowTheme.of(context).secondaryText,
           ),
         ),
@@ -529,18 +503,18 @@ class _SequencesState extends State<Sequences> {
     );
   }
 
-  /// Handle reordering of sequences
+  /// Handle reordering of routines
   Future<void> _handleReorder(int oldIndex, int newIndex) async {
     final reorderingIds = <String>{};
     try {
       // Allow dropping at the end (newIndex can equal sequences.length)
       if (oldIndex < 0 ||
-          oldIndex >= _sequences.length ||
+          oldIndex >= _routines.length ||
           newIndex < 0 ||
-          newIndex > _sequences.length) return;
+          newIndex > _routines.length) return;
 
-      // Create a copy of the sequences list for reordering
-      final reorderedSequences = List<SequenceRecord>.from(_sequences);
+      // Create a copy of the routines list for reordering
+      final reorderedRoutines = List<RoutineRecord>.from(_routines);
 
       // Adjust newIndex for the case where we're moving down
       int adjustedNewIndex = newIndex;
@@ -548,58 +522,58 @@ class _SequencesState extends State<Sequences> {
         adjustedNewIndex -= 1;
       }
 
-      // Get the sequence being moved
-      final movedSequence = reorderedSequences.removeAt(oldIndex);
-      reorderedSequences.insert(adjustedNewIndex, movedSequence);
+      // Get the routine being moved
+      final movedRoutine = reorderedRoutines.removeAt(oldIndex);
+      reorderedRoutines.insert(adjustedNewIndex, movedRoutine);
 
       // OPTIMISTIC UI UPDATE: Update local state immediately
       // Update order values and create updated sequences
-      final updatedSequences = <SequenceRecord>[];
-      for (int i = 0; i < reorderedSequences.length; i++) {
-        final sequence = reorderedSequences[i];
-        final sequenceId = sequence.reference.id;
-        reorderingIds.add(sequenceId);
+      final updatedRoutines = <RoutineRecord>[];
+      for (int i = 0; i < reorderedRoutines.length; i++) {
+        final routine = reorderedRoutines[i];
+        final routineId = routine.reference.id;
+        reorderingIds.add(routineId);
 
         // Create updated sequence with new listOrder
-        final updatedData = Map<String, dynamic>.from(sequence.snapshotData);
+        final updatedData = Map<String, dynamic>.from(routine.snapshotData);
         updatedData['listOrder'] = i;
-        final updatedSequence = SequenceRecord.getDocumentFromData(
+        final updatedRoutine = RoutineRecord.getDocumentFromData(
           updatedData,
-          sequence.reference,
+          routine.reference,
         );
 
-        updatedSequences.add(updatedSequence);
+        updatedRoutines.add(updatedRoutine);
       }
 
-      // Add sequence IDs to reordering set to prevent stale updates
-      _reorderingSequenceIds.addAll(reorderingIds);
+      // Add routine IDs to reordering set to prevent stale updates
+      _reorderingRoutineIds.addAll(reorderingIds);
 
       // Replace _sequences with the reordered list (this is the key fix!)
       if (mounted) {
         setState(() {
-          _sequences = updatedSequences;
+          _routines = updatedRoutines;
         });
       }
 
       // Perform database update in background
-      await SequenceOrderService.reorderSequences(
-        updatedSequences,
+      await RoutineOrderService.reorderRoutines(
+        updatedRoutines,
         oldIndex,
         adjustedNewIndex,
       );
 
       // Clear reordering set after successful database update
-      _reorderingSequenceIds.removeAll(reorderingIds);
+      _reorderingRoutineIds.removeAll(reorderingIds);
     } catch (e) {
       // Clear reordering set even on error
-      _reorderingSequenceIds.removeAll(reorderingIds);
+      _reorderingRoutineIds.removeAll(reorderingIds);
       // Revert to correct state by refreshing data
       await _loadData();
       // Show error to user
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error reordering sequences: $e'),
+            content: Text('Error reordering routines: $e'),
             backgroundColor: Colors.red,
           ),
         );

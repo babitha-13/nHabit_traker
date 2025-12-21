@@ -308,12 +308,15 @@ class DailyProgressCalculator {
         case 'time':
           // Time-based tasks: points based on accumulated time vs target
           if (task.status == 'completed') {
-            final targetMinutes = _getTaskTargetValue(task);
+            // Use actual accumulated time (in milliseconds) for proportional points
+            final accumulatedTime = task.accumulatedTime;
+            final accumulatedMinutes = accumulatedTime / 60000.0; // Convert ms to minutes
             final durationMultiplier =
-                _calculateDurationMultiplier(targetMinutes);
+                PointsService.calculateDurationMultiplier(accumulatedMinutes);
             points = priority * durationMultiplier;
           } else {
             final accumulatedTime = task.accumulatedTime;
+            final accumulatedMinutes = accumulatedTime / 60000.0; // Convert ms to minutes
             final targetMinutes = _getTaskTargetValue(task);
             final targetMs =
                 targetMinutes * 60000; // Convert minutes to milliseconds
@@ -321,7 +324,7 @@ class DailyProgressCalculator {
               final completionFraction =
                   (accumulatedTime / targetMs).clamp(0.0, 1.0);
               final durationMultiplier =
-                  _calculateDurationMultiplier(targetMinutes);
+                  PointsService.calculateDurationMultiplier(accumulatedMinutes);
               points = completionFraction * priority * durationMultiplier;
             }
           }
@@ -337,19 +340,7 @@ class DailyProgressCalculator {
   /// Helper method to get current value from task instance
   static double _getTaskCurrentValue(ActivityInstanceRecord task) {
     final value = task.currentValue;
-
-    // For time-based tracking, currentValue is in milliseconds but target is in minutes
-    // Convert milliseconds to minutes for consistency
-    if (task.templateTrackingType == 'time') {
-      if (value is num) return (value.toDouble() / 60000.0);
-      if (value is String) {
-        final parsed = double.tryParse(value);
-        return parsed != null ? (parsed / 60000.0) : 0.0;
-      }
-      return 0.0;
-    }
-
-    // For other tracking types, use value as-is
+    // For quantitative/binary tracking types, use value as-is
     if (value is num) return value.toDouble();
     if (value is String) return double.tryParse(value) ?? 0.0;
     return 0.0;
@@ -361,12 +352,5 @@ class DailyProgressCalculator {
     if (target is num) return target.toDouble();
     if (target is String) return double.tryParse(target) ?? 0.0;
     return 0.0;
-  }
-
-  /// Calculate duration multiplier based on target minutes
-  /// Returns the number of 15-minute blocks, minimum 1
-  static int _calculateDurationMultiplier(double targetMinutes) {
-    if (targetMinutes <= 0) return 1;
-    return (targetMinutes / 15).round().clamp(1, double.infinity).toInt();
   }
 }

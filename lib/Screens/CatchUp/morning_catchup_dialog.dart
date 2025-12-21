@@ -58,7 +58,13 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   void dispose() {
     // Ensure state is saved even if dialog is force-closed
     try {
-      if (_items.isNotEmpty) {
+      // If items were processed, recalculate the record to ensure cumulative score is updated
+      if (_processedItemIds.isNotEmpty) {
+        MorningCatchUpService.recalculateDailyProgressRecordForDate(
+          userId: currentUserUid,
+          targetDate: DateService.yesterdayStart,
+        ).catchError((e) => print('Error recalculating record in dispose: $e'));
+      } else if (_items.isNotEmpty) {
         // If dialog is closed without action, ensure record exists
         MorningCatchUpService.createDailyProgressRecordForDate(
           userId: currentUserUid,
@@ -230,6 +236,21 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
         // Habits may generate new instances, so reload
         await _loadItems();
       }
+
+      // RECALCULATE daily progress record in background after user completes/skips items
+      // This ensures cumulative score includes the user's updates
+      // Run in background without blocking UI - fire and forget with error handling
+      Future.delayed(const Duration(milliseconds: 300)).then((_) {
+        // Background recalculation - don't await, let it run asynchronously
+        MorningCatchUpService.recalculateDailyProgressRecordForDate(
+          userId: currentUserUid,
+          targetDate: yesterday,
+        ).catchError((error) {
+          // Silent error handling - recalculation failure shouldn't affect UI
+          // The record will be recalculated when dialog closes anyway
+          print('Background recalculation error (non-critical): $error');
+        });
+      });
 
       // Auto-close dialog if all items are processed
       if (mounted) {
@@ -477,6 +498,16 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       onWillPop: () async {
         // Allow dismissal if all items are processed (including optimistic ones)
         if (remainingItems.isEmpty && processingCount == 0) {
+          // Start recalculation in background before closing (non-blocking)
+          if (_processedItemIds.isNotEmpty) {
+            MorningCatchUpService.recalculateDailyProgressRecordForDate(
+              userId: currentUserUid,
+              targetDate: DateService.yesterdayStart,
+            ).catchError((error) {
+              // Silent error handling - recalculation failure shouldn't block dialog close
+              print('Background recalculation error on close (non-critical): $error');
+            });
+          }
           await MorningCatchUpService.markDialogAsShown();
           return true;
         }
@@ -712,6 +743,16 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () async {
+                            // Start recalculation in background before closing (non-blocking)
+                            if (_processedItemIds.isNotEmpty) {
+                              MorningCatchUpService.recalculateDailyProgressRecordForDate(
+                                userId: currentUserUid,
+                                targetDate: DateService.yesterdayStart,
+                              ).catchError((error) {
+                                // Silent error handling - recalculation failure shouldn't block dialog close
+                                print('Background recalculation error on close (non-critical): $error');
+                              });
+                            }
                             await MorningCatchUpService.markDialogAsShown();
                             if (mounted) {
                               Navigator.of(context).pop();

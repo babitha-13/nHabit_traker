@@ -191,8 +191,6 @@ class _HabitsPageState extends State<HabitsPage> {
     for (final key in grouped.keys) {
       final items = grouped[key]!;
       if (items.isNotEmpty) {
-        // Initialize order values for items that don't have them
-        InstanceOrderService.initializeOrderValues(items, 'habits');
         // Sort by habits order
         grouped[key] =
             InstanceOrderService.sortInstancesByOrder(items, 'habits');
@@ -253,6 +251,11 @@ class _HabitsPageState extends State<HabitsPage> {
       if (userId.isNotEmpty) {
         final instances = await queryLatestHabitInstances(userId: userId);
         if (!mounted) return;
+        // Initialize missing order values during load (avoid DB writes during build/getters).
+        // Best-effort: if something was deleted concurrently, we don't want to crash UI.
+        try {
+          await InstanceOrderService.initializeOrderValues(instances, 'habits');
+        } catch (_) {}
         final categories = await queryHabitCategoriesOnce(
           userId: userId,
           callerTag: 'HabitsPage._loadHabits',

@@ -1,4 +1,5 @@
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
@@ -682,6 +683,41 @@ class MorningCatchUpService {
       await prefs.remove(_reminderCountDateKey);
     } catch (e) {
       // Error resetting reminder count
+    }
+  }
+
+  /// Recalculate and update daily progress record for a specific date
+  /// This deletes the existing record (if any) and creates a new one with updated data
+  /// Used when user completes items in morning catch-up dialog to ensure cumulative score is recalculated
+  static Future<void> recalculateDailyProgressRecordForDate({
+    required String userId,
+    required DateTime targetDate,
+  }) async {
+    try {
+      final normalizedDate =
+          DateTime(targetDate.year, targetDate.month, targetDate.day);
+      
+      // Delete existing record if it exists
+      final existingQuery = DailyProgressRecord.collectionForUser(userId)
+          .where('date', isEqualTo: normalizedDate);
+      final existingSnapshot = await existingQuery.get();
+      if (existingSnapshot.docs.isNotEmpty) {
+        // Delete all existing records for this date (should only be one, but handle multiple)
+        final batch = FirebaseFirestore.instance.batch();
+        for (final doc in existingSnapshot.docs) {
+          batch.delete(doc.reference);
+        }
+        await batch.commit();
+      }
+      
+      // Now create the record with updated data
+      await createDailyProgressRecordForDate(
+        userId: userId,
+        targetDate: targetDate,
+      );
+    } catch (e) {
+      // Error recalculating record - log but don't throw
+      print('Error recalculating daily progress record: $e');
     }
   }
 

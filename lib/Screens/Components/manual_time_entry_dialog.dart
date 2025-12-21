@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:intl/intl.dart';
 
 class ManualTimeEntryDialog extends StatefulWidget {
@@ -23,13 +25,45 @@ class _ManualTimeEntryDialogState extends State<ManualTimeEntryDialog> {
   late DateTime _startTime;
   late DateTime _endTime;
   bool _isLoading = false;
+  int _defaultDurationMinutes = 10;
+  bool _useGlobalDefault = false;
 
   @override
   void initState() {
     super.initState();
     final now = DateTime.now();
     _startTime = DateTime(widget.selectedDate.year, widget.selectedDate.month, widget.selectedDate.day, now.hour, now.minute);
-    _endTime = _startTime.add(const Duration(minutes: 10));
+    _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
+    _loadDefaultDuration();
+  }
+
+  Future<void> _loadDefaultDuration() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isNotEmpty) {
+        final enableDefaultEstimates =
+            await TimeLoggingPreferencesService.getEnableDefaultEstimates(userId);
+        int durationMinutes = 10; // Default fallback
+        if (enableDefaultEstimates) {
+          durationMinutes = await TimeLoggingPreferencesService
+              .getDefaultDurationMinutes(userId);
+        }
+        if (mounted) {
+          setState(() {
+            _defaultDurationMinutes = durationMinutes;
+            _useGlobalDefault = enableDefaultEstimates;
+            // Update end time if it was set to the old default
+            if (_endTime.isBefore(_startTime) ||
+                _endTime.isAtSameMomentAs(_startTime)) {
+              _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
+            }
+          });
+        }
+      }
+    } catch (e) {
+      // On error, keep default of 10 minutes
+      print('Error loading default duration: $e');
+    }
   }
 
   @override

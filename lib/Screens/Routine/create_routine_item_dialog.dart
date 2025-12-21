@@ -4,18 +4,18 @@ import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
-class CreateSequenceItemDialog extends StatefulWidget {
+class CreateRoutineItemDialog extends StatefulWidget {
   final Function(ActivityRecord) onItemCreated;
-  const CreateSequenceItemDialog({
+  const CreateRoutineItemDialog({
     Key? key,
     required this.onItemCreated,
   }) : super(key: key);
   @override
-  _CreateSequenceItemDialogState createState() =>
-      _CreateSequenceItemDialogState();
+  _CreateRoutineItemDialogState createState() =>
+      _CreateRoutineItemDialogState();
 }
 
-class _CreateSequenceItemDialogState extends State<CreateSequenceItemDialog> {
+class _CreateRoutineItemDialogState extends State<CreateRoutineItemDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();

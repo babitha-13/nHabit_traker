@@ -158,6 +158,10 @@ class ActivityRecord extends FirestoreRecord {
   List<Map<String, dynamic>>? _reminders;
   List<Map<String, dynamic>> get reminders => _reminders ?? [];
   bool hasReminders() => _reminders != null && _reminders!.isNotEmpty;
+  // "timeEstimateMinutes" field for per-activity time estimate (optional, 1-600 minutes).
+  int? _timeEstimateMinutes;
+  int? get timeEstimateMinutes => _timeEstimateMinutes;
+  bool hasTimeEstimateMinutes() => _timeEstimateMinutes != null;
   void _initializeFields() {
     _name = snapshotData['name'] as String?;
     _categoryId = snapshotData['categoryId'] as String?;
@@ -208,6 +212,7 @@ class ActivityRecord extends FirestoreRecord {
     } else {
       _reminders = null;
     }
+    _timeEstimateMinutes = snapshotData['timeEstimateMinutes'] as int?;
   }
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('activities');
@@ -285,6 +290,7 @@ Map<String, dynamic> createActivityRecordData({
   int? timesPerPeriod,
   String? periodType,
   List<Map<String, dynamic>>? reminders,
+  int? timeEstimateMinutes,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -326,6 +332,7 @@ Map<String, dynamic> createActivityRecordData({
       'timesPerPeriod': timesPerPeriod,
       'periodType': periodType,
       'reminders': reminders,
+      'timeEstimateMinutes': timeEstimateMinutes,
     }.withoutNulls,
   );
   return firestoreData;
@@ -368,7 +375,8 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e1?.everyXPeriodType == e2?.everyXPeriodType &&
         e1?.timesPerPeriod == e2?.timesPerPeriod &&
         e1?.periodType == e2?.periodType &&
-        listEquals(e1?.reminders, e2?.reminders);
+        listEquals(e1?.reminders, e2?.reminders) &&
+        e1?.timeEstimateMinutes == e2?.timeEstimateMinutes;
   }
   @override
   int hash(ActivityRecord? e) => const ListEquality().hash([
@@ -406,7 +414,8 @@ class ActivityRecordDocumentEquality implements Equality<ActivityRecord> {
         e?.everyXPeriodType,
         e?.timesPerPeriod,
         e?.periodType,
-        e?.reminders
+        e?.reminders,
+        e?.timeEstimateMinutes
       ]);
   @override
   bool isValidKey(Object? o) => o is ActivityRecord;

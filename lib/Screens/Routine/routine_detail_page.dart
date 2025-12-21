@@ -1,79 +1,77 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/sequence_service.dart';
+import 'package:habit_tracker/Helper/backend/routine_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/sequence_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Sequence/create_sequence_page.dart';
+import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 
-class SequenceDetailPage extends StatefulWidget {
-  final SequenceRecord sequence;
-  const SequenceDetailPage({
+class RoutineDetailPage extends StatefulWidget {
+  final RoutineRecord routine;
+  const RoutineDetailPage({
     Key? key,
-    required this.sequence,
+    required this.routine,
   }) : super(key: key);
   @override
-  _SequenceDetailPageState createState() => _SequenceDetailPageState();
+  State<RoutineDetailPage> createState() => _RoutineDetailPageState();
 }
 
-class _SequenceDetailPageState extends State<SequenceDetailPage> {
-  SequenceWithInstances? _sequenceWithInstances;
+class _RoutineDetailPageState extends State<RoutineDetailPage> {
+  RoutineWithInstances? _routineWithInstances;
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   @override
   void initState() {
     super.initState();
-    _loadSequenceWithInstances();
+    _loadRoutineWithInstances();
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
-        _refreshSequence();
+        _refreshRoutine();
       }
     });
   }
 
-  Future<void> _loadSequenceWithInstances() async {
+  Future<void> _loadRoutineWithInstances() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
     try {
-      final sequenceWithInstances =
-          await SequenceService.getSequenceWithInstances(
-        sequenceId: widget.sequence.reference.id,
+      final routineWithInstances = await RoutineService.getRoutineWithInstances(
+        routineId: widget.routine.reference.id,
         userId: currentUserUid,
       );
 
       // Load categories for color lookup
       final habitCategories = await queryHabitCategoriesOnce(
         userId: currentUserUid,
-        callerTag: 'SequenceDetailPage._loadSequence.habits',
+        callerTag: 'RoutineDetailPage._loadRoutine.habits',
       );
       final taskCategories = await queryTaskCategoriesOnce(
         userId: currentUserUid,
-        callerTag: 'SequenceDetailPage._loadSequence.tasks',
+        callerTag: 'RoutineDetailPage._loadRoutine.tasks',
       );
       final allCategories = [...habitCategories, ...taskCategories];
 
       // Automatically create instances for items without them (habits and tasks only)
-      SequenceWithInstances? updatedSequenceWithInstances =
-          sequenceWithInstances;
-      if (sequenceWithInstances != null) {
-        final sequence = sequenceWithInstances.sequence;
+      RoutineWithInstances? updatedRoutineWithInstances = routineWithInstances;
+      if (routineWithInstances != null) {
+        final routine = routineWithInstances.routine;
         final instances = Map<String, ActivityInstanceRecord>.from(
-            sequenceWithInstances.instances);
+            routineWithInstances.instances);
 
-        // Check each item in the sequence
-        for (int i = 0; i < sequence.itemIds.length; i++) {
-          final itemId = sequence.itemIds[i];
+        // Check each item in the routine
+        for (int i = 0; i < routine.itemIds.length; i++) {
+          final itemId = routine.itemIds[i];
           final itemType =
-              sequence.itemTypes.isNotEmpty && i < sequence.itemTypes.length
-                  ? sequence.itemTypes[i]
+              routine.itemTypes.isNotEmpty && i < routine.itemTypes.length
+                  ? routine.itemTypes[i]
                   : 'habit';
 
           // Skip if instance already exists
@@ -85,7 +83,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
           if (itemType == 'habit' || itemType == 'task') {
             try {
               final newInstance =
-                  await SequenceService.createInstanceForSequenceItem(
+                  await RoutineService.createInstanceForRoutineItem(
                 itemId: itemId,
                 userId: currentUserUid,
               );
@@ -94,7 +92,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
               }
             } catch (e) {
               // Silently fail for individual instance creation - item will show as missing
-              // This prevents one failed instance from breaking the entire sequence load
+              // This prevents one failed instance from breaking the entire routine load
             }
           } else if (itemType == 'non_productive') {
             // Create pending instance for non-productive items so they can use ItemComponent
@@ -110,16 +108,16 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
           }
         }
 
-        // Create new SequenceWithInstances with updated instances map
-        updatedSequenceWithInstances = SequenceWithInstances(
-          sequence: sequence,
+        // Create new RoutineWithInstances with updated instances map
+        updatedRoutineWithInstances = RoutineWithInstances(
+          routine: routine,
           instances: instances,
         );
       }
 
       if (mounted) {
         setState(() {
-          _sequenceWithInstances = updatedSequenceWithInstances;
+          _routineWithInstances = updatedRoutineWithInstances;
           _categories = allCategories;
           _isLoading = false;
         });
@@ -133,8 +131,8 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
     }
   }
 
-  Future<void> _refreshSequence() async {
-    await _loadSequenceWithInstances();
+  Future<void> _refreshRoutine() async {
+    await _loadRoutineWithInstances();
   }
 
   @override
@@ -143,18 +141,18 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
     super.dispose();
   }
 
-  void _editSequence() {
+  void _editRoutine() {
     Navigator.of(context)
         .push(
       MaterialPageRoute(
-        builder: (context) => CreateSequencePage(
-          existingSequence: widget.sequence,
+        builder: (context) => CreateRoutinePage(
+          existingRoutine: widget.routine,
         ),
       ),
     )
         .then((_) {
-      // Refresh the sequence data after editing
-      _refreshSequence();
+      // Refresh the routine data after editing
+      _refreshRoutine();
     });
   }
 
@@ -224,13 +222,13 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
     }
   }
 
-  Future<void> _resetSequenceItems() async {
+  Future<void> _resetRoutineItems() async {
     // Check if there are any non-productive items to reset
-    final hasSequenceItems = _sequenceWithInstances?.sequence.itemTypes
+    final hasRoutineItems = _routineWithInstances?.routine.itemTypes
             .any((type) => type == 'non_productive') ??
         false;
 
-    if (!hasSequenceItems) {
+    if (!hasRoutineItems) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -277,16 +275,16 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
         );
       }
 
-      final resetCount = await SequenceService.resetSequenceItems(
-        sequenceId: widget.sequence.reference.id,
-        currentInstances: _sequenceWithInstances!.instances,
-        itemTypes: _sequenceWithInstances!.sequence.itemTypes,
-        itemIds: _sequenceWithInstances!.sequence.itemIds,
+      final resetCount = await RoutineService.resetRoutineItems(
+        routineId: widget.routine.reference.id,
+        currentInstances: _routineWithInstances!.instances,
+        itemTypes: _routineWithInstances!.routine.itemTypes,
+        itemIds: _routineWithInstances!.routine.itemIds,
         userId: currentUserUid,
       );
 
-      // Refresh the sequence to show new instances
-      await _refreshSequence();
+      // Refresh the routine to show new instances
+      await _refreshRoutine();
 
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -351,16 +349,16 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
             ),
           ),
           IconButton(
-            onPressed: _resetSequenceItems,
+            onPressed: _resetRoutineItems,
             icon: const Icon(Icons.refresh_outlined),
             tooltip: 'Reset Non-Productive Items',
             color: theme.secondaryText,
             iconSize: 20,
           ),
           IconButton(
-            onPressed: _editSequence,
+            onPressed: _editRoutine,
             icon: const Icon(Icons.edit),
-            tooltip: 'Edit Sequence',
+            tooltip: 'Edit Routine',
             color: theme.secondaryText,
             iconSize: 20,
           ),
@@ -387,7 +385,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
 
   Widget _buildItemComponent(ActivityInstanceRecord? instance, String itemId,
       String itemType, String itemName) {
-    // All items should have instances now (created in _loadSequenceWithInstances)
+    // All items should have instances now (created in _loadRoutineWithInstances)
     // If instance is null, show loading placeholder (shouldn't happen)
     if (instance == null) {
       return Container(
@@ -407,23 +405,23 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
       key: Key(instance.reference.id),
       instance: instance,
       categoryColorHex: categoryColor,
-      onRefresh: _refreshSequence,
+      onRefresh: _refreshRoutine,
       onInstanceUpdated: (updatedInstance) {
         setState(() {
-          if (_sequenceWithInstances != null) {
-            _sequenceWithInstances!.instances[itemId] = updatedInstance;
+          if (_routineWithInstances != null) {
+            _routineWithInstances!.instances[itemId] = updatedInstance;
           }
         });
       },
       onInstanceDeleted: (deletedInstance) {
         setState(() {
-          if (_sequenceWithInstances != null) {
-            _sequenceWithInstances!.instances.remove(itemId);
+          if (_routineWithInstances != null) {
+            _routineWithInstances!.instances.remove(itemId);
           }
         });
       },
       onHabitUpdated: (updated) => {},
-      onHabitDeleted: (deleted) async => _refreshSequence(),
+      onHabitDeleted: (deleted) async => _refreshRoutine(),
       isHabit: itemType == 'habit',
       showTypeIcon: true,
       showRecurringIcon: true,
@@ -438,13 +436,13 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
       appBar: AppBar(
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
         title: Text(
-          'Sequence',
+          'Routine',
           style: FlutterFlowTheme.of(context).headlineMedium,
         ),
       ),
       body: _isLoading
           ? const Center(child: CircularProgressIndicator())
-          : _sequenceWithInstances == null
+          : _routineWithInstances == null
               ? Center(
                   child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -456,7 +454,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'Error loading sequence',
+                        'Error loading routine',
                         style: FlutterFlowTheme.of(context).titleMedium,
                       ),
                       const SizedBox(height: 8),
@@ -466,7 +464,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
                       ),
                       const SizedBox(height: 16),
                       ElevatedButton(
-                        onPressed: _refreshSequence,
+                        onPressed: _refreshRoutine,
                         child: const Text('Retry'),
                       ),
                     ],
@@ -474,15 +472,15 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
                 )
               : CustomScrollView(
                   slivers: [
-                    // Sequence Header
+                    // Routine Header
                     SliverToBoxAdapter(
                       child: _buildSectionHeader(
-                        widget.sequence.name,
-                        _sequenceWithInstances!.sequence.itemIds.length,
+                        widget.routine.name,
+                        _routineWithInstances!.routine.itemIds.length,
                       ),
                     ),
-                    // Sequence Description
-                    if (widget.sequence.description.isNotEmpty)
+                    // Routine Description
+                    if (widget.routine.description.isNotEmpty)
                       SliverToBoxAdapter(
                         child: Container(
                           margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -497,7 +495,7 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
                             ),
                           ),
                           child: Text(
-                            widget.sequence.description,
+                            widget.routine.description,
                             style: FlutterFlowTheme.of(context).bodyMedium,
                           ),
                         ),
@@ -507,28 +505,26 @@ class _SequenceDetailPageState extends State<SequenceDetailPage> {
                       delegate: SliverChildBuilderDelegate(
                         (context, index) {
                           final itemId =
-                              _sequenceWithInstances!.sequence.itemOrder[index];
+                              _routineWithInstances!.routine.itemOrder[index];
                           final instance =
-                              _sequenceWithInstances!.instances[itemId];
-                          final itemType = _sequenceWithInstances!
-                                  .sequence.itemTypes.isNotEmpty
-                              ? _sequenceWithInstances!
-                                  .sequence.itemTypes[index]
+                              _routineWithInstances!.instances[itemId];
+                          final itemType = _routineWithInstances!
+                                  .routine.itemTypes.isNotEmpty
+                              ? _routineWithInstances!.routine.itemTypes[index]
                               : 'habit';
-                          final itemName = _sequenceWithInstances!
-                                  .sequence.itemNames.isNotEmpty
-                              ? _sequenceWithInstances!
-                                  .sequence.itemNames[index]
+                          final itemName = _routineWithInstances!
+                                  .routine.itemNames.isNotEmpty
+                              ? _routineWithInstances!.routine.itemNames[index]
                               : 'Unknown Item';
                           return _buildItemComponent(
                               instance, itemId, itemType, itemName);
                         },
                         childCount:
-                            _sequenceWithInstances!.sequence.itemOrder.length,
+                            _routineWithInstances!.routine.itemOrder.length,
                       ),
                     ),
                     // Missing Instances Info
-                    if (_sequenceWithInstances!.missingInstances.isNotEmpty)
+                    if (_routineWithInstances!.missingInstances.isNotEmpty)
                       SliverToBoxAdapter(
                         child: Container(
                           margin: const EdgeInsets.all(16),

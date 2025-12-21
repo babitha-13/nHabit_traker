@@ -19,6 +19,7 @@ import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -43,6 +44,7 @@ class _TaskPageState extends State<TaskPage> {
   String? _selectedQuickTrackingType = 'binary';
   DateTime? _selectedQuickDueDate;
   TimeOfDay? _selectedQuickDueTime;
+  int? _quickTimeEstimateMinutes;
   int _quickTargetNumber = 1;
   Duration _quickTargetDuration = const Duration(hours: 1);
   final TextEditingController _quickUnitController = TextEditingController();
@@ -63,6 +65,11 @@ class _TaskPageState extends State<TaskPage> {
   String? _lastCategoryName;
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
+
+  // Time estimate preferences (feature gating for quick add UI)
+  bool _enableDefaultEstimates = false;
+  bool _enableActivityEstimates = false;
+
   @override
   void initState() {
     super.initState();
@@ -72,6 +79,7 @@ class _TaskPageState extends State<TaskPage> {
         (_quickTargetDuration.inMinutes % 60).toString();
     _loadExpansionState();
     _loadData();
+    _loadTimeEstimatePreferences();
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
     // Listen for instance events
@@ -202,6 +210,13 @@ class _TaskPageState extends State<TaskPage> {
       }
       final instances = await queryAllTaskInstances(userId: uid);
       if (!mounted) return;
+      final categoryFiltered = instances.where((inst) {
+        final matches = (widget.categoryName == null ||
+            inst.templateCategoryName == widget.categoryName);
+        print(
+            'Instance ${inst.templateName} matches filter: $matches (categoryName: ${inst.templateCategoryName} vs ${widget.categoryName})');
+        return matches;
+      }).toList();
       final categories = await queryTaskCategoriesOnce(
         userId: uid,
         callerTag: 'TaskPage._loadDataSilently.${widget.categoryName ?? 'all'}',
@@ -216,14 +231,6 @@ class _TaskPageState extends State<TaskPage> {
       if (mounted) {
         setState(() {
           _categories = categories;
-          // Filter by category and separate active from all instances
-          final categoryFiltered = instances.where((inst) {
-            final matches = (widget.categoryName == null ||
-                inst.templateCategoryName == widget.categoryName);
-            print(
-                'Instance ${inst.templateName} matches filter: $matches (categoryName: ${inst.templateCategoryName} vs ${widget.categoryName})');
-            return matches;
-          }).toList();
           // Store all instances
           _taskInstances = categoryFiltered;
           // Invalidate cache when instances change
@@ -241,6 +248,11 @@ class _TaskPageState extends State<TaskPage> {
           _isLoading = false;
         });
       }
+      // Initialize missing order values during load (avoid DB writes during build/getters).
+      // Best-effort: don't crash UI if something was deleted concurrently.
+      try {
+        await InstanceOrderService.initializeOrderValues(categoryFiltered, 'tasks');
+      } catch (_) {}
     } catch (e) {
       setState(() => _isLoading = false);
       if (mounted) {
@@ -557,6 +569,94 @@ class _TaskPageState extends State<TaskPage> {
                             ),
                           ),
                         ),
+                      // Time estimate icon/chip (only when both toggles are ON and not time-target)
+                      if (_enableDefaultEstimates &&
+                          _enableActivityEstimates &&
+                          !_isQuickTimeTarget())
+                        if (_quickTimeEstimateMinutes == null)
+                          Container(
+                            decoration: BoxDecoration(
+                              color: theme.tertiary,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: theme.surfaceBorderColor,
+                                width: 1,
+                              ),
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: () =>
+                                    _selectQuickTimeEstimate(updateState),
+                                child: Container(
+                                  padding: const EdgeInsets.all(8),
+                                  child: Icon(
+                                    Icons.timelapse_outlined,
+                                    color: theme.secondary,
+                                    size: 18,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          )
+                        else
+                          Container(
+                            decoration: BoxDecoration(
+                              color: theme.accent1.withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(10),
+                              border:
+                                  Border.all(color: theme.accent1, width: 1),
+                              boxShadow: [
+                                BoxShadow(
+                                  color: theme.accent1.withOpacity(0.2),
+                                  offset: const Offset(0, 1),
+                                  blurRadius: 2,
+                                ),
+                              ],
+                            ),
+                            child: Material(
+                              color: Colors.transparent,
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: () =>
+                                    _selectQuickTimeEstimate(updateState),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 10, vertical: 8),
+                                  child: Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(Icons.timelapse,
+                                          size: 14, color: theme.accent1),
+                                      const SizedBox(width: 6),
+                                      Text(
+                                        '${_quickTimeEstimateMinutes}m',
+                                        style: TextStyle(
+                                          fontSize: 11,
+                                          color: theme.accent1,
+                                          fontWeight: FontWeight.w500,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 6),
+                                      InkWell(
+                                        onTap: () {
+                                          updateState(() {
+                                            _quickTimeEstimateMinutes = null;
+                                          });
+                                        },
+                                        child: Icon(
+                                          Icons.close,
+                                          size: 14,
+                                          color: theme.accent1,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
                       // Reminder icon or chip
                       if (_quickReminders.isEmpty)
                         Container(
@@ -1361,6 +1461,11 @@ class _TaskPageState extends State<TaskPage> {
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
+        timeEstimateMinutes: (_enableDefaultEstimates &&
+                _enableActivityEstimates &&
+                !_isQuickTimeTarget())
+            ? _quickTimeEstimateMinutes
+            : null,
         isRecurring: quickIsRecurring,
         userId: currentUserUid,
         dueDate: _selectedQuickDueDate,
@@ -1428,6 +1533,7 @@ class _TaskPageState extends State<TaskPage> {
       _quickTargetDuration = const Duration(hours: 1);
       _selectedQuickDueDate = null;
       _selectedQuickDueTime = null;
+      _quickTimeEstimateMinutes = null;
       _quickFrequencyConfig = null;
       _quickReminders = [];
       quickIsRecurring = false;
@@ -1436,6 +1542,29 @@ class _TaskPageState extends State<TaskPage> {
       _quickHoursController.text = '1';
       _quickMinutesController.text = '0';
     });
+  }
+
+  Future<void> _loadTimeEstimatePreferences() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+      final enableDefault =
+          await TimeLoggingPreferencesService.getEnableDefaultEstimates(userId);
+      final enableActivity =
+          await TimeLoggingPreferencesService.getEnableActivityEstimates(userId);
+      if (!mounted) return;
+      setState(() {
+        _enableDefaultEstimates = enableDefault;
+        _enableActivityEstimates = enableActivity;
+      });
+    } catch (_) {
+      // Ignore - default to feature OFF in this view
+    }
+  }
+
+  bool _isQuickTimeTarget() {
+    return _selectedQuickTrackingType == 'time' &&
+        _quickTargetDuration.inMinutes > 0;
   }
 
   Future<void> _selectQuickDueDate(
@@ -1470,6 +1599,151 @@ class _TaskPageState extends State<TaskPage> {
         _selectedQuickDueTime = picked;
       });
     }
+  }
+
+  Future<void> _selectQuickTimeEstimate(
+      [void Function(VoidCallback)? updateStateFn]) async {
+    final updateState = updateStateFn ?? ((VoidCallback fn) => setState(fn));
+    final theme = FlutterFlowTheme.of(context);
+    final result = await _showQuickTimeEstimateSheet(
+      theme: theme,
+      initialMinutes: _quickTimeEstimateMinutes,
+    );
+    if (!mounted) return;
+    updateState(() {
+      _quickTimeEstimateMinutes = result;
+    });
+  }
+
+  Future<int?> _showQuickTimeEstimateSheet({
+    required FlutterFlowTheme theme,
+    required int? initialMinutes,
+  }) async {
+    final controller =
+        TextEditingController(text: initialMinutes?.toString() ?? '');
+    const presets = <int>[5, 10, 15, 20, 30, 45, 60];
+
+    final result = await showModalBottomSheet<int?>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset),
+          child: Container(
+            decoration: BoxDecoration(
+              color: theme.primaryBackground,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              border: Border.all(color: theme.surfaceBorderColor, width: 1),
+            ),
+            child: Padding(
+              padding: const EdgeInsets.all(16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Time estimate',
+                    style: theme.titleMedium.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: TextField(
+                          controller: controller,
+                          keyboardType: TextInputType.number,
+                          decoration: InputDecoration(
+                            hintText: 'Minutes (1–600)',
+                            hintStyle: TextStyle(
+                              color: theme.secondaryText,
+                              fontSize: 14,
+                            ),
+                            filled: true,
+                            fillColor: theme.tertiary.withOpacity(0.3),
+                            border: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide:
+                                  BorderSide(color: theme.surfaceBorderColor),
+                            ),
+                            enabledBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide:
+                                  BorderSide(color: theme.surfaceBorderColor),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderRadius: BorderRadius.circular(10),
+                              borderSide: BorderSide(color: theme.primary),
+                            ),
+                            isDense: true,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      TextButton(
+                        onPressed: () => Navigator.pop(ctx, null),
+                        child: const Text('Clear'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: presets
+                        .map(
+                          (m) => OutlinedButton(
+                            onPressed: () => Navigator.pop(ctx, m),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: theme.surfaceBorderColor),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              foregroundColor: theme.primaryText,
+                            ),
+                            child: Text('${m}m'),
+                          ),
+                        )
+                        .toList(),
+                  ),
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () {
+                        final parsed = int.tryParse(controller.text.trim());
+                        if (parsed == null) {
+                          Navigator.pop(ctx, null);
+                          return;
+                        }
+                        Navigator.pop(ctx, parsed.clamp(1, 600));
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primary,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                      ),
+                      child: const Text('Save'),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+
+    controller.dispose();
+    return result;
   }
 
   Future<void> _selectQuickReminders(
@@ -1669,8 +1943,6 @@ class _TaskPageState extends State<TaskPage> {
       if (items.isNotEmpty) {
         // Cast to ActivityInstanceRecord list
         final typedItems = items.cast<ActivityInstanceRecord>();
-        // Initialize order values for items that don't have them
-        InstanceOrderService.initializeOrderValues(typedItems, 'tasks');
         // Sort by tasks order
         buckets[key] =
             InstanceOrderService.sortInstancesByOrder(typedItems, 'tasks');
@@ -1865,18 +2137,23 @@ class _TaskPageState extends State<TaskPage> {
         userId: uid,
         callerTag: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
       );
+      final categoryFiltered = instances.where((inst) {
+        final matches = (widget.categoryName == null ||
+            inst.templateCategoryName == widget.categoryName);
+        return matches;
+      }).toList();
       if (mounted) {
         setState(() {
           _categories = categories;
-          _taskInstances = instances.where((inst) {
-            final matches = (widget.categoryName == null ||
-                inst.templateCategoryName == widget.categoryName);
-            return matches;
-          }).toList();
+          _taskInstances = categoryFiltered;
           // Invalidate cache when instances change
           _cachedBucketedItems = null;
         });
       }
+      // Best-effort initialize missing order values (safe, caught).
+      try {
+        await InstanceOrderService.initializeOrderValues(categoryFiltered, 'tasks');
+      } catch (_) {}
     } catch (e) {
       // Silent error handling - don't disrupt UI
     }

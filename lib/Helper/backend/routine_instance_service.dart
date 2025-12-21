@@ -2,10 +2,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 
-class SequenceInstanceService {
-  /// Get or create today's sequence instance
-  static Future<SequenceInstanceRecord?> getOrCreateSequenceInstance({
-    required String sequenceId,
+class RoutineInstanceService {
+  /// Get or create today's routine instance
+  static Future<RoutineInstanceRecord?> getOrCreateRoutineInstance({
+    required String routineId,
     DateTime? date,
     String? userId,
   }) async {
@@ -16,18 +16,18 @@ class SequenceInstanceService {
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     try {
       // Try to find existing instance for this date
-      final existingQuery = SequenceInstanceRecord.collectionForUser(uid)
-          .where('sequenceId', isEqualTo: sequenceId)
+      final existingQuery = RoutineInstanceRecord.collectionForUser(uid)
+          .where('sequenceId', isEqualTo: routineId)
           .where('date', isEqualTo: dateStart)
           .where('isActive', isEqualTo: true)
           .limit(1);
       final existingSnapshot = await existingQuery.get();
       if (existingSnapshot.docs.isNotEmpty) {
-        return SequenceInstanceRecord.fromSnapshot(existingSnapshot.docs.first);
+        return RoutineInstanceRecord.fromSnapshot(existingSnapshot.docs.first);
       }
-      // Create new sequence instance
-      final sequenceInstanceData = createSequenceInstanceRecordData(
-        sequenceId: sequenceId,
+      // Create new routine instance
+      final routineInstanceData = createRoutineInstanceRecordData(
+        sequenceId: routineId,
         date: dateStart,
         itemInstanceIds: {},
         status: 'pending',
@@ -36,20 +36,20 @@ class SequenceInstanceService {
         lastUpdated: DateTime.now(),
         userId: uid,
       );
-      final sequenceInstanceRef =
-          await SequenceInstanceRecord.collectionForUser(uid)
-              .add(sequenceInstanceData);
-      return SequenceInstanceRecord.fromSnapshot(
-        await sequenceInstanceRef.get(),
+      final routineInstanceRef =
+          await RoutineInstanceRecord.collectionForUser(uid)
+              .add(routineInstanceData);
+      return RoutineInstanceRecord.fromSnapshot(
+        await routineInstanceRef.get(),
       );
     } catch (e) {
       return null;
     }
   }
 
-  /// Get all item instances for a sequence on a specific date
-  static Future<Map<String, ActivityInstanceRecord>> getInstancesForSequence({
-    required String sequenceId,
+  /// Get all item instances for a routine on a specific date
+  static Future<Map<String, ActivityInstanceRecord>> getInstancesForRoutine({
+    required String routineId,
     DateTime? date,
     String? userId,
   }) async {
@@ -59,16 +59,16 @@ class SequenceInstanceService {
     final dateStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     try {
-      // Get sequence instance
-      final sequenceInstance = await getOrCreateSequenceInstance(
-        sequenceId: sequenceId,
+      // Get routine instance
+      final routineInstance = await getOrCreateRoutineInstance(
+        routineId: routineId,
         date: dateStart,
         userId: userId,
       );
-      if (sequenceInstance == null) return {};
+      if (routineInstance == null) return {};
       final instances = <String, ActivityInstanceRecord>{};
-      // For each item in the sequence instance, get or create its activity instance
-      for (final entry in sequenceInstance.itemInstanceIds.entries) {
+      // For each item in the routine instance, get or create its activity instance
+      for (final entry in routineInstance.itemInstanceIds.entries) {
         final itemId = entry.key;
         final instanceId = entry.value;
         try {
@@ -88,9 +88,9 @@ class SequenceInstanceService {
     }
   }
 
-  /// Link an activity instance to a sequence
-  static Future<void> linkInstanceToSequence({
-    required String sequenceId,
+  /// Link an activity instance to a routine
+  static Future<void> linkInstanceToRoutine({
+    required String routineId,
     required String itemId,
     required String instanceId,
     DateTime? date,
@@ -102,19 +102,19 @@ class SequenceInstanceService {
     final dateStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     try {
-      // Get or create sequence instance
-      final sequenceInstance = await getOrCreateSequenceInstance(
-        sequenceId: sequenceId,
+      // Get or create routine instance
+      final routineInstance = await getOrCreateRoutineInstance(
+        routineId: routineId,
         date: dateStart,
         userId: userId,
       );
-      if (sequenceInstance == null) return;
+      if (routineInstance == null) return;
       // Update the itemInstanceIds map
       final updatedItemInstanceIds =
-          Map<String, String>.from(sequenceInstance.itemInstanceIds);
+          Map<String, String>.from(routineInstance.itemInstanceIds);
       updatedItemInstanceIds[itemId] = instanceId;
-      await SequenceInstanceRecord.collectionForUser(uid)
-          .doc(sequenceInstance.reference.id)
+      await RoutineInstanceRecord.collectionForUser(uid)
+          .doc(routineInstance.reference.id)
           .update({
         'itemInstanceIds': updatedItemInstanceIds,
         'lastUpdated': DateTime.now(),
@@ -122,9 +122,9 @@ class SequenceInstanceService {
     } catch (e) {}
   }
 
-  /// Update sequence instance status
-  static Future<void> updateSequenceStatus({
-    required String sequenceId,
+  /// Update routine instance status
+  static Future<void> updateRoutineStatus({
+    required String routineId,
     required String status,
     DateTime? date,
     String? userId,
@@ -135,35 +135,35 @@ class SequenceInstanceService {
     final dateStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     try {
-      final sequenceInstanceQuery =
-          SequenceInstanceRecord.collectionForUser(uid)
-              .where('sequenceId', isEqualTo: sequenceId)
+      final routineInstanceQuery =
+          RoutineInstanceRecord.collectionForUser(uid)
+              .where('sequenceId', isEqualTo: routineId)
               .where('date', isEqualTo: dateStart)
               .where('isActive', isEqualTo: true)
               .limit(1);
-      final sequenceInstanceSnapshot = await sequenceInstanceQuery.get();
-      if (sequenceInstanceSnapshot.docs.isEmpty) return;
-      final sequenceInstance = SequenceInstanceRecord.fromSnapshot(
-          sequenceInstanceSnapshot.docs.first);
+      final routineInstanceSnapshot = await routineInstanceQuery.get();
+      if (routineInstanceSnapshot.docs.isEmpty) return;
+      final routineInstance = RoutineInstanceRecord.fromSnapshot(
+          routineInstanceSnapshot.docs.first);
       final updateData = <String, dynamic>{
         'status': status,
         'lastUpdated': DateTime.now(),
       };
-      if (status == 'started' && sequenceInstance.startedAt == null) {
+      if (status == 'started' && routineInstance.startedAt == null) {
         updateData['startedAt'] = DateTime.now();
       } else if (status == 'completed' &&
-          sequenceInstance.completedAt == null) {
+          routineInstance.completedAt == null) {
         updateData['completedAt'] = DateTime.now();
       }
-      await SequenceInstanceRecord.collectionForUser(uid)
-          .doc(sequenceInstance.reference.id)
+      await RoutineInstanceRecord.collectionForUser(uid)
+          .doc(routineInstance.reference.id)
           .update(updateData);
     } catch (e) {}
   }
 
-  /// Get sequence instance for a specific date
-  static Future<SequenceInstanceRecord?> getSequenceInstance({
-    required String sequenceId,
+  /// Get routine instance for a specific date
+  static Future<RoutineInstanceRecord?> getRoutineInstance({
+    required String routineId,
     DateTime? date,
     String? userId,
   }) async {
@@ -173,16 +173,16 @@ class SequenceInstanceService {
     final dateStart =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     try {
-      final sequenceInstanceQuery =
-          SequenceInstanceRecord.collectionForUser(uid)
-              .where('sequenceId', isEqualTo: sequenceId)
+      final routineInstanceQuery =
+          RoutineInstanceRecord.collectionForUser(uid)
+              .where('sequenceId', isEqualTo: routineId)
               .where('date', isEqualTo: dateStart)
               .where('isActive', isEqualTo: true)
               .limit(1);
-      final sequenceInstanceSnapshot = await sequenceInstanceQuery.get();
-      if (sequenceInstanceSnapshot.docs.isEmpty) return null;
-      return SequenceInstanceRecord.fromSnapshot(
-          sequenceInstanceSnapshot.docs.first);
+      final routineInstanceSnapshot = await routineInstanceQuery.get();
+      if (routineInstanceSnapshot.docs.isEmpty) return null;
+      return RoutineInstanceRecord.fromSnapshot(
+          routineInstanceSnapshot.docs.first);
     } catch (e) {
       return null;
     }
