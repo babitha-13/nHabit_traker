@@ -451,6 +451,7 @@ class _QueuePageState extends State<QueuePage> {
       final sharedData = TodayProgressState().getCumulativeScoreData();
       final lastKnownCumulative = sharedData['cumulativeScore'] as double? ?? _cumulativeScore;
       final lastKnownGain = sharedData['dailyGain'] as double? ?? _dailyScoreGain;
+      final hasPreviousLiveScore = sharedData['hasLiveScore'] as bool? ?? false;
 
       if (todayPercentage > 0) {
         // Calculate simplified projected score optimistically
@@ -464,7 +465,20 @@ class _QueuePageState extends State<QueuePage> {
         // Simplified projection: assume no bonus/penalty for instant update
         // Full calculation with bonuses/penalties happens in background
         currentDailyGain = dailyScore;
-        currentCumulativeScore = (lastKnownCumulative + currentDailyGain).clamp(0.0, double.infinity);
+        
+        // Get base cumulative score (without today's previous live gain)
+        // If previous state had a live score, we need to subtract it to get the base
+        double baseCumulativeScore;
+        if (hasPreviousLiveScore && lastKnownGain > 0) {
+          // Previous cumulative includes today's gain, subtract it to get base
+          baseCumulativeScore = (lastKnownCumulative - lastKnownGain).clamp(0.0, double.infinity);
+        } else {
+          // Previous cumulative is the base (no live score was added)
+          baseCumulativeScore = lastKnownCumulative;
+        }
+        
+        // Now add the new daily gain to the base
+        currentCumulativeScore = (baseCumulativeScore + currentDailyGain).clamp(0.0, double.infinity);
       } else {
         // No progress today, use last known values
         currentCumulativeScore = lastKnownCumulative;
@@ -1973,16 +1987,27 @@ class _QueuePageState extends State<QueuePage> {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
+      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
       
       if (operationId != null && _optimisticOperations.containsKey(operationId)) {
-        // Revert to previous state by reloading from backend
         setState(() {
           _optimisticOperations.remove(operationId);
-          // Reload the specific instance from backend
-          if (instanceId != null) {
+          if (originalInstance != null) {
+            // Restore from original state
+            final index = _instances.indexWhere(
+              (inst) => inst.reference.id == instanceId
+            );
+            if (index != -1) {
+              _instances[index] = originalInstance;
+              _cachedBucketedItems = null;
+            }
+          } else if (instanceId != null) {
+            // Fallback to reloading from backend
             _revertOptimisticUpdate(instanceId);
           }
         });
+        // Recalculate progress with actual data
+        _calculateProgress(optimistic: false);
       }
     }
   }

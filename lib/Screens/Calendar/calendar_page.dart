@@ -237,6 +237,12 @@ class _CalendarPageState extends State<CalendarPage> {
   // Cached default duration for time logging (in minutes)
   int _defaultDurationMinutes = 10;
 
+  // Track optimistic operations for rollback
+  final Map<String, String> _optimisticOperations = {};
+  
+  // Cache optimistic instances for immediate display
+  final Map<String, ActivityInstanceRecord> _optimisticInstances = {};
+
   @override
   void initState() {
     super.initState();
@@ -249,10 +255,23 @@ class _CalendarPageState extends State<CalendarPage> {
       InstanceEvents.instanceUpdated,
       _handleInstanceUpdated,
     );
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceCreated,
+      _handleInstanceCreated,
+    );
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceDeleted,
+      _handleInstanceDeleted,
+    );
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
         _loadEvents();
       }
+    });
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      _handleRollback(param);
     });
   }
 
@@ -773,27 +792,111 @@ class _CalendarPageState extends State<CalendarPage> {
     _loadEvents();
   }
 
-  /// Handle instance updates - refresh calendar if the instance affects the selected date
-  void _handleInstanceUpdated(dynamic param) {
+  /// Handle instance creation - refresh calendar if the instance should appear in planned section
+  void _handleInstanceCreated(dynamic param) {
     if (!mounted) return;
     
-    // Handle both optimistic and reconciled updates
+    // Handle both optimistic and reconciled instance creation
     ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
     } else if (param is ActivityInstanceRecord) {
       // Backward compatibility: handle old format
       instance = param;
     } else {
       return;
     }
+    
     final selectedDateOnly = DateTime(
       _selectedDate.year,
       _selectedDate.month,
       _selectedDate.day,
     );
 
-    // Check if instance has time logs on the selected date
+    // Check if new instance should appear in planned section on selected date
+    bool shouldRefresh = false;
+
+    // Check if instance is due on the selected date and has a due time
+    // (planned events require both dueDate and dueTime)
+    if (instance.dueDate != null && instance.dueTime != null && instance.dueTime!.isNotEmpty) {
+      final dueDateOnly = DateTime(
+        instance.dueDate!.year,
+        instance.dueDate!.month,
+        instance.dueDate!.day,
+      );
+      if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        // Instance is due on selected date and has a time - should appear in planned section
+        shouldRefresh = true;
+      }
+    }
+
+    // Also check if instance belongs to the selected date (for habits)
+    if (instance.belongsToDate != null) {
+      final belongsToDateOnly = DateTime(
+        instance.belongsToDate!.year,
+        instance.belongsToDate!.month,
+        instance.belongsToDate!.day,
+      );
+      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly) && 
+          instance.dueTime != null && instance.dueTime!.isNotEmpty) {
+        shouldRefresh = true;
+      }
+    }
+
+    // Handle optimistic updates immediately, reconciled updates trigger refresh
+    if (isOptimistic) {
+      // Track optimistic operation
+      if (operationId != null) {
+        _optimisticOperations[operationId] = instance.reference.id;
+      }
+      // Refresh immediately for optimistic updates to show instant UI changes
+      if (shouldRefresh) {
+        _loadEvents();
+      }
+    } else {
+      // Reconciled update - remove from optimistic tracking
+      if (operationId != null) {
+        _optimisticOperations.remove(operationId);
+      }
+      // Refresh if instance affects current view
+      if (shouldRefresh) {
+        _loadEvents();
+      }
+    }
+  }
+
+  /// Handle instance updates - refresh calendar if the instance affects the selected date
+  void _handleInstanceUpdated(dynamic param) {
+    if (!mounted) return;
+    
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+
+    // Check if instance affects the selected date
     bool shouldRefresh = false;
 
     // Check if instance has timeLogSessions on the selected date
@@ -825,9 +928,112 @@ class _CalendarPageState extends State<CalendarPage> {
       }
     }
 
-    // Refresh if the instance affects the selected date
+    // Handle optimistic updates immediately, reconciled updates trigger refresh
+    if (isOptimistic) {
+      // Track optimistic operation
+      if (operationId != null) {
+        _optimisticOperations[operationId] = instance.reference.id;
+      }
+      // Refresh immediately for optimistic updates to show instant UI changes
+      if (shouldRefresh) {
+        _loadEvents();
+      }
+    } else {
+      // Reconciled update - remove from optimistic tracking
+      if (operationId != null) {
+        _optimisticOperations.remove(operationId);
+      }
+      // Refresh if instance affects current view
+      if (shouldRefresh) {
+        _loadEvents();
+      }
+    }
+  }
+  
+  void _handleInstanceDeleted(dynamic param) {
+    if (!mounted) return;
+    
+    // Handle instance deletion
+    ActivityInstanceRecord instance;
+    if (param is ActivityInstanceRecord) {
+      instance = param;
+    } else {
+      return;
+    }
+    
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+
+    // Check if deleted instance affected the selected date
+    bool shouldRefresh = false;
+
+    // Check if instance was in planned section (dueDate + dueTime on selected date)
+    if (instance.dueDate != null && instance.dueTime != null && instance.dueTime!.isNotEmpty) {
+      final dueDateOnly = DateTime(
+        instance.dueDate!.year,
+        instance.dueDate!.month,
+        instance.dueDate!.day,
+      );
+      if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        // Instance was in planned section - needs refresh
+        shouldRefresh = true;
+      }
+    }
+
+    // Check if instance had timeLogSessions on the selected date
+    if (instance.timeLogSessions.isNotEmpty) {
+      for (final session in instance.timeLogSessions) {
+        final sessionStart = session['startTime'] as DateTime;
+        final sessionDate = DateTime(
+          sessionStart.year,
+          sessionStart.month,
+          sessionStart.day,
+        );
+        if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
+          shouldRefresh = true;
+          break;
+        }
+      }
+    }
+
+    // Also refresh if instance belonged to the selected date (for habits and tasks)
+    if (instance.belongsToDate != null) {
+      final belongsToDateOnly = DateTime(
+        instance.belongsToDate!.year,
+        instance.belongsToDate!.month,
+        instance.belongsToDate!.day,
+      );
+      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        shouldRefresh = true;
+      }
+    }
+
+    // Refresh if the deleted instance affected the selected date
     if (shouldRefresh) {
       _loadEvents();
+    }
+  }
+  
+  void _handleRollback(dynamic param) {
+    if (!mounted) return;
+    if (param is Map) {
+      final operationId = param['operationId'] as String?;
+      final instanceId = param['instanceId'] as String?;
+      
+      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+        setState(() {
+          _optimisticOperations.remove(operationId);
+          // Remove from optimistic cache on rollback
+          if (instanceId != null) {
+            _optimisticInstances.remove(instanceId);
+          }
+        });
+        // Reload events to restore correct state
+        _loadEvents();
+      }
     }
   }
 
@@ -1178,7 +1384,35 @@ class _CalendarPageState extends State<CalendarPage> {
     print('  - _sortedCompletedEvents: ${_sortedCompletedEvents.length}');
 
     // Planned items were already fetched in the batch query above
-    final plannedItems = queueItems['planned'] ?? [];
+    final plannedItems = List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
+    
+    // Merge optimistic instances that should appear in planned section
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+    for (final optimisticInstance in _optimisticInstances.values) {
+      // Check if optimistic instance should appear in planned section
+      if (optimisticInstance.dueDate != null && 
+          optimisticInstance.dueTime != null && 
+          optimisticInstance.dueTime!.isNotEmpty) {
+        final dueDateOnly = DateTime(
+          optimisticInstance.dueDate!.year,
+          optimisticInstance.dueDate!.month,
+          optimisticInstance.dueDate!.day,
+        );
+        if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+          // Add to planned items if not already present (by instance ID)
+          final exists = plannedItems.any(
+            (item) => item.reference.id == optimisticInstance.reference.id
+          );
+          if (!exists) {
+            plannedItems.add(optimisticInstance);
+          }
+        }
+      }
+    }
 
     // Process planned items
     // Filter to only include items with a dueTime (only items with due times should appear in planned section)

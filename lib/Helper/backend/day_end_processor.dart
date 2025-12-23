@@ -7,6 +7,8 @@ import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/utils/score_bonus_toast_service.dart';
 import 'package:habit_tracker/Helper/utils/milestone_toast_service.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
@@ -16,14 +18,22 @@ class DayEndProcessor {
   /// Process day-end for a specific user
   /// [closeInstances] - If true, marks expired habit instances as skipped (requires user confirmation)
   /// Set to false to disable automatic status changes (automatic processing is disabled)
+  /// [ensureInstances] - If true, ensures all active habits have pending instances (default true)
   static Future<void> processDayEnd({
     required String userId,
     DateTime? targetDate,
     bool closeInstances = false,
+    bool ensureInstances = true,
   }) async {
     // Use targetDate if provided, otherwise use yesterday's date
     final processDate = targetDate ?? DateService.yesterdayStart;
     try {
+      // Step 0: Ensure all active habits have pending instances (if enabled)
+      // This should always run as part of day-end processing
+      if (ensureInstances) {
+        await ensurePendingInstancesExist(userId);
+      }
+      
       // Step 1: Update lastDayValue for active windowed habits
       await _updateLastDayValues(userId, processDate);
       // Step 2: Create daily progress record BEFORE closing instances
@@ -38,6 +48,12 @@ class DayEndProcessor {
     } catch (e) {
       rethrow;
     }
+  }
+
+  /// Update lastDayValue for active windowed habits without creating daily progress record
+  /// Used when there are pending items and finalization should be deferred to the dialog
+  static Future<void> updateLastDayValuesOnly(String userId, DateTime targetDate) async {
+    await _updateLastDayValues(userId, targetDate);
   }
 
   /// Update lastDayValue for active windowed habits at day-end
@@ -497,5 +513,193 @@ class DayEndProcessor {
   static bool isWithinGracePeriod() {
     // Grace handling is no longer needed
     return false;
+  }
+
+  /// Ensure all active habits have at least one pending instance
+  /// This handles cases where instance generation failed or instances are missing
+  /// Also fixes stuck instances where completed instances from the past don't have subsequent instances
+  /// This is part of day-end processing and should always run
+  static Future<void> ensurePendingInstancesExist(String userId) async {
+    try {
+      // Get all active habit templates
+      final habitsQuery = ActivityRecord.collectionForUser(userId)
+          .where('categoryType', isEqualTo: 'habit')
+          .where('isActive', isEqualTo: true);
+      final habitsSnapshot = await habitsQuery.get();
+      final activeHabits = habitsSnapshot.docs
+          .map((doc) => ActivityRecord.fromSnapshot(doc))
+          .toList();
+
+      final today = DateService.todayStart;
+
+      for (final habit in activeHabits) {
+        // Check if there's at least one pending instance for this habit
+        final pendingQuery = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateId', isEqualTo: habit.reference.id)
+            .where('status', isEqualTo: 'pending')
+            .limit(50); // Get more to filter client-side
+        final pendingSnapshot = await pendingQuery.get();
+        final pendingInstances = pendingSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+
+        // Check if there's already a pending instance for today or future dates
+        final todayOrFuturePending = pendingInstances.where((inst) {
+          if (inst.belongsToDate != null) {
+            final belongsToDateOnly = DateTime(
+              inst.belongsToDate!.year,
+              inst.belongsToDate!.month,
+              inst.belongsToDate!.day,
+            );
+            return belongsToDateOnly.isAtSameMomentAs(today) ||
+                belongsToDateOnly.isAfter(today);
+          }
+          // Also check windowEndDate
+          if (inst.windowEndDate != null) {
+            final windowEndDateOnly = DateTime(
+              inst.windowEndDate!.year,
+              inst.windowEndDate!.month,
+              inst.windowEndDate!.day,
+            );
+            return windowEndDateOnly.isAtSameMomentAs(today) ||
+                windowEndDateOnly.isAfter(today);
+          }
+          return false;
+        }).toList();
+
+        // If there's already a pending instance for today or future, skip creation
+        if (todayOrFuturePending.isNotEmpty) {
+          // Clean up duplicate past pending instances if found
+          final pastPendingInstances = pendingInstances.where((inst) {
+            if (inst.belongsToDate != null) {
+              final belongsToDateOnly = DateTime(
+                inst.belongsToDate!.year,
+                inst.belongsToDate!.month,
+                inst.belongsToDate!.day,
+              );
+              return belongsToDateOnly.isBefore(today);
+            }
+            if (inst.windowEndDate != null) {
+              final windowEndDateOnly = DateTime(
+                inst.windowEndDate!.year,
+                inst.windowEndDate!.month,
+                inst.windowEndDate!.day,
+              );
+              return windowEndDateOnly.isBefore(today);
+            }
+            return false;
+          }).toList();
+
+          // Skip past pending instances that should have been auto-skipped
+          for (final pastInstance in pastPendingInstances) {
+            try {
+              final yesterday = DateService.yesterdayStart;
+              final windowEndDate = pastInstance.windowEndDate;
+              if (windowEndDate != null) {
+                final windowEndDateOnly = DateTime(
+                  windowEndDate.year,
+                  windowEndDate.month,
+                  windowEndDate.day,
+                );
+                if (windowEndDateOnly.isBefore(yesterday)) {
+                  // Past instance that should be skipped
+                  await ActivityInstanceService.skipInstance(
+                    instanceId: pastInstance.reference.id,
+                    skippedAt: windowEndDateOnly,
+                  );
+                }
+              }
+            } catch (e) {
+              // Error cleaning up past instance
+            }
+          }
+          continue; // Skip creating new instance
+        }
+
+        // No pending instance for today/future found - need to generate one
+
+        // Find the most recent instance (completed or skipped) to generate from
+        final allInstancesQuery =
+            ActivityInstanceRecord.collectionForUser(userId)
+                .where('templateId', isEqualTo: habit.reference.id);
+        final allInstancesSnapshot = await allInstancesQuery.get();
+        final allInstances = allInstancesSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+
+        if (allInstances.isNotEmpty) {
+          // Sort by windowEndDate descending to get the most recent
+          allInstances.sort((a, b) {
+            if (a.windowEndDate == null && b.windowEndDate == null) return 0;
+            if (a.windowEndDate == null) return 1;
+            if (b.windowEndDate == null) return -1;
+            return b.windowEndDate!.compareTo(a.windowEndDate!);
+          });
+          final mostRecentInstance = allInstances.first;
+
+          // Only generate if the most recent instance has a windowEndDate
+          if (mostRecentInstance.windowEndDate != null) {
+            try {
+              final windowEndDate = mostRecentInstance.windowEndDate!;
+              final windowEndDateOnly = DateTime(
+                windowEndDate.year,
+                windowEndDate.month,
+                windowEndDate.day,
+              );
+              final yesterday = DateService.yesterdayStart;
+
+              // If the window ended before yesterday, use bulk skip to fill the gap
+              if (windowEndDateOnly.isBefore(yesterday)) {
+                // Get template for bulk skip
+                final templateRef = ActivityRecord.collectionForUser(userId)
+                    .doc(habit.reference.id);
+                final template =
+                    await ActivityRecord.getDocumentOnce(templateRef);
+
+                // Use bulk skip to efficiently fill gap up to yesterday
+                await ActivityInstanceService.bulkSkipExpiredInstancesWithBatches(
+                  oldestInstance: mostRecentInstance,
+                  template: template,
+                  userId: userId,
+                );
+                // Instance generated via bulk skip
+              } else {
+                // Window ended recently, just generate next instance normally
+                await ActivityInstanceService.skipInstance(
+                  instanceId: mostRecentInstance.reference.id,
+                  skippedAt: windowEndDate,
+                );
+              }
+            } catch (e) {
+              // Error generating instance for habit
+            }
+          } else {
+            // No windowEndDate - create initial instance
+            try {
+              await ActivityInstanceService.createActivityInstance(
+                templateId: habit.reference.id,
+                template: habit,
+                userId: userId,
+              );
+            } catch (e) {
+              // Error creating initial instance for habit
+            }
+          }
+        } else {
+          // No instances at all - create initial instance
+          try {
+            await ActivityInstanceService.createActivityInstance(
+              templateId: habit.reference.id,
+              template: habit,
+              userId: userId,
+            );
+          } catch (e) {
+            // Error creating initial instance for habit
+          }
+        }
+      }
+    } catch (e) {
+      // Error ensuring pending instances exist
+    }
   }
 }

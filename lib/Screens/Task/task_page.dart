@@ -1272,6 +1272,13 @@ class _TaskPageState extends State<TaskPage> {
         ),
       ));
     }
+    // Add bottom padding to allow content to scroll past bottom FABs
+    // FAB height (56px) + bottom position (16px) + FloatingTimer space + extra padding
+    widgets.add(
+      SliverPadding(
+        padding: const EdgeInsets.only(bottom: 120),
+      ),
+    );
     // Recent Completions will be handled via buckets like other sections
     return widgets;
   }
@@ -2273,13 +2280,22 @@ class _TaskPageState extends State<TaskPage> {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
+      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
       
       if (operationId != null && _optimisticOperations.containsKey(operationId)) {
-        // Revert to previous state by reloading from backend
         setState(() {
           _optimisticOperations.remove(operationId);
-          // Reload the specific instance from backend
-          if (instanceId != null) {
+          if (originalInstance != null) {
+            // Restore from original state
+            final index = _taskInstances.indexWhere(
+              (inst) => inst.reference.id == instanceId
+            );
+            if (index != -1) {
+              _taskInstances[index] = originalInstance;
+              _cachedBucketedItems = null;
+            }
+          } else if (instanceId != null) {
+            // Fallback to reloading from backend
             _revertOptimisticUpdate(instanceId);
           }
         });

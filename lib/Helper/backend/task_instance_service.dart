@@ -13,6 +13,7 @@ import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/time_validation_helper.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/optimistic_operation_tracker.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -125,7 +126,7 @@ class TaskInstanceService {
         throw Exception('Task instance not found');
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      
+
       // Check if this is a habit - habits should use ActivityInstanceService completion logic
       // which handles next instance generation correctly
       if (instance.templateCategoryType == 'habit') {
@@ -139,71 +140,105 @@ class TaskInstanceService {
         );
         return; // Exit early - habit completion handled
       }
-      
+
       // For tasks, proceed with task completion logic
       final now = DateTime.now();
-      // Update current instance as completed
-      await instanceRef.update({
-        'status': 'completed',
-        'completedAt': now,
-        'currentValue': finalValue,
-        'accumulatedTime': finalAccumulatedTime ?? instance.accumulatedTime,
-        'notes': notes ?? instance.notes,
-        'lastUpdated': now,
-      });
 
-      // Broadcast the instance update event for real-time UI updates
-      final updatedInstance =
-          await ActivityInstanceRecord.getDocumentOnce(instanceRef);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance =
+          InstanceEvents.createOptimisticCompletedInstance(
+        instance,
+        finalValue: finalValue,
+        finalAccumulatedTime: finalAccumulatedTime ?? instance.accumulatedTime,
+        completedAt: now,
+      );
 
-      // Get the template to check if it's recurring
-      final templateRef =
-          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-      final templateDoc = await templateRef.get();
-      if (templateDoc.exists) {
-        final template = ActivityRecord.fromSnapshot(templateDoc);
-        // Generate next instance if task is recurring and still active
-        if (template.isRecurring &&
-            template.isActive &&
-            template.frequencyType.isNotEmpty &&
-            instance.dueDate != null) {
-          final nextDueDate = _calculateNextDueDate(
-            currentDueDate: instance.dueDate!,
-            frequencyType: template.frequencyType,
-            everyXValue: template.everyXValue,
-            everyXPeriodType: template.everyXPeriodType,
-            timesPerPeriod: template.timesPerPeriod,
-            periodType: template.periodType,
-            specificDays: template.specificDays,
-          );
-          if (nextDueDate != null) {
-            await createTaskInstance(
-              templateId: instance.templateId,
-              dueDate: nextDueDate,
-              template: template,
-              userId: uid,
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'complete',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
+
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+          optimisticInstance, operationId);
+
+      // 5. Perform backend update
+      try {
+        await instanceRef.update({
+          'status': 'completed',
+          'completedAt': now,
+          'currentValue': finalValue,
+          'accumulatedTime': finalAccumulatedTime ?? instance.accumulatedTime,
+          'notes': notes ?? instance.notes,
+          'lastUpdated': now,
+        });
+
+        // 6. Reconcile with actual data
+        final updatedInstance =
+            await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+        OptimisticOperationTracker.reconcileOperation(
+            operationId, updatedInstance);
+
+        // Get the template to check if it's recurring
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+        final templateDoc = await templateRef.get();
+        if (templateDoc.exists) {
+          final template = ActivityRecord.fromSnapshot(templateDoc);
+          // Generate next instance if task is recurring and still active
+          if (template.isRecurring &&
+              template.isActive &&
+              template.frequencyType.isNotEmpty &&
+              instance.dueDate != null) {
+            final nextDueDate = _calculateNextDueDate(
+              currentDueDate: instance.dueDate!,
+              frequencyType: template.frequencyType,
+              everyXValue: template.everyXValue,
+              everyXPeriodType: template.everyXPeriodType,
+              timesPerPeriod: template.timesPerPeriod,
+              periodType: template.periodType,
+              specificDays: template.specificDays,
             );
-            // Also update the template with the next due date
-            await _updateTemplateDueDate(
-              templateRef: templateRef,
-              dueDate: nextDueDate,
-            );
-          } else {
-            // No more occurrences, clear dueDate on template
-            await _updateTemplateDueDate(
-              templateRef: templateRef,
-              dueDate: null,
-            );
+            if (nextDueDate != null) {
+              await createTaskInstance(
+                templateId: instance.templateId,
+                dueDate: nextDueDate,
+                template: template,
+                userId: uid,
+              );
+              // Also update the template with the next due date
+              await _updateTemplateDueDate(
+                templateRef: templateRef,
+                dueDate: nextDueDate,
+              );
+            } else {
+              // No more occurrences, clear dueDate on template
+              await _updateTemplateDueDate(
+                templateRef: templateRef,
+                dueDate: null,
+              );
+            }
+          } else if (!template.isRecurring) {
+            // Mark one-time task template as inactive after completion
+            await templateRef.update({
+              'isActive': false,
+              'status': 'complete',
+              'lastUpdated': now,
+            });
           }
-        } else if (!template.isRecurring) {
-          // Mark one-time task template as inactive after completion
-          await templateRef.update({
-            'isActive': false,
-            'status': 'complete',
-            'lastUpdated': now,
-          });
         }
+      } catch (e) {
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
     } catch (e) {
       rethrow;
@@ -1240,7 +1275,8 @@ class TaskInstanceService {
             if (startDate != null && sessionStart.isBefore(startDate))
               return false;
             // endDate is exclusive (start of next day), so exclude sessions at or after endDate
-            if (endDate != null && !sessionStart.isBefore(endDate)) return false;
+            if (endDate != null && !sessionStart.isBefore(endDate))
+              return false;
             return true;
           });
         }).toList();
@@ -1277,7 +1313,8 @@ class TaskInstanceService {
             if (startDate != null && sessionStart.isBefore(startDate))
               return false;
             // endDate is exclusive (start of next day), so exclude sessions at or after endDate
-            if (endDate != null && !sessionStart.isBefore(endDate)) return false;
+            if (endDate != null && !sessionStart.isBefore(endDate))
+              return false;
             return true;
           });
         }).toList();
@@ -1437,6 +1474,33 @@ class TaskInstanceService {
           final currentTotalLogged = existingInstance.totalTimeLogged;
           final newTotalLogged = currentTotalLogged + totalTime;
 
+          // ==================== OPTIMISTIC BROADCAST ====================
+          // 1. Create optimistic instance
+          final optimisticInstance =
+              InstanceEvents.createOptimisticProgressInstance(
+            existingInstance,
+            accumulatedTime: newTotalLogged,
+            currentValue: newTotalLogged,
+            timeLogSessions: currentSessions,
+            totalTimeLogged: newTotalLogged,
+          );
+
+          // 2. Generate operation ID
+          final operationId = OptimisticOperationTracker.generateOperationId();
+
+          // 3. Track operation
+          OptimisticOperationTracker.trackOperation(
+            operationId,
+            instanceId: existingInstance.reference.id,
+            operationType: 'progress',
+            optimisticInstance: optimisticInstance,
+            originalInstance: existingInstance,
+          );
+
+          // 4. Broadcast optimistically (IMMEDIATE)
+          InstanceEvents.broadcastInstanceUpdatedOptimistic(
+              optimisticInstance, operationId);
+
           // Prepare update data
           final updateData = <String, dynamic>{
             'timeLogSessions': currentSessions,
@@ -1457,10 +1521,11 @@ class TaskInstanceService {
           try {
             await targetInstanceRef.update(updateData);
 
-            // Broadcast the instance update event for real-time UI updates
+            // 5. Reconcile with actual data
             final updatedInstance =
                 await ActivityInstanceRecord.getDocumentOnce(targetInstanceRef);
-            InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+            OptimisticOperationTracker.reconcileOperation(
+                operationId, updatedInstance);
 
             // Handle auto-completion for time-target tasks/habits
             // Check if adding this time log now meets or exceeds the target
@@ -1486,7 +1551,8 @@ class TaskInstanceService {
 
             return; // Done
           } catch (e) {
-            // Error updating instance
+            // 6. Rollback on error
+            OptimisticOperationTracker.rollbackOperation(operationId);
             rethrow; // Re-throw to surface the error
           }
         }
@@ -1695,45 +1761,79 @@ class TaskInstanceService {
       final totalTime = sessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
 
-      // Update the instance
-      await instanceRef.update({
-        'timeLogSessions': sessions,
-        'totalTimeLogged': totalTime,
-        'accumulatedTime': totalTime,
-        'currentValue': totalTime,
-        'lastUpdated': DateTime.now(),
-      });
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance =
+          InstanceEvents.createOptimisticProgressInstance(
+        instance,
+        accumulatedTime: totalTime,
+        currentValue: totalTime,
+        timeLogSessions: sessions,
+        totalTimeLogged: totalTime,
+      );
 
-      // Broadcast the instance update event immediately for time changes
-      final updatedInstance =
-          await ActivityInstanceRecord.getDocumentOnce(instanceRef);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
 
-      // Handle auto-completion/uncompletion for time-target tasks/habits
-      if (instance.templateTrackingType == 'time' &&
-          instance.templateTarget != null) {
-        final target = instance.templateTarget;
-        if (target is num && target > 0) {
-          final targetMs =
-              (target.toInt()) * 60000; // Convert minutes to milliseconds
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'progress',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
 
-          // Auto-complete if not completed and time meets/exceeds target
-          if (instance.status != 'completed' && totalTime >= targetMs) {
-            await completeTaskInstance(
-              instanceId: instanceId,
-              finalValue: totalTime,
-              finalAccumulatedTime: totalTime,
-              userId: uid,
-            );
-          }
-          // Auto-uncomplete if completed but time is now below target
-          else if (instance.status == 'completed' && totalTime < targetMs) {
-            await ActivityInstanceService.uncompleteInstance(
-              instanceId: instanceId,
-              userId: uid,
-            );
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+          optimisticInstance, operationId);
+
+      // 5. Perform backend update
+      try {
+        await instanceRef.update({
+          'timeLogSessions': sessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': totalTime,
+          'lastUpdated': DateTime.now(),
+        });
+
+        // 6. Reconcile with actual data
+        final updatedInstance =
+            await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+        OptimisticOperationTracker.reconcileOperation(
+            operationId, updatedInstance);
+
+        // Handle auto-completion/uncompletion for time-target tasks/habits
+        if (instance.templateTrackingType == 'time' &&
+            instance.templateTarget != null) {
+          final target = instance.templateTarget;
+          if (target is num && target > 0) {
+            final targetMs =
+                (target.toInt()) * 60000; // Convert minutes to milliseconds
+
+            // Auto-complete if not completed and time meets/exceeds target
+            if (instance.status != 'completed' && totalTime >= targetMs) {
+              await completeTaskInstance(
+                instanceId: instanceId,
+                finalValue: totalTime,
+                finalAccumulatedTime: totalTime,
+                userId: uid,
+              );
+            }
+            // Auto-uncomplete if completed but time is now below target
+            else if (instance.status == 'completed' && totalTime < targetMs) {
+              await ActivityInstanceService.uncompleteInstance(
+                instanceId: instanceId,
+                userId: uid,
+              );
+            }
           }
         }
+      } catch (e) {
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
     } catch (e) {
       rethrow;

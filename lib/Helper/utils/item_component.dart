@@ -1724,13 +1724,6 @@ class _ItemComponentState extends State<ItemComponent>
       // Set optimistic state immediately for local UI
       setState(() => _quantProgressOverride = newValue.toInt());
       
-      // Create optimistic instance for callback
-      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
-        widget.instance,
-        currentValue: newValue,
-      );
-      widget.onInstanceUpdated?.call(optimisticInstance);
-      
       // Service method will broadcast optimistically
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
@@ -1801,23 +1794,6 @@ class _ItemComponentState extends State<ItemComponent>
       });
     }
     
-    // ==================== OPTIMISTIC UPDATE ====================
-    // Create optimistic instance for immediate local UI update
-    ActivityInstanceRecord? optimisticInstance;
-    if (completed) {
-      optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
-        widget.instance,
-        finalValue: 1, // For binary habits
-      );
-    } else {
-      optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(
-        widget.instance,
-      );
-    }
-    
-    // Update local UI immediately with optimistic state
-    widget.onInstanceUpdated?.call(optimisticInstance);
-    
     try {
       if (completed) {
         // NEW: For binary habits, set currentValue to 1 (counter)
@@ -1879,14 +1855,6 @@ class _ItemComponentState extends State<ItemComponent>
       final newTimerState = !wasActive;
       // Set optimistic state immediately for local UI
       setState(() => _timerStateOverride = newTimerState);
-      
-      // Create optimistic instance for callback
-      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
-        widget.instance,
-        isTimerActive: newTimerState,
-        timerStartTime: newTimerState ? DateTime.now() : null,
-      );
-      widget.onInstanceUpdated?.call(optimisticInstance);
       
       // Service method will broadcast optimistically
       await ActivityInstanceService.toggleInstanceTimer(
@@ -2163,29 +2131,22 @@ class _ItemComponentState extends State<ItemComponent>
       // Get current instance to check status
       final instance = widget.instance;
       
-      // ==================== OPTIMISTIC UPDATE ====================
-      // Create optimistic instance for immediate local UI update
-      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
-        instance,
-        accumulatedTime: 0,
-        isTimerActive: false,
-        timerStartTime: null,
-      );
-      widget.onInstanceUpdated?.call(optimisticInstance);
-      
-      // Reset timer by updating the instance directly
+      // Reset timer - use direct update for now since updateInstanceProgress
+      // doesn't handle timer-specific fields. The uncompleteInstance call below
+      // will handle optimistic broadcast if needed.
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
               .doc(widget.instance.reference.id);
       await instanceRef.update({
         'accumulatedTime': 0,
-        'totalTimeLogged': 0, // Reset cumulative session time for progress bar
+        'totalTimeLogged': 0,
         'timeLogSessions': [],
         'currentSessionStartTime': null,
         'isTimerActive': false,
         'timerStartTime': null,
         'lastUpdated': DateTime.now(),
       });
+      
       // If the item was completed or skipped based on timer, uncomplete it
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if timer was the only progress (for time-based tracking)
@@ -2198,13 +2159,6 @@ class _ItemComponentState extends State<ItemComponent>
           );
         }
       }
-      // Get the updated instance data for final callback
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast update (reconciliation)
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Timer reset to 0')),
@@ -2238,22 +2192,12 @@ class _ItemComponentState extends State<ItemComponent>
       // Get current instance to check status
       final instance = widget.instance;
       
-      // ==================== OPTIMISTIC UPDATE ====================
-      // Create optimistic instance for immediate local UI update
-      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
-        instance,
+      // Reset quantity using service method (will broadcast optimistically)
+      await ActivityInstanceService.updateInstanceProgress(
+        instanceId: widget.instance.reference.id,
         currentValue: 0,
       );
-      widget.onInstanceUpdated?.call(optimisticInstance);
       
-      // Reset quantity by updating the instance directly
-      final instanceRef =
-          ActivityInstanceRecord.collectionForUser(currentUserUid)
-              .doc(widget.instance.reference.id);
-      await instanceRef.update({
-        'currentValue': 0,
-        'lastUpdated': DateTime.now(),
-      });
       // If the item was completed or skipped based on quantity, uncomplete it
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if quantity was the only progress (for quantitative tracking)
@@ -2263,8 +2207,7 @@ class _ItemComponentState extends State<ItemComponent>
           if (instance.timeLogSessions.isNotEmpty) {
             final userChoice = await _showUncompleteDialog();
             if (userChoice == null || userChoice == 'cancel') {
-              // User cancelled, abort uncomplete - revert optimistic state
-              widget.onInstanceUpdated?.call(widget.instance);
+              // User cancelled, abort uncomplete
               if (mounted) {
                 setState(() {
                   _isUpdating = false;
@@ -2282,14 +2225,6 @@ class _ItemComponentState extends State<ItemComponent>
           );
         }
       }
-      // Get the updated instance data for final callback
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      // Call the instance update callback for real-time updates
-      widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast update (reconciliation)
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Quantity reset to 0')),
@@ -2423,21 +2358,13 @@ class _ItemComponentState extends State<ItemComponent>
       });
 
       // Step 6: Complete with the determined accumulated time
+      // completeInstance will broadcast optimistically
       await ActivityInstanceService.completeInstance(
         instanceId: widget.instance.reference.id,
         finalValue:
             newAccumulatedTime, // Ensure currentValue matches accumulatedTime
         finalAccumulatedTime: newAccumulatedTime,
       );
-
-      // Get the final updated instance data
-      final finalInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      // Call the instance update callback for real-time updates
-      widget.onInstanceUpdated?.call(finalInstance);
-      // Broadcast the instance update event
-      InstanceEvents.broadcastInstanceUpdated(finalInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(

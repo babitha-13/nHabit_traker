@@ -147,6 +147,8 @@ class InstanceEvents {
     int? accumulatedTime,
     bool? isTimerActive,
     DateTime? timerStartTime,
+    List<Map<String, dynamic>>? timeLogSessions,
+    int? totalTimeLogged,
   }) {
     final updatedData = Map<String, dynamic>.from(original.snapshotData);
     final now = DateService.currentDate;
@@ -165,6 +167,12 @@ class InstanceEvents {
     }
     if (timerStartTime != null) {
       updatedData['timerStartTime'] = timerStartTime;
+    }
+    if (timeLogSessions != null) {
+      updatedData['timeLogSessions'] = timeLogSessions;
+    }
+    if (totalTimeLogged != null) {
+      updatedData['totalTimeLogged'] = totalTimeLogged;
     }
     
     // Check if target is met and should auto-complete
@@ -278,6 +286,27 @@ class InstanceEvents {
     final now = DateService.currentDate;
     
     updatedData['snoozedUntil'] = null;
+    updatedData['lastUpdated'] = now;
+    
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+    
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for general property updates (name, dueTime, dueDate, etc.)
+  static ActivityInstanceRecord createOptimisticPropertyUpdateInstance(
+    ActivityInstanceRecord original,
+    Map<String, dynamic> propertyUpdates,
+  ) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+    
+    // Apply all property updates
+    updatedData.addAll(propertyUpdates);
     updatedData['lastUpdated'] = now;
     
     // Mark as optimistic

@@ -30,6 +30,7 @@ import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/global_floating_timer.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -134,6 +135,15 @@ class _HomeState extends State<Home> {
                   ),
             ),
             actions: [
+              // Catch-up button - always visible
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: IconButton(
+                  icon: const Icon(Icons.history, color: Colors.white),
+                  onPressed: showCatchUpDialogManually,
+                  tooltip: 'Morning Catch-Up',
+                ),
+              ),
               // Goals button - always visible
               Padding(
                 padding: const EdgeInsets.only(right: 8.0),
@@ -354,19 +364,6 @@ class _HomeState extends State<Home> {
                 ),
                 // Global floating timer - appears on all pages when timers are active
                 const GlobalFloatingTimer(),
-                // DEBUG: FAB for testing catch-up dialog (remove after testing)
-                // Positioned above search FAB (which will be at bottom-left)
-                Positioned(
-                  left: 16,
-                  bottom:
-                      80, // Above search FAB (56px FAB + 16px spacing + 8px)
-                  child: FloatingActionButton(
-                    onPressed: showCatchUpDialogManually,
-                    backgroundColor: FlutterFlowTheme.of(context).primary,
-                    child: const Icon(Icons.history, color: Colors.white),
-                    tooltip: 'Test Catch-Up Dialog',
-                  ),
-                ),
               ],
             ),
           ),
@@ -544,8 +541,46 @@ class _HomeState extends State<Home> {
       if (userId == null || userId.isEmpty) {
         return;
       }
-      // Check if morning catch-up dialog should be shown
-      // Now uses optimized batch writes to handle expired instances efficiently
+      
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      
+      // Check if we need to process end-of-day activities
+      // This should run after midnight (12 AM) when a new day starts
+      final prefs = await SharedPreferences.getInstance();
+      final lastProcessedDateString = prefs.getString('last_end_of_day_processed');
+      DateTime? lastProcessedDate;
+      if (lastProcessedDateString != null) {
+        lastProcessedDate = DateTime.parse(lastProcessedDateString);
+        final lastProcessedDateOnly = DateTime(
+          lastProcessedDate.year,
+          lastProcessedDate.month,
+          lastProcessedDate.day,
+        );
+        
+        // If we've already processed today, skip
+        if (lastProcessedDateOnly.isAtSameMomentAs(today)) {
+          // Already processed today - just check if dialog should show
+          final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+          if (shouldShow && mounted) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => const MorningCatchUpDialog(),
+            );
+          }
+          return;
+        }
+      }
+      
+      // It's a new day (or first time) - process end-of-day activities
+      // This runs even if there are no pending items
+      await MorningCatchUpService.processEndOfDayActivities(userId);
+      
+      // Mark as processed for today
+      await prefs.setString('last_end_of_day_processed', today.toIso8601String());
+      
+      // Now check if dialog should show (for pending items)
       final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
       if (shouldShow && mounted) {
         showDialog(

@@ -613,16 +613,25 @@ class _WeeklyViewState extends State<WeeklyView> {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
+      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
       
       if (operationId != null && _optimisticOperations.containsKey(operationId)) {
-        // Revert to previous state by reloading from backend
         setState(() {
           _optimisticOperations.remove(operationId);
-          // Reload the specific instance from backend
-          if (instanceId != null) {
+          if (originalInstance != null) {
+            // Restore from original state
+            final index = _instances.indexWhere(
+              (inst) => inst.reference.id == instanceId
+            );
+            if (index != -1) {
+              _instances[index] = originalInstance;
+            }
+          } else if (instanceId != null) {
+            // Fallback to reloading from backend
             _revertOptimisticUpdate(instanceId);
           }
         });
+        _calculateWeeklyProgress();
       }
     }
   }

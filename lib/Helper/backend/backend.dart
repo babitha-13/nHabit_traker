@@ -13,7 +13,6 @@ import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
@@ -593,7 +592,8 @@ Future<DocumentReference> createActivity({
   try {
     final activity = await ActivityRecord.getDocumentOnce(habitRef)
         .timeout(const Duration(seconds: 10));
-    final instanceRef = await ActivityInstanceService.createActivityInstance(
+    // Create instance (already broadcasts optimistically and reconciles)
+    await ActivityInstanceService.createActivityInstance(
       templateId: habitRef.id,
       dueDate: InstanceDateCalculator.calculateInitialDueDate(
         template: activity,
@@ -603,16 +603,6 @@ Future<DocumentReference> createActivity({
       template: activity,
       userId: uid,
     ).timeout(const Duration(seconds: 10));
-    // Get the created instance and broadcast the event
-    try {
-      final instance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instanceRef.id,
-      );
-      InstanceEvents.broadcastInstanceCreated(instance);
-    } catch (e) {
-      // Surface errors so callers can notify the user
-      rethrow;
-    }
   } catch (e) {
     // Surface instance creation errors so UI can display them
     rethrow;

@@ -11,6 +11,7 @@ import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/utils/score_bonus_toast_service.dart';
 import 'package:habit_tracker/Helper/utils/milestone_toast_service.dart';
+import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -488,197 +489,58 @@ class MorningCatchUpService {
     }
   }
 
-  /// Ensure all active habits have at least one pending instance
-  /// This handles cases where instance generation failed or instances are missing
-  /// Also fixes stuck instances where completed instances from the past don't have subsequent instances
+  /// Ensure all active habits have pending instances
+  /// Delegates to DayEndProcessor since this is part of day-end processing
   static Future<void> ensurePendingInstancesExist(String userId) async {
+    await DayEndProcessor.ensurePendingInstancesExist(userId);
+  }
+
+  /// Process all end-of-day activities for yesterday
+  /// This runs regardless of whether there are pending items to show in the dialog
+  /// Should be called after midnight (12 AM) when a new day starts
+  /// 
+  /// IMPORTANT: If there are pending items, finalization (daily progress record creation)
+  /// is deferred to the dialog, which will finalize AFTER user confirms item status.
+  static Future<void> processEndOfDayActivities(String userId) async {
     try {
-      // Get all active habit templates
-      final habitsQuery = ActivityRecord.collectionForUser(userId)
-          .where('categoryType', isEqualTo: 'habit')
-          .where('isActive', isEqualTo: true);
-      final habitsSnapshot = await habitsQuery.get();
-      final activeHabits = habitsSnapshot.docs
-          .map((doc) => ActivityRecord.fromSnapshot(doc))
-          .toList();
-
-      int instancesGenerated = 0;
-      final today = DateService.todayStart;
-
-      for (final habit in activeHabits) {
-        // Check if there's at least one pending instance for this habit
-        final pendingQuery = ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateId', isEqualTo: habit.reference.id)
-            .where('status', isEqualTo: 'pending')
-            .limit(50); // Get more to filter client-side
-        final pendingSnapshot = await pendingQuery.get();
-        final pendingInstances = pendingSnapshot.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .toList();
-
-        // Check if there's already a pending instance for today or future dates
-        final todayOrFuturePending = pendingInstances.where((inst) {
-          if (inst.belongsToDate != null) {
-            final belongsToDateOnly = DateTime(
-              inst.belongsToDate!.year,
-              inst.belongsToDate!.month,
-              inst.belongsToDate!.day,
-            );
-            return belongsToDateOnly.isAtSameMomentAs(today) ||
-                belongsToDateOnly.isAfter(today);
-          }
-          // Also check windowEndDate
-          if (inst.windowEndDate != null) {
-            final windowEndDateOnly = DateTime(
-              inst.windowEndDate!.year,
-              inst.windowEndDate!.month,
-              inst.windowEndDate!.day,
-            );
-            return windowEndDateOnly.isAtSameMomentAs(today) ||
-                windowEndDateOnly.isAfter(today);
-          }
-          return false;
-        }).toList();
-
-        // If there's already a pending instance for today or future, skip creation
-        if (todayOrFuturePending.isNotEmpty) {
-          // Clean up duplicate past pending instances if found
-          final pastPendingInstances = pendingInstances.where((inst) {
-            if (inst.belongsToDate != null) {
-              final belongsToDateOnly = DateTime(
-                inst.belongsToDate!.year,
-                inst.belongsToDate!.month,
-                inst.belongsToDate!.day,
-              );
-              return belongsToDateOnly.isBefore(today);
-            }
-            if (inst.windowEndDate != null) {
-              final windowEndDateOnly = DateTime(
-                inst.windowEndDate!.year,
-                inst.windowEndDate!.month,
-                inst.windowEndDate!.day,
-              );
-              return windowEndDateOnly.isBefore(today);
-            }
-            return false;
-          }).toList();
-
-          // Skip past pending instances that should have been auto-skipped
-          for (final pastInstance in pastPendingInstances) {
-            try {
-              final yesterday = DateService.yesterdayStart;
-              final windowEndDate = pastInstance.windowEndDate;
-              if (windowEndDate != null) {
-                final windowEndDateOnly = DateTime(
-                  windowEndDate.year,
-                  windowEndDate.month,
-                  windowEndDate.day,
-                );
-                if (windowEndDateOnly.isBefore(yesterday)) {
-                  // Past instance that should be skipped
-                  await ActivityInstanceService.skipInstance(
-                    instanceId: pastInstance.reference.id,
-                    skippedAt: windowEndDateOnly,
-                  );
-                }
-              }
-            } catch (e) {
-              // Error cleaning up past instance
-            }
-          }
-          continue; // Skip creating new instance
-        }
-
-        // No pending instance for today/future found - need to generate one
-
-        // Find the most recent instance (completed or skipped) to generate from
-        final allInstancesQuery =
-            ActivityInstanceRecord.collectionForUser(userId)
-                .where('templateId', isEqualTo: habit.reference.id);
-        final allInstancesSnapshot = await allInstancesQuery.get();
-        final allInstances = allInstancesSnapshot.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .toList();
-
-        if (allInstances.isNotEmpty) {
-          // Sort by windowEndDate descending to get the most recent
-          allInstances.sort((a, b) {
-            if (a.windowEndDate == null && b.windowEndDate == null) return 0;
-            if (a.windowEndDate == null) return 1;
-            if (b.windowEndDate == null) return -1;
-            return b.windowEndDate!.compareTo(a.windowEndDate!);
-          });
-          final mostRecentInstance = allInstances.first;
-
-          // Only generate if the most recent instance has a windowEndDate
-          if (mostRecentInstance.windowEndDate != null) {
-            try {
-              final windowEndDate = mostRecentInstance.windowEndDate!;
-              final windowEndDateOnly = DateTime(
-                windowEndDate.year,
-                windowEndDate.month,
-                windowEndDate.day,
-              );
-              final yesterday = DateService.yesterdayStart;
-
-              // If the window ended before yesterday, use bulk skip to fill the gap
-              if (windowEndDateOnly.isBefore(yesterday)) {
-                // Get template for bulk skip
-                final templateRef = ActivityRecord.collectionForUser(userId)
-                    .doc(habit.reference.id);
-                final template =
-                    await ActivityRecord.getDocumentOnce(templateRef);
-
-                // Use bulk skip to efficiently fill gap up to yesterday
-                final yesterdayInstanceRef = await ActivityInstanceService
-                    .bulkSkipExpiredInstancesWithBatches(
-                  oldestInstance: mostRecentInstance,
-                  template: template,
-                  userId: userId,
-                );
-                if (yesterdayInstanceRef != null) {
-                  instancesGenerated++;
-                }
-              } else {
-                // Window ended recently, just generate next instance normally
-                await ActivityInstanceService.skipInstance(
-                  instanceId: mostRecentInstance.reference.id,
-                  skippedAt: windowEndDate,
-                );
-                instancesGenerated++;
-              }
-            } catch (e) {
-              // Error generating instance for habit
-            }
-          } else {
-            // No windowEndDate - create initial instance
-            try {
-              await ActivityInstanceService.createActivityInstance(
-                templateId: habit.reference.id,
-                template: habit,
-                userId: userId,
-              );
-              instancesGenerated++;
-            } catch (e) {
-              // Error creating initial instance for habit
-            }
-          }
-        } else {
-          // No instances at all - create initial instance
-          try {
-            await ActivityInstanceService.createActivityInstance(
-              templateId: habit.reference.id,
-              template: habit,
-              userId: userId,
-            );
-            instancesGenerated++;
-          } catch (e) {
-            // Error creating initial instance for habit
-          }
-        }
+      final yesterday = DateService.yesterdayStart;
+      
+      // Step 1: Auto-skip expired items before yesterday
+      // This brings everything up to date and creates records for missed days
+      await autoSkipExpiredItemsBeforeYesterday(userId);
+      
+      // Step 2: Ensure all active habits have pending instances
+      // This is now handled by DayEndProcessor
+      await DayEndProcessor.ensurePendingInstancesExist(userId);
+      
+      // Step 3: Check if there are pending items from yesterday
+      final hasPendingItems = await _hasIncompleteItemsFromYesterday(userId);
+      
+      if (!hasPendingItems) {
+        // No pending items - safe to finalize now
+        // Update lastDayValue and create daily progress record
+        await DayEndProcessor.processDayEnd(
+          userId: userId,
+          targetDate: yesterday,
+          closeInstances: false, // Don't auto-close, user handles via dialog
+          ensureInstances: false, // Already ensured above
+        );
+        // DayEndProcessor.processDayEnd() will create the daily progress record
+      } else {
+        // There ARE pending items - do NOT finalize yet
+        // Only update lastDayValue (without creating daily progress record)
+        // The dialog will handle finalization after user confirms item status
+        
+        // Update lastDayValue separately (without creating daily progress record)
+        await DayEndProcessor.updateLastDayValuesOnly(userId, yesterday);
+        
+        // Do NOT create daily progress record - dialog will handle it after user actions
       }
+      
     } catch (e) {
-      // Error ensuring pending instances exist
+      // Error processing end-of-day activities
+      // Log but don't throw - this is a background operation
+      print('Error processing end-of-day activities: $e');
     }
   }
 
