@@ -74,6 +74,9 @@ class CalendarEventMetadata {
 }
 
 /// Custom painter for diagonal stripe pattern
+///
+/// Minimalist design: Uses thicker lines with generous spacing to differentiate
+/// non-productive activities from tasks while maintaining a clean aesthetic.
 class _DiagonalStripePainter extends CustomPainter {
   final Color stripeColor;
   final double stripeWidth;
@@ -81,8 +84,8 @@ class _DiagonalStripePainter extends CustomPainter {
 
   _DiagonalStripePainter({
     this.stripeColor = const Color(0xFFBDBDBD),
-    this.stripeWidth = 2.0,
-    this.spacing = 8.0,
+    this.stripeWidth = 3.5, // Thicker for better visibility with spacing
+    this.spacing = 16.0, // Generous spacing for minimalist look
   });
 
   @override
@@ -239,7 +242,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   // Track optimistic operations for rollback
   final Map<String, String> _optimisticOperations = {};
-  
+
   // Cache optimistic instances for immediate display
   final Map<String, ActivityInstanceRecord> _optimisticInstances = {};
 
@@ -280,8 +283,9 @@ class _CalendarPageState extends State<CalendarPage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final duration = await TimeLoggingPreferencesService
-            .getDefaultDurationMinutes(userId);
+        final duration =
+            await TimeLoggingPreferencesService.getDefaultDurationMinutes(
+                userId);
         if (mounted) {
           setState(() {
             _defaultDurationMinutes = duration;
@@ -666,7 +670,8 @@ class _CalendarPageState extends State<CalendarPage> {
     // Ensure end time is after start time
     if (validEndTime.isBefore(validStartTime) ||
         validEndTime.isAtSameMomentAs(validStartTime)) {
-      validEndTime = validStartTime.add(Duration(minutes: _defaultDurationMinutes));
+      validEndTime =
+          validStartTime.add(Duration(minutes: _defaultDurationMinutes));
     }
 
     // Ensure both times are on the same date as selectedDate
@@ -795,12 +800,12 @@ class _CalendarPageState extends State<CalendarPage> {
   /// Handle instance creation - refresh calendar if the instance should appear in planned section
   void _handleInstanceCreated(dynamic param) {
     if (!mounted) return;
-    
+
     // Handle both optimistic and reconciled instance creation
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -811,7 +816,7 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
-    
+
     final selectedDateOnly = DateTime(
       _selectedDate.year,
       _selectedDate.month,
@@ -823,7 +828,9 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Check if instance is due on the selected date and has a due time
     // (planned events require both dueDate and dueTime)
-    if (instance.dueDate != null && instance.dueTime != null && instance.dueTime!.isNotEmpty) {
+    if (instance.dueDate != null &&
+        instance.dueTime != null &&
+        instance.dueTime!.isNotEmpty) {
       final dueDateOnly = DateTime(
         instance.dueDate!.year,
         instance.dueDate!.month,
@@ -842,8 +849,9 @@ class _CalendarPageState extends State<CalendarPage> {
         instance.belongsToDate!.month,
         instance.belongsToDate!.day,
       );
-      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly) && 
-          instance.dueTime != null && instance.dueTime!.isNotEmpty) {
+      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly) &&
+          instance.dueTime != null &&
+          instance.dueTime!.isNotEmpty) {
         shouldRefresh = true;
       }
     }
@@ -873,12 +881,12 @@ class _CalendarPageState extends State<CalendarPage> {
   /// Handle instance updates - refresh calendar if the instance affects the selected date
   void _handleInstanceUpdated(dynamic param) {
     if (!mounted) return;
-    
+
     // Handle both optimistic and reconciled updates
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -889,7 +897,7 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
-    
+
     final selectedDateOnly = DateTime(
       _selectedDate.year,
       _selectedDate.month,
@@ -949,10 +957,10 @@ class _CalendarPageState extends State<CalendarPage> {
       }
     }
   }
-  
+
   void _handleInstanceDeleted(dynamic param) {
     if (!mounted) return;
-    
+
     // Handle instance deletion
     ActivityInstanceRecord instance;
     if (param is ActivityInstanceRecord) {
@@ -960,7 +968,7 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
-    
+
     final selectedDateOnly = DateTime(
       _selectedDate.year,
       _selectedDate.month,
@@ -971,7 +979,9 @@ class _CalendarPageState extends State<CalendarPage> {
     bool shouldRefresh = false;
 
     // Check if instance was in planned section (dueDate + dueTime on selected date)
-    if (instance.dueDate != null && instance.dueTime != null && instance.dueTime!.isNotEmpty) {
+    if (instance.dueDate != null &&
+        instance.dueTime != null &&
+        instance.dueTime!.isNotEmpty) {
       final dueDateOnly = DateTime(
         instance.dueDate!.year,
         instance.dueDate!.month,
@@ -1016,14 +1026,15 @@ class _CalendarPageState extends State<CalendarPage> {
       _loadEvents();
     }
   }
-  
+
   void _handleRollback(dynamic param) {
     if (!mounted) return;
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
-      
-      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+
+      if (operationId != null &&
+          _optimisticOperations.containsKey(operationId)) {
         setState(() {
           _optimisticOperations.remove(operationId);
           // Remove from optimistic cache on rollback
@@ -1172,7 +1183,8 @@ class _CalendarPageState extends State<CalendarPage> {
           return sessionDate.isAtSameMomentAs(selectedDateOnly);
         }).toList();
 
-        print('  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date');
+        print(
+            '  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date');
 
         // If we have sessions for this date, show them
         if (sessionsOnDate.isNotEmpty) {
@@ -1257,7 +1269,8 @@ class _CalendarPageState extends State<CalendarPage> {
               // Use checkmark for completed items, no checkmark for incomplete
               final prefix = item.status == 'completed' ? '✓ ' : '';
 
-              print('    - Creating event: ${item.templateName} from ${validStartTime} to ${validEndTime}');
+              print(
+                  '    - Creating event: ${item.templateName} from ${validStartTime} to ${validEndTime}');
 
               // Look up category color from loaded categories (same logic as calendar event color)
               String? categoryColorHex;
@@ -1384,8 +1397,9 @@ class _CalendarPageState extends State<CalendarPage> {
     print('  - _sortedCompletedEvents: ${_sortedCompletedEvents.length}');
 
     // Planned items were already fetched in the batch query above
-    final plannedItems = List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
-    
+    final plannedItems =
+        List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
+
     // Merge optimistic instances that should appear in planned section
     final selectedDateOnly = DateTime(
       _selectedDate.year,
@@ -1394,8 +1408,8 @@ class _CalendarPageState extends State<CalendarPage> {
     );
     for (final optimisticInstance in _optimisticInstances.values) {
       // Check if optimistic instance should appear in planned section
-      if (optimisticInstance.dueDate != null && 
-          optimisticInstance.dueTime != null && 
+      if (optimisticInstance.dueDate != null &&
+          optimisticInstance.dueTime != null &&
           optimisticInstance.dueTime!.isNotEmpty) {
         final dueDateOnly = DateTime(
           optimisticInstance.dueDate!.year,
@@ -1405,8 +1419,7 @@ class _CalendarPageState extends State<CalendarPage> {
         if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
           // Add to planned items if not already present (by instance ID)
           final exists = plannedItems.any(
-            (item) => item.reference.id == optimisticInstance.reference.id
-          );
+              (item) => item.reference.id == optimisticInstance.reference.id);
           if (!exists) {
             plannedItems.add(optimisticInstance);
           }
@@ -1475,8 +1488,9 @@ class _CalendarPageState extends State<CalendarPage> {
         templateId: item.templateId,
         categoryId:
             item.templateCategoryId.isNotEmpty ? item.templateCategoryId : null,
-        categoryName:
-            item.templateCategoryName.isNotEmpty ? item.templateCategoryName : null,
+        categoryName: item.templateCategoryName.isNotEmpty
+            ? item.templateCategoryName
+            : null,
         categoryColorHex: item.templateCategoryColor.isNotEmpty
             ? item.templateCategoryColor
             : null,
@@ -1494,8 +1508,9 @@ class _CalendarPageState extends State<CalendarPage> {
         endTime: endTime,
         title: item.templateName,
         color: categoryColor,
-        description:
-            isDueMarker ? null : _formatDuration(Duration(minutes: durationMinutes)),
+        description: isDueMarker
+            ? null
+            : _formatDuration(Duration(minutes: durationMinutes)),
         event: {
           ...metadata.toMap(),
           'isDueMarker': isDueMarker,
@@ -1506,8 +1521,8 @@ class _CalendarPageState extends State<CalendarPage> {
     // Add routines with due time as planned events (single block = sum of item durations).
     // Excludes items already scheduled explicitly in the planned list.
     if (userId.isNotEmpty && routines.isNotEmpty) {
-      final routinePlanned = await RoutinePlannedCalendarService
-          .getPlannedRoutineEvents(
+      final routinePlanned =
+          await RoutinePlannedCalendarService.getPlannedRoutineEvents(
         userId: userId,
         date: _selectedDate,
         routines: routines,
@@ -1516,7 +1531,8 @@ class _CalendarPageState extends State<CalendarPage> {
 
       for (final r in routinePlanned) {
         final startTime = _parseDueTime(r.dueTime, _selectedDate);
-        final isDueMarker = r.durationMinutes == null || r.durationMinutes! <= 0;
+        final isDueMarker =
+            r.durationMinutes == null || r.durationMinutes! <= 0;
         final endTime = isDueMarker
             ? startTime.add(const Duration(minutes: 1))
             : startTime.add(Duration(minutes: r.durationMinutes!));
@@ -1580,8 +1596,10 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Debug: Track controller updates
     print('[Calendar] Controller updates:');
-    print('  - _completedEventController events: ${_completedEventController.events.length}');
-    print('  - _plannedEventController events: ${_plannedEventController.events.length}');
+    print(
+        '  - _completedEventController events: ${_completedEventController.events.length}');
+    print(
+        '  - _plannedEventController events: ${_plannedEventController.events.length}');
 
     // Force rebuild to show new events
     if (mounted) setState(() {});
@@ -1991,8 +2009,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final duration = event.endTime!.difference(event.startTime!);
     final isNonProductive = event.title.startsWith('NP:');
     final rawEvent = event.event;
-    final isDueMarker =
-        rawEvent is Map && (rawEvent['isDueMarker'] == true);
+    final isDueMarker = rawEvent is Map && (rawEvent['isDueMarker'] == true);
     final isThinLine = duration.inMinutes <= 5 && (isCompleted || isDueMarker);
 
     final timeBoxHeight = duration.inMinutes * _calculateHeightPerMinute();
@@ -2087,22 +2104,18 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  Widget _buildTimeBox(
-    CalendarEventData event,
-    double height,
-    bool isCompleted,
-    bool isNonProductive,
-    {required bool isConflict}
-  ) {
+  Widget _buildTimeBox(CalendarEventData event, double height, bool isCompleted,
+      bool isNonProductive,
+      {required bool isConflict}) {
     // Detect non-productive tasks: check parameter OR grey color
     final isNonProd = isNonProductive || event.color == Colors.grey;
 
-    // For non-productive tasks, use diagonal stripe pattern
+    // For non-productive tasks, use minimalist diagonal stripe pattern
     if (isNonProd) {
       // Light base color for non-productive tasks
       final baseColor = Colors.grey.shade100;
-      final stripeColor = Colors.grey.shade500;
-      final borderColor = Colors.grey.shade600;
+      final stripeColor = Colors.grey.shade300; // Slightly lighter for subtlety
+      final borderColor = Colors.grey.shade400; // Softer border
 
       return Container(
         constraints: const BoxConstraints(
@@ -2114,7 +2127,7 @@ class _CalendarPageState extends State<CalendarPage> {
           borderRadius: BorderRadius.circular(4.0),
           border: Border.all(
             color: borderColor,
-            width: 1.5,
+            width: 1.0, // Thinner border for minimalism
           ),
         ),
         child: ClipRRect(
@@ -2123,8 +2136,9 @@ class _CalendarPageState extends State<CalendarPage> {
             child: CustomPaint(
               painter: _DiagonalStripePainter(
                 stripeColor: stripeColor,
-                stripeWidth: 2.0,
-                spacing: 6.0,
+                stripeWidth: 3.5, // Thicker lines (was 2.0)
+                spacing:
+                    16.0, // Much more spacing (was 6.0) for minimalist look
               ),
             ),
           ),
@@ -2700,8 +2714,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                   0, // Start from 0 minutes and add rounded minutes
                                 ).add(Duration(minutes: roundedMinute));
 
-                                final endTime =
-                                    startTime.add(Duration(minutes: _defaultDurationMinutes));
+                                final endTime = startTime.add(
+                                    Duration(minutes: _defaultDurationMinutes));
 
                                 _showManualEntryDialog(
                                   startTime: startTime,
@@ -2722,8 +2736,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                   date.hour,
                                   roundedMinute,
                                 );
-                                final endTime =
-                                    startTime.add(Duration(minutes: _defaultDurationMinutes));
+                                final endTime = startTime.add(
+                                    Duration(minutes: _defaultDurationMinutes));
 
                                 _showManualEntryDialog(
                                   startTime: startTime,

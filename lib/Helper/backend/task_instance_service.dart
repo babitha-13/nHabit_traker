@@ -1251,6 +1251,11 @@ class TaskInstanceService {
     return totalLogged + currentSession;
   }
 
+  /// Normalize DateTime to start of day (midnight) for accurate date comparisons
+  static DateTime _normalizeToStartOfDay(DateTime date) {
+    return DateTime(date.year, date.month, date.day);
+  }
+
   /// Get all activity instances with time logs for calendar display
   static Future<List<ActivityInstanceRecord>> getTimeLoggedTasks({
     String? userId,
@@ -1268,15 +1273,29 @@ class TaskInstanceService {
           .toList();
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
+        final normalizedStartDate = startDate != null 
+            ? _normalizeToStartOfDay(startDate) 
+            : null;
+        final normalizedEndDate = endDate != null 
+            ? _normalizeToStartOfDay(endDate) 
+            : null;
+        
         return tasks.where((task) {
           final sessions = task.timeLogSessions;
           return sessions.any((session) {
             final sessionStart = session['startTime'] as DateTime;
-            if (startDate != null && sessionStart.isBefore(startDate))
+            final normalizedSessionStart = _normalizeToStartOfDay(sessionStart);
+            
+            // Exclude sessions before startDate
+            if (normalizedStartDate != null && 
+                normalizedSessionStart.isBefore(normalizedStartDate)) {
               return false;
-            // endDate is exclusive (start of next day), so exclude sessions at or after endDate
-            if (endDate != null && !sessionStart.isBefore(endDate))
+            }
+            // Exclude sessions at or after endDate (endDate is exclusive)
+            if (normalizedEndDate != null && 
+                !normalizedSessionStart.isBefore(normalizedEndDate)) {
               return false;
+            }
             return true;
           });
         }).toList();
@@ -1306,15 +1325,29 @@ class TaskInstanceService {
           .toList();
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
+        final normalizedStartDate = startDate != null 
+            ? _normalizeToStartOfDay(startDate) 
+            : null;
+        final normalizedEndDate = endDate != null 
+            ? _normalizeToStartOfDay(endDate) 
+            : null;
+        
         return instances.where((instance) {
           final sessions = instance.timeLogSessions;
           return sessions.any((session) {
             final sessionStart = session['startTime'] as DateTime;
-            if (startDate != null && sessionStart.isBefore(startDate))
+            final normalizedSessionStart = _normalizeToStartOfDay(sessionStart);
+            
+            // Exclude sessions before startDate
+            if (normalizedStartDate != null && 
+                normalizedSessionStart.isBefore(normalizedStartDate)) {
               return false;
-            // endDate is exclusive (start of next day), so exclude sessions at or after endDate
-            if (endDate != null && !sessionStart.isBefore(endDate))
+            }
+            // Exclude sessions at or after endDate (endDate is exclusive)
+            if (normalizedEndDate != null && 
+                !normalizedSessionStart.isBefore(normalizedEndDate)) {
               return false;
+            }
             return true;
           });
         }).toList();
