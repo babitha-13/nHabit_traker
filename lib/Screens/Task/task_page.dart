@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
@@ -65,6 +66,8 @@ class _TaskPageState extends State<TaskPage> {
   String? _lastCategoryName;
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
+  // Optimistic operation tracking
+  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
 
   // Time estimate preferences (feature gating for quick add UI)
   bool _enableDefaultEstimates = false;
@@ -91,8 +94,14 @@ class _TaskPageState extends State<TaskPage> {
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
         (param) {
-      if (param is ActivityInstanceRecord && mounted) {
+      if (mounted) {
         _handleInstanceUpdated(param);
+      }
+    });
+    // Listen for rollback events
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRollback(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
@@ -2202,11 +2211,28 @@ class _TaskPageState extends State<TaskPage> {
     }
   }
 
-  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+  void _handleInstanceUpdated(dynamic param) {
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }
+    
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
@@ -2216,13 +2242,66 @@ class _TaskPageState extends State<TaskPage> {
         setState(() {
           final index = _taskInstances
               .indexWhere((inst) => inst.reference.id == instance.reference.id);
+          
           if (index != -1) {
-            _taskInstances[index] = instance;
+            if (isOptimistic) {
+              // Store optimistic state with operation ID for later reconciliation
+              _taskInstances[index] = instance;
+              if (operationId != null) {
+                _optimisticOperations[operationId] = instance.reference.id;
+              }
+            } else {
+              // Reconciled update - replace optimistic state
+              _taskInstances[index] = instance;
+              if (operationId != null) {
+                _optimisticOperations.remove(operationId);
+              }
+            }
             // Invalidate cache when instance is updated
+            _cachedBucketedItems = null;
+          } else if (!isOptimistic) {
+            // New instance from backend (not optimistic) - add it
+            _taskInstances.add(instance);
             _cachedBucketedItems = null;
           }
         });
       }
+    }
+  }
+  
+  void _handleRollback(dynamic param) {
+    if (param is Map) {
+      final operationId = param['operationId'] as String?;
+      final instanceId = param['instanceId'] as String?;
+      
+      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+        // Revert to previous state by reloading from backend
+        setState(() {
+          _optimisticOperations.remove(operationId);
+          // Reload the specific instance from backend
+          if (instanceId != null) {
+            _revertOptimisticUpdate(instanceId);
+          }
+        });
+      }
+    }
+  }
+  
+  Future<void> _revertOptimisticUpdate(String instanceId) async {
+    try {
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instanceId,
+      );
+      setState(() {
+        final index = _taskInstances
+            .indexWhere((inst) => inst.reference.id == instanceId);
+        if (index != -1) {
+          _taskInstances[index] = updatedInstance;
+          _cachedBucketedItems = null;
+        }
+      });
+    } catch (e) {
+      // Error reverting - non-critical, will be fixed on next data load
     }
   }
 

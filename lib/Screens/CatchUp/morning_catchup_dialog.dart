@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:intl/intl.dart';
 
 /// Morning catch-up dialog for handling yesterday's incomplete items
@@ -170,9 +171,24 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     });
   }
 
+  /// Close dialog and trigger refresh of habit and queue pages
+  Future<void> _closeDialogAndRefresh() async {
+    // Trigger refresh of habit and queue pages
+    NotificationCenter.post('loadHabits', null);
+    NotificationCenter.post('loadData', null);
+    
+    // Small delay to ensure notifications are processed
+    await Future.delayed(const Duration(milliseconds: 100));
+    
+    if (mounted) {
+      Navigator.of(context).pop();
+    }
+  }
+
   /// Handle instance updates from ItemComponent
   /// This intercepts completions and skips to backdate them to yesterday
   /// Uses optimistic UI updates for instant feedback
+  /// Differentiates between progress updates (increment) and completions/skips
   Future<void> _handleInstanceUpdated(
       ActivityInstanceRecord updatedInstance) async {
     final instanceId = updatedInstance.reference.id;
@@ -183,13 +199,35 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       return;
     }
 
-    // OPTIMISTIC UPDATE: Apply UI changes immediately
-    _applyOptimisticState(updatedInstance);
-
     final yesterday = DateService.yesterdayStart;
     final yesterdayEnd =
         DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
     final today = DateService.todayStart;
+
+    // Differentiate between progress updates and status changes (completion/skip)
+    final isStatusChange = updatedInstance.status == 'completed' ||
+        updatedInstance.status == 'skipped';
+    final isProgressUpdate = updatedInstance.status == 'pending' &&
+        !isStatusChange;
+
+    // For progress updates (just incrementing value), update item in place
+    if (isProgressUpdate) {
+      if (mounted) {
+        setState(() {
+          // Update the existing item in the list with new progress value
+          final index = _items.indexWhere((item) => item.reference.id == instanceId);
+          if (index != -1) {
+            _items[index] = updatedInstance;
+          }
+        });
+      }
+      // No need to do anything else for progress updates - item stays in list
+      return;
+    }
+
+    // For completions and skips, apply optimistic removal
+    // OPTIMISTIC UPDATE: Apply UI changes immediately (remove from list)
+    _applyOptimisticState(updatedInstance);
 
     // Process backend operations asynchronously
     try {
@@ -270,7 +308,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                 .toList();
             if (finalRemaining.isEmpty) {
               await MorningCatchUpService.markDialogAsShown();
-              Navigator.of(context).pop();
+              await _closeDialogAndRefresh();
             }
           }
         }
@@ -299,7 +337,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
     if (remainingHabits.isEmpty) {
       // If no habits to skip, just close or notify user
-      Navigator.of(context).pop();
+      await _closeDialogAndRefresh();
       return;
     }
 
@@ -433,7 +471,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
         if (updatedRemainingItems.isEmpty) {
           // All items processed, close dialog
-          Navigator.of(context).pop();
+          await _closeDialogAndRefresh();
         } else {
           // Still have items, update UI to show them
           setState(() {
@@ -476,7 +514,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
               'You\'ll be reminded on your next app open${reminderCount >= 2 ? ' (${reminderCount + 1} of ${MorningCatchUpService.maxReminderCount} reminders)' : ''}'),
         ),
       );
-      Navigator.of(context).pop();
+      await _closeDialogAndRefresh();
     }
   }
 
@@ -509,6 +547,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
             });
           }
           await MorningCatchUpService.markDialogAsShown();
+          // Trigger refresh of habit and queue pages before closing
+          NotificationCenter.post('loadHabits', null);
+          NotificationCenter.post('loadData', null);
           return true;
         }
         // Prevent dismissing - user must choose skip or remind me later
@@ -755,7 +796,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                             }
                             await MorningCatchUpService.markDialogAsShown();
                             if (mounted) {
-                              Navigator.of(context).pop();
+                              await _closeDialogAndRefresh();
                             }
                           },
                           style: ElevatedButton.styleFrom(

@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/weekly_progress_calculator.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
@@ -26,6 +27,8 @@ class _WeeklyViewState extends State<WeeklyView> {
   Set<String> _expandedSections = {};
   final Map<String, GlobalKey> _sectionKeys = {};
   bool _isLoading = true;
+  // Optimistic operation tracking
+  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
   // Weekly progress data
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _habits = [];
@@ -58,8 +61,14 @@ class _WeeklyViewState extends State<WeeklyView> {
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
         (param) {
-      if (param is ActivityInstanceRecord && mounted) {
+      if (mounted) {
         _handleInstanceUpdated(param);
+      }
+    });
+    // Listen for rollback events
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRollback(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
@@ -557,15 +566,83 @@ class _WeeklyViewState extends State<WeeklyView> {
     });
     _calculateWeeklyProgress();
   }
-  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+  void _handleInstanceUpdated(dynamic param) {
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
+      
       if (index != -1) {
-        _instances[index] = instance;
+        if (isOptimistic) {
+          // Store optimistic state with operation ID for later reconciliation
+          _instances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations[operationId] = instance.reference.id;
+          }
+        } else {
+          // Reconciled update - replace optimistic state
+          _instances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations.remove(operationId);
+          }
+        }
+      } else if (!isOptimistic) {
+        // New instance from backend (not optimistic) - add it
+        _instances.add(instance);
       }
     });
     _calculateWeeklyProgress();
+  }
+  
+  void _handleRollback(dynamic param) {
+    if (param is Map) {
+      final operationId = param['operationId'] as String?;
+      final instanceId = param['instanceId'] as String?;
+      
+      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+        // Revert to previous state by reloading from backend
+        setState(() {
+          _optimisticOperations.remove(operationId);
+          // Reload the specific instance from backend
+          if (instanceId != null) {
+            _revertOptimisticUpdate(instanceId);
+          }
+        });
+      }
+    }
+  }
+  
+  Future<void> _revertOptimisticUpdate(String instanceId) async {
+    try {
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instanceId,
+      );
+      setState(() {
+        final index = _instances
+            .indexWhere((inst) => inst.reference.id == instanceId);
+        if (index != -1) {
+          _instances[index] = updatedInstance;
+        }
+      });
+      _calculateWeeklyProgress();
+    } catch (e) {
+      // Error reverting - non-critical, will be fixed on next data load
+    }
   }
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     setState(() {

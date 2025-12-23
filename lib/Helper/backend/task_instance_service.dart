@@ -125,6 +125,22 @@ class TaskInstanceService {
         throw Exception('Task instance not found');
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+      
+      // Check if this is a habit - habits should use ActivityInstanceService completion logic
+      // which handles next instance generation correctly
+      if (instance.templateCategoryType == 'habit') {
+        // For habits, use ActivityInstanceService.completeInstance which handles habit logic correctly
+        await ActivityInstanceService.completeInstance(
+          instanceId: instanceId,
+          finalValue: finalValue,
+          finalAccumulatedTime: finalAccumulatedTime,
+          notes: notes,
+          userId: uid,
+        );
+        return; // Exit early - habit completion handled
+      }
+      
+      // For tasks, proceed with task completion logic
       final now = DateTime.now();
       // Update current instance as completed
       await instanceRef.update({
@@ -1223,7 +1239,8 @@ class TaskInstanceService {
             final sessionStart = session['startTime'] as DateTime;
             if (startDate != null && sessionStart.isBefore(startDate))
               return false;
-            if (endDate != null && sessionStart.isAfter(endDate)) return false;
+            // endDate is exclusive (start of next day), so exclude sessions at or after endDate
+            if (endDate != null && !sessionStart.isBefore(endDate)) return false;
             return true;
           });
         }).toList();
@@ -1259,7 +1276,8 @@ class TaskInstanceService {
             final sessionStart = session['startTime'] as DateTime;
             if (startDate != null && sessionStart.isBefore(startDate))
               return false;
-            if (endDate != null && sessionStart.isAfter(endDate)) return false;
+            // endDate is exclusive (start of next day), so exclude sessions at or after endDate
+            if (endDate != null && !sessionStart.isBefore(endDate)) return false;
             return true;
           });
         }).toList();

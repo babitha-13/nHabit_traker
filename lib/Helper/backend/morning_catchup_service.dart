@@ -32,7 +32,8 @@ class MorningCatchUpService {
       // This handles cases where user opens app in first hour but has items to handle
       if (now.hour == 0) {
         // Still in first hour - check if there are incomplete items
-        final hasIncompleteItems = await _hasIncompleteItemsFromYesterday(userId);
+        final hasIncompleteItems =
+            await _hasIncompleteItemsFromYesterday(userId);
         if (!hasIncompleteItems) {
           return false; // No items, don't show
         }
@@ -88,7 +89,7 @@ class MorningCatchUpService {
 
       // Check if there are incomplete items from yesterday
       final hasIncompleteItems = await _hasIncompleteItemsFromYesterday(userId);
-      
+
       // Ensure record exists even if dialog will be shown
       if (hasIncompleteItems) {
         // Create record proactively when dialog will be shown
@@ -101,7 +102,7 @@ class MorningCatchUpService {
           // Continue even if record creation fails
         }
       }
-      
+
       return hasIncompleteItems;
     } catch (e, stackTrace) {
       // Attempt to create record anyway as fallback
@@ -127,7 +128,7 @@ class MorningCatchUpService {
       final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'habit')
           .where('status', isEqualTo: 'pending')
-          .where('windowEndDate', isLessThan: today)
+          .where('windowEndDate', isLessThanOrEqualTo: today)
           .limit(50); // Get more to filter client-side
       final habitSnapshot = await habitQuery.get();
       // Filter to ONLY yesterday's items
@@ -168,7 +169,7 @@ class MorningCatchUpService {
           .where('templateCategoryType', isEqualTo: 'task')
           .where('status', isEqualTo: 'pending')
           .where('dueDate', isGreaterThanOrEqualTo: yesterday)
-          .where('dueDate', isLessThan: today)
+          .where('dueDate', isLessThanOrEqualTo: today)
           .limit(50); // Get more to filter client-side
       final taskSnapshot = await taskQuery.get();
       // Filter to ONLY yesterday's tasks
@@ -210,7 +211,7 @@ class MorningCatchUpService {
         final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
             .where('templateCategoryType', isEqualTo: 'habit')
             .where('status', isEqualTo: 'pending')
-            .where('windowEndDate', isLessThan: today)
+            .where('windowEndDate', isLessThanOrEqualTo: today)
             .orderBy('windowEndDate', descending: false);
         final habitSnapshot = await habitQuery.get();
         // Filter to ONLY yesterday's items: belongsToDate is yesterday OR windowEndDate is yesterday
@@ -246,12 +247,16 @@ class MorningCatchUpService {
         }).toList();
         items.addAll(habitItems);
       } catch (e) {
-        print('❌ MISSING INDEX: getIncompleteItemsFromYesterday habitQuery needs Index 2');
-        print('Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+        print(
+            '❌ MISSING INDEX: getIncompleteItemsFromYesterday habitQuery needs Index 2');
+        print(
+            'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
         print('Collection: activity_instances');
         print('Full error: $e');
-        if (e.toString().contains('index') || e.toString().contains('https://')) {
-          print('📋 Look for the Firestore index creation link in the error message above!');
+        if (e.toString().contains('index') ||
+            e.toString().contains('https://')) {
+          print(
+              '📋 Look for the Firestore index creation link in the error message above!');
           print('   Click the link to create the index automatically.');
         }
         // Continue with tasks even if habits query fails
@@ -263,7 +268,7 @@ class MorningCatchUpService {
             .where('templateCategoryType', isEqualTo: 'task')
             .where('status', isEqualTo: 'pending')
             .where('dueDate', isGreaterThanOrEqualTo: yesterday)
-            .where('dueDate', isLessThan: today)
+            .where('dueDate', isLessThanOrEqualTo: today)
             .orderBy('dueDate', descending: false);
         final taskSnapshot = await taskQuery.get();
         // Filter to ONLY yesterday's tasks: dueDate is exactly yesterday
@@ -286,12 +291,16 @@ class MorningCatchUpService {
         }).toList();
         items.addAll(taskItems);
       } catch (e) {
-        print('❌ MISSING INDEX: getIncompleteItemsFromYesterday taskQuery needs Index 2');
-        print('Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+        print(
+            '❌ MISSING INDEX: getIncompleteItemsFromYesterday taskQuery needs Index 2');
+        print(
+            'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
         print('Collection: activity_instances');
         print('Full error: $e');
-        if (e.toString().contains('index') || e.toString().contains('https://')) {
-          print('📋 Look for the Firestore index creation link in the error message above!');
+        if (e.toString().contains('index') ||
+            e.toString().contains('https://')) {
+          print(
+              '📋 Look for the Firestore index creation link in the error message above!');
           print('   Click the link to create the index automatically.');
         }
         // Return items collected so far
@@ -448,7 +457,7 @@ class MorningCatchUpService {
       if (affectedDates.isNotEmpty) {
         const maxConcurrency = 5; // Process up to 5 dates in parallel
         final datesList = affectedDates.toList();
-        
+
         // Historical edit functionality removed - progress recalculation disabled
         // Process dates in batches
         // for (int i = 0; i < datesList.length; i += maxConcurrency) {
@@ -474,7 +483,6 @@ class MorningCatchUpService {
 
       // After skipping expired instances with batch writes, yesterday's instances remain pending
       // for manual user confirmation via the morning catch-up dialog
-
     } catch (e) {
       // Error auto-skipping expired items
     }
@@ -495,90 +503,155 @@ class MorningCatchUpService {
           .toList();
 
       int instancesGenerated = 0;
+      final today = DateService.todayStart;
+
       for (final habit in activeHabits) {
         // Check if there's at least one pending instance for this habit
         final pendingQuery = ActivityInstanceRecord.collectionForUser(userId)
             .where('templateId', isEqualTo: habit.reference.id)
             .where('status', isEqualTo: 'pending')
-            .limit(1);
+            .limit(50); // Get more to filter client-side
         final pendingSnapshot = await pendingQuery.get();
+        final pendingInstances = pendingSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
 
-        if (pendingSnapshot.docs.isEmpty) {
-          // No pending instance found - need to generate one
+        // Check if there's already a pending instance for today or future dates
+        final todayOrFuturePending = pendingInstances.where((inst) {
+          if (inst.belongsToDate != null) {
+            final belongsToDateOnly = DateTime(
+              inst.belongsToDate!.year,
+              inst.belongsToDate!.month,
+              inst.belongsToDate!.day,
+            );
+            return belongsToDateOnly.isAtSameMomentAs(today) ||
+                belongsToDateOnly.isAfter(today);
+          }
+          // Also check windowEndDate
+          if (inst.windowEndDate != null) {
+            final windowEndDateOnly = DateTime(
+              inst.windowEndDate!.year,
+              inst.windowEndDate!.month,
+              inst.windowEndDate!.day,
+            );
+            return windowEndDateOnly.isAtSameMomentAs(today) ||
+                windowEndDateOnly.isAfter(today);
+          }
+          return false;
+        }).toList();
 
-          // Find the most recent instance (completed or skipped) to generate from
-          final allInstancesQuery =
-              ActivityInstanceRecord.collectionForUser(userId)
-                  .where('templateId', isEqualTo: habit.reference.id);
-          final allInstancesSnapshot = await allInstancesQuery.get();
-          final allInstances = allInstancesSnapshot.docs
-              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-              .toList();
+        // If there's already a pending instance for today or future, skip creation
+        if (todayOrFuturePending.isNotEmpty) {
+          // Clean up duplicate past pending instances if found
+          final pastPendingInstances = pendingInstances.where((inst) {
+            if (inst.belongsToDate != null) {
+              final belongsToDateOnly = DateTime(
+                inst.belongsToDate!.year,
+                inst.belongsToDate!.month,
+                inst.belongsToDate!.day,
+              );
+              return belongsToDateOnly.isBefore(today);
+            }
+            if (inst.windowEndDate != null) {
+              final windowEndDateOnly = DateTime(
+                inst.windowEndDate!.year,
+                inst.windowEndDate!.month,
+                inst.windowEndDate!.day,
+              );
+              return windowEndDateOnly.isBefore(today);
+            }
+            return false;
+          }).toList();
 
-          if (allInstances.isNotEmpty) {
-            // Sort by windowEndDate descending to get the most recent
-            allInstances.sort((a, b) {
-              if (a.windowEndDate == null && b.windowEndDate == null) return 0;
-              if (a.windowEndDate == null) return 1;
-              if (b.windowEndDate == null) return -1;
-              return b.windowEndDate!.compareTo(a.windowEndDate!);
-            });
-            final mostRecentInstance = allInstances.first;
-
-            // Only generate if the most recent instance has a windowEndDate
-            if (mostRecentInstance.windowEndDate != null) {
-              try {
-                final windowEndDate = mostRecentInstance.windowEndDate!;
+          // Skip past pending instances that should have been auto-skipped
+          for (final pastInstance in pastPendingInstances) {
+            try {
+              final yesterday = DateService.yesterdayStart;
+              final windowEndDate = pastInstance.windowEndDate;
+              if (windowEndDate != null) {
                 final windowEndDateOnly = DateTime(
                   windowEndDate.year,
                   windowEndDate.month,
                   windowEndDate.day,
                 );
-                final yesterday = DateService.yesterdayStart;
-                
-                // If the window ended before yesterday, use bulk skip to fill the gap
                 if (windowEndDateOnly.isBefore(yesterday)) {
-                  // Get template for bulk skip
-                  final templateRef = ActivityRecord.collectionForUser(userId)
-                      .doc(habit.reference.id);
-                  final template = await ActivityRecord.getDocumentOnce(templateRef);
-                  
-                  // Use bulk skip to efficiently fill gap up to yesterday
-                  final yesterdayInstanceRef = await ActivityInstanceService
-                      .bulkSkipExpiredInstancesWithBatches(
-                    oldestInstance: mostRecentInstance,
-                    template: template,
-                    userId: userId,
-                  );
-                  if (yesterdayInstanceRef != null) {
-                    instancesGenerated++;
-                  }
-                } else {
-                  // Window ended recently, just generate next instance normally
+                  // Past instance that should be skipped
                   await ActivityInstanceService.skipInstance(
-                    instanceId: mostRecentInstance.reference.id,
-                    skippedAt: windowEndDate,
+                    instanceId: pastInstance.reference.id,
+                    skippedAt: windowEndDateOnly,
                   );
-                  instancesGenerated++;
                 }
-              } catch (e) {
-                // Error generating instance for habit
               }
-            } else {
-              // No windowEndDate - create initial instance
-              try {
-                await ActivityInstanceService.createActivityInstance(
-                  templateId: habit.reference.id,
-                  template: habit,
+            } catch (e) {
+              // Error cleaning up past instance
+            }
+          }
+          continue; // Skip creating new instance
+        }
+
+        // No pending instance for today/future found - need to generate one
+
+        // Find the most recent instance (completed or skipped) to generate from
+        final allInstancesQuery =
+            ActivityInstanceRecord.collectionForUser(userId)
+                .where('templateId', isEqualTo: habit.reference.id);
+        final allInstancesSnapshot = await allInstancesQuery.get();
+        final allInstances = allInstancesSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+
+        if (allInstances.isNotEmpty) {
+          // Sort by windowEndDate descending to get the most recent
+          allInstances.sort((a, b) {
+            if (a.windowEndDate == null && b.windowEndDate == null) return 0;
+            if (a.windowEndDate == null) return 1;
+            if (b.windowEndDate == null) return -1;
+            return b.windowEndDate!.compareTo(a.windowEndDate!);
+          });
+          final mostRecentInstance = allInstances.first;
+
+          // Only generate if the most recent instance has a windowEndDate
+          if (mostRecentInstance.windowEndDate != null) {
+            try {
+              final windowEndDate = mostRecentInstance.windowEndDate!;
+              final windowEndDateOnly = DateTime(
+                windowEndDate.year,
+                windowEndDate.month,
+                windowEndDate.day,
+              );
+              final yesterday = DateService.yesterdayStart;
+
+              // If the window ended before yesterday, use bulk skip to fill the gap
+              if (windowEndDateOnly.isBefore(yesterday)) {
+                // Get template for bulk skip
+                final templateRef = ActivityRecord.collectionForUser(userId)
+                    .doc(habit.reference.id);
+                final template =
+                    await ActivityRecord.getDocumentOnce(templateRef);
+
+                // Use bulk skip to efficiently fill gap up to yesterday
+                final yesterdayInstanceRef = await ActivityInstanceService
+                    .bulkSkipExpiredInstancesWithBatches(
+                  oldestInstance: mostRecentInstance,
+                  template: template,
                   userId: userId,
                 );
+                if (yesterdayInstanceRef != null) {
+                  instancesGenerated++;
+                }
+              } else {
+                // Window ended recently, just generate next instance normally
+                await ActivityInstanceService.skipInstance(
+                  instanceId: mostRecentInstance.reference.id,
+                  skippedAt: windowEndDate,
+                );
                 instancesGenerated++;
-              } catch (e) {
-                // Error creating initial instance for habit
               }
+            } catch (e) {
+              // Error generating instance for habit
             }
           } else {
-            // No instances at all - create initial instance
+            // No windowEndDate - create initial instance
             try {
               await ActivityInstanceService.createActivityInstance(
                 templateId: habit.reference.id,
@@ -590,9 +663,20 @@ class MorningCatchUpService {
               // Error creating initial instance for habit
             }
           }
+        } else {
+          // No instances at all - create initial instance
+          try {
+            await ActivityInstanceService.createActivityInstance(
+              templateId: habit.reference.id,
+              template: habit,
+              userId: userId,
+            );
+            instancesGenerated++;
+          } catch (e) {
+            // Error creating initial instance for habit
+          }
         }
       }
-
     } catch (e) {
       // Error ensuring pending instances exist
     }
@@ -616,7 +700,7 @@ class MorningCatchUpService {
       if (items.isNotEmpty) {
         // Wait a moment to ensure all database updates are committed
         await Future.delayed(const Duration(milliseconds: 500));
-        
+
         // Create daily progress record for yesterday using new method with full breakdown
         await createDailyProgressRecordForDate(
           userId: userId,
@@ -696,7 +780,7 @@ class MorningCatchUpService {
     try {
       final normalizedDate =
           DateTime(targetDate.year, targetDate.month, targetDate.day);
-      
+
       // Delete existing record if it exists
       final existingQuery = DailyProgressRecord.collectionForUser(userId)
           .where('date', isEqualTo: normalizedDate);
@@ -709,7 +793,7 @@ class MorningCatchUpService {
         }
         await batch.commit();
       }
-      
+
       // Now create the record with updated data
       await createDailyProgressRecordForDate(
         userId: userId,
@@ -724,7 +808,7 @@ class MorningCatchUpService {
   /// Create daily progress record for a specific date using DailyProgressCalculator
   /// This ensures records include full habitBreakdown/taskBreakdown with enhanced fields
   /// Works with instances regardless of dayState (pending/completed/skipped)
-  /// 
+  ///
   /// [allInstances] - Optional: Pre-fetched habit instances to avoid redundant queries
   /// [allTaskInstances] - Optional: Pre-fetched task instances to avoid redundant queries
   /// [categories] - Optional: Pre-fetched categories to avoid redundant queries
@@ -737,7 +821,7 @@ class MorningCatchUpService {
   }) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-    
+
     // Check if record already exists (outside retry loop)
     final existingQuery = DailyProgressRecord.collectionForUser(userId)
         .where('date', isEqualTo: normalizedDate);
@@ -750,222 +834,230 @@ class MorningCatchUpService {
     int retries = 3;
     while (retries > 0) {
       try {
+        // Fetch instances only if not provided
+        List<ActivityInstanceRecord> habitInstances;
+        if (allInstances != null) {
+          habitInstances = allInstances;
+        } else {
+          final allInstancesQuery =
+              ActivityInstanceRecord.collectionForUser(userId)
+                  .where('templateCategoryType', isEqualTo: 'habit');
+          final allInstancesSnapshot = await allInstancesQuery.get();
+          habitInstances = allInstancesSnapshot.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .toList();
+        }
 
-      // Fetch instances only if not provided
-      List<ActivityInstanceRecord> habitInstances;
-      if (allInstances != null) {
-        habitInstances = allInstances;
-      } else {
-        final allInstancesQuery = ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateCategoryType', isEqualTo: 'habit');
-        final allInstancesSnapshot = await allInstancesQuery.get();
-        habitInstances = allInstancesSnapshot.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .toList();
-      }
+        // Fetch task instances only if not provided
+        List<ActivityInstanceRecord> taskInstances;
+        if (allTaskInstances != null) {
+          taskInstances = allTaskInstances;
+        } else {
+          final allTaskInstancesQuery =
+              ActivityInstanceRecord.collectionForUser(userId)
+                  .where('templateCategoryType', isEqualTo: 'task');
+          final allTaskInstancesSnapshot = await allTaskInstancesQuery.get();
+          taskInstances = allTaskInstancesSnapshot.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .toList();
+        }
 
-      // Fetch task instances only if not provided
-      List<ActivityInstanceRecord> taskInstances;
-      if (allTaskInstances != null) {
-        taskInstances = allTaskInstances;
-      } else {
-        final allTaskInstancesQuery =
-            ActivityInstanceRecord.collectionForUser(userId)
-                .where('templateCategoryType', isEqualTo: 'task');
-        final allTaskInstancesSnapshot = await allTaskInstancesQuery.get();
-        taskInstances = allTaskInstancesSnapshot.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .toList();
-      }
+        // Fetch categories only if not provided
+        List<CategoryRecord> categoryList;
+        if (categories != null) {
+          categoryList = categories;
+        } else {
+          final categoriesQuery = CategoryRecord.collectionForUser(userId)
+              .where('categoryType', isEqualTo: 'habit');
+          final categoriesSnapshot = await categoriesQuery.get();
+          categoryList = categoriesSnapshot.docs
+              .map((doc) => CategoryRecord.fromSnapshot(doc))
+              .toList();
+        }
 
-      // Fetch categories only if not provided
-      List<CategoryRecord> categoryList;
-      if (categories != null) {
-        categoryList = categories;
-      } else {
-        final categoriesQuery = CategoryRecord.collectionForUser(userId)
-            .where('categoryType', isEqualTo: 'habit');
-        final categoriesSnapshot = await categoriesQuery.get();
-        categoryList = categoriesSnapshot.docs
-            .map((doc) => CategoryRecord.fromSnapshot(doc))
-            .toList();
-      }
-
-      // Use DailyProgressCalculator (same as DayEndProcessor)
-      final calculationResult =
-          await DailyProgressCalculator.calculateDailyProgress(
-        userId: userId,
-        targetDate: normalizedDate,
-        allInstances: habitInstances,
-        categories: categoryList,
-        taskInstances: taskInstances,
-      );
-
-      final targetPoints = calculationResult['target'] as double;
-      final earnedPoints = calculationResult['earned'] as double;
-      final completionPercentage = calculationResult['percentage'] as double;
-      final displayInstances =
-          calculationResult['instances'] as List<ActivityInstanceRecord>;
-      final displayTaskInstances =
-          calculationResult['taskInstances'] as List<ActivityInstanceRecord>;
-      final allForMath =
-          calculationResult['allForMath'] as List<ActivityInstanceRecord>;
-      final allTasksForMath =
-          calculationResult['allTasksForMath'] as List<ActivityInstanceRecord>;
-      final taskTarget = calculationResult['taskTarget'] as double;
-      final taskEarned = calculationResult['taskEarned'] as double;
-      final habitBreakdown =
-          calculationResult['habitBreakdown'] as List<Map<String, dynamic>>? ??
-              [];
-      final taskBreakdown =
-          calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ??
-              [];
-
-      // Handle empty case - create record with zero values
-      if (displayInstances.isEmpty && displayTaskInstances.isEmpty) {
-        final emptyProgressData = createDailyProgressRecordData(
+        // Use DailyProgressCalculator (same as DayEndProcessor)
+        final calculationResult =
+            await DailyProgressCalculator.calculateDailyProgress(
           userId: userId,
-          date: normalizedDate,
-          targetPoints: 0.0,
-          earnedPoints: 0.0,
-          completionPercentage: 0.0,
-          totalHabits: 0,
-          completedHabits: 0,
-          partialHabits: 0,
-          skippedHabits: 0,
-          totalTasks: 0,
-          completedTasks: 0,
-          partialTasks: 0,
-          skippedTasks: 0,
-          taskTargetPoints: 0.0,
-          taskEarnedPoints: 0.0,
-          categoryBreakdown: {},
-          habitBreakdown: [],
-          taskBreakdown: [],
-          createdAt: DateTime.now(),
+          targetDate: normalizedDate,
+          allInstances: habitInstances,
+          categories: categoryList,
+          taskInstances: taskInstances,
         );
-        await DailyProgressRecord.collectionForUser(userId)
-            .add(emptyProgressData);
-        return;
-      }
 
-      // Count habit statistics using allForMath and completion-on-date rule
-      int totalHabits = allForMath.length;
-      final completedOnDate = allForMath.where((i) {
-        if (i.status != 'completed' || i.completedAt == null) return false;
-        final completedDate = DateTime(
-            i.completedAt!.year, i.completedAt!.month, i.completedAt!.day);
-        return completedDate.isAtSameMomentAs(normalizedDate);
-      }).toList();
-      int completedHabits = completedOnDate.length;
-      int partialHabits = allForMath
-          .where((i) =>
-              i.status != 'completed' &&
-              (i.currentValue is num ? (i.currentValue as num) > 0 : false))
-          .length;
-      int skippedHabits = allForMath.where((i) => i.status == 'skipped').length;
+        final targetPoints = calculationResult['target'] as double;
+        final earnedPoints = calculationResult['earned'] as double;
+        final completionPercentage = calculationResult['percentage'] as double;
+        final displayInstances =
+            calculationResult['instances'] as List<ActivityInstanceRecord>;
+        final displayTaskInstances =
+            calculationResult['taskInstances'] as List<ActivityInstanceRecord>;
+        final allForMath =
+            calculationResult['allForMath'] as List<ActivityInstanceRecord>;
+        final allTasksForMath = calculationResult['allTasksForMath']
+            as List<ActivityInstanceRecord>;
+        final taskTarget = calculationResult['taskTarget'] as double;
+        final taskEarned = calculationResult['taskEarned'] as double;
+        final habitBreakdown = calculationResult['habitBreakdown']
+                as List<Map<String, dynamic>>? ??
+            [];
+        final taskBreakdown =
+            calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ??
+                [];
 
-      // Count task statistics using allTasksForMath and completion-on-date rule
-      int totalTasks = allTasksForMath.length;
-      final completedTasksOnDate = allTasksForMath.where((task) {
-        if (task.status != 'completed' || task.completedAt == null) return false;
-        final completedDate = DateTime(task.completedAt!.year,
-            task.completedAt!.month, task.completedAt!.day);
-        return completedDate.isAtSameMomentAs(normalizedDate);
-      }).toList();
-      int completedTasks = completedTasksOnDate.length;
-      int partialTasks = allTasksForMath
-          .where((task) =>
-              task.status != 'completed' &&
-              (task.currentValue is num ? (task.currentValue as num) > 0 : false))
-          .length;
-      int skippedTasks =
-          allTasksForMath.where((task) => task.status == 'skipped').length;
+        // Handle empty case - create record with zero values
+        if (displayInstances.isEmpty && displayTaskInstances.isEmpty) {
+          final emptyProgressData = createDailyProgressRecordData(
+            userId: userId,
+            date: normalizedDate,
+            targetPoints: 0.0,
+            earnedPoints: 0.0,
+            completionPercentage: 0.0,
+            totalHabits: 0,
+            completedHabits: 0,
+            partialHabits: 0,
+            skippedHabits: 0,
+            totalTasks: 0,
+            completedTasks: 0,
+            partialTasks: 0,
+            skippedTasks: 0,
+            taskTargetPoints: 0.0,
+            taskEarnedPoints: 0.0,
+            categoryBreakdown: {},
+            habitBreakdown: [],
+            taskBreakdown: [],
+            createdAt: DateTime.now(),
+          );
+          await DailyProgressRecord.collectionForUser(userId)
+              .add(emptyProgressData);
+          return;
+        }
 
-      // Create category breakdown
-      final categoryBreakdown = <String, Map<String, dynamic>>{};
-      for (final category in categoryList) {
-        final categoryAll = allForMath
-            .where((i) => i.templateCategoryId == category.reference.id)
-            .toList();
-        if (categoryAll.isNotEmpty) {
-          final categoryCompleted = completedOnDate
+        // Count habit statistics using allForMath and completion-on-date rule
+        int totalHabits = allForMath.length;
+        final completedOnDate = allForMath.where((i) {
+          if (i.status != 'completed' || i.completedAt == null) return false;
+          final completedDate = DateTime(
+              i.completedAt!.year, i.completedAt!.month, i.completedAt!.day);
+          return completedDate.isAtSameMomentAs(normalizedDate);
+        }).toList();
+        int completedHabits = completedOnDate.length;
+        int partialHabits = allForMath
+            .where((i) =>
+                i.status != 'completed' &&
+                (i.currentValue is num ? (i.currentValue as num) > 0 : false))
+            .length;
+        int skippedHabits =
+            allForMath.where((i) => i.status == 'skipped').length;
+
+        // Count task statistics using allTasksForMath and completion-on-date rule
+        int totalTasks = allTasksForMath.length;
+        final completedTasksOnDate = allTasksForMath.where((task) {
+          if (task.status != 'completed' || task.completedAt == null)
+            return false;
+          final completedDate = DateTime(task.completedAt!.year,
+              task.completedAt!.month, task.completedAt!.day);
+          return completedDate.isAtSameMomentAs(normalizedDate);
+        }).toList();
+        int completedTasks = completedTasksOnDate.length;
+        int partialTasks = allTasksForMath
+            .where((task) =>
+                task.status != 'completed' &&
+                (task.currentValue is num
+                    ? (task.currentValue as num) > 0
+                    : false))
+            .length;
+        int skippedTasks =
+            allTasksForMath.where((task) => task.status == 'skipped').length;
+
+        // Create category breakdown
+        final categoryBreakdown = <String, Map<String, dynamic>>{};
+        for (final category in categoryList) {
+          final categoryAll = allForMath
               .where((i) => i.templateCategoryId == category.reference.id)
               .toList();
-          final categoryTarget =
-              PointsService.calculateTotalDailyTarget(categoryAll, [category]);
-          final categoryEarned = PointsService.calculateTotalPointsEarned(
-              categoryCompleted, [category]);
-          categoryBreakdown[category.reference.id] = {
-            'target': categoryTarget,
-            'earned': categoryEarned,
-            'completed': categoryCompleted.length,
-            'total': categoryAll.length,
-          };
+          if (categoryAll.isNotEmpty) {
+            final categoryCompleted = completedOnDate
+                .where((i) => i.templateCategoryId == category.reference.id)
+                .toList();
+            final categoryTarget = PointsService.calculateTotalDailyTarget(
+                categoryAll, [category]);
+            final categoryEarned = PointsService.calculateTotalPointsEarned(
+                categoryCompleted, [category]);
+            categoryBreakdown[category.reference.id] = {
+              'target': categoryTarget,
+              'earned': categoryEarned,
+              'completed': categoryCompleted.length,
+              'total': categoryAll.length,
+            };
+          }
         }
-      }
 
-      // Calculate category neglect penalty
-      final categoryNeglectPenalty = CumulativeScoreService.calculateCategoryNeglectPenalty(
-        categoryList,
-        allForMath,
-        normalizedDate,
-      );
-
-      // Calculate cumulative score
-      Map<String, dynamic> cumulativeScoreData = {};
-      try {
-        cumulativeScoreData = await CumulativeScoreService.updateCumulativeScore(
-          userId,
-          completionPercentage,
+        // Calculate category neglect penalty
+        final categoryNeglectPenalty =
+            CumulativeScoreService.calculateCategoryNeglectPenalty(
+          categoryList,
+          allForMath,
           normalizedDate,
-          earnedPoints,
-          categoryNeglectPenalty: categoryNeglectPenalty,
         );
-        
-        // Show bonus notifications
-        final bonuses = CumulativeScoreService.getBonusNotifications(
-          cumulativeScoreData,
-        );
-        if (bonuses.isNotEmpty) {
-          ScoreBonusToastService.showMultipleNotifications(bonuses);
+
+        // Calculate cumulative score
+        Map<String, dynamic> cumulativeScoreData = {};
+        try {
+          cumulativeScoreData =
+              await CumulativeScoreService.updateCumulativeScore(
+            userId,
+            completionPercentage,
+            normalizedDate,
+            earnedPoints,
+            categoryNeglectPenalty: categoryNeglectPenalty,
+          );
+
+          // Show bonus notifications
+          final bonuses = CumulativeScoreService.getBonusNotifications(
+            cumulativeScoreData,
+          );
+          if (bonuses.isNotEmpty) {
+            ScoreBonusToastService.showMultipleNotifications(bonuses);
+          }
+
+          // Show milestone achievements
+          final newMilestones =
+              cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
+          if (newMilestones.isNotEmpty) {
+            final milestoneValues = newMilestones.map((m) => m as int).toList();
+            MilestoneToastService.showMultipleMilestones(milestoneValues);
+          }
+        } catch (e) {
+          // Error calculating cumulative score
+          // Continue without cumulative score if calculation fails
         }
 
-        // Show milestone achievements
-        final newMilestones = cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
-        if (newMilestones.isNotEmpty) {
-          final milestoneValues = newMilestones.map((m) => m as int).toList();
-          MilestoneToastService.showMultipleMilestones(milestoneValues);
-        }
-      } catch (e) {
-        // Error calculating cumulative score
-        // Continue without cumulative score if calculation fails
-      }
-
-      // Create the daily progress record with full breakdown
-      final progressData = createDailyProgressRecordData(
-        userId: userId,
-        date: normalizedDate,
-        targetPoints: targetPoints,
-        earnedPoints: earnedPoints,
-        completionPercentage: completionPercentage,
-        totalHabits: totalHabits,
-        completedHabits: completedHabits,
-        partialHabits: partialHabits,
-        skippedHabits: skippedHabits,
-        totalTasks: totalTasks,
-        completedTasks: completedTasks,
-        partialTasks: partialTasks,
-        skippedTasks: skippedTasks,
-        taskTargetPoints: taskTarget,
-        taskEarnedPoints: taskEarned,
-        categoryBreakdown: categoryBreakdown,
-        habitBreakdown: habitBreakdown,
-        taskBreakdown: taskBreakdown,
-        cumulativeScoreSnapshot: cumulativeScoreData['cumulativeScore'] ?? 0.0,
-        dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
-        createdAt: DateTime.now(),
-      );
+        // Create the daily progress record with full breakdown
+        final progressData = createDailyProgressRecordData(
+          userId: userId,
+          date: normalizedDate,
+          targetPoints: targetPoints,
+          earnedPoints: earnedPoints,
+          completionPercentage: completionPercentage,
+          totalHabits: totalHabits,
+          completedHabits: completedHabits,
+          partialHabits: partialHabits,
+          skippedHabits: skippedHabits,
+          totalTasks: totalTasks,
+          completedTasks: completedTasks,
+          partialTasks: partialTasks,
+          skippedTasks: skippedTasks,
+          taskTargetPoints: taskTarget,
+          taskEarnedPoints: taskEarned,
+          categoryBreakdown: categoryBreakdown,
+          habitBreakdown: habitBreakdown,
+          taskBreakdown: taskBreakdown,
+          cumulativeScoreSnapshot:
+              cumulativeScoreData['cumulativeScore'] ?? 0.0,
+          dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
+          createdAt: DateTime.now(),
+        );
         await DailyProgressRecord.collectionForUser(userId).add(progressData);
         return; // Success
       } catch (e) {
@@ -995,7 +1087,8 @@ class MorningCatchUpService {
               taskBreakdown: [],
               createdAt: DateTime.now(),
             );
-            await DailyProgressRecord.collectionForUser(userId).add(minimalData);
+            await DailyProgressRecord.collectionForUser(userId)
+                .add(minimalData);
           } catch (fallbackError) {
             // Fallback record creation also failed
             rethrow;
@@ -1015,16 +1108,17 @@ class MorningCatchUpService {
   }) async {
     try {
       final yesterday = DateService.yesterdayStart;
-      
+
       // Find the last DailyProgressRecord date
       final lastRecordQuery = DailyProgressRecord.collectionForUser(userId)
           .orderBy('date', descending: true)
           .limit(1);
       final lastRecordSnapshot = await lastRecordQuery.get();
-      
+
       DateTime? lastRecordDate;
       if (lastRecordSnapshot.docs.isNotEmpty) {
-        final lastRecord = DailyProgressRecord.fromSnapshot(lastRecordSnapshot.docs.first);
+        final lastRecord =
+            DailyProgressRecord.fromSnapshot(lastRecordSnapshot.docs.first);
         if (lastRecord.date != null) {
           lastRecordDate = DateTime(
             lastRecord.date!.year,
@@ -1056,7 +1150,8 @@ class MorningCatchUpService {
       // Build list of all missed dates
       final missedDates = <DateTime>[];
       DateTime currentDate = lastRecordDate.add(const Duration(days: 1));
-      while (currentDate.isBefore(yesterday) || currentDate.isAtSameMomentAs(yesterday)) {
+      while (currentDate.isBefore(yesterday) ||
+          currentDate.isAtSameMomentAs(yesterday)) {
         missedDates.add(currentDate);
         currentDate = currentDate.add(const Duration(days: 1));
       }
@@ -1081,13 +1176,16 @@ class MorningCatchUpService {
         categoriesQuery.get(),
       ]);
 
-      final allInstances = results[0].docs
+      final allInstances = results[0]
+          .docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
-      final allTaskInstances = results[1].docs
+      final allTaskInstances = results[1]
+          .docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
-      final categories = results[2].docs
+      final categories = results[2]
+          .docs
           .map((doc) => CategoryRecord.fromSnapshot(doc))
           .toList();
 
@@ -1117,8 +1215,7 @@ class MorningCatchUpService {
         recordsCreated += batchResults.where((r) => r).length;
       }
 
-      if (recordsCreated > 0) {
-      }
+      if (recordsCreated > 0) {}
     } catch (e) {
       // Error creating records for missed days
       // Don't rethrow - this is a background operation

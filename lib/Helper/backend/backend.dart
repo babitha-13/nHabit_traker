@@ -1252,8 +1252,13 @@ Future<void> updateCategoryCascade({
         .where('categoryId', isEqualTo: categoryId);
     final templatesSnapshot = await templatesQuery.get();
     final templates = templatesSnapshot.docs;
+
+    // We'll collect template IDs to update their instances reliably
+    final List<String> templateIds = [];
+
     // 2. Update all templates
     for (final templateDoc in templates) {
+      templateIds.add(templateDoc.id);
       try {
         final updateData = <String, dynamic>{
           'lastUpdated': DateTime.now(),
@@ -1267,32 +1272,55 @@ Future<void> updateCategoryCascade({
         print('Error updating template category metadata: $e');
       }
     }
-    // 3. Find ALL instances (pending AND completed) with this categoryId
-    final instancesQuery = ActivityInstanceRecord.collectionForUser(userId)
-        .where('templateCategoryId', isEqualTo: categoryId);
-    final instancesSnapshot = await instancesQuery.get();
-    final instances = instancesSnapshot.docs;
-    // 4. Update all instances in batches
-    const batchSize = 10;
-    for (int i = 0; i < instances.length; i += batchSize) {
-      final batch = instances.skip(i).take(batchSize);
-      await Future.wait(batch.map((instanceDoc) async {
-        try {
-          final updateData = <String, dynamic>{
-            'lastUpdated': DateTime.now(),
-          };
-          if (newCategoryName != null) {
-            updateData['templateCategoryName'] = newCategoryName;
-          }
-          if (newCategoryColor != null) {
-            updateData['templateCategoryColor'] = newCategoryColor;
-          }
-          await instanceDoc.reference.update(updateData);
-        } catch (e) {
-          // Continue on error
+
+    // 3. Update all instances LINKED to these templates (Robust Cascade)
+    // This ensures even if templateCategoryId is broken/stale on the instance,
+    // if it belongs to the template, it gets updated and repaired.
+    // Chunking to respect Firestore 'whereIn' limit of 10
+    const chunkSize = 10;
+    for (var i = 0; i < templateIds.length; i += chunkSize) {
+      final end = (i + chunkSize < templateIds.length)
+          ? i + chunkSize
+          : templateIds.length;
+      final chunk = templateIds.sublist(i, end);
+
+      if (chunk.isEmpty) continue;
+
+      try {
+        final linkedInstancesQuery =
+            ActivityInstanceRecord.collectionForUser(userId)
+                .where('templateId', whereIn: chunk);
+        final linkedInstancesSnapshot = await linkedInstancesQuery.get();
+        final linkedInstances = linkedInstancesSnapshot.docs;
+
+        // Process instances in smaller batches for writes
+        const writeBatchSize = 20;
+        for (int j = 0; j < linkedInstances.length; j += writeBatchSize) {
+          final batch = linkedInstances.skip(j).take(writeBatchSize);
+          await Future.wait(batch.map((instanceDoc) async {
+            try {
+              final updateData = <String, dynamic>{
+                'lastUpdated': DateTime.now(),
+                // Repair the link to the category ID as well, just in case it was lost
+                'templateCategoryId': categoryId,
+              };
+              if (newCategoryName != null) {
+                updateData['templateCategoryName'] = newCategoryName;
+              }
+              if (newCategoryColor != null) {
+                updateData['templateCategoryColor'] = newCategoryColor;
+              }
+              await instanceDoc.reference.update(updateData);
+            } catch (e) {
+              // Continue on error
+            }
+          }));
         }
-      }));
+      } catch (e) {
+        print('Error updating instances for chunk: $e');
+      }
     }
+
     // Notify all pages that categories have been updated
     final payload = <String, dynamic>{
       'categoryId': categoryId,

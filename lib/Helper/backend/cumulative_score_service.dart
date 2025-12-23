@@ -27,11 +27,12 @@ class CumulativeScoreService {
     double rawPointsEarned,
   ) {
     // Percentage component (max 10 points)
-    final percentageComponent = (completionPercentage / 100.0) * basePointsPerDay;
-    
+    final percentageComponent =
+        (completionPercentage / 100.0) * basePointsPerDay;
+
     // Raw points bonus using square root scaling divided by 2
     final rawPointsBonus = sqrt(rawPointsEarned) / 2.0;
-    
+
     // Combined score (no cap)
     return percentageComponent + rawPointsBonus;
   }
@@ -58,19 +59,21 @@ class CumulativeScoreService {
     int consecutiveLowDays,
   ) {
     if (dailyCompletion >= decayThreshold) return 0.0;
-    
+
     // Combined penalty with diminishing returns over time
     // Formula: (50 - completion%) * 0.04 / log(consecutiveDays + 1)
     final pointsBelowThreshold = decayThreshold - dailyCompletion;
-    final penalty = pointsBelowThreshold * penaltyBaseMultiplier / log(consecutiveLowDays + 1);
-    
+    final penalty = pointsBelowThreshold *
+        penaltyBaseMultiplier /
+        log(consecutiveLowDays + 1);
+
     return penalty;
   }
 
   /// Calculate recovery bonus when breaking low-completion streak
   static double calculateRecoveryBonus(int consecutiveLowDays) {
     if (consecutiveLowDays == 0) return 0.0;
-    
+
     // Recovery bonus when breaking low-completion streak
     // Capped at 5 points to ensure < 50% of typical penalties
     // Formula: min(5, sqrt(consecutiveLowDays) * 1.0)
@@ -88,7 +91,8 @@ class CumulativeScoreService {
   ) {
     if (categories.isEmpty || habitInstances.isEmpty) return 0.0;
 
-    final normalizedDate = DateTime(targetDate.year, targetDate.month, targetDate.day);
+    final normalizedDate =
+        DateTime(targetDate.year, targetDate.month, targetDate.day);
     double totalPenalty = 0.0;
 
     for (final category in categories) {
@@ -168,7 +172,8 @@ class CumulativeScoreService {
       final last30Days = await _getLastNDays(userId, 30, targetDate);
 
       // Calculate components
-      final dailyScore = calculateDailyScore(todayCompletionPercentage, rawPointsEarned);
+      final dailyScore =
+          calculateDailyScore(todayCompletionPercentage, rawPointsEarned);
       final consistencyBonus = calculateConsistencyBonus(last7Days);
       final weightedPerformance =
           calculateWeightedPerformance(last7Days, last30Days);
@@ -184,7 +189,8 @@ class CumulativeScoreService {
       if (todayCompletionPercentage < decayThreshold) {
         // Completion < 50%: increment counter and apply penalty
         newConsecutiveLowDays = userStats.consecutiveLowDays + 1;
-        penalty = calculateCombinedPenalty(todayCompletionPercentage, newConsecutiveLowDays);
+        penalty = calculateCombinedPenalty(
+            todayCompletionPercentage, newConsecutiveLowDays);
       } else {
         // Completion >= 50%: calculate recovery bonus and reset counter
         if (userStats.consecutiveLowDays > 0) {
@@ -194,7 +200,11 @@ class CumulativeScoreService {
       }
 
       // Calculate new cumulative score
-      final dailyGain = dailyScore + consistencyBonus + recoveryBonus - penalty - categoryNeglectPenalty;
+      final dailyGain = dailyScore +
+          consistencyBonus +
+          recoveryBonus -
+          penalty -
+          categoryNeglectPenalty;
       final newCumulativeScore =
           (userStats.cumulativeScore + dailyGain).clamp(0.0, double.infinity);
 
@@ -209,7 +219,8 @@ class CumulativeScoreService {
       // Update achieved milestones bitmask
       int newAchievedMilestones = userStats.achievedMilestones;
       for (final milestoneValue in newMilestones) {
-        final milestoneIndex = MilestoneService.milestones.indexOf(milestoneValue);
+        final milestoneIndex =
+            MilestoneService.milestones.indexOf(milestoneValue);
         if (milestoneIndex >= 0) {
           newAchievedMilestones = MilestoneService.setMilestoneAchieved(
             newAchievedMilestones,
@@ -233,7 +244,8 @@ class CumulativeScoreService {
       // Calculate aggregate statistics
       Map<String, dynamic> aggregateStats = {};
       try {
-        aggregateStats = await AggregateScoreStatisticsService.calculateAggregateStatistics(
+        aggregateStats =
+            await AggregateScoreStatisticsService.calculateAggregateStatistics(
           userId,
           targetDate,
         );
@@ -284,56 +296,62 @@ class CumulativeScoreService {
     Map<String, dynamic> scoreData,
   ) {
     final notifications = <Map<String, dynamic>>[];
-    
+
     // Consistency bonus notification
     final consistencyBonus = scoreData['consistencyBonus'] ?? 0.0;
     if (consistencyBonus >= 5.0) {
       notifications.add({
-        'message': 'Consistency Bonus! You completed more than 80% for the last 7 days, so you get 5 extra points',
+        'message':
+            'Consistency Bonus! You completed more than 80% for the last 7 days, so you get 5 extra points',
         'points': 5.0,
         'type': 'bonus',
       });
     } else if (consistencyBonus >= 2.0) {
       notifications.add({
-        'message': 'Partial Consistency Bonus! You completed more than 80% for 5-6 days, so you get 2 extra points',
+        'message':
+            'Partial Consistency Bonus! You completed more than 80% for 5-6 days, so you get 2 extra points',
         'points': 2.0,
         'type': 'bonus',
       });
     }
-    
+
     // Recovery bonus notification
     final recoveryBonus = scoreData['recoveryBonus'] ?? 0.0;
     if (recoveryBonus > 0) {
       final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
       notifications.add({
-        'message': 'Recovery Bonus! You\'re back on track after ${consecutiveDays} day${consecutiveDays == 1 ? '' : 's'} of low completion, so you get ${recoveryBonus.toStringAsFixed(1)} extra points',
+        'message':
+            'Recovery Bonus! You\'re back on track after ${consecutiveDays} day${consecutiveDays == 1 ? '' : 's'} of low completion, so you get ${recoveryBonus.toStringAsFixed(1)} extra points',
         'points': recoveryBonus,
         'type': 'bonus',
       });
     }
-    
+
     // Combined penalty notification (with diminishing returns)
     final penalty = scoreData['decayPenalty'] ?? 0.0;
     if (penalty > 0) {
       final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
       notifications.add({
-        'message': 'Low Completion Penalty: Today\'s completion was below 50% (day ${consecutiveDays} of low completion), so you lose ${penalty.toStringAsFixed(1)} points',
+        'message':
+            'Low Completion Penalty: Yesterday\'s completion was below 50% (day ${consecutiveDays} of low completion), so you lose ${penalty.toStringAsFixed(1)} points',
         'points': -penalty,
         'type': 'penalty',
       });
     }
-    
+
     // Category neglect penalty notification
     final categoryPenalty = scoreData['categoryNeglectPenalty'] ?? 0.0;
     if (categoryPenalty > 0) {
-      final ignoredCategories = (categoryPenalty / categoryNeglectPenalty).round();
+      final ignoredCategories =
+          (categoryPenalty / categoryNeglectPenalty).round();
       notifications.add({
-        'message': 'Category Neglect Penalty: You ignored ${ignoredCategories} habit categor${ignoredCategories == 1 ? 'y' : 'ies'} today, so you lose ${categoryPenalty.toStringAsFixed(1)} points',
+        'message':
+            'Category Neglect Penalty: You ignored ${ignoredCategories} habit categor${ignoredCategories == 1 ? 'y' : 'ies'} today, so you lose ${categoryPenalty.toStringAsFixed(1)} points',
         'points': -categoryPenalty,
         'type': 'penalty',
       });
     }
-    
+
     return notifications;
   }
 
@@ -344,7 +362,7 @@ class CumulativeScoreService {
       final docRef =
           UserProgressStatsRecord.collectionForUser(userId).doc('main');
       final snapshot = await docRef.get();
-      
+
       if (!snapshot.exists) {
         // Document doesn't exist, create it with default values
         final now = DateTime.now();
@@ -376,7 +394,7 @@ class CumulativeScoreService {
         await docRef.set(data);
         return UserProgressStatsRecord.getDocumentFromData(data, docRef);
       }
-      
+
       return await UserProgressStatsRecord.getDocumentOnce(docRef);
     } catch (e) {
       return null;
@@ -403,17 +421,19 @@ class CumulativeScoreService {
       final consecutiveLowDays = userStats?.consecutiveLowDays ?? 0;
 
       // Calculate components (same as updateCumulativeScore but read-only)
-      final dailyScore = calculateDailyScore(todayCompletionPercentage, rawPointsEarned);
+      final dailyScore =
+          calculateDailyScore(todayCompletionPercentage, rawPointsEarned);
       final consistencyBonus = calculateConsistencyBonus(last7Days);
-      
+
       // Calculate penalty/recovery bonus based on today's completion
       double penalty = 0.0;
       double recoveryBonus = 0.0;
-      
+
       if (todayCompletionPercentage < decayThreshold) {
         // Completion < 50%: calculate penalty with incremented counter
         final projectedConsecutiveDays = consecutiveLowDays + 1;
-        penalty = calculateCombinedPenalty(todayCompletionPercentage, projectedConsecutiveDays);
+        penalty = calculateCombinedPenalty(
+            todayCompletionPercentage, projectedConsecutiveDays);
       } else {
         // Completion >= 50%: calculate recovery bonus if there were low days
         if (consecutiveLowDays > 0) {
@@ -421,7 +441,8 @@ class CumulativeScoreService {
         }
       }
 
-      final projectedGain = dailyScore + consistencyBonus + recoveryBonus - penalty;
+      final projectedGain =
+          dailyScore + consistencyBonus + recoveryBonus - penalty;
       final projectedCumulative =
           (currentCumulative + projectedGain).clamp(0.0, double.infinity);
 
@@ -500,7 +521,7 @@ class CumulativeScoreService {
         // Track consecutive low days and calculate penalty/recovery bonus
         double penalty = 0.0;
         double recoveryBonus = 0.0;
-        
+
         if (completion < decayThreshold) {
           // Completion < 50%: increment counter and apply penalty
           consecutiveLowDays++;
@@ -514,7 +535,8 @@ class CumulativeScoreService {
         }
 
         // Update cumulative score
-        final dailyGain = dailyScore + consistencyBonus + recoveryBonus - penalty;
+        final dailyGain =
+            dailyScore + consistencyBonus + recoveryBonus - penalty;
         final oldScore = cumulativeScore;
         cumulativeScore =
             (cumulativeScore + dailyGain).clamp(0.0, double.infinity);
@@ -527,7 +549,8 @@ class CumulativeScoreService {
         );
         // Update achieved milestones bitmask
         for (final milestoneValue in newMilestones) {
-          final milestoneIndex = MilestoneService.milestones.indexOf(milestoneValue);
+          final milestoneIndex =
+              MilestoneService.milestones.indexOf(milestoneValue);
           if (milestoneIndex >= 0) {
             achievedMilestones = MilestoneService.setMilestoneAchieved(
               achievedMilestones,
@@ -554,7 +577,8 @@ class CumulativeScoreService {
         // Calculate aggregate statistics for recalculated data
         Map<String, dynamic> aggregateStats = {};
         try {
-          aggregateStats = await AggregateScoreStatisticsService.calculateAggregateStatistics(
+          aggregateStats = await AggregateScoreStatisticsService
+              .calculateAggregateStatistics(
             userId,
             lastDate,
           );
@@ -677,16 +701,20 @@ class CumulativeScoreService {
       consecutiveLowDays: consecutiveLowDays,
       achievedMilestones: achievedMilestones,
       lastUpdatedAt: now,
-      averageDailyScore7Day: aggregateStats?['averageDailyScore7Day'] as double?,
-      averageDailyScore30Day: aggregateStats?['averageDailyScore30Day'] as double?,
+      averageDailyScore7Day:
+          aggregateStats?['averageDailyScore7Day'] as double?,
+      averageDailyScore30Day:
+          aggregateStats?['averageDailyScore30Day'] as double?,
       bestDailyScoreGain: aggregateStats?['bestDailyScoreGain'] as double?,
       worstDailyScoreGain: aggregateStats?['worstDailyScoreGain'] as double?,
       positiveDaysCount7Day: aggregateStats?['positiveDaysCount7Day'] as int?,
       positiveDaysCount30Day: aggregateStats?['positiveDaysCount30Day'] as int?,
       scoreGrowthRate7Day: aggregateStats?['scoreGrowthRate7Day'] as double?,
       scoreGrowthRate30Day: aggregateStats?['scoreGrowthRate30Day'] as double?,
-      averageCumulativeScore7Day: aggregateStats?['averageCumulativeScore7Day'] as double?,
-      averageCumulativeScore30Day: aggregateStats?['averageCumulativeScore30Day'] as double?,
+      averageCumulativeScore7Day:
+          aggregateStats?['averageCumulativeScore7Day'] as double?,
+      averageCumulativeScore30Day:
+          aggregateStats?['averageCumulativeScore30Day'] as double?,
       lastAggregateStatsCalculationDate: aggregateStats != null ? now : null,
     );
 

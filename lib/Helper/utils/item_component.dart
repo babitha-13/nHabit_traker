@@ -1721,23 +1721,26 @@ class _ItemComponentState extends State<ItemComponent>
           return;
         }
       }
-      // Set optimistic state immediately
+      // Set optimistic state immediately for local UI
       setState(() => _quantProgressOverride = newValue.toInt());
+      
+      // Create optimistic instance for callback
+      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
+        widget.instance,
+        currentValue: newValue,
+      );
+      widget.onInstanceUpdated?.call(optimisticInstance);
+      
+      // Service method will broadcast optimistically
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
         currentValue: newValue,
       );
-      // Get the updated instance data
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      // Call the instance update callback for real-time updates
-      widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast the instance update event
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      // Reconciliation happens automatically via service method broadcasts
     } catch (e) {
       // Revert optimistic state on error
       setState(() => _quantProgressOverride = null);
+      widget.onInstanceUpdated?.call(widget.instance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating progress: $e')),
@@ -1797,10 +1800,29 @@ class _ItemComponentState extends State<ItemComponent>
         _binaryCompletionOverride = completed;
       });
     }
+    
+    // ==================== OPTIMISTIC UPDATE ====================
+    // Create optimistic instance for immediate local UI update
+    ActivityInstanceRecord? optimisticInstance;
+    if (completed) {
+      optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+        widget.instance,
+        finalValue: 1, // For binary habits
+      );
+    } else {
+      optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(
+        widget.instance,
+      );
+    }
+    
+    // Update local UI immediately with optimistic state
+    widget.onInstanceUpdated?.call(optimisticInstance);
+    
     try {
       if (completed) {
         // NEW: For binary habits, set currentValue to 1 (counter)
         // This makes it consistent with the counter-based approach
+        // Service methods will broadcast optimistically
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
           currentValue: 1,
@@ -1810,6 +1832,7 @@ class _ItemComponentState extends State<ItemComponent>
         );
       } else {
         // NEW: Reset counter to 0 when uncompleting
+        // Service methods will broadcast optimistically
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
           currentValue: 0,
@@ -1819,19 +1842,14 @@ class _ItemComponentState extends State<ItemComponent>
           deleteLogs: deleteLogs,
         );
       }
-      // Get the updated instance data
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      // Call the instance update callback for real-time updates
-      widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast the instance update event
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      // Reconciliation happens automatically via service method broadcasts
       // For habits, trigger a full refresh to fetch the newly generated instance
       if (widget.instance.templateCategoryType == 'habit' && completed) {
         widget.onRefresh?.call();
       }
     } catch (e) {
+      // Revert optimistic state on error
+      widget.onInstanceUpdated?.call(widget.instance);
       if (mounted) {
         setState(() {
           _binaryCompletionOverride = null;
@@ -1858,12 +1876,24 @@ class _ItemComponentState extends State<ItemComponent>
     });
     try {
       final wasActive = _isTimerActiveLocal;
-      // Set optimistic state immediately
-      setState(() => _timerStateOverride = !wasActive);
+      final newTimerState = !wasActive;
+      // Set optimistic state immediately for local UI
+      setState(() => _timerStateOverride = newTimerState);
+      
+      // Create optimistic instance for callback
+      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
+        widget.instance,
+        isTimerActive: newTimerState,
+        timerStartTime: newTimerState ? DateTime.now() : null,
+      );
+      widget.onInstanceUpdated?.call(optimisticInstance);
+      
+      // Service method will broadcast optimistically
       await ActivityInstanceService.toggleInstanceTimer(
         instanceId: widget.instance.reference.id,
       );
-      // Get the updated instance data
+      
+      // Get the updated instance data for TimerManager integration
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
@@ -1879,13 +1909,11 @@ class _ItemComponentState extends State<ItemComponent>
           await _checkTimerCompletion(updatedInstance);
         }
       }
-      // Call the instance update callback for real-time updates
-      widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast the instance update event
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      // Reconciliation happens automatically via service method broadcasts
     } catch (e) {
       // Revert optimistic state on error
       setState(() => _timerStateOverride = null);
+      widget.onInstanceUpdated?.call(widget.instance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error toggling timer: $e')),
@@ -2134,6 +2162,17 @@ class _ItemComponentState extends State<ItemComponent>
     try {
       // Get current instance to check status
       final instance = widget.instance;
+      
+      // ==================== OPTIMISTIC UPDATE ====================
+      // Create optimistic instance for immediate local UI update
+      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
+        instance,
+        accumulatedTime: 0,
+        isTimerActive: false,
+        timerStartTime: null,
+      );
+      widget.onInstanceUpdated?.call(optimisticInstance);
+      
       // Reset timer by updating the instance directly
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
@@ -2152,19 +2191,19 @@ class _ItemComponentState extends State<ItemComponent>
         // Check if timer was the only progress (for time-based tracking)
         if (instance.templateTrackingType == 'time') {
           // Auto-delete logs when resetting timer (silent deletion, no dialog)
+          // uncompleteInstance will broadcast optimistically
           await ActivityInstanceService.uncompleteInstance(
             instanceId: widget.instance.reference.id,
             deleteLogs: true, // Automatically delete logs when timer is reset
           );
         }
       }
-      // Get the updated instance data
+      // Get the updated instance data for final callback
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
-      // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast update
+      // Broadcast update (reconciliation)
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2172,6 +2211,8 @@ class _ItemComponentState extends State<ItemComponent>
         );
       }
     } catch (e) {
+      // Revert optimistic state on error
+      widget.onInstanceUpdated?.call(widget.instance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error resetting timer: $e')),
@@ -2196,6 +2237,15 @@ class _ItemComponentState extends State<ItemComponent>
     try {
       // Get current instance to check status
       final instance = widget.instance;
+      
+      // ==================== OPTIMISTIC UPDATE ====================
+      // Create optimistic instance for immediate local UI update
+      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
+        instance,
+        currentValue: 0,
+      );
+      widget.onInstanceUpdated?.call(optimisticInstance);
+      
       // Reset quantity by updating the instance directly
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
@@ -2213,7 +2263,8 @@ class _ItemComponentState extends State<ItemComponent>
           if (instance.timeLogSessions.isNotEmpty) {
             final userChoice = await _showUncompleteDialog();
             if (userChoice == null || userChoice == 'cancel') {
-              // User cancelled, abort uncomplete
+              // User cancelled, abort uncomplete - revert optimistic state
+              widget.onInstanceUpdated?.call(widget.instance);
               if (mounted) {
                 setState(() {
                   _isUpdating = false;
@@ -2224,19 +2275,20 @@ class _ItemComponentState extends State<ItemComponent>
             deleteLogs = userChoice == 'delete';
           }
 
+          // uncompleteInstance will broadcast optimistically
           await ActivityInstanceService.uncompleteInstance(
             instanceId: widget.instance.reference.id,
             deleteLogs: deleteLogs,
           );
         }
       }
-      // Get the updated instance data
+      // Get the updated instance data for final callback
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
       );
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast update
+      // Broadcast update (reconciliation)
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -2244,6 +2296,8 @@ class _ItemComponentState extends State<ItemComponent>
         );
       }
     } catch (e) {
+      // Revert optimistic state on error
+      widget.onInstanceUpdated?.call(widget.instance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error resetting quantity: $e')),

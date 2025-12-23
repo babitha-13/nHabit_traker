@@ -6,10 +6,10 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
+
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
-import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
+
 import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
@@ -144,10 +144,12 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     try {
       final userId = users.uid;
       if (userId != null && userId.isNotEmpty) {
-        final enableDefault = await TimeLoggingPreferencesService
-            .getEnableDefaultEstimates(userId);
-        final enableActivity = await TimeLoggingPreferencesService
-            .getEnableActivityEstimates(userId);
+        final enableDefault =
+            await TimeLoggingPreferencesService.getEnableDefaultEstimates(
+                userId);
+        final enableActivity =
+            await TimeLoggingPreferencesService.getEnableActivityEstimates(
+                userId);
         if (mounted) {
           setState(() {
             _enableDefaultEstimates = enableDefault;
@@ -643,112 +645,73 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
 
     await docRef.update(updateData);
 
-    // Update pending instances (logic from edit_task.dart)
-    try {
-      final instances = await ActivityInstanceService.getInstancesForTemplate(
-          templateId: widget.activity!.reference.id);
-      final pendingInstances =
-          instances.where((i) => i.status != 'completed').toList();
+    // Check for category change for history update option
+    bool updateHistorical = false;
+    if (widget.activity!.categoryId != _selectedCategoryId) {
+      // Assuming context is still valid
+      final userChoice = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Update Category'),
+          content: const Text(
+              'You changed the category. Do you want to apply this change to past history as well?'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context, false),
+              child: const Text('Current & Future Only'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: const Text('Include History (1 Year)'),
+            ),
+          ],
+        ),
+      );
+      // If user dismisses dialog (null), default to false (Current only)
+      updateHistorical = userChoice ?? false;
+    }
 
-      // Batch update logic omitted for brevity but recommended for production
-      // For now, simple loop
+    // Update instances (Batch)
+    try {
       final containsDueDateUpdate =
           !quickIsTaskRecurring && updateData.containsKey('dueDate');
       final hasDueTimeUpdate = updateData.containsKey('dueTime');
-      for (var instance in pendingInstances) {
-        // For one-time tasks, update instance dueDate to match template's new dueDate
-        // For recurring tasks, keep existing instance dueDates (they're calculated from frequency)
-        final shouldUpdateInstanceDueDate = containsDueDateUpdate;
-        final newInstanceDueDate = shouldUpdateInstanceDueDate
-            ? updateData['dueDate'] as DateTime?
-            : instance.dueDate;
-        final updatedDueTime = hasDueTimeUpdate
-            ? updateData['dueTime'] as String?
-            : instance.dueTime;
 
-        await instance.reference.update({
-          'templateName': updateData['name'],
-          'templateCategoryId': updateData['categoryId'],
-          'templateCategoryName': updateData['categoryName'],
-          'templateTrackingType': updateData['trackingType'],
-          'templateTarget': updateData['target'],
-          'templateUnit': updateData['unit'],
-          'templatePriority': updateData['priority'],
-          'templateDescription': updateData['description'],
-          'templateDueTime':
-              hasDueTimeUpdate ? updatedDueTime : instance.templateDueTime,
-          'templateEveryXValue': updateData['everyXValue'] ?? 0,
-          'templateEveryXPeriodType': updateData['everyXPeriodType'] ?? '',
-          'templateTimesPerPeriod': updateData['timesPerPeriod'] ?? 0,
-          'templatePeriodType': updateData['periodType'] ?? '',
-          if (shouldUpdateInstanceDueDate) 'dueDate': newInstanceDueDate,
-          if (hasDueTimeUpdate) 'dueTime': updatedDueTime,
-          'lastUpdated': DateTime.now(),
-        });
+      final instanceUpdates = <String, dynamic>{
+        'templateName': updateData['name'],
+        'templateCategoryId': updateData['categoryId'],
+        'templateCategoryName': updateData['categoryName'],
+        'templateTrackingType': updateData['trackingType'],
+        'templateTarget': updateData['target'],
+        'templateUnit': updateData['unit'],
+        'templatePriority': updateData['priority'],
+        'templateDescription': updateData['description'],
+        'templateEveryXValue': updateData['everyXValue'] ?? 0,
+        'templateEveryXPeriodType': updateData['everyXPeriodType'] ?? '',
+        'templateTimesPerPeriod': updateData['timesPerPeriod'] ?? 0,
+        'templatePeriodType': updateData['periodType'] ?? '',
+      };
 
-        // Also update the Instance Record logic (rescheduling reminders etc)
-        // Ideally this logic should be in a Service, but kept here for now as in original
-        try {
-          // Simplified update for instances (omitting full re-creation for brevity unless critical)
-          final updatedInstanceData = createActivityInstanceRecordData(
-            templateId: instance.templateId,
-            dueDate: newInstanceDueDate,
-            dueTime: updatedDueTime,
-            templateDueTime:
-                hasDueTimeUpdate ? updatedDueTime : instance.templateDueTime,
-            status: instance.status,
-            completedAt: instance.completedAt,
-            skippedAt: instance.skippedAt,
-            currentValue: instance.currentValue,
-            lastDayValue: instance.lastDayValue,
-            accumulatedTime: instance.accumulatedTime,
-            isTimerActive: instance.isTimerActive,
-            timerStartTime: instance.timerStartTime,
-            createdTime: instance.createdTime,
-            lastUpdated: DateTime.now(),
-            isActive: instance.isActive,
-            notes: instance.notes,
-            templateName: updateData['name'],
-            templateCategoryId: updateData['categoryId'],
-            templateCategoryName: updateData['categoryName'],
-            templateCategoryType: instance.templateCategoryType,
-            templatePriority: instance.templatePriority,
-            templateTrackingType: updateData['trackingType'],
-            templateTarget: updateData['target'],
-            templateUnit: updateData['unit'],
-            templateDescription: instance.templateDescription,
-            templateShowInFloatingTimer: instance.templateShowInFloatingTimer,
-            templateEveryXValue: updateData['everyXValue'] ?? 0,
-            templateEveryXPeriodType: updateData['everyXPeriodType'] ?? '',
-            templateTimesPerPeriod: updateData['timesPerPeriod'] ?? 0,
-            templatePeriodType: updateData['periodType'] ?? '',
-            dayState: instance.dayState,
-            belongsToDate: instance.belongsToDate,
-            closedAt: instance.closedAt,
-            windowEndDate: instance.windowEndDate,
-            windowDuration: instance.windowDuration,
-          );
-
-          final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
-            updatedInstanceData,
-            instance.reference,
-          );
-
-          InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-          try {
-            await ReminderScheduler.rescheduleReminderForInstance(
-                updatedInstance);
-          } catch (e) {
-            // Log error but don't fail - reminder rescheduling is non-critical
-            print('Error rescheduling reminder in activity editor: $e');
-          }
-        } catch (e) {
-          // Log error but don't fail - instance update is non-critical in this context
-          print('Error updating instance in activity editor: $e');
-        }
+      if (containsDueDateUpdate) {
+        instanceUpdates['dueDate'] = updateData['dueDate'];
       }
+      if (hasDueTimeUpdate) {
+        instanceUpdates['dueTime'] = updateData['dueTime'];
+        instanceUpdates['templateDueTime'] = updateData['dueTime'];
+      }
+
+      await ActivityInstanceService.updateActivityInstancesCascade(
+        templateId: widget.activity!.reference.id,
+        updates: instanceUpdates,
+        updateHistorical: updateHistorical,
+      );
     } catch (e) {
-      // ignore
+      print('❌ Error updating instances: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Warning: Instances update failed: $e')),
+        );
+      }
     }
 
     // Refresh UI
@@ -1513,7 +1476,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     }
 
     final now = DateTime.now();
-    
+
     for (final reminder in _reminders) {
       if (!reminder.enabled) continue;
 
@@ -1539,7 +1502,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           _selectedDueTime!.hour,
           _selectedDueTime!.minute,
         );
-        reminderDateTime = dueDateTime.add(Duration(minutes: reminder.offsetMinutes));
+        reminderDateTime =
+            dueDateTime.add(Duration(minutes: reminder.offsetMinutes));
       }
 
       if (reminderDateTime.isBefore(now)) {

@@ -3,11 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/backend/routine_order_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/routine_reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 
 class RoutineService {
   /// Check if instance is due today or overdue (mirrors Queue page logic)
@@ -253,12 +252,31 @@ class RoutineService {
 
       // For each template, find today's instance
       final todayInstances = <String, ActivityInstanceRecord>{};
-      for (final itemId in routine.itemIds) {
+      final today = DateService.todayStart;
+      for (int i = 0; i < routine.itemIds.length; i++) {
+        final itemId = routine.itemIds[i];
+        final itemType = i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
         final instances = instancesMap[itemId] ?? [];
+        
         if (instances.isNotEmpty) {
-          // Filter to only instances due today or overdue
-          final todayInstancesForTemplate =
-              instances.where((inst) => _isInstanceForToday(inst)).toList();
+          List<ActivityInstanceRecord> todayInstancesForTemplate;
+          
+          // For non-productive items, filter by belongsToDate for today
+          if (itemType == 'non_productive') {
+            todayInstancesForTemplate = instances
+                .where((inst) => 
+                    inst.belongsToDate != null &&
+                    DateTime(
+                      inst.belongsToDate!.year,
+                      inst.belongsToDate!.month,
+                      inst.belongsToDate!.day
+                    ).isAtSameMomentAs(today))
+                .toList();
+          } else {
+            // For habits and tasks, use existing logic
+            todayInstancesForTemplate =
+                instances.where((inst) => _isInstanceForToday(inst)).toList();
+          }
 
           if (todayInstancesForTemplate.isNotEmpty) {
             // Sort by due date (earliest first, nulls last)
@@ -293,93 +311,42 @@ class RoutineService {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = userId ?? currentUser?.uid ?? '';
     try {
-      // Get the activity template to understand its tracking type
+      // Get the activity template
       final activityDoc =
           await ActivityRecord.collectionForUser(uid).doc(itemId).get();
       if (!activityDoc.exists) {
         return null;
       }
-      final activityData = activityDoc.data() as Map<String, dynamic>?;
-      if (activityData == null) {
-        return null;
-      }
+      final template = ActivityRecord.fromSnapshot(activityDoc);
+
       // For non-productive items, return null - UI should show time log dialog
-      final categoryType = activityData['categoryType'] ?? 'habit';
-      if (categoryType == 'non_productive') {
+      if (template.categoryType == 'non_productive') {
         return null; // Signal to UI to show time log dialog
       }
-      final trackingType = activityData['trackingType'] ?? 'binary';
-      final target = activityData['target'];
-      final unit = activityData['unit'];
-      // Fetch category color for the instance
-      String? categoryColor;
-      try {
-        final categoryId = activityData['categoryId'];
-        if (categoryId != null && categoryId.toString().isNotEmpty) {
-          final categoryDoc = await CategoryRecord.collectionForUser(uid)
-              .doc(categoryId.toString())
-              .get();
-          if (categoryDoc.exists) {
-            final category = CategoryRecord.fromSnapshot(categoryDoc);
-            categoryColor = category.color;
-          }
-        }
-      } catch (e) {
-        // If category fetch fails, continue without color
-      }
-      // Create the instance data
-      final today = DateTime.now();
-      final todayStart = DateTime(today.year, today.month, today.day);
-      // Inherit order from previous instance of the same template
-      int? queueOrder;
-      int? habitsOrder;
-      int? tasksOrder;
-      try {
-        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-            itemId, 'queue', uid);
-        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-            itemId, 'habits', uid);
-        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-            itemId, 'tasks', uid);
-      } catch (e) {
-        // If order lookup fails, continue with null values (will use default sorting)
-      }
-      final instanceData = createActivityInstanceRecordData(
+
+      // Use the centralized ActivityInstanceService for creation
+      // This ensures windows, belongsToDate, etc. are calculated correctly
+      final newInstanceRef =
+          await ActivityInstanceService.createActivityInstance(
         templateId: itemId,
-        templateName: activityData['name'] ?? 'Unknown Item',
-        templateCategoryType: activityData['categoryType'] ?? 'habit',
-        templateCategoryColor: categoryColor,
-        templateTrackingType: trackingType,
-        templateTarget: target,
-        templateUnit: unit,
-        templatePriority: activityData['priority'] ?? 1,
-        templateDescription: activityData['description'],
-        dueDate: todayStart,
-        status: 'pending',
-        currentValue: 0,
-        createdTime: DateTime.now(),
-        lastUpdated: DateTime.now(),
-        isActive: true,
-        // Inherit order from previous instance
-        queueOrder: queueOrder,
-        habitsOrder: habitsOrder,
-        tasksOrder: tasksOrder,
+        template: template,
+        userId: uid,
+        dueDate: DateTime.now(), // Create for today
       );
-      // Create the instance
-      final instanceRef =
-          await ActivityInstanceRecord.collectionForUser(uid).add(instanceData);
-      final instanceDoc = await instanceRef.get();
+
+      final instanceDoc = await newInstanceRef.get();
       if (instanceDoc.exists) {
         return ActivityInstanceRecord.fromSnapshot(instanceDoc);
       }
       return null;
     } catch (e) {
+      print('RoutineService: Error creating instance for routine item: $e');
       return null;
     }
   }
 
   /// Reset all completed non-productive (routine item) instances in a routine
-  /// Creates new pending instances for non-productive items only
+  /// Uncompletes existing instances while preserving time logs
   /// Leaves habits and tasks untouched
   static Future<int> resetRoutineItems({
     required String routineId,
@@ -407,15 +374,13 @@ class RoutineService {
         // Only reset if instance exists and is completed/skipped
         if (instance != null &&
             (instance.status == 'completed' || instance.status == 'skipped')) {
-          // Create new pending instance
-          final newInstance = await createInstanceForRoutineItem(
-            itemId: itemId,
+          // Uncomplete the existing instance, preserving time logs
+          await ActivityInstanceService.uncompleteInstance(
+            instanceId: instance.reference.id,
             userId: uid,
+            deleteLogs: false, // Keep time logs for historical records
           );
-
-          if (newInstance != null) {
-            resetCount++;
-          }
+          resetCount++;
         }
       }
 

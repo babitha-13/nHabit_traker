@@ -231,6 +231,91 @@ class DailyProgressCalculator {
     );
   }
 
+  /// Calculate daily progress optimistically from local instances (no Firestore queries)
+  /// Use this for instant UI updates after instance changes
+  /// Returns: {target, earned, percentage}
+  static Map<String, dynamic> calculateTodayProgressOptimistic({
+    required List<ActivityInstanceRecord> allInstances,
+    required List<CategoryRecord> categories,
+    List<ActivityInstanceRecord> taskInstances = const [],
+  }) {
+    final today = DateService.currentDate;
+    final normalizedDate =
+        DateTime(today.year, today.month, today.day);
+    
+    // Build instances within window for today (status-agnostic)
+    // Exclude non-productive types
+    final inWindowHabits = allInstances
+        .where((inst) =>
+            inst.templateCategoryType == 'habit' &&
+            inst.templateCategoryType != 'non_productive' &&
+            _isWithinWindow(inst, normalizedDate))
+        .toList();
+    
+    // For earned math: include
+    // - completed instances only if completed today
+    // - non-completed instances (pending/snoozed/etc.) to allow differential points
+    final earnedSet = inWindowHabits.where((inst) {
+      if (inst.status == 'completed') {
+        return _wasCompletedOnDate(inst, normalizedDate);
+      }
+      return true; // include non-completed for differential contribution
+    }).toList();
+    
+    // Instances used for target/percentage math
+    final allForMath = inWindowHabits;
+    
+    // ==================== TASK FILTERING ====================
+    // Filter tasks by completion date logic for today
+    final allTasksForMath = taskInstances.where((task) {
+      // Skip non-productive items
+      if (task.templateCategoryType == 'non_productive') return false;
+      // Include if completed today
+      if (task.status == 'completed' && task.completedAt != null) {
+        final completedDate = DateTime(
+          task.completedAt!.year,
+          task.completedAt!.month,
+          task.completedAt!.day,
+        );
+        return completedDate.isAtSameMomentAs(normalizedDate);
+      }
+      // Include if pending and due on/before today
+      if (task.status == 'pending' && task.dueDate != null) {
+        return !task.dueDate!.isAfter(normalizedDate);
+      }
+      return false;
+    }).toList();
+
+    // OPTIMISTIC CALCULATION: Use synchronous method without Firestore queries
+    // This uses cached template data from instances instead of querying Firestore
+    final habitTargetPoints =
+        PointsService.calculateTotalDailyTarget(allForMath, categories);
+    final habitEarnedPoints =
+        PointsService.calculateTotalPointsEarned(earnedSet, categories);
+    
+    // Calculate task points using ActivityInstanceRecord
+    final taskTargetPoints =
+        _calculateTaskTargetFromActivityInstances(allTasksForMath);
+    final taskEarnedPoints =
+        _calculateTaskPointsFromActivityInstances(allTasksForMath);
+    
+    // Combine habit and task points
+    final totalTargetPoints = habitTargetPoints + taskTargetPoints;
+    final totalEarnedPoints = habitEarnedPoints + taskEarnedPoints;
+    final percentage = PointsService.calculateDailyPerformancePercent(
+        totalEarnedPoints, totalTargetPoints);
+    
+    return {
+      'target': totalTargetPoints,
+      'earned': totalEarnedPoints,
+      'percentage': percentage,
+      'habitTarget': habitTargetPoints,
+      'habitEarned': habitEarnedPoints,
+      'taskTarget': taskTargetPoints,
+      'taskEarned': taskEarnedPoints,
+    };
+  }
+
   /// Helper method to find category for an instance
   static CategoryRecord? _findCategoryForInstance(
     ActivityInstanceRecord instance,

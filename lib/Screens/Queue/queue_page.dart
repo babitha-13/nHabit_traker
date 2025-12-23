@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
@@ -54,6 +55,8 @@ class _QueuePageState extends State<QueuePage> {
   bool _ignoreInstanceEvents = true; // Ignore events during initial load
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
+  // Optimistic operation tracking
+  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
   // Progress tracking variables
   double _dailyTarget = 0.0;
   double _pointsEarned = 0.0;
@@ -147,10 +150,14 @@ class _QueuePageState extends State<QueuePage> {
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
         (param) {
-      if (param is ActivityInstanceRecord &&
-          mounted &&
-          !_ignoreInstanceEvents) {
+      if (mounted && !_ignoreInstanceEvents) {
         _handleInstanceUpdated(param);
+      }
+    });
+    // Listen for rollback events
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRollback(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
@@ -354,7 +361,8 @@ class _QueuePageState extends State<QueuePage> {
 
   /// Calculate progress for today's habits and tasks
   /// Uses shared DailyProgressCalculator for consistency with historical data
-  void _calculateProgress() async {
+  /// [optimistic] - If true, calculates instantly from local data without Firestore queries
+  void _calculateProgress({bool optimistic = false}) async {
     // Separate habit and task instances
     final habitInstances = _instances
         .where((inst) => inst.templateCategoryType == 'habit')
@@ -362,31 +370,140 @@ class _QueuePageState extends State<QueuePage> {
     final taskInstances = _instances
         .where((inst) => inst.templateCategoryType == 'task')
         .toList();
-    // Use the shared calculator - same logic as DayEndProcessor
-    final progressData = await DailyProgressCalculator.calculateTodayProgress(
-      userId: currentUserUid,
-      allInstances: habitInstances,
-      categories: _categories,
-      taskInstances: taskInstances,
-    );
-    _dailyTarget = progressData['target'] as double;
-    _pointsEarned = progressData['earned'] as double;
-    _dailyPercentage = progressData['percentage'] as double;
-    // Simple progress summary
-    // Update UI with new progress values immediately
-    if (mounted) {
-      setState(() {
-        // Progress values are already updated above
-      });
+    
+    if (optimistic) {
+      // INSTANT UPDATE: Calculate from local data only (no Firestore queries)
+      try {
+        final progressData = DailyProgressCalculator.calculateTodayProgressOptimistic(
+          allInstances: habitInstances,
+          categories: _categories,
+          taskInstances: taskInstances,
+        );
+        
+        // Update UI immediately
+        if (mounted) {
+          setState(() {
+            _dailyTarget = progressData['target'] as double;
+            _pointsEarned = progressData['earned'] as double;
+            _dailyPercentage = progressData['percentage'] as double;
+          });
+        }
+        
+        // Publish to shared state for other pages
+        TodayProgressState().updateProgress(
+          target: _dailyTarget,
+          earned: _pointsEarned,
+          percentage: _dailyPercentage,
+        );
+        
+        // Update cumulative score optimistically
+        _updateCumulativeScoreLiveOptimistic();
+      } catch (e) {
+        // If optimistic calculation fails, fall back to full calculation
+        _calculateProgress(optimistic: false);
+      }
+    } else {
+      // BACKEND RECONCILIATION: Use full calculation with Firestore
+      try {
+        final progressData = await DailyProgressCalculator.calculateTodayProgress(
+          userId: currentUserUid,
+          allInstances: habitInstances,
+          categories: _categories,
+          taskInstances: taskInstances,
+        );
+        
+        // Update UI with backend data
+        if (mounted) {
+          setState(() {
+            _dailyTarget = progressData['target'] as double;
+            _pointsEarned = progressData['earned'] as double;
+            _dailyPercentage = progressData['percentage'] as double;
+          });
+        }
+        
+        // Publish to shared state for other pages
+        TodayProgressState().updateProgress(
+          target: _dailyTarget,
+          earned: _pointsEarned,
+          percentage: _dailyPercentage,
+        );
+        
+        // Update cumulative score live when progress changes
+        _updateCumulativeScoreLive();
+      } catch (e) {
+        // Error in backend calculation - non-critical, continue silently
+      }
     }
-    // Publish to shared state for other pages (after UI update)
-    TodayProgressState().updateProgress(
-      target: _dailyTarget,
-      earned: _pointsEarned,
-      percentage: _dailyPercentage,
-    );
-    // Update cumulative score live when progress changes
-    _updateCumulativeScoreLive();
+  }
+
+  /// Update cumulative score optimistically without Firestore queries
+  /// Uses last known cumulative score and simplified calculations for instant updates
+  void _updateCumulativeScoreLiveOptimistic() {
+    try {
+      // Get today's progress (already updated optimistically)
+      final todayPercentage = _dailyPercentage;
+      final todayEarned = _pointsEarned;
+
+      double currentCumulativeScore = 0.0;
+      double currentDailyGain = 0.0;
+
+      // Get last known cumulative score from shared state
+      final sharedData = TodayProgressState().getCumulativeScoreData();
+      final lastKnownCumulative = sharedData['cumulativeScore'] as double? ?? _cumulativeScore;
+      final lastKnownGain = sharedData['dailyGain'] as double? ?? _dailyScoreGain;
+
+      if (todayPercentage > 0) {
+        // Calculate simplified projected score optimistically
+        // Use basic daily score calculation without consistency bonus/penalty
+        // This provides instant feedback, full calculation happens in background
+        final dailyScore = CumulativeScoreService.calculateDailyScore(
+          todayPercentage,
+          todayEarned,
+        );
+        
+        // Simplified projection: assume no bonus/penalty for instant update
+        // Full calculation with bonuses/penalties happens in background
+        currentDailyGain = dailyScore;
+        currentCumulativeScore = (lastKnownCumulative + currentDailyGain).clamp(0.0, double.infinity);
+      } else {
+        // No progress today, use last known values
+        currentCumulativeScore = lastKnownCumulative;
+        currentDailyGain = lastKnownGain;
+      }
+
+      // Update cumulative score values immediately
+      if (mounted) {
+        setState(() {
+          _cumulativeScore = currentCumulativeScore;
+          _dailyScoreGain = currentDailyGain;
+
+          // Update today's entry in history if it exists
+          if (_cumulativeScoreHistory.isNotEmpty) {
+            final today = DateService.currentDate;
+            final lastItem = _cumulativeScoreHistory.last;
+            final lastDate = lastItem['date'] as DateTime;
+
+            if (lastDate.year == today.year &&
+                lastDate.month == today.month &&
+                lastDate.day == today.day) {
+              // Update today's entry with live values
+              _cumulativeScoreHistory.last['score'] = currentCumulativeScore;
+              _cumulativeScoreHistory.last['gain'] = currentDailyGain;
+            }
+          }
+        });
+      }
+
+      // Publish to shared state for other pages
+      TodayProgressState().updateCumulativeScore(
+        cumulativeScore: currentCumulativeScore,
+        dailyGain: currentDailyGain,
+        hasLiveScore: todayPercentage > 0,
+      );
+    } catch (e) {
+      // Error in optimistic calculation - non-critical, continue silently
+      // Full calculation will happen in background
+    }
   }
 
   /// Update cumulative score live without reloading full history
@@ -1548,21 +1665,30 @@ class _QueuePageState extends State<QueuePage> {
         );
       }
     }
-    return CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        // Progress charts as first scrollable item
-        SliverToBoxAdapter(
-          child: _buildProgressCharts(),
-        ),
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 16),
-        ),
-        ...slivers,
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 140),
-        ),
-      ],
+    return RefreshIndicator(
+      onRefresh: () async {
+        await _loadData();
+        // Also reload cumulative score after data refresh
+        if (mounted) {
+          await _loadCumulativeScore();
+        }
+      },
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          // Progress charts as first scrollable item
+          SliverToBoxAdapter(
+            child: _buildProgressCharts(),
+          ),
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 16),
+          ),
+          ...slivers,
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 140),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1746,8 +1872,10 @@ class _QueuePageState extends State<QueuePage> {
         _cachedBucketedItems = null;
       } else {}
     });
-    // Recalculate progress for instant updates
-    _calculateProgress();
+    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
+    _calculateProgress(optimistic: true);
+    // BACKGROUND RECONCILIATION: Recalculate with backend data
+    _calculateProgress(optimistic: false);
   }
 
   /// Remove instance from local state and recalculate progress
@@ -1759,8 +1887,10 @@ class _QueuePageState extends State<QueuePage> {
       // Invalidate cache when instance is removed
       _cachedBucketedItems = null;
     });
-    // Recalculate progress for instant updates
-    _calculateProgress();
+    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
+    _calculateProgress(optimistic: true);
+    // BACKGROUND RECONCILIATION: Recalculate with backend data
+    _calculateProgress(optimistic: false);
   }
 
   // Event handlers for live updates
@@ -1775,26 +1905,106 @@ class _QueuePageState extends State<QueuePage> {
         _cachedBucketedItems = null;
       }
     });
-    // Recalculate progress for instant updates
-    _calculateProgress();
+    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
+    _calculateProgress(optimistic: true);
+    // BACKGROUND RECONCILIATION: Recalculate with backend data
+    _calculateProgress(optimistic: false);
   }
 
-  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+  void _handleInstanceUpdated(dynamic param) {
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }
+    
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
+      
       if (index != -1) {
-        _instances[index] = instance;
+        if (isOptimistic) {
+          // Store optimistic state with operation ID for later reconciliation
+          _instances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations[operationId] = instance.reference.id;
+          }
+        } else {
+          // Reconciled update - replace optimistic state
+          _instances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations.remove(operationId);
+          }
+        }
         // Invalidate cache when instance is updated
+        _cachedBucketedItems = null;
+      } else if (!isOptimistic) {
+        // New instance from backend (not optimistic) - add it
+        _instances.add(instance);
         _cachedBucketedItems = null;
       }
     });
-    // Recalculate progress for instant updates
-    _calculateProgress();
+    
+    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
+    _calculateProgress(optimistic: true);
+    
+    // BACKGROUND RECONCILIATION: Only if this is a reconciled update
+    if (!isOptimistic) {
+      _calculateProgress(optimistic: false);
+    }
+  }
+  
+  void _handleRollback(dynamic param) {
+    if (param is Map) {
+      final operationId = param['operationId'] as String?;
+      final instanceId = param['instanceId'] as String?;
+      
+      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+        // Revert to previous state by reloading from backend
+        setState(() {
+          _optimisticOperations.remove(operationId);
+          // Reload the specific instance from backend
+          if (instanceId != null) {
+            _revertOptimisticUpdate(instanceId);
+          }
+        });
+      }
+    }
+  }
+  
+  Future<void> _revertOptimisticUpdate(String instanceId) async {
+    try {
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instanceId,
+      );
+      setState(() {
+        final index = _instances
+            .indexWhere((inst) => inst.reference.id == instanceId);
+        if (index != -1) {
+          _instances[index] = updatedInstance;
+          _cachedBucketedItems = null;
+        }
+      });
+      // Recalculate progress with actual data
+      _calculateProgress(optimistic: false);
+    } catch (e) {
+      // Error reverting - non-critical, will be fixed on next data load
+    }
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
@@ -1804,8 +2014,10 @@ class _QueuePageState extends State<QueuePage> {
       // Invalidate cache when instance is deleted
       _cachedBucketedItems = null;
     });
-    // Recalculate progress for instant updates
-    _calculateProgress();
+    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
+    _calculateProgress(optimistic: true);
+    // BACKGROUND RECONCILIATION: Recalculate with backend data
+    _calculateProgress(optimistic: false);
   }
 
   /// Silent refresh instances without loading indicator

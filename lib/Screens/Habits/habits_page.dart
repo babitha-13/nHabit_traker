@@ -4,6 +4,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
@@ -48,6 +49,8 @@ class _HabitsPageState extends State<HabitsPage> {
   bool _lastShowCompleted = false;
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
+  // Optimistic operation tracking
+  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
   @override
   void initState() {
     super.initState();
@@ -88,10 +91,23 @@ class _HabitsPageState extends State<HabitsPage> {
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
         (param) {
-      if (param is ActivityInstanceRecord &&
-          mounted &&
-          param.templateCategoryType == 'habit') {
-        _handleInstanceUpdated(param);
+      if (mounted) {
+        // Check if it's a habit instance (handle both Map and ActivityInstanceRecord formats)
+        ActivityInstanceRecord? instance;
+        if (param is Map) {
+          instance = param['instance'] as ActivityInstanceRecord?;
+        } else if (param is ActivityInstanceRecord) {
+          instance = param;
+        }
+        if (instance != null && instance.templateCategoryType == 'habit') {
+          _handleInstanceUpdated(param);
+        }
+      }
+    });
+    // Listen for rollback events
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRollback(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
@@ -459,14 +475,17 @@ class _HabitsPageState extends State<HabitsPage> {
         );
       }
     }
-    return CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        ...slivers,
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 140),
-        ),
-      ],
+    return RefreshIndicator(
+      onRefresh: _loadHabits,
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          ...slivers,
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 140),
+          ),
+        ],
+      ),
     );
   }
 
@@ -739,25 +758,96 @@ class _HabitsPageState extends State<HabitsPage> {
     });
   }
 
-  void _handleInstanceUpdated(ActivityInstanceRecord instance) {
+  void _handleInstanceUpdated(dynamic param) {
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }
+    
     setState(() {
       final index = _habitInstances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
+      
       if (index != -1) {
-        _habitInstances[index] = instance;
+        if (isOptimistic) {
+          // Store optimistic state with operation ID for later reconciliation
+          _habitInstances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations[operationId] = instance.reference.id;
+          }
+        } else {
+          // Reconciled update - replace optimistic state
+          _habitInstances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations.remove(operationId);
+          }
+        }
         // Invalidate cache when instance is updated
         _cachedGroupedByCategory = null;
-      }
-      // Remove from list if completed and not showing completed
-      if (!_showCompleted && instance.status == 'completed') {
-        _habitInstances
-            .removeWhere((inst) => inst.reference.id == instance.reference.id);
+        
+        // Remove from list if completed and not showing completed
+        if (!_showCompleted && instance.status == 'completed') {
+          _habitInstances
+              .removeWhere((inst) => inst.reference.id == instance.reference.id);
+        }
+      } else if (!isOptimistic) {
+        // New instance from backend (not optimistic) - add it
+        _habitInstances.add(instance);
+        _cachedGroupedByCategory = null;
       }
     });
+  }
+  
+  void _handleRollback(dynamic param) {
+    if (param is Map) {
+      final operationId = param['operationId'] as String?;
+      final instanceId = param['instanceId'] as String?;
+      
+      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+        // Revert to previous state by reloading from backend
+        setState(() {
+          _optimisticOperations.remove(operationId);
+          // Reload the specific instance from backend
+          if (instanceId != null) {
+            _revertOptimisticUpdate(instanceId);
+          }
+        });
+      }
+    }
+  }
+  
+  Future<void> _revertOptimisticUpdate(String instanceId) async {
+    try {
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instanceId,
+      );
+      setState(() {
+        final index = _habitInstances
+            .indexWhere((inst) => inst.reference.id == instanceId);
+        if (index != -1) {
+          _habitInstances[index] = updatedInstance;
+          _cachedGroupedByCategory = null;
+        }
+      });
+    } catch (e) {
+      // Error reverting - non-critical, will be fixed on next data load
+    }
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {

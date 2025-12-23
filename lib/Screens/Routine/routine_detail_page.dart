@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/routine_service.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -11,6 +12,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 
 class RoutineDetailPage extends StatefulWidget {
   final RoutineRecord routine;
@@ -157,9 +159,26 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   }
 
   /// Create a pending instance for a non-productive item (for display with ItemComponent)
+  /// Reuses existing instance for today if available, otherwise creates new one
   Future<ActivityInstanceRecord?> _createPendingNonProductiveInstance(
       String itemId) async {
     try {
+      // First, check if there's already an instance for today
+      final today = DateService.todayStart;
+      final existingInstancesQuery =
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .where('templateId', isEqualTo: itemId)
+              .where('belongsToDate', isEqualTo: today)
+              .limit(1);
+      final existingInstances = await existingInstancesQuery.get();
+
+      if (existingInstances.docs.isNotEmpty) {
+        // Reuse existing instance for today
+        return ActivityInstanceRecord.fromSnapshot(
+            existingInstances.docs.first);
+      }
+
+      // Only create new instance if none exists for today
       final templateDoc = await ActivityRecord.collectionForUser(currentUserUid)
           .doc(itemId)
           .get();
@@ -168,56 +187,21 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
 
-      // Fetch category color
-      String? categoryColor;
-      try {
-        if (template.categoryId.isNotEmpty) {
-          final categoryDoc =
-              await CategoryRecord.collectionForUser(currentUserUid)
-                  .doc(template.categoryId)
-                  .get();
-          if (categoryDoc.exists) {
-            final category = CategoryRecord.fromSnapshot(categoryDoc);
-            categoryColor = category.color;
-          }
-        }
-      } catch (e) {
-        // Continue without color if fetch fails
-      }
-
-      // Create pending instance (no time logs yet)
-      final today = DateTime.now();
-      final todayStart = DateTime(today.year, today.month, today.day);
-      final instanceData = createActivityInstanceRecordData(
+      final newInstanceRef =
+          await ActivityInstanceService.createActivityInstance(
         templateId: itemId,
-        templateName: template.name,
-        templateCategoryType: 'non_productive',
-        templateCategoryColor: categoryColor,
-        templateTrackingType: template.trackingType,
-        templateTarget: template.target,
-        templateUnit: template.unit,
-        templatePriority: template.priority,
-        templateDescription: template.description,
-        dueDate: todayStart,
-        status: 'pending',
-        currentValue: 0,
-        accumulatedTime: 0,
-        totalTimeLogged: 0,
-        timeLogSessions: [],
-        createdTime: DateTime.now(),
-        lastUpdated: DateTime.now(),
-        isActive: true,
+        template: template,
+        userId: currentUserUid,
+        dueDate: DateTime.now(),
       );
 
-      final instanceRef =
-          await ActivityInstanceRecord.collectionForUser(currentUserUid)
-              .add(instanceData);
-      final instanceDoc = await instanceRef.get();
+      final instanceDoc = await newInstanceRef.get();
       if (instanceDoc.exists) {
         return ActivityInstanceRecord.fromSnapshot(instanceDoc);
       }
       return null;
     } catch (e) {
+      print('RoutineDetailPage: Error creating non-productive instance: $e');
       return null;
     }
   }

@@ -775,10 +775,18 @@ class _CalendarPageState extends State<CalendarPage> {
 
   /// Handle instance updates - refresh calendar if the instance affects the selected date
   void _handleInstanceUpdated(dynamic param) {
-    if (param is! ActivityInstanceRecord) return;
     if (!mounted) return;
-
-    final instance = param;
+    
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
     final selectedDateOnly = DateTime(
       _selectedDate.year,
       _selectedDate.month,
@@ -881,6 +889,12 @@ class _CalendarPageState extends State<CalendarPage> {
     final queueItems = results[5] as Map<String, dynamic>;
     final routines = results[6] as List<RoutineRecord>;
 
+    // Debug: Track data sources
+    print('[Calendar] Data fetched for ${_selectedDate}:');
+    print('  - completedItems: ${completedItems.length}');
+    print('  - timeLoggedTasks: ${timeLoggedTasks.length}');
+    print('  - nonProductiveInstances: ${nonProductiveInstances.length}');
+
     // Combine all items into a map to handle duplicates (keyed by instance ID)
     final allItemsMap = <String, ActivityInstanceRecord>{};
     for (final item in completedItems) {
@@ -892,6 +906,8 @@ class _CalendarPageState extends State<CalendarPage> {
     for (final item in nonProductiveInstances) {
       allItemsMap[item.reference.id] = item;
     }
+
+    print('  - allItemsMap total: ${allItemsMap.length}');
 
     // Separate event lists
     final completedEvents = <CalendarEventData>[];
@@ -950,6 +966,8 @@ class _CalendarPageState extends State<CalendarPage> {
           return sessionDate.isAtSameMomentAs(selectedDateOnly);
         }).toList();
 
+        print('  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date');
+
         // If we have sessions for this date, show them
         if (sessionsOnDate.isNotEmpty) {
           // Create a calendar event for each session
@@ -958,7 +976,10 @@ class _CalendarPageState extends State<CalendarPage> {
             final session = sessionsOnDate[i];
             final sessionStart = session['startTime'] as DateTime;
             final sessionEnd = session['endTime'] as DateTime?;
-            if (sessionEnd == null) continue;
+            if (sessionEnd == null) {
+              print('    - Session $i: Skipped (no endTime)');
+              continue;
+            }
 
             // Find the original index in the full timeLogSessions array
             int originalSessionIndex = -1;
@@ -1029,6 +1050,8 @@ class _CalendarPageState extends State<CalendarPage> {
             if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
               // Use checkmark for completed items, no checkmark for incomplete
               final prefix = item.status == 'completed' ? '✓ ' : '';
+
+              print('    - Creating event: ${item.templateName} from ${validStartTime} to ${validEndTime}');
 
               // Look up category color from loaded categories (same logic as calendar event color)
               String? categoryColorHex;
@@ -1130,8 +1153,9 @@ class _CalendarPageState extends State<CalendarPage> {
         earliestStartTime = startTime;
       }
 
+      // Ensure date matches selected date (cascading might shift times but date should remain)
       cascadedEvents.add(CalendarEventData(
-        date: event.date,
+        date: _selectedDate,
         startTime: startTime,
         endTime: endTime,
         title: event.title,
@@ -1147,6 +1171,12 @@ class _CalendarPageState extends State<CalendarPage> {
     // For label collision, we want them sorted by START time ascending.
     _sortedCompletedEvents.sort((a, b) => a.startTime!.compareTo(b.startTime!));
 
+    // Debug: Track event creation
+    print('[Calendar] Event processing:');
+    print('  - completedEvents created: ${completedEvents.length}');
+    print('  - cascadedEvents: ${cascadedEvents.length}');
+    print('  - _sortedCompletedEvents: ${_sortedCompletedEvents.length}');
+
     // Planned items were already fetched in the batch query above
     final plannedItems = queueItems['planned'] ?? [];
 
@@ -1157,8 +1187,9 @@ class _CalendarPageState extends State<CalendarPage> {
         .toList();
 
     // Items already scheduled at explicit times (exclude from routine-duration computation)
-    final explicitlyScheduledTemplateIds =
-        plannedItemsWithTime.map((i) => i.templateId).toSet();
+    final explicitlyScheduledTemplateIds = <String>{
+      ...plannedItemsWithTime.map((i) => i.templateId).whereType<String>(),
+    };
 
     // Resolve planned duration per instance based on:
     // time-target -> target minutes
@@ -1312,6 +1343,11 @@ class _CalendarPageState extends State<CalendarPage> {
     _plannedEventController.removeWhere((e) => true);
     _completedEventController.addAll(cascadedEvents);
     _plannedEventController.addAll(plannedEvents);
+
+    // Debug: Track controller updates
+    print('[Calendar] Controller updates:');
+    print('  - _completedEventController events: ${_completedEventController.events.length}');
+    print('  - _plannedEventController events: ${_plannedEventController.events.length}');
 
     // Force rebuild to show new events
     if (mounted) setState(() {});

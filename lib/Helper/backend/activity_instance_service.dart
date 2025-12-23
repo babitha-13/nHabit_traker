@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_estimate_resolver.dart';
+import 'package:habit_tracker/Helper/utils/optimistic_operation_tracker.dart';
 
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
@@ -118,7 +119,9 @@ class ActivityInstanceService {
       templateDueTime: template.dueTime,
       // Set habit-specific fields
       dayState: template.categoryType == 'habit' ? 'open' : null,
-      belongsToDate: template.categoryType == 'habit' ? normalizedDate : null,
+      belongsToDate: template.categoryType == 'habit' || template.categoryType == 'non_productive' 
+          ? normalizedDate 
+          : null,
       windowEndDate: windowEndDate,
       windowDuration: windowDuration,
       // Inherit order from previous instance
@@ -685,7 +688,11 @@ class ActivityInstanceService {
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
     } catch (e) {
-      return [];
+      print('❌ Error in getInstancesForTemplate: $e');
+      if (e.toString().contains('index')) {
+        print('📋 This query requires an index. Check the link above!');
+      }
+      rethrow; // Re-throw to let the caller handle/log it excessively if needed
     }
   }
 
@@ -764,7 +771,8 @@ class ActivityInstanceService {
       return 0;
     }
 
-    final estimateMs = effectiveEstimateMinutes * 60000; // Convert to milliseconds
+    final estimateMs =
+        effectiveEstimateMinutes * 60000; // Convert to milliseconds
     final trackingType = instance.templateTrackingType;
 
     if (trackingType == 'time') {
@@ -858,8 +866,8 @@ class ActivityInstanceService {
         ActivityRecord? itemTemplate;
         if (item.hasTemplateId()) {
           try {
-            final itemTemplateRef = ActivityRecord.collectionForUser(userId)
-                .doc(item.templateId);
+            final itemTemplateRef =
+                ActivityRecord.collectionForUser(userId).doc(item.templateId);
             final itemTemplateDoc = await itemTemplateRef.get();
             if (itemTemplateDoc.exists) {
               itemTemplate = ActivityRecord.fromSnapshot(itemTemplateDoc);
@@ -870,8 +878,8 @@ class ActivityInstanceService {
         }
 
         // Resolve effective estimate for this simultaneous item
-        final itemEffectiveEstimate = await TimeEstimateResolver
-            .getEffectiveEstimateMinutes(
+        final itemEffectiveEstimate =
+            await TimeEstimateResolver.getEffectiveEstimateMinutes(
           userId: userId,
           trackingType: item.templateTrackingType,
           target: item.templateTarget,
@@ -943,7 +951,7 @@ class ActivityInstanceService {
       // Auto-create time log session if none exists
       final existingSessions =
           List<Map<String, dynamic>>.from(instance.timeLogSessions);
-      
+
       // Load template to check for per-activity estimate
       ActivityRecord? template;
       if (instance.hasTemplateId()) {
@@ -1012,16 +1020,42 @@ class ActivityInstanceService {
         updateData['totalTimeLogged'] = totalTime;
       }
 
-      // Update current instance as completed
-      await instanceRef.update(updateData);
-      // Broadcast the instance update event
-      final updatedInstance =
-          await getUpdatedInstance(instanceId: instanceId, userId: uid);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-      // For habits, generate next instance immediately using window system
-      if (instance.templateCategoryType == 'habit') {
-        await _generateNextHabitInstance(instance, uid);
-      } else {
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+        instance,
+        finalValue: finalValue ?? instance.currentValue,
+        finalAccumulatedTime: finalAccumulatedTime ?? instance.accumulatedTime,
+        completedAt: completionTime,
+      );
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'complete',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+      
+      // 5. Perform backend update
+      try {
+        await instanceRef.update(updateData);
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        
+        // 6. Reconcile with actual data
+        OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
+        
+        // For habits, generate next instance immediately using window system
+        if (instance.templateCategoryType == 'habit') {
+          await _generateNextHabitInstance(instance, uid);
+        } else {
         // For tasks, use the existing recurring logic
         final templateRef =
             ActivityRecord.collectionForUser(uid).doc(instance.templateId);
@@ -1054,15 +1088,27 @@ class ActivityInstanceService {
                 print('Error broadcasting instance created event: $e');
               }
             }
+          } else if (!template.isRecurring) {
+            // For one-time tasks, mark template as inactive and complete
+            await templateRef.update({
+              'isActive': false,
+              'status': 'complete',
+              'lastUpdated': now,
+            });
           }
         }
-      }
-      // Cancel reminder for completed instance
-      try {
-        await ReminderScheduler.cancelReminderForInstance(instanceId);
+        }
+        // Cancel reminder for completed instance
+        try {
+          await ReminderScheduler.cancelReminderForInstance(instanceId);
+        } catch (e) {
+          // Log error but don't fail - reminder cancellation is non-critical
+          print('Error canceling reminder for completed instance: $e');
+        }
       } catch (e) {
-        // Log error but don't fail - reminder cancellation is non-critical
-        print('Error canceling reminder for completed instance: $e');
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
     } catch (e) {
       rethrow;
@@ -1121,6 +1167,24 @@ class ActivityInstanceService {
         }
       }
 
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(instance);
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'uncomplete',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+
       final updateData = <String, dynamic>{
         'status': 'pending',
         'completedAt': null,
@@ -1136,30 +1200,37 @@ class ActivityInstanceService {
         updateData['currentValue'] = 0;
       }
 
-      await instanceRef.update(updateData);
+      // 5. Perform backend update
+      try {
+        await instanceRef.update(updateData);
 
-      // For one-time tasks, reactivate the template if it was marked inactive
-      if (instance.templateCategoryType == 'task') {
-        final templateRef =
-            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-        final templateDoc = await templateRef.get();
-        if (templateDoc.exists) {
-          final template = ActivityRecord.fromSnapshot(templateDoc);
-          // Reactivate one-time task templates
-          if (!template.isRecurring && !template.isActive) {
-            await templateRef.update({
-              'isActive': true,
-              'status': 'incomplete',
-              'lastUpdated': DateService.currentDate,
-            });
+        // For one-time tasks, reactivate the template if it was marked inactive
+        if (instance.templateCategoryType == 'task') {
+          final templateRef =
+              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+          final templateDoc = await templateRef.get();
+          if (templateDoc.exists) {
+            final template = ActivityRecord.fromSnapshot(templateDoc);
+            // Reactivate one-time task templates
+            if (!template.isRecurring && !template.isActive) {
+              await templateRef.update({
+                'isActive': true,
+                'status': 'incomplete',
+                'lastUpdated': DateService.currentDate,
+              });
+            }
           }
         }
-      }
 
-      // Broadcast the instance update event
-      final updatedInstance =
-          await getUpdatedInstance(instanceId: instanceId, userId: uid);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+        // 6. Reconcile with actual data
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
+      } catch (e) {
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
+      }
     } catch (e) {
       rethrow;
     }
@@ -1236,7 +1307,8 @@ class ActivityInstanceService {
             // Create a time log session for this delta
             // Stack backwards from now
             final sessionEndTime = now;
-            final sessionStartTime = sessionEndTime.subtract(Duration(milliseconds: deltaMs));
+            final sessionStartTime =
+                sessionEndTime.subtract(Duration(milliseconds: deltaMs));
 
             final newSession = {
               'startTime': sessionStartTime,
@@ -1260,47 +1332,85 @@ class ActivityInstanceService {
         }
       }
 
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
+        instance,
+        currentValue: currentValue,
+      );
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'progress',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+
       // Note: lastDayValue should be updated at day-end, not during progress updates
       // This allows differential progress calculation to work correctly
-      await instanceRef.update(updateData);
-      // Check if target is reached and auto-complete/uncomplete
-      if (instance.templateTrackingType == 'quantitative' &&
-          instance.templateTarget != null) {
-        final target = instance.templateTarget as num;
-        final progress = currentValue is num ? currentValue : 0;
-        if (progress >= target) {
-          // Auto-complete if not already completed
-          if (instance.status != 'completed') {
-            await completeInstance(
-              instanceId: instanceId,
-              finalValue: currentValue,
-              userId: uid,
-            );
+      
+      // 5. Perform backend update
+      try {
+        await instanceRef.update(updateData);
+        
+        // Check if target is reached and auto-complete/uncomplete
+        if (instance.templateTrackingType == 'quantitative' &&
+            instance.templateTarget != null) {
+          final target = instance.templateTarget as num;
+          final progress = currentValue is num ? currentValue : 0;
+          if (progress >= target) {
+            // Auto-complete if not already completed
+            if (instance.status != 'completed') {
+              // completeInstance will handle its own optimistic broadcast
+              await completeInstance(
+                instanceId: instanceId,
+                finalValue: currentValue,
+                userId: uid,
+              );
+              // Reconcile this progress operation (completeInstance will reconcile its own)
+              OptimisticOperationTracker.reconcileOperation(operationId, 
+                await getUpdatedInstance(instanceId: instanceId, userId: uid));
+            } else {
+              // Already completed, just reconcile the progress update
+              final updatedInstance =
+                  await getUpdatedInstance(instanceId: instanceId, userId: uid);
+              OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
+            }
           } else {
-            // Already completed, just broadcast the progress update
-            final updatedInstance =
-                await getUpdatedInstance(instanceId: instanceId, userId: uid);
-            InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+            // Auto-uncomplete if currently completed OR skipped and progress dropped below target
+            if (instance.status == 'completed' || instance.status == 'skipped') {
+              // uncompleteInstance will handle its own optimistic broadcast
+              await uncompleteInstance(
+                instanceId: instanceId,
+                userId: uid,
+              );
+              // Reconcile this progress operation (uncompleteInstance will reconcile its own)
+              OptimisticOperationTracker.reconcileOperation(operationId,
+                await getUpdatedInstance(instanceId: instanceId, userId: uid));
+            } else {
+              // Not completed, just reconcile progress update
+              final updatedInstance =
+                  await getUpdatedInstance(instanceId: instanceId, userId: uid);
+              OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
+            }
           }
         } else {
-          // Auto-uncomplete if currently completed OR skipped and progress dropped below target
-          if (instance.status == 'completed' || instance.status == 'skipped') {
-            await uncompleteInstance(
-              instanceId: instanceId,
-              userId: uid,
-            );
-          } else {
-            // Not completed, just broadcast progress update
-            final updatedInstance =
-                await getUpdatedInstance(instanceId: instanceId, userId: uid);
-            InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-          }
+          // Reconcile the instance update event for progress changes
+          final updatedInstance =
+              await getUpdatedInstance(instanceId: instanceId, userId: uid);
+          OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
         }
-      } else {
-        // Broadcast the instance update event for progress changes
-        final updatedInstance =
-            await getUpdatedInstance(instanceId: instanceId, userId: uid);
-        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      } catch (e) {
+        // 6. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
     } catch (e) {
       rethrow;
@@ -1327,21 +1437,50 @@ class ActivityInstanceService {
           snoozeUntil.isAfter(instance.windowEndDate!)) {
         throw Exception('Cannot snooze beyond window end date');
       }
-      await instanceRef.update({
-        'snoozedUntil': snoozeUntil,
-        'lastUpdated': DateService.currentDate,
-      });
-      // Cancel reminder for snoozed instance
+      
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticSnoozedInstance(
+        instance,
+        snoozedUntil: snoozeUntil,
+      );
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'snooze',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+      
+      // 5. Perform backend update
       try {
-        await ReminderScheduler.cancelReminderForInstance(instanceId);
+        await instanceRef.update({
+          'snoozedUntil': snoozeUntil,
+          'lastUpdated': DateService.currentDate,
+        });
+        // Cancel reminder for snoozed instance
+        try {
+          await ReminderScheduler.cancelReminderForInstance(instanceId);
+        } catch (e) {
+          // Log error but don't fail - reminder cancellation is non-critical
+          print('Error canceling reminder for snoozed instance: $e');
+        }
+        // 6. Reconcile with actual data
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
       } catch (e) {
-        // Log error but don't fail - reminder cancellation is non-critical
-        print('Error canceling reminder for snoozed instance: $e');
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
-      // Broadcast the instance update event
-      final updatedInstance =
-          await getUpdatedInstance(instanceId: instanceId, userId: uid);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       rethrow;
     }
@@ -1360,23 +1499,50 @@ class ActivityInstanceService {
       if (!instanceDoc.exists) {
         throw Exception('Activity instance not found');
       }
-      await instanceRef.update({
-        'snoozedUntil': null,
-        'lastUpdated': DateService.currentDate,
-      });
-      // Reschedule reminder for unsnoozed instance
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+      
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticUnsnoozedInstance(instance);
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'unsnooze',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+      
+      // 5. Perform backend update
       try {
+        await instanceRef.update({
+          'snoozedUntil': null,
+          'lastUpdated': DateService.currentDate,
+        });
+        // Reschedule reminder for unsnoozed instance
+        try {
+          final updatedInstance =
+              await getUpdatedInstance(instanceId: instanceId, userId: uid);
+          await ReminderScheduler.rescheduleReminderForInstance(updatedInstance);
+        } catch (e) {
+          // Log error but don't fail - reminder rescheduling is non-critical
+          print('Error rescheduling reminder for unsnoozed instance: $e');
+        }
+        // 6. Reconcile with actual data
         final updatedInstance =
             await getUpdatedInstance(instanceId: instanceId, userId: uid);
-        await ReminderScheduler.rescheduleReminderForInstance(updatedInstance);
+        OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
       } catch (e) {
-        // Log error but don't fail - reminder rescheduling is non-critical
-        print('Error rescheduling reminder for unsnoozed instance: $e');
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
-      // Broadcast the instance update event
-      final updatedInstance =
-          await getUpdatedInstance(instanceId: instanceId, userId: uid);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       rethrow;
     }
@@ -1499,13 +1665,36 @@ class ActivityInstanceService {
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
       final skipTime = skippedAt ?? now;
-      // Update current instance as skipped
-      await instanceRef.update({
-        'status': 'skipped',
-        'skippedAt': skipTime,
-        'notes': notes ?? instance.notes,
-        'lastUpdated': now,
-      });
+      
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticSkippedInstance(
+        instance,
+        notes: notes,
+      );
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'skip',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+      
+      // 5. Perform backend update
+      try {
+        await instanceRef.update({
+          'status': 'skipped',
+          'skippedAt': skipTime,
+          'notes': notes ?? instance.notes,
+          'lastUpdated': now,
+        });
       // Only generate next instance if skipAutoGeneration is false
       if (!skipAutoGeneration) {
         // For habits, generate next instance immediately using window system
@@ -1544,16 +1733,33 @@ class ActivityInstanceService {
                   print('Error broadcasting instance created event: $e');
                 }
               }
+            } else if (!template.isRecurring) {
+              // For one-time tasks, mark template as inactive and skipped
+              await templateRef.update({
+                'isActive': false,
+                'status': 'skipped',
+                'lastUpdated': now,
+              });
             }
           }
         }
       }
-      // Cancel reminder for skipped instance
-      try {
-        await ReminderScheduler.cancelReminderForInstance(instanceId);
+        // Cancel reminder for skipped instance
+        try {
+          await ReminderScheduler.cancelReminderForInstance(instanceId);
+        } catch (e) {
+          // Log error but don't fail - reminder cancellation is non-critical
+          print('Error canceling reminder for skipped instance: $e');
+        }
+        
+        // 6. Reconcile with actual data
+        final updatedInstance =
+            await getUpdatedInstance(instanceId: instanceId, userId: uid);
+        OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
       } catch (e) {
-        // Log error but don't fail - reminder cancellation is non-critical
-        print('Error canceling reminder for skipped instance: $e');
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
     } catch (e) {
       rethrow;
@@ -1755,23 +1961,53 @@ class ActivityInstanceService {
       if (!instanceDoc.exists) {
         throw Exception('Activity instance not found');
       }
-      await instanceRef.update({
-        'dueDate': newDueDate,
-        'lastUpdated': DateService.currentDate,
-      });
-      // Reschedule reminder for rescheduled instance
+      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+      
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance = InstanceEvents.createOptimisticRescheduledInstance(
+        instance,
+        newDueDate: newDueDate,
+      );
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'reschedule',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+      
+      // 5. Perform backend update
       try {
+        await instanceRef.update({
+          'dueDate': newDueDate,
+          'lastUpdated': DateService.currentDate,
+        });
+        // Reschedule reminder for rescheduled instance
+        try {
+          final updatedInstance =
+              await getUpdatedInstance(instanceId: instanceId, userId: uid);
+          await ReminderScheduler.rescheduleReminderForInstance(updatedInstance);
+        } catch (e) {
+          // Log error but don't fail - reminder rescheduling is non-critical
+          print('Error rescheduling reminder for rescheduled instance: $e');
+        }
+        // 6. Reconcile with actual data
         final updatedInstance =
             await getUpdatedInstance(instanceId: instanceId, userId: uid);
-        await ReminderScheduler.rescheduleReminderForInstance(updatedInstance);
+        OptimisticOperationTracker.reconcileOperation(operationId, updatedInstance);
       } catch (e) {
-        // Log error but don't fail - reminder rescheduling is non-critical
-        print('Error rescheduling reminder for rescheduled instance: $e');
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
       }
-      // Broadcast the instance update event
-      final updatedInstance =
-          await getUpdatedInstance(instanceId: instanceId, userId: uid);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       rethrow;
     }
@@ -2367,17 +2603,57 @@ class ActivityInstanceService {
           nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
 
       // Check if instance already exists for this template and date
+      // Check ALL statuses (not just pending) to prevent duplicates
       try {
         final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
             .where('templateId', isEqualTo: instance.templateId)
-            .where('belongsToDate', isEqualTo: nextBelongsToDate)
-            .where('status', isEqualTo: 'pending');
+            .where('belongsToDate', isEqualTo: nextBelongsToDate);
         final existingInstances = await existingQuery.get();
         if (existingInstances.docs.isNotEmpty) {
-          return; // Instance already exists, don't create duplicate
+          return; // Instance already exists (any status), don't create duplicate
+        }
+
+        // Also check if there's already a pending instance for today or future dates
+        // This prevents creating duplicates when instances exist for different dates
+        final today = DateService.todayStart;
+        final futurePendingQuery =
+            ActivityInstanceRecord.collectionForUser(userId)
+                .where('templateId', isEqualTo: instance.templateId)
+                .where('status', isEqualTo: 'pending');
+        final futurePendingSnapshot = await futurePendingQuery.get();
+        final futurePendingInstances = futurePendingSnapshot.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((inst) {
+          // Check if belongsToDate is today or in the future
+          if (inst.belongsToDate != null) {
+            final belongsToDateOnly = DateTime(
+              inst.belongsToDate!.year,
+              inst.belongsToDate!.month,
+              inst.belongsToDate!.day,
+            );
+            return belongsToDateOnly.isAtSameMomentAs(today) ||
+                belongsToDateOnly.isAfter(today);
+          }
+          // Also check windowEndDate if belongsToDate is null
+          if (inst.windowEndDate != null) {
+            final windowEndDateOnly = DateTime(
+              inst.windowEndDate!.year,
+              inst.windowEndDate!.month,
+              inst.windowEndDate!.day,
+            );
+            return windowEndDateOnly.isAtSameMomentAs(today) ||
+                windowEndDateOnly.isAfter(today);
+          }
+          return false;
+        }).toList();
+
+        // If there's already a pending instance for today or future, don't create duplicate
+        if (futurePendingInstances.isNotEmpty) {
+          return;
         }
       } catch (e) {
-        // If query fails, continue with instance creation
+        // If query fails, continue with instance creation (better to create than miss)
+        print('Error checking for existing instances: $e');
       }
 
       // Inherit order from previous instance of the same template
@@ -2429,20 +2705,46 @@ class ActivityInstanceService {
         habitsOrder: habitsOrder,
         tasksOrder: tasksOrder,
       );
-      // Add to Firestore
-      final newInstanceRef =
-          await ActivityInstanceRecord.collectionForUser(userId)
-              .add(nextInstanceData);
-
-      // Broadcast instance creation event for UI update
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance with temporary reference
+      // We'll use a placeholder reference that will be replaced on reconciliation
+      final tempRef = ActivityInstanceRecord.collectionForUser(userId).doc('temp_${DateTime.now().millisecondsSinceEpoch}');
+      final optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
+        nextInstanceData,
+        tempRef,
+      );
+      
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: 'temp', // Will be updated on reconciliation
+        operationType: 'create',
+        optimisticInstance: optimisticInstance,
+      );
+      
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceCreatedOptimistic(optimisticInstance, operationId);
+      
+      // 5. Add to Firestore
       try {
+        final newInstanceRef =
+            await ActivityInstanceRecord.collectionForUser(userId)
+                .add(nextInstanceData);
+
+        // 6. Reconcile with actual instance
         final newInstance = await getUpdatedInstance(
           instanceId: newInstanceRef.id,
           userId: userId,
         );
-        InstanceEvents.broadcastInstanceCreated(newInstance);
+        OptimisticOperationTracker.reconcileInstanceCreation(operationId, newInstance);
       } catch (e) {
-        // Error broadcasting instance creation
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        // Log error but don't fail - instance creation is non-critical for completion
+        print('Error creating next habit instance: $e');
       }
     } catch (e) {
       // Don't rethrow - we don't want to fail the completion
@@ -2605,6 +2907,94 @@ class ActivityInstanceService {
         }
       }
     } catch (e) {
+      rethrow;
+    }
+  }
+
+  /// Cascade updates to instances (Category, Name, etc.) with Batching
+  /// [updates] - Map of fields to update (e.g. {'templateCategoryName': 'New Name'})
+  /// [updateHistorical] - If true, updates history (capped at 365 days). If false, pending only.
+  static Future<void> updateActivityInstancesCascade({
+    required String templateId,
+    required Map<String, dynamic> updates,
+    required bool updateHistorical,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    if (updates.isEmpty) return;
+
+    try {
+      final instances =
+          await getInstancesForTemplate(templateId: templateId, userId: uid);
+      final now = DateTime.now();
+      final oneYearAgo = now.subtract(const Duration(days: 365));
+
+      // Batching (limit 500 ops per batch)
+      final batches = <List<ActivityInstanceRecord>>[];
+      List<ActivityInstanceRecord> currentBatch = [];
+
+      for (final instance in instances) {
+        bool shouldUpdate = false;
+
+        // 1. Pending/Future instances: ALWAYS update
+        if (instance.status != 'completed' && instance.status != 'skipped') {
+          shouldUpdate = true;
+        }
+        // 2. Historical instances: Check flag and date limit
+        else if (updateHistorical) {
+          final refDate =
+              instance.completedAt ?? instance.dueDate ?? instance.createdTime;
+          if (refDate != null && refDate.isAfter(oneYearAgo)) {
+            shouldUpdate = true;
+          }
+        }
+
+        if (shouldUpdate) {
+          currentBatch.add(instance);
+          if (currentBatch.length >= 450) {
+            // Safety buffer below 500
+            batches.add(List.from(currentBatch));
+            currentBatch.clear();
+          }
+        }
+      }
+      if (currentBatch.isNotEmpty) batches.add(currentBatch);
+
+      // Execute batches
+      for (final batchList in batches) {
+        final writeBatch = FirebaseFirestore.instance.batch();
+        for (final instance in batchList) {
+          writeBatch.update(instance.reference, {
+            ...updates,
+            'lastUpdated': DateTime.now(),
+          });
+        }
+        await writeBatch.commit();
+      }
+
+      print(
+          '✅ Batched update complete: Updated ${batches.fold<int>(0, (sum, b) => sum + b.length)} instances.');
+
+      // Post-commit: Update reminders for pending instances
+      final batchList = batches.expand((element) => element).toList();
+      for (final instance in batchList) {
+        if (instance.status != 'completed' && instance.status != 'skipped') {
+          try {
+            // Re-fetch to get updated data for reminder scheduling
+            final refreshedDoc = await instance.reference.get();
+            if (refreshedDoc.exists) {
+              final refreshedInstance =
+                  ActivityInstanceRecord.fromSnapshot(refreshedDoc);
+              await ReminderScheduler.rescheduleReminderForInstance(
+                  refreshedInstance);
+            }
+          } catch (e) {
+            print('Error updating reminder for ${instance.reference.id}: $e');
+          }
+        }
+      }
+    } catch (e) {
+      print('❌ Error in updateActivityInstancesCascade: $e');
       rethrow;
     }
   }
