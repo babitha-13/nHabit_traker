@@ -374,7 +374,9 @@ class _QueuePageState extends State<QueuePage> {
     if (optimistic) {
       // INSTANT UPDATE: Calculate from local data only (no Firestore queries)
       try {
-        final progressData = DailyProgressCalculator.calculateTodayProgressOptimistic(
+        final userId = currentUserUid;
+        final progressData = await DailyProgressCalculator.calculateTodayProgressOptimistic(
+          userId: userId,
           allInstances: habitInstances,
           categories: _categories,
           taskInstances: taskInstances,

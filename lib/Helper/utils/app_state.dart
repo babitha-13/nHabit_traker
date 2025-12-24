@@ -35,6 +35,10 @@ class FFAppState extends ChangeNotifier {
       _showCompletedHabits =
           prefs.getBool('ff_showCompletedHabits') ?? _showCompletedHabits;
     });
+    _safeInit(() {
+      _timeBonusEnabled =
+          prefs.getBool('ff_timeBonusEnabled') ?? _timeBonusEnabled;
+    });
   }
   void update(VoidCallback callback) {
     callback();
@@ -108,6 +112,14 @@ class FFAppState extends ChangeNotifier {
   String? get currentRoutineId => _currentRoutineId;
   set currentRoutineId(String? value) {
     _currentRoutineId = value;
+    notifyListeners();
+  }
+  // Time bonus points enabled
+  bool _timeBonusEnabled = false;
+  bool get timeBonusEnabled => _timeBonusEnabled;
+  set timeBonusEnabled(bool value) {
+    _timeBonusEnabled = value;
+    prefs.setBool('ff_timeBonusEnabled', value);
     notifyListeners();
   }
 }

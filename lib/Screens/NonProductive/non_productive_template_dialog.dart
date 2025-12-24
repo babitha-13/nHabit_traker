@@ -2,9 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/main.dart';
 
 class NonProductiveTemplateDialog extends StatefulWidget {
   final ActivityRecord? existingTemplate;
@@ -34,8 +32,6 @@ class _NonProductiveTemplateDialogState
   bool _isSaving = false;
   final List<String> _trackingTypes = ['binary', 'quantitative', 'time'];
   int? _timeEstimateMinutes;
-  bool _enableDefaultEstimates = false;
-  bool _enableActivityEstimates = false;
 
   @override
   void initState() {
@@ -53,28 +49,6 @@ class _NonProductiveTemplateDialogState
     } else {
       _selectedTrackingType = 'time';
       _targetValue = 5; // Default 5 minutes for time tracking
-    }
-    _loadTimeEstimatePreferences();
-  }
-
-  Future<void> _loadTimeEstimatePreferences() async {
-    try {
-      final userId = users.uid;
-      if (userId != null && userId.isNotEmpty) {
-        final enableDefault = await TimeLoggingPreferencesService
-            .getEnableDefaultEstimates(userId);
-        final enableActivity = await TimeLoggingPreferencesService
-            .getEnableActivityEstimates(userId);
-        if (mounted) {
-          setState(() {
-            _enableDefaultEstimates = enableDefault;
-            _enableActivityEstimates = enableActivity;
-          });
-        }
-      }
-    } catch (e) {
-      // Continue with defaults (false)
-      print('Error loading time estimate preferences: $e');
     }
   }
 
@@ -273,9 +247,7 @@ class _NonProductiveTemplateDialogState
                     _buildTimeFields(theme),
                   ],
                   // Show time estimate field if both switches are enabled and not time-target
-                  if (_enableDefaultEstimates &&
-                      _enableActivityEstimates &&
-                      !_isTimeTarget()) ...[
+                  if (!_isTimeTarget()) ...[
                     const SizedBox(height: 12),
                     _buildTimeEstimateField(theme),
                   ],

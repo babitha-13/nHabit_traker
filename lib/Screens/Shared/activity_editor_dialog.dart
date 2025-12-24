@@ -15,8 +15,6 @@ import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
-import 'package:habit_tracker/main.dart';
 import 'package:intl/intl.dart';
 
 class ActivityEditorDialog extends StatefulWidget {
@@ -61,8 +59,6 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   List<CategoryRecord> _loadedCategories = [];
   bool _isLoadingCategories = false;
   int? _timeEstimateMinutes;
-  bool _enableDefaultEstimates = false;
-  bool _enableActivityEstimates = false;
 
   bool get _isRecurring => quickIsTaskRecurring && _frequencyConfig != null;
 
@@ -134,32 +130,6 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     // Load time estimate
     if (t != null && t.hasTimeEstimateMinutes()) {
       _timeEstimateMinutes = t.timeEstimateMinutes;
-    }
-
-    // Load preferences for time estimates feature
-    _loadTimeEstimatePreferences();
-  }
-
-  Future<void> _loadTimeEstimatePreferences() async {
-    try {
-      final userId = users.uid;
-      if (userId != null && userId.isNotEmpty) {
-        final enableDefault =
-            await TimeLoggingPreferencesService.getEnableDefaultEstimates(
-                userId);
-        final enableActivity =
-            await TimeLoggingPreferencesService.getEnableActivityEstimates(
-                userId);
-        if (mounted) {
-          setState(() {
-            _enableDefaultEstimates = enableDefault;
-            _enableActivityEstimates = enableActivity;
-          });
-        }
-      }
-    } catch (e) {
-      // Continue with defaults (false)
-      print('Error loading time estimate preferences: $e');
     }
   }
 
@@ -817,10 +787,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
                     _buildDueTimeField(theme),
                     const SizedBox(height: 12),
                     _buildReminderField(theme),
-                    // Show time estimate field if both switches are enabled and not time-target
-                    if (_enableDefaultEstimates &&
-                        _enableActivityEstimates &&
-                        !_isTimeTarget()) ...[
+                    // Show time estimate field for all activities (not time-target)
+                    if (!_isTimeTarget()) ...[
                       const SizedBox(height: 12),
                       _buildTimeEstimateField(theme),
                     ],

@@ -1,6 +1,7 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/utils/app_state.dart';
 /// Service for calculating fractional points and daily targets for habit tracking
 class PointsService {
   /// Convert period type to number of days
@@ -114,10 +115,11 @@ class PointsService {
 
   /// Calculate points earned for a single habit instance
   /// Returns fractional points based on completion percentage
-  static double calculatePointsEarned(
+  static Future<double> calculatePointsEarned(
     ActivityInstanceRecord instance,
     CategoryRecord category,
-  ) {
+    String userId,
+  ) async {
     // Skip non-productive items - they don't earn points
     if (instance.templateCategoryType == 'non_productive') {
       return 0.0;
@@ -135,10 +137,24 @@ class PointsService {
           final target = instance.templateTarget ?? 1;
           earnedPoints = (countValue / target).clamp(0.0, 1.0) * habitPriority;
         } else if (instance.status == 'completed') {
-          // No counter but completed: full points (backward compatibility)
+          // No counter but completed: base points
           earnedPoints = habitPriority;
         } else {
           earnedPoints = 0.0;
+        }
+
+        // Add time bonus if enabled and time is logged
+        final timeMinutes = await _getTimeMinutesForInstance(instance, userId);
+        if (timeMinutes != null && earnedPoints > 0) {
+          final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+          if (timeBonusEnabled && timeMinutes >= 15.0) {
+            // Only award bonus if time >= 15 minutes and >= 30 minutes (excess)
+            if (timeMinutes >= 30.0) {
+              final excessMinutes = timeMinutes - 30.0;
+              final bonusBlocks = (excessMinutes / 30.0).floor();
+              earnedPoints += bonusBlocks * habitPriority;
+            }
+          }
         }
 
         return earnedPoints;
@@ -171,6 +187,20 @@ class PointsService {
               final completionFraction =
                   (currentValue / target).clamp(0.0, 1.0);
               earnedPoints = completionFraction * habitPriority;
+            }
+          }
+        }
+
+        // Add time bonus if enabled and time is logged
+        final timeMinutes = await _getTimeMinutesForInstance(instance, userId);
+        if (timeMinutes != null && earnedPoints > 0) {
+          final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+          if (timeBonusEnabled && timeMinutes >= 15.0) {
+            // Only award bonus if time >= 15 minutes and >= 30 minutes (excess)
+            if (timeMinutes >= 30.0) {
+              final excessMinutes = timeMinutes - 30.0;
+              final bonusBlocks = (excessMinutes / 30.0).floor();
+              earnedPoints += bonusBlocks * habitPriority;
             }
           }
         }
@@ -280,10 +310,11 @@ class PointsService {
   }
 
   /// Calculate total points earned for all habit instances
-  static double calculateTotalPointsEarned(
+  static Future<double> calculateTotalPointsEarned(
     List<ActivityInstanceRecord> instances,
     List<CategoryRecord> categories,
-  ) {
+    String userId,
+  ) async {
     double totalPoints = 0.0;
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
@@ -293,7 +324,7 @@ class PointsService {
       if (category == null) {
         continue;
       }
-      final points = calculatePointsEarned(instance, category);
+      final points = await calculatePointsEarned(instance, category, userId);
       totalPoints += points;
     }
     return totalPoints;
@@ -335,6 +366,40 @@ class PointsService {
     return 0.0;
   }
 
+  /// Get time in minutes for an instance using priority order:
+  /// 1. Manual/recorded time (accumulatedTime or totalTimeLogged)
+  /// 2. Activity-specific estimate (template.timeEstimateMinutes)
+  /// 3. Returns null if no time source found
+  static Future<double?> _getTimeMinutesForInstance(
+    ActivityInstanceRecord instance,
+    String userId,
+  ) async {
+    // Priority 1: Manual/recorded time
+    final loggedMs = instance.accumulatedTime > 0 
+        ? instance.accumulatedTime 
+        : instance.totalTimeLogged;
+    if (loggedMs > 0) {
+      return loggedMs / 60000.0; // Convert to minutes
+    }
+    
+    // Priority 2: Activity-specific estimate
+    if (instance.hasTemplateId()) {
+      try {
+        final templateRef = ActivityRecord.collectionForUser(userId)
+            .doc(instance.templateId);
+        final template = await ActivityRecord.getDocumentOnce(templateRef);
+        if (template.hasTimeEstimateMinutes()) {
+          return template.timeEstimateMinutes!.toDouble();
+        }
+      } catch (e) {
+        // Continue to fallback
+      }
+    }
+    
+    // Priority 3: No time source
+    return null;
+  }
+
   /// Helper method to find category for an instance
   static CategoryRecord? _findCategoryForInstance(
     ActivityInstanceRecord instance,
@@ -361,10 +426,10 @@ class PointsService {
 
 
   /// Calculate duration multiplier based on target minutes
-  /// Returns the number of 15-minute blocks, minimum 1
+  /// Returns the number of 30-minute blocks, minimum 1
   static int calculateDurationMultiplier(double targetMinutes) {
     if (targetMinutes <= 0) return 1;
-    return (targetMinutes / 15).round().clamp(1, double.infinity).toInt();
+    return (targetMinutes / 30).round().clamp(1, double.infinity).toInt();
   }
 }
 /// Example calculations for simplified point system:

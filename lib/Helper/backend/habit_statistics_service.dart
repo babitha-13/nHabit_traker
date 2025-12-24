@@ -287,7 +287,7 @@ class HabitStatisticsService {
     );
     
     final target = PointsService.calculateDailyTarget(instance, category);
-    final earned = PointsService.calculatePointsEarned(instance, category);
+    final earned = await PointsService.calculatePointsEarned(instance, category, userId);
     final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
     
     dynamic quantity;

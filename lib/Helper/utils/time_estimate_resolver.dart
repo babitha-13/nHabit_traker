@@ -41,10 +41,8 @@ class TimeEstimateResolver {
       return null;
     }
 
-    // Check for per-activity estimate if activity-wise estimates are enabled
-    final enableActivityEstimates =
-        await TimeLoggingPreferencesService.getEnableActivityEstimates(userId);
-    if (enableActivityEstimates && template != null && template.hasTimeEstimateMinutes()) {
+    // Always check for per-activity estimate (no longer conditional)
+    if (template != null && template.hasTimeEstimateMinutes()) {
       final activityEstimate = template.timeEstimateMinutes!;
       // Clamp to reasonable range (1-600 minutes)
       return activityEstimate.clamp(1, 600);

@@ -1952,7 +1952,7 @@ class _CalendarPageState extends State<CalendarPage> {
       final durationMinutes = duration.inMinutes;
 
       // Replicate layout logic from _buildEventTile
-      final isThin = durationMinutes <= 5 && isCompletedList;
+      final isThin = durationMinutes < 5 && isCompletedList;
       final timeBoxHeight = durationMinutes * heightPerMinute;
       final cappedHeight = math.max(1.0, timeBoxHeight);
       final actualHeight = isThin
@@ -2010,7 +2010,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final isNonProductive = event.title.startsWith('NP:');
     final rawEvent = event.event;
     final isDueMarker = rawEvent is Map && (rawEvent['isDueMarker'] == true);
-    final isThinLine = duration.inMinutes <= 5 && (isCompleted || isDueMarker);
+    final isThinLine = duration.inMinutes < 5 && (isCompleted || isDueMarker);
 
     final timeBoxHeight = duration.inMinutes * _calculateHeightPerMinute();
     final cappedHeight = math.max(1.0, timeBoxHeight);

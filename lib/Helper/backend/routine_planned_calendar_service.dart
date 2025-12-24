@@ -87,7 +87,6 @@ class RoutinePlannedCalendarService {
 
     // If global default estimates are off and items aren't time-target, duration may become 0/null.
     final enableDefaultEstimates = prefs.enableDefaultEstimates;
-    final enableActivityEstimates = prefs.enableActivityEstimates;
 
     // Collect template ids needed across all eligible routines (excluding already scheduled items).
     final allNeededItemIds = <String>{};
@@ -114,7 +113,8 @@ class RoutinePlannedCalendarService {
       // Non-time-target:
       if (!enableDefaultEstimates) return null;
 
-      if (enableActivityEstimates && template.hasTimeEstimateMinutes()) {
+      // Always check for activity-specific estimate (no longer conditional)
+      if (template.hasTimeEstimateMinutes()) {
         return template.timeEstimateMinutes!.clamp(1, 600);
       }
 

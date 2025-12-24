@@ -20,7 +20,6 @@ import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -69,10 +68,6 @@ class _TaskPageState extends State<TaskPage> {
   // Optimistic operation tracking
   final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
 
-  // Time estimate preferences (feature gating for quick add UI)
-  bool _enableDefaultEstimates = false;
-  bool _enableActivityEstimates = false;
-
   @override
   void initState() {
     super.initState();
@@ -82,7 +77,6 @@ class _TaskPageState extends State<TaskPage> {
         (_quickTargetDuration.inMinutes % 60).toString();
     _loadExpansionState();
     _loadData();
-    _loadTimeEstimatePreferences();
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
     // Listen for instance events
@@ -578,10 +572,8 @@ class _TaskPageState extends State<TaskPage> {
                             ),
                           ),
                         ),
-                      // Time estimate icon/chip (only when both toggles are ON and not time-target)
-                      if (_enableDefaultEstimates &&
-                          _enableActivityEstimates &&
-                          !_isQuickTimeTarget())
+                      // Time estimate icon/chip (always show when not time-target)
+                      if (!_isQuickTimeTarget())
                         if (_quickTimeEstimateMinutes == null)
                           Container(
                             decoration: BoxDecoration(
@@ -1477,9 +1469,7 @@ class _TaskPageState extends State<TaskPage> {
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
-        timeEstimateMinutes: (_enableDefaultEstimates &&
-                _enableActivityEstimates &&
-                !_isQuickTimeTarget())
+        timeEstimateMinutes: !_isQuickTimeTarget()
             ? _quickTimeEstimateMinutes
             : null,
         isRecurring: quickIsRecurring,
@@ -1560,23 +1550,6 @@ class _TaskPageState extends State<TaskPage> {
     });
   }
 
-  Future<void> _loadTimeEstimatePreferences() async {
-    try {
-      final userId = currentUserUid;
-      if (userId.isEmpty) return;
-      final enableDefault =
-          await TimeLoggingPreferencesService.getEnableDefaultEstimates(userId);
-      final enableActivity =
-          await TimeLoggingPreferencesService.getEnableActivityEstimates(userId);
-      if (!mounted) return;
-      setState(() {
-        _enableDefaultEstimates = enableDefault;
-        _enableActivityEstimates = enableActivity;
-      });
-    } catch (_) {
-      // Ignore - default to feature OFF in this view
-    }
-  }
 
   bool _isQuickTimeTarget() {
     return _selectedQuickTrackingType == 'time' &&

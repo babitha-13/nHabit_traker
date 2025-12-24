@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/app_state.dart';
 import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
-import 'package:habit_tracker/main.dart';
+import 'package:habit_tracker/Screens/Settings/calendar_settings_page.dart';
 
 /// Main settings page for managing app preferences
 class SettingsPage extends StatefulWidget {
@@ -13,79 +13,12 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  bool _isLoading = true;
-  bool _isSaving = false;
-  int _defaultDurationMinutes = 10;
-  bool _enableDefaultEstimates = true;
-  bool _enableActivityEstimates = false;
+  bool _timeBonusEnabled = false;
 
   @override
   void initState() {
     super.initState();
-    _loadPreferences();
-  }
-
-  Future<void> _loadPreferences() async {
-    setState(() {
-      _isLoading = true;
-    });
-    try {
-      final userId = users.uid;
-      if (userId == null || userId.isEmpty) {
-        setState(() {
-          _isLoading = false;
-        });
-        return;
-      }
-
-      final prefs = await TimeLoggingPreferencesService.getPreferences(userId);
-
-      setState(() {
-        _defaultDurationMinutes = prefs.defaultDurationMinutes;
-        _enableDefaultEstimates = prefs.enableDefaultEstimates;
-        _enableActivityEstimates = prefs.enableActivityEstimates;
-        _isLoading = false;
-      });
-    } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading preferences: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _persistPreferences() async {
-    final userId = users.uid;
-    if (userId == null || userId.isEmpty) return;
-
-    if (mounted) setState(() => _isSaving = true);
-
-    try {
-      await TimeLoggingPreferencesService.updatePreferences(
-        userId,
-        defaultDurationMinutes: _defaultDurationMinutes,
-        enableDefaultEstimates: _enableDefaultEstimates,
-        enableActivityEstimates: _enableActivityEstimates,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error saving preferences: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _isSaving = false);
-    }
+    _timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
   }
 
   @override
@@ -96,24 +29,8 @@ class _SettingsPageState extends State<SettingsPage> {
         title: const Text('Settings'),
         backgroundColor: theme.primary,
         foregroundColor: Colors.white,
-        actions: [
-          if (_isSaving)
-            const Padding(
-              padding: EdgeInsets.only(right: 16),
-              child: SizedBox(
-                width: 18,
-                height: 18,
-                child: CircularProgressIndicator(
-                  strokeWidth: 2,
-                  valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
-                ),
-              ),
-            ),
-        ],
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : SingleChildScrollView(
+      body: SingleChildScrollView(
               padding: const EdgeInsets.all(16),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -139,8 +56,11 @@ class _SettingsPageState extends State<SettingsPage> {
                     ],
                   ),
                   const SizedBox(height: 32),
-                  // Time Logging Settings Section
-                  _buildTimeLoggingCard(theme),
+                  // Points System Settings Section
+                  _buildPointsSystemCard(theme),
+                  const SizedBox(height: 16),
+                  // Calendar Settings Navigation
+                  _buildCalendarSettingsCard(theme),
                   const SizedBox(height: 16),
                   // Notification Settings Navigation
                   _buildNotificationSettingsCard(theme),
@@ -157,7 +77,51 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Widget _buildTimeLoggingCard(FlutterFlowTheme theme) {
+  Widget _buildCalendarSettingsCard(FlutterFlowTheme theme) {
+    return Card(
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const CalendarSettingsPage(),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.calendar_today, color: theme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Calendar Settings',
+                      style: theme.titleMedium.override(
+                        fontFamily: 'Outfit',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Manage default time logging and duration',
+                      style: theme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.grey),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPointsSystemCard(FlutterFlowTheme theme) {
     return Card(
       child: Padding(
         padding: const EdgeInsets.all(16),
@@ -166,10 +130,10 @@ class _SettingsPageState extends State<SettingsPage> {
           children: [
             Row(
               children: [
-                Icon(Icons.timer, color: theme.primary),
+                Icon(Icons.stars, color: theme.primary),
                 const SizedBox(width: 12),
                 Text(
-                  'Time Logging',
+                  'Points System',
                   style: theme.titleMedium.override(
                     fontFamily: 'Outfit',
                     fontWeight: FontWeight.w600,
@@ -178,108 +142,26 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
             ),
             const SizedBox(height: 16),
-            // Enable default time estimates switch
+            // Time bonus points switch
             SwitchListTile(
               title: Text(
-                'Enable default time estimates',
+                'Time Bonus Points',
                 style: theme.bodyMedium.override(
                   fontWeight: FontWeight.w500,
                 ),
               ),
               subtitle: Text(
-                'Automatically log time for binary and quantity activities without time targets',
+                'Earn bonus points for binary and quantity activities when you log time beyond 30 minutes',
                 style: theme.bodySmall,
               ),
-              value: _enableDefaultEstimates,
+              value: _timeBonusEnabled,
               onChanged: (value) {
                 setState(() {
-                  _enableDefaultEstimates = value;
-                  if (!value) {
-                    // If disabling default estimates, also disable activity estimates
-                    _enableActivityEstimates = false;
-                  }
+                  _timeBonusEnabled = value;
                 });
-                _persistPreferences();
+                FFAppState.instance.timeBonusEnabled = value;
               },
             ),
-            // Default duration slider (only shown/enabled when default estimates is ON)
-            if (_enableDefaultEstimates) ...[
-              const SizedBox(height: 16),
-              Text(
-                'Default Duration',
-                style: theme.bodyMedium.override(
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  Expanded(
-                    child: Slider(
-                      value: _defaultDurationMinutes.toDouble(),
-                      min: 5,
-                      max: 60,
-                      divisions: 11, // 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
-                      label: '$_defaultDurationMinutes minutes',
-                      onChanged: (value) {
-                        setState(() {
-                          _defaultDurationMinutes = value.round();
-                        });
-                      },
-                      onChangeEnd: (_) => _persistPreferences(),
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 12,
-                      vertical: 8,
-                    ),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey.shade300),
-                      borderRadius: BorderRadius.circular(8),
-                      color: Colors.grey.shade50,
-                    ),
-                    child: Text(
-                      '$_defaultDurationMinutes min',
-                      style: theme.bodyLarge.override(
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Range: 5 - 60 minutes',
-                style: theme.bodySmall.override(
-                  color: Colors.grey.shade600,
-                ),
-              ),
-            ],
-            // Enable activity-wise estimates switch (only shown when default estimates is ON)
-            if (_enableDefaultEstimates) ...[
-              const SizedBox(height: 16),
-              SwitchListTile(
-                title: Text(
-                  'Enable activity-wise time estimates',
-                  style: theme.bodyMedium.override(
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                subtitle: Text(
-                  'Set custom time estimates for individual activities',
-                  style: theme.bodySmall,
-                ),
-                value: _enableActivityEstimates,
-                onChanged: (value) {
-                  setState(() {
-                    _enableActivityEstimates = value;
-                  });
-                  _persistPreferences();
-                },
-              ),
-            ],
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(12),
@@ -294,9 +176,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
-                      _enableDefaultEstimates
-                          ? 'When you complete an activity without a time target, it will be logged with the default duration (or custom estimate if set) in your calendar.'
-                          : 'Time estimates are disabled. Only manually logged time will be recorded.',
+                      _timeBonusEnabled
+                          ? 'Time bonuses are enabled. Log time for binary/quantity activities to earn extra points for time spent beyond 30 minutes.'
+                          : 'Time bonuses are disabled. Logged time will still be recorded for calendar view but won\'t affect points.',
                       style: theme.bodySmall.override(
                         color: Colors.blue.shade700,
                       ),

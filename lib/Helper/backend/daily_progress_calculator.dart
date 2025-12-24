@@ -103,7 +103,7 @@ class DailyProgressCalculator {
           PointsService.calculateTotalDailyTarget(allForMath, categories);
     }
     final habitEarnedPoints =
-        PointsService.calculateTotalPointsEarned(earnedSet, categories);
+        await PointsService.calculateTotalPointsEarned(earnedSet, categories, userId);
     // Calculate task points using ActivityInstanceRecord
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
@@ -120,7 +120,7 @@ class DailyProgressCalculator {
       final category = _findCategoryForInstance(habit, categories);
       if (category != null) {
         final target = PointsService.calculateDailyTarget(habit, category);
-        final earned = PointsService.calculatePointsEarned(habit, category);
+        final earned = await PointsService.calculatePointsEarned(habit, category, userId);
         final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
 
         // Extract additional data for statistics
@@ -234,11 +234,12 @@ class DailyProgressCalculator {
   /// Calculate daily progress optimistically from local instances (no Firestore queries)
   /// Use this for instant UI updates after instance changes
   /// Returns: {target, earned, percentage}
-  static Map<String, dynamic> calculateTodayProgressOptimistic({
+  static Future<Map<String, dynamic>> calculateTodayProgressOptimistic({
+    required String userId,
     required List<ActivityInstanceRecord> allInstances,
     required List<CategoryRecord> categories,
     List<ActivityInstanceRecord> taskInstances = const [],
-  }) {
+  }) async {
     final today = DateService.currentDate;
     final normalizedDate =
         DateTime(today.year, today.month, today.day);
@@ -291,7 +292,7 @@ class DailyProgressCalculator {
     final habitTargetPoints =
         PointsService.calculateTotalDailyTarget(allForMath, categories);
     final habitEarnedPoints =
-        PointsService.calculateTotalPointsEarned(earnedSet, categories);
+        await PointsService.calculateTotalPointsEarned(earnedSet, categories, userId);
     
     // Calculate task points using ActivityInstanceRecord
     final taskTargetPoints =

@@ -20,10 +20,9 @@ class PlannedDurationResolver {
     final prefs = await TimeLoggingPreferencesService.getPreferences(userId);
 
     final enableDefaultEstimates = prefs.enableDefaultEstimates;
-    final enableActivityEstimates = prefs.enableActivityEstimates;
 
-    final needsTemplateLookup =
-        enableDefaultEstimates && enableActivityEstimates;
+    // Always fetch templates if default estimates are enabled (activity estimates are always checked)
+    final needsTemplateLookup = enableDefaultEstimates;
 
     final templatesById = needsTemplateLookup
         ? await _fetchTemplatesById(
@@ -57,12 +56,11 @@ class PlannedDurationResolver {
         continue;
       }
 
-      if (enableActivityEstimates) {
-        final template = templatesById[instance.templateId];
-        if (template != null && template.hasTimeEstimateMinutes()) {
-          result[instanceId] = template.timeEstimateMinutes!.clamp(1, 600);
-          continue;
-        }
+      // Always check for activity-specific estimate (no longer conditional)
+      final template = templatesById[instance.templateId];
+      if (template != null && template.hasTimeEstimateMinutes()) {
+        result[instanceId] = template.timeEstimateMinutes!.clamp(1, 600);
+        continue;
       }
 
       result[instanceId] = prefs.defaultDurationMinutes;

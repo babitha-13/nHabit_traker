@@ -373,8 +373,8 @@ class DayEndProcessor {
             .toList();
         final categoryTarget =
             PointsService.calculateTotalDailyTarget(categoryAll, [category]);
-        final categoryEarned = PointsService.calculateTotalPointsEarned(
-            categoryCompleted, [category]);
+        final categoryEarned = await PointsService.calculateTotalPointsEarned(
+            categoryCompleted, [category], userId);
         categoryBreakdown[category.reference.id] = {
           'target': categoryTarget,
           'earned': categoryEarned,
