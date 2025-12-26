@@ -70,6 +70,8 @@ class _ItemComponentState extends State<ItemComponent>
     with TickerProviderStateMixin {
   bool _isUpdating = false;
   Timer? _timer;
+  Timer? _quantUpdateTimer; // Timer for batching quantitative updates
+  int _pendingQuantIncrement = 0; // Accumulated pending increments
   num? _quantProgressOverride;
   bool? _timerStateOverride;
   bool? _binaryCompletionOverride;
@@ -215,6 +217,7 @@ class _ItemComponentState extends State<ItemComponent>
   @override
   void dispose() {
     _timer?.cancel();
+    _quantUpdateTimer?.cancel();
     super.dispose();
   }
 
@@ -371,7 +374,7 @@ class _ItemComponentState extends State<ItemComponent>
               child: ConstrainedBox(
                 constraints: const BoxConstraints(minHeight: 50),
                 child: SizedBox(
-                  width: 36,
+                  width: 48,
                   child: Center(child: _buildLeftControlsCompact()),
                 ),
               ),
@@ -1595,11 +1598,11 @@ class _ItemComponentState extends State<ItemComponent>
     switch (widget.instance.templateTrackingType) {
       case 'binary':
         return Container(
-          width: 24,
-          height: 24,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
             color: _isCompleted ? _impactLevelColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             border: _isCompleted
                 ? null
                 : Border.all(
@@ -1610,7 +1613,7 @@ class _ItemComponentState extends State<ItemComponent>
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(6),
               onTap: _isUpdating
                   ? null
                   : () async {
@@ -1619,7 +1622,7 @@ class _ItemComponentState extends State<ItemComponent>
               child: _isCompleted
                   ? const Icon(
                       Icons.check,
-                      size: 16,
+                      size: 20,
                       color: Colors.white,
                     )
                   : null,
@@ -1633,11 +1636,11 @@ class _ItemComponentState extends State<ItemComponent>
           builder: (btnCtx) => GestureDetector(
             onLongPress: () => _showQuantControlsMenu(btnCtx, canDecrement),
             child: Container(
-              width: 24,
-              height: 24,
+              width: 40,
+              height: 40,
               decoration: BoxDecoration(
                 color: Colors.transparent,
-                borderRadius: BorderRadius.circular(4),
+                borderRadius: BorderRadius.circular(6),
                 border: Border.all(
                   color: _leftStripeColor,
                   width: 2,
@@ -1646,12 +1649,15 @@ class _ItemComponentState extends State<ItemComponent>
               child: Material(
                 color: Colors.transparent,
                 child: InkWell(
-                  borderRadius: BorderRadius.circular(4),
-                  onTap: _isUpdating ? null : () => _updateProgress(1),
-                  child: Icon(
-                    Icons.add,
-                    size: 18,
-                    color: _leftStripeColor,
+                  borderRadius: BorderRadius.circular(6),
+                  onTap: () => _updateProgress(1), // Always allow clicks for batching
+                  child: Opacity(
+                    opacity: (_isUpdating || _pendingQuantIncrement > 0) ? 0.6 : 1.0,
+                    child: Icon(
+                      Icons.add,
+                      size: 22,
+                      color: _leftStripeColor,
+                    ),
                   ),
                 ),
               ),
@@ -1661,13 +1667,13 @@ class _ItemComponentState extends State<ItemComponent>
       case 'time':
         final bool isActive = _isTimerActiveLocal;
         return Container(
-          width: 24,
-          height: 24,
+          width: 40,
+          height: 40,
           decoration: BoxDecoration(
             color: isActive
                 ? FlutterFlowTheme.of(context).error
                 : Colors.transparent,
-            borderRadius: BorderRadius.circular(4),
+            borderRadius: BorderRadius.circular(6),
             border: isActive
                 ? null
                 : Border.all(
@@ -1678,13 +1684,13 @@ class _ItemComponentState extends State<ItemComponent>
           child: Material(
             color: Colors.transparent,
             child: InkWell(
-              borderRadius: BorderRadius.circular(4),
+              borderRadius: BorderRadius.circular(6),
               onTap: _isUpdating ? null : () => _toggleTimer(),
               onLongPress:
                   _isUpdating ? null : () => _showTimeControlsMenu(context),
               child: Icon(
                 isActive ? Icons.stop : Icons.play_arrow,
-                size: 16,
+                size: 20,
                 color: isActive ? Colors.white : _leftStripeColor,
               ),
             ),
@@ -1696,17 +1702,17 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Future<void> _updateProgress(int delta) async {
-    if (_isUpdating) return;
-    setState(() {
-      _isUpdating = true;
-    });
-    try {
-      final currentValue = _currentProgressLocal();
-      final target = _getTargetValue();
-      final newValue = (currentValue + delta).clamp(0, double.infinity);
-      // NEW: Add cap check for binary habits in weekly view
-      if (widget.instance.templateTrackingType == 'binary' &&
-          widget.instance.templateCategoryType == 'habit') {
+    // For binary habits, use immediate update (no batching needed)
+    if (widget.instance.templateTrackingType == 'binary' &&
+        widget.instance.templateCategoryType == 'habit') {
+      if (_isUpdating) return;
+      setState(() {
+        _isUpdating = true;
+      });
+      try {
+        final currentValue = _currentProgressLocal();
+        final target = _getTargetValue();
+        final newValue = (currentValue + delta).clamp(0, double.infinity);
         // Cap at 10x target to prevent accidental pocket taps
         final maxCompletions = (target * 10).toInt();
         if (newValue > maxCompletions) {
@@ -1720,19 +1726,87 @@ class _ItemComponentState extends State<ItemComponent>
           setState(() => _isUpdating = false);
           return;
         }
+        // Set optimistic state immediately for local UI
+        setState(() => _quantProgressOverride = newValue.toInt());
+        
+        // Service method will broadcast optimistically
+        await ActivityInstanceService.updateInstanceProgress(
+          instanceId: widget.instance.reference.id,
+          currentValue: newValue,
+        );
+      } catch (e) {
+        // Revert optimistic state on error
+        setState(() => _quantProgressOverride = null);
+        widget.onInstanceUpdated?.call(widget.instance);
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating progress: $e')),
+          );
+        }
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isUpdating = false;
+          });
+        }
       }
-      // Set optimistic state immediately for local UI
-      setState(() => _quantProgressOverride = newValue.toInt());
-      
+      return;
+    }
+
+    // For quantitative activities: batch processing with immediate UI update
+    // Accumulate the increment
+    _pendingQuantIncrement += delta;
+    
+    // Update UI optimistically immediately
+    final currentValue = _currentProgressLocal();
+    final newOptimisticValue = (currentValue + _pendingQuantIncrement).clamp(0, double.infinity);
+    setState(() => _quantProgressOverride = newOptimisticValue.toInt());
+    
+    // Cancel existing timer if any
+    _quantUpdateTimer?.cancel();
+    
+    // Schedule batched backend update after a short delay (300ms)
+    // This allows rapid clicks to accumulate before sending to backend
+    _quantUpdateTimer = Timer(const Duration(milliseconds: 300), () {
+      _processPendingQuantUpdate();
+    });
+  }
+
+  Future<void> _processPendingQuantUpdate() async {
+    if (_pendingQuantIncrement == 0) return;
+    if (_isUpdating) {
+      // If already updating, reschedule to process after current update completes
+      _quantUpdateTimer = Timer(const Duration(milliseconds: 300), () {
+        _processPendingQuantUpdate();
+      });
+      return;
+    }
+
+    final incrementToProcess = _pendingQuantIncrement;
+    // Get the value to send BEFORE resetting pending
+    // _quantProgressOverride already includes all pending increments
+    final currentValue = _currentProgressLocal();
+    _pendingQuantIncrement = 0; // Reset before processing
+    
+    setState(() {
+      _isUpdating = true;
+    });
+
+    try {
       // Service method will broadcast optimistically
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
-        currentValue: newValue,
+        currentValue: currentValue,
       );
       // Reconciliation happens automatically via service method broadcasts
+      // The override will be cleared when backend value matches
     } catch (e) {
-      // Revert optimistic state on error
-      setState(() => _quantProgressOverride = null);
+      // Revert optimistic state on error - subtract what we tried to process
+      setState(() {
+        _quantProgressOverride = (currentValue - incrementToProcess).clamp(0, double.infinity).toInt();
+      });
+      // Re-add to pending since it failed
+      _pendingQuantIncrement += incrementToProcess;
       widget.onInstanceUpdated?.call(widget.instance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -1743,6 +1817,13 @@ class _ItemComponentState extends State<ItemComponent>
       if (mounted) {
         setState(() {
           _isUpdating = false;
+        });
+      }
+      
+      // Process any new pending increments that accumulated during the update
+      if (_pendingQuantIncrement != 0) {
+        _quantUpdateTimer = Timer(const Duration(milliseconds: 300), () {
+          _processPendingQuantUpdate();
         });
       }
     }

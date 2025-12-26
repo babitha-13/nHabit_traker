@@ -1874,7 +1874,7 @@ class TaskInstanceService {
   }
 
   /// Delete a specific time log session
-  /// Returns true if the instance was uncompleted due to time falling below target
+  /// Returns true if the instance was uncompleted due to time/quantity falling below target
   static Future<bool> deleteTimeLogSession({
     required String instanceId,
     required int sessionIndex,
@@ -1903,38 +1903,112 @@ class TaskInstanceService {
       final totalTime = sessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
 
-      // Update the instance
-      await instanceRef.update({
-        'timeLogSessions': sessions,
-        'totalTimeLogged': totalTime,
-        'accumulatedTime': totalTime,
-        'currentValue': totalTime,
-        'lastUpdated': DateTime.now(),
-      });
-
-      // Handle auto-uncompletion for timer-type tasks/habits
-      // If instance is completed and has time tracking with a target (> 0),
-      // and the new total time is below the target, uncomplete it
-      bool wasUncompleted = false;
-      if (instance.status == 'completed' &&
-          instance.templateTrackingType == 'time' &&
-          instance.templateTarget != null) {
-        final target = instance.templateTarget;
-        if (target is num && target > 0) {
-          final targetMs =
-              (target.toInt()) * 60000; // Convert minutes to milliseconds
-          if (totalTime < targetMs) {
-            // Auto-uncomplete for timer types when time falls below target
-            await ActivityInstanceService.uncompleteInstance(
-              instanceId: instanceId,
-              userId: uid,
-            );
-            wasUncompleted = true;
-          }
-        }
+      // Calculate new currentValue based on tracking type
+      dynamic newCurrentValue;
+      if (instance.templateTrackingType == 'quantitative') {
+        // For quantitative tracking: reduce currentValue by 1
+        final currentQty = (instance.currentValue is num)
+            ? (instance.currentValue as num).toDouble()
+            : 0.0;
+        newCurrentValue = (currentQty - 1).clamp(0.0, double.infinity);
+      } else {
+        // For time tracking: currentValue equals totalTime
+        newCurrentValue = totalTime;
       }
 
-      return wasUncompleted;
+      // ==================== OPTIMISTIC BROADCAST ====================
+      // 1. Create optimistic instance
+      final optimisticInstance =
+          InstanceEvents.createOptimisticProgressInstance(
+        instance,
+        accumulatedTime: totalTime,
+        currentValue: newCurrentValue,
+        timeLogSessions: sessions,
+        totalTimeLogged: totalTime,
+      );
+
+      // 2. Generate operation ID
+      final operationId = OptimisticOperationTracker.generateOperationId();
+
+      // 3. Track operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instanceId,
+        operationType: 'progress',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
+
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+          optimisticInstance, operationId);
+
+      // 5. Perform backend update
+      try {
+        await instanceRef.update({
+          'timeLogSessions': sessions,
+          'totalTimeLogged': totalTime,
+          'accumulatedTime': totalTime,
+          'currentValue': newCurrentValue,
+          'lastUpdated': DateTime.now(),
+        });
+
+        // 6. Reconcile with actual data
+        final updatedInstance =
+            await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+        OptimisticOperationTracker.reconcileOperation(
+            operationId, updatedInstance);
+
+        // Handle auto-uncompletion for timer-type tasks/habits
+        // If instance is completed and has time tracking with a target (> 0),
+        // and the new total time is below the target, uncomplete it
+        bool wasUncompleted = false;
+        if (instance.status == 'completed' &&
+            instance.templateTrackingType == 'time' &&
+            instance.templateTarget != null) {
+          final target = instance.templateTarget;
+          if (target is num && target > 0) {
+            final targetMs =
+                (target.toInt()) * 60000; // Convert minutes to milliseconds
+            if (totalTime < targetMs) {
+              // Auto-uncomplete for timer types when time falls below target
+              await ActivityInstanceService.uncompleteInstance(
+                instanceId: instanceId,
+                userId: uid,
+              );
+              wasUncompleted = true;
+            }
+          }
+        }
+
+        // Handle auto-uncompletion for quantitative tasks/habits
+        // If instance is completed and has quantitative tracking with a target (> 0),
+        // and the new quantity is below the target, uncomplete it
+        if (instance.status == 'completed' &&
+            instance.templateTrackingType == 'quantitative' &&
+            instance.templateTarget != null) {
+          final target = instance.templateTarget;
+          if (target is num && target > 0) {
+            final currentQty = (newCurrentValue is num)
+                ? newCurrentValue.toDouble()
+                : 0.0;
+            if (currentQty < target.toDouble()) {
+              // Auto-uncomplete for quantitative types when quantity falls below target
+              await ActivityInstanceService.uncompleteInstance(
+                instanceId: instanceId,
+                userId: uid,
+              );
+              wasUncompleted = true;
+            }
+          }
+        }
+
+        return wasUncompleted;
+      } catch (e) {
+        // 7. Rollback on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
+      }
     } catch (e) {
       rethrow;
     }

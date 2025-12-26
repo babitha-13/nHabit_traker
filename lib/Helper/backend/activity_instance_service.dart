@@ -1302,10 +1302,6 @@ class ActivityInstanceService {
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
-      final oldValue = instance.currentValue;
-      final oldValueNum = oldValue is num ? oldValue.toDouble() : 0.0;
-      final newValueNum = currentValue is num ? currentValue.toDouble() : 0.0;
-      final delta = newValueNum - oldValueNum;
 
       // For windowed habits, update lastDayValue to current value for next day's calculation
       final updateData = <String, dynamic>{
@@ -1315,7 +1311,6 @@ class ActivityInstanceService {
 
       // Handle quantitative incremental time estimates
       if (instance.templateTrackingType == 'quantitative' &&
-          delta > 0 &&
           instance.templateTarget != null) {
         // Load template to check for per-activity estimate
         ActivityRecord? template;
@@ -1332,55 +1327,90 @@ class ActivityInstanceService {
           }
         }
 
-        // Resolve effective estimate
-        final effectiveEstimateMinutes =
-            await TimeEstimateResolver.getEffectiveEstimateMinutes(
-          userId: uid,
-          trackingType: instance.templateTrackingType,
-          target: instance.templateTarget,
-          hasExplicitSessions: instance.timeLogSessions.isNotEmpty,
-          template: template,
-        );
+        // Refresh instance to get latest state (including sessions from concurrent updates)
+        // This must happen BEFORE calculating delta to ensure we use the latest value
+        final latestInstanceDoc = await instanceRef.get();
+        final latestInstance = latestInstanceDoc.exists
+            ? ActivityInstanceRecord.fromSnapshot(latestInstanceDoc)
+            : instance;
 
-        if (effectiveEstimateMinutes != null) {
-          // Calculate per-unit time: estimateMinutes / targetQty
-          final targetQty = instance.templateTarget is num
-              ? (instance.templateTarget as num).toDouble()
-              : 1.0;
-          if (targetQty > 0) {
-            final perUnitMinutes = effectiveEstimateMinutes / targetQty;
-            final deltaMinutes = (perUnitMinutes * delta).clamp(1.0, 600.0);
-            final deltaMs = (deltaMinutes * 60000).toInt();
+        // Calculate delta using the refreshed instance's current value
+        // This ensures correct delta calculation even when batches overlap
+        final oldValue = latestInstance.currentValue;
+        final oldValueNum = oldValue is num ? oldValue.toDouble() : 0.0;
+        final newValueNum = currentValue is num ? currentValue.toDouble() : 0.0;
+        final delta = newValueNum - oldValueNum;
 
-            // Create a time log session for this delta
-            // Stack backwards from now, accounting for existing sessions
-            final sessionEndTime = now;
-            final sessionStartTime = await calculateStackedStartTime(
-              userId: uid,
-              completionTime: sessionEndTime,
-              durationMs: deltaMs,
-              instanceId: instanceId,
-              effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
-            );
+        // Only create time blocks if there's an actual increment (delta > 0)
+        if (delta > 0) {
+          // Resolve effective estimate using latest instance state
+          // Always pass hasExplicitSessions=false for quantitative increments
+          // to allow creating estimate-based blocks for each increment
+          final effectiveEstimateMinutes =
+              await TimeEstimateResolver.getEffectiveEstimateMinutes(
+            userId: uid,
+            trackingType: latestInstance.templateTrackingType,
+            target: latestInstance.templateTarget,
+            hasExplicitSessions: false, // Always allow estimate-based blocks for quantitative increments
+            template: template,
+          );
 
-            final newSession = {
-              'startTime': sessionStartTime,
-              'endTime': sessionEndTime,
-              'durationMilliseconds': deltaMs,
-            };
+          if (effectiveEstimateMinutes != null) {
+            // Calculate per-unit time: estimateMinutes / targetQty
+            final targetQty = latestInstance.templateTarget is num
+                ? (latestInstance.templateTarget as num).toDouble()
+                : 1.0;
+            if (targetQty > 0) {
+              final perUnitMinutes = (effectiveEstimateMinutes / targetQty).clamp(1.0, 600.0);
+              final perUnitMs = (perUnitMinutes * 60000).toInt();
 
-            final existingSessions =
-                List<Map<String, dynamic>>.from(instance.timeLogSessions);
-            existingSessions.add(newSession);
+              final existingSessions =
+                  List<Map<String, dynamic>>.from(latestInstance.timeLogSessions);
 
-            final totalTime = existingSessions.fold<int>(
-              0,
-              (sum, session) =>
-                  sum + (session['durationMilliseconds'] as int? ?? 0),
-            );
+              // Create one time block per increment
+              final newSessions = <Map<String, dynamic>>[];
+              DateTime currentEndTime = now; // Start from the most recent time
 
-            updateData['timeLogSessions'] = existingSessions;
-            updateData['totalTimeLogged'] = totalTime;
+              // Loop through each increment to create separate time blocks
+              for (int i = 0; i < delta.toInt(); i++) {
+                DateTime sessionStartTime;
+
+                if (i == 0) {
+                  // First block: use calculateStackedStartTime to account for simultaneous items
+                  sessionStartTime = await calculateStackedStartTime(
+                    userId: uid,
+                    completionTime: currentEndTime,
+                    durationMs: perUnitMs,
+                    instanceId: instanceId,
+                    effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
+                  );
+                } else {
+                  // Subsequent blocks: stack directly before the previous block
+                  sessionStartTime = currentEndTime.subtract(Duration(milliseconds: perUnitMs));
+                }
+
+                final newSession = {
+                  'startTime': sessionStartTime,
+                  'endTime': currentEndTime,
+                  'durationMilliseconds': perUnitMs,
+                };
+
+                newSessions.add(newSession);
+                currentEndTime = sessionStartTime; // Next block ends where this one starts
+              }
+
+              // Add all new sessions to existing sessions
+              existingSessions.addAll(newSessions);
+
+              final totalTime = existingSessions.fold<int>(
+                0,
+                (sum, session) =>
+                    sum + (session['durationMilliseconds'] as int? ?? 0),
+              );
+
+              updateData['timeLogSessions'] = existingSessions;
+              updateData['totalTimeLogged'] = totalTime;
+            }
           }
         }
       }
