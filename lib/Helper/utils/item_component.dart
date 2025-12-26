@@ -19,6 +19,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 import 'package:habit_tracker/Screens/Components/item_expanded_details.dart';
 
 class ItemComponent extends StatefulWidget {
@@ -1762,6 +1763,15 @@ class _ItemComponentState extends State<ItemComponent>
     final newOptimisticValue = (currentValue + _pendingQuantIncrement).clamp(0, double.infinity);
     setState(() => _quantProgressOverride = newOptimisticValue.toInt());
     
+    // Play step counter sound for quantitative updates
+    SoundHelper().playStepCounterSound();
+    
+    // Check if target is reached and play completion sound
+    final target = _getTargetValue();
+    if (target > 0 && newOptimisticValue >= target) {
+      SoundHelper().playCompletionSound();
+    }
+    
     // Cancel existing timer if any
     _quantUpdateTimer?.cancel();
     
@@ -1877,6 +1887,8 @@ class _ItemComponentState extends State<ItemComponent>
     
     try {
       if (completed) {
+        // Play completion sound
+        SoundHelper().playCompletionSound();
         // NEW: For binary habits, set currentValue to 1 (counter)
         // This makes it consistent with the counter-based approach
         // Service methods will broadcast optimistically
@@ -1888,6 +1900,8 @@ class _ItemComponentState extends State<ItemComponent>
           instanceId: widget.instance.reference.id,
         );
       } else {
+        // Play completion sound for uncompletion too
+        SoundHelper().playCompletionSound();
         // NEW: Reset counter to 0 when uncompleting
         // Service methods will broadcast optimistically
         await ActivityInstanceService.updateInstanceProgress(
@@ -1948,10 +1962,12 @@ class _ItemComponentState extends State<ItemComponent>
       );
       // Integrate with TimerManager for floating timer
       if (!wasActive) {
-        // Timer was started - add to TimerManager
+        // Timer was started - play sound and add to TimerManager
+        SoundHelper().playPlayButtonSound();
         TimerManager().startInstance(updatedInstance);
       } else {
-        // Timer was stopped - remove from TimerManager
+        // Timer was stopped - play sound and remove from TimerManager
+        SoundHelper().playStopButtonSound();
         TimerManager().stopInstance(updatedInstance);
         // Only check completion if target is set and met
         if (TimerLogicHelper.hasMetTarget(updatedInstance)) {

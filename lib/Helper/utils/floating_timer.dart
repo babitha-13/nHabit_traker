@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 class FloatingTimer extends StatefulWidget {
   final List<ActivityInstanceRecord> activeInstances;
   final Future<void> Function()? onRefresh;
@@ -157,6 +158,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                             try {
                               if (instance.isTimerActive) {
                                 // Currently active - stop the timer (pause)
+                                SoundHelper().playStopButtonSound();
                                 await ActivityInstanceService
                                     .toggleInstanceTimer(
                                   instanceId: instance.reference.id,
@@ -169,6 +171,7 @@ class _FloatingTimerState extends State<FloatingTimer> {
                                 widget.onInstanceUpdated?.call(updatedInstance);
                               } else {
                                 // Not active - start/resume the timer
+                                SoundHelper().playPlayButtonSound();
                                 await ActivityInstanceService
                                     .toggleInstanceTimer(
                                   instanceId: instance.reference.id,

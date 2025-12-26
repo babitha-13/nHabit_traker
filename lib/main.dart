@@ -13,6 +13,7 @@ import 'package:habit_tracker/Helper/utils/engagement_tracker.dart';
 import 'package:habit_tracker/Helper/utils/notification_service.dart';
 import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
+import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
 import 'package:habit_tracker/Screens/Splash/splash.dart';
@@ -36,6 +37,8 @@ void main() async {
   await FlutterFlowTheme.initialize();
   final appState = FFAppState(); // Initialize FFAppState
   await appState.initializePersistedState();
+  // Initialize sound helper
+  await SoundHelper().initialize();
   // Initialize notification service only on mobile platforms
   if (!kIsWeb) {
     await NotificationService.initialize();

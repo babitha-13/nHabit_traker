@@ -6,8 +6,8 @@ import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
-import 'package:flutter/foundation.dart';
 
 class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;
@@ -55,6 +55,8 @@ class _TimerPageState extends State<TimerPage> {
   }
 
   void _startTimer({bool fromTask = false}) async {
+    // Play play button sound
+    SoundHelper().playPlayButtonSound();
     if (!fromTask) {
       try {
         _taskInstanceRef = await TaskInstanceService.createTimerTaskInstance();
@@ -107,6 +109,8 @@ class _TimerPageState extends State<TimerPage> {
   }
 
   void _stopTimer() async {
+    // Play stop button sound
+    SoundHelper().playStopButtonSound();
     final duration =
         _isStopwatch ? _stopwatch.elapsed : _countdownDuration - _remainingTime;
     setState(() {
