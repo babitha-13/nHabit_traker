@@ -1047,8 +1047,15 @@ class _QueuePageState extends State<QueuePage> {
 
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
     // Check if cache is still valid
+    // Include currentValue and lastUpdated in hash to invalidate cache when progress changes
     final currentInstancesHash = _instances.length.hashCode ^
-        _instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        _instances.fold(0, (sum, inst) {
+          final idHash = inst.reference.id.hashCode;
+          final valueHash = inst.currentValue.hashCode;
+          final updatedHash = inst.lastUpdated?.hashCode ?? 0;
+          final statusHash = inst.status.hashCode;
+          return sum ^ idHash ^ valueHash ^ updatedHash ^ statusHash;
+        });
     final currentCategoriesHash = _categories.length.hashCode ^
         _categories.fold(0, (sum, cat) => sum ^ cat.reference.id.hashCode);
 

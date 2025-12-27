@@ -228,6 +228,7 @@ class InstanceOrderService {
   }
 
   /// Sort instances by their order for a specific page
+  /// Uses secondary sort keys (templateName, createdTime) for stable ordering when order values are equal
   static List<ActivityInstanceRecord> sortInstancesByOrder(
     List<ActivityInstanceRecord> instances,
     String pageType,
@@ -236,7 +237,25 @@ class InstanceOrderService {
     sortedInstances.sort((a, b) {
       final orderA = getOrderValue(a, pageType);
       final orderB = getOrderValue(b, pageType);
-      return orderA.compareTo(orderB);
+      
+      // Primary sort: by order value
+      final orderComparison = orderA.compareTo(orderB);
+      if (orderComparison != 0) {
+        return orderComparison;
+      }
+      
+      // Secondary sort: by template name (alphabetical)
+      final nameA = a.templateName.toLowerCase();
+      final nameB = b.templateName.toLowerCase();
+      final nameComparison = nameA.compareTo(nameB);
+      if (nameComparison != 0) {
+        return nameComparison;
+      }
+      
+      // Tertiary sort: by createdTime (earliest first) for stable ordering
+      final createdA = a.createdTime ?? DateTime(0);
+      final createdB = b.createdTime ?? DateTime(0);
+      return createdA.compareTo(createdB);
     });
     return sortedInstances;
   }

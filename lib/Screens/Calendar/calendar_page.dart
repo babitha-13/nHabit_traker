@@ -1949,10 +1949,10 @@ class _CalendarPageState extends State<CalendarPage> {
 
       final startY = getPixelY(e.startTime!);
       final duration = e.endTime!.difference(e.startTime!);
-      final durationMinutes = duration.inMinutes;
+      final durationMinutes = duration.inSeconds / 60.0;
 
       // Replicate layout logic from _buildEventTile
-      final isThin = durationMinutes < 5 && isCompletedList;
+      final isThin = duration.inSeconds < 60 && isCompletedList;
       final timeBoxHeight = durationMinutes * heightPerMinute;
       final cappedHeight = math.max(1.0, timeBoxHeight);
       final actualHeight = isThin
@@ -2010,9 +2010,10 @@ class _CalendarPageState extends State<CalendarPage> {
     final isNonProductive = event.title.startsWith('NP:');
     final rawEvent = event.event;
     final isDueMarker = rawEvent is Map && (rawEvent['isDueMarker'] == true);
-    final isThinLine = duration.inMinutes < 5 && (isCompleted || isDueMarker);
+    final isThinLine = duration.inSeconds < 60 && (isCompleted || isDueMarker);
 
-    final timeBoxHeight = duration.inMinutes * _calculateHeightPerMinute();
+    final durationMinutes = duration.inSeconds / 60.0;
+    final timeBoxHeight = durationMinutes * _calculateHeightPerMinute();
     final cappedHeight = math.max(1.0, timeBoxHeight);
     final actualTimeBoxHeight = isThinLine
         ? 3.0.clamp(1.0, cappedHeight)

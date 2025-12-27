@@ -11,6 +11,17 @@ import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/time_estimate_resolver.dart';
 import 'package:habit_tracker/Helper/utils/optimistic_operation_tracker.dart';
 
+/// Result of calculating stacked session times
+class StackedSessionTimes {
+  final DateTime startTime;
+  final DateTime endTime;
+
+  StackedSessionTimes({
+    required this.startTime,
+    required this.endTime,
+  });
+}
+
 /// Service to manage activity instances
 /// Handles the creation, completion, and scheduling of recurring activities
 /// Following Microsoft To-Do pattern: only show current instances, generate next on completion
@@ -872,24 +883,93 @@ class ActivityInstanceService {
     }
   }
 
-  /// Calculate start time for a session, stacking backwards from completion time
-  static Future<DateTime> calculateStackedStartTime({
+  /// Find simultaneous activity including completed items, pending items with recent sessions,
+  /// and sessions from the same instance to prevent gaps between increments
+  static Future<List<ActivityInstanceRecord>> findSimultaneousActivity({
+    required String userId,
+    required DateTime completionTime,
+    required String instanceId,
+    Duration window = const Duration(seconds: 15),
+  }) async {
+    try {
+      final windowStart = completionTime.subtract(window);
+      final windowEnd = completionTime.add(window);
+
+      // Get all instances (completed and pending) that might have activity in this window
+      // We need to check both completedAt and timeLogSessions
+      final allInstances = await getAllInstances(userId: userId);
+      
+      final simultaneous = <ActivityInstanceRecord>[];
+      
+      for (final instance in allInstances) {
+        // Check completed items (excluding the current instance)
+        if (instance.reference.id != instanceId &&
+            instance.status == 'completed' &&
+            instance.completedAt != null) {
+          final completedAt = instance.completedAt!;
+          if ((completedAt.isAfter(windowStart) && completedAt.isBefore(windowEnd)) ||
+              completedAt.isAtSameMomentAs(windowStart) ||
+              completedAt.isAtSameMomentAs(windowEnd)) {
+            simultaneous.add(instance);
+            continue;
+          }
+        }
+
+        // Check pending items with recent time log sessions (including same instance for stacking)
+        if (instance.timeLogSessions.isNotEmpty) {
+          final lastSession = instance.timeLogSessions.last;
+          final sessionEnd = lastSession['endTime'] as DateTime?;
+          if (sessionEnd != null) {
+            // Check if the last session ended within the window
+            if ((sessionEnd.isAfter(windowStart) && sessionEnd.isBefore(windowEnd)) ||
+                sessionEnd.isAtSameMomentAs(windowStart) ||
+                sessionEnd.isAtSameMomentAs(windowEnd)) {
+              // Include same instance to stack new increments before previous ones
+              // Include other instances if they're pending (quantitative increments)
+              if (instance.reference.id == instanceId || instance.status == 'pending') {
+                simultaneous.add(instance);
+              }
+            }
+          }
+        }
+      }
+
+      return simultaneous;
+    } catch (e) {
+      // Fallback to original behavior on error
+      return findSimultaneousCompletions(
+        userId: userId,
+        completionTime: completionTime,
+        excludeInstanceId: instanceId,
+        window: window,
+      );
+    }
+  }
+
+  /// Calculate start and end times for a session, stacking backwards from completion time
+  /// Returns both start and end times to ensure correct duration when stacking against simultaneous items
+  static Future<StackedSessionTimes> calculateStackedStartTime({
     required String userId,
     required DateTime completionTime,
     required int durationMs,
     required String instanceId,
     int? effectiveEstimateMinutes,
   }) async {
-    // Find other items completed at the same time (within 2 seconds before this completion)
-    final simultaneous = await findSimultaneousCompletions(
+    // Find simultaneous activity including completed items, pending items with recent sessions,
+    // and sessions from the same instance to prevent gaps between increments
+    final simultaneous = await findSimultaneousActivity(
       userId: userId,
       completionTime: completionTime,
-      excludeInstanceId: instanceId,
+      instanceId: instanceId,
     );
 
     if (simultaneous.isEmpty) {
       // No other items, just stack backwards from completion time
-      return completionTime.subtract(Duration(milliseconds: durationMs));
+      final startTime = completionTime.subtract(Duration(milliseconds: durationMs));
+      return StackedSessionTimes(
+        startTime: startTime,
+        endTime: completionTime,
+      );
     }
 
     // Calculate total duration of simultaneous items
@@ -942,12 +1022,19 @@ class ActivityInstanceService {
 
     // Stack this new item BEFORE all simultaneous items
     // Start time = completion time - (total duration of simultaneous items + this item's duration)
-    // This ensures the new item appears first in the backward stack
+    // End time = completion time - total duration of simultaneous items
+    // This ensures the new item appears first in the backward stack with correct duration
     final stackedStartTime = completionTime.subtract(
       Duration(milliseconds: totalDurationMs + durationMs),
     );
+    final stackedEndTime = completionTime.subtract(
+      Duration(milliseconds: totalDurationMs),
+    );
 
-    return stackedStartTime;
+    return StackedSessionTimes(
+      startTime: stackedStartTime,
+      endTime: stackedEndTime,
+    );
   }
 
   /// Complete an activity instance
@@ -1033,8 +1120,8 @@ class ActivityInstanceService {
       };
 
       if (durationMs > 0 && existingSessions.isEmpty) {
-        // Calculate stacked start time (backwards from completion time)
-        final sessionStartTime = await calculateStackedStartTime(
+        // Calculate stacked start and end times (backwards from completion time)
+        final stackedTimes = await calculateStackedStartTime(
           userId: uid,
           completionTime: completionTime,
           durationMs: durationMs,
@@ -1043,8 +1130,8 @@ class ActivityInstanceService {
         );
 
         final newSession = {
-          'startTime': sessionStartTime,
-          'endTime': completionTime,
+          'startTime': stackedTimes.startTime,
+          'endTime': stackedTimes.endTime,
           'durationMilliseconds': durationMs,
         };
         existingSessions.add(newSession);
@@ -1375,23 +1462,27 @@ class ActivityInstanceService {
               for (int i = 0; i < delta.toInt(); i++) {
                 DateTime sessionStartTime;
 
+                DateTime sessionEndTime;
                 if (i == 0) {
                   // First block: use calculateStackedStartTime to account for simultaneous items
-                  sessionStartTime = await calculateStackedStartTime(
+                  final stackedTimes = await calculateStackedStartTime(
                     userId: uid,
                     completionTime: currentEndTime,
                     durationMs: perUnitMs,
                     instanceId: instanceId,
                     effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
                   );
+                  sessionStartTime = stackedTimes.startTime;
+                  sessionEndTime = stackedTimes.endTime;
                 } else {
                   // Subsequent blocks: stack directly before the previous block
                   sessionStartTime = currentEndTime.subtract(Duration(milliseconds: perUnitMs));
+                  sessionEndTime = currentEndTime;
                 }
 
                 final newSession = {
                   'startTime': sessionStartTime,
-                  'endTime': currentEndTime,
+                  'endTime': sessionEndTime,
                   'durationMilliseconds': perUnitMs,
                 };
 
