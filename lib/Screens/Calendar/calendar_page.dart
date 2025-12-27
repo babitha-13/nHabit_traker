@@ -228,7 +228,7 @@ class _CalendarPageState extends State<CalendarPage> {
   List<_PlannedOverlapGroup> _plannedOverlapGroups = const [];
 
   // Key to access DayView state for scrolling
-  final GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
+  GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
 
   // Track the last tap position for precise time calculation
   Offset? _lastTapDownPosition;
@@ -245,6 +245,9 @@ class _CalendarPageState extends State<CalendarPage> {
 
   // Cache optimistic instances for immediate display
   final Map<String, ActivityInstanceRecord> _optimisticInstances = {};
+
+  // Loading state for events
+  bool _isLoadingEvents = false;
 
   @override
   void initState() {
@@ -786,6 +789,8 @@ class _CalendarPageState extends State<CalendarPage> {
   void _changeDate(int days) {
     setState(() {
       _selectedDate = _selectedDate.add(Duration(days: days));
+      // Force DayView rebuild by creating new key
+      _dayViewKey = GlobalKey<DayViewState>();
     });
     _loadEvents();
   }
@@ -793,6 +798,8 @@ class _CalendarPageState extends State<CalendarPage> {
   void _resetDate() {
     setState(() {
       _selectedDate = DateTime.now();
+      // Force DayView rebuild by creating new key
+      _dayViewKey = GlobalKey<DayViewState>();
     });
     _loadEvents();
   }
@@ -1049,11 +1056,19 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Future<void> _loadEvents() async {
-    // Don't clear events yet - keep old events visible while loading new ones
-    // This prevents the flicker effect
+    // Set loading state
+    if (mounted) {
+      setState(() {
+        _isLoadingEvents = true;
+      });
+    }
 
-    // Get categories for color lookup
-    final userId = currentUserUid;
+    try {
+      // Don't clear events yet - keep old events visible while loading new ones
+      // This prevents the flicker effect
+
+      // Get categories for color lookup
+      final userId = currentUserUid;
 
     // Get date range for filtering (start and end of selected date)
     final selectedDateStart = DateTime(
@@ -1107,7 +1122,9 @@ class _CalendarPageState extends State<CalendarPage> {
     final routines = results[6] as List<RoutineRecord>;
 
     // Debug: Track data sources
-    print('[Calendar] Data fetched for ${_selectedDate}:');
+    final selectedDateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+    print('[Calendar] Loading events for selected date: $selectedDateStr');
+    print('  - Date range: ${DateFormat('yyyy-MM-dd HH:mm').format(selectedDateStart)} to ${DateFormat('yyyy-MM-dd HH:mm').format(selectedDateEnd)}');
     print('  - completedItems: ${completedItems.length}');
     print('  - timeLoggedTasks: ${timeLoggedTasks.length}');
     print('  - nonProductiveInstances: ${nonProductiveInstances.length}');
@@ -1184,7 +1201,7 @@ class _CalendarPageState extends State<CalendarPage> {
         }).toList();
 
         print(
-            '  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date');
+            '  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date ($selectedDateStr)');
 
         // If we have sessions for this date, show them
         if (sessionsOnDate.isNotEmpty) {
@@ -1391,7 +1408,7 @@ class _CalendarPageState extends State<CalendarPage> {
     _sortedCompletedEvents.sort((a, b) => a.startTime!.compareTo(b.startTime!));
 
     // Debug: Track event creation
-    print('[Calendar] Event processing:');
+    print('[Calendar] Event processing for $selectedDateStr:');
     print('  - completedEvents created: ${completedEvents.length}');
     print('  - cascadedEvents: ${cascadedEvents.length}');
     print('  - _sortedCompletedEvents: ${_sortedCompletedEvents.length}');
@@ -1432,6 +1449,10 @@ class _CalendarPageState extends State<CalendarPage> {
     final plannedItemsWithTime = plannedItems
         .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
         .toList();
+    
+    print('[Calendar] Planned items for $selectedDateStr:');
+    print('  - Total planned items: ${plannedItems.length}');
+    print('  - Planned items with time: ${plannedItemsWithTime.length}');
 
     // Items already scheduled at explicit times (exclude from routine-duration computation)
     final explicitlyScheduledTemplateIds = <String>{
@@ -1572,6 +1593,8 @@ class _CalendarPageState extends State<CalendarPage> {
       return a.startTime!.compareTo(b.startTime!);
     });
     _sortedPlannedEvents = plannedEvents;
+    
+    print('[Calendar] Planned events for $selectedDateStr: ${plannedEvents.length}');
 
     // Detect overlaps in the planned schedule (for prominent conflict highlighting)
     final overlapInfo = _computePlannedOverlaps(plannedEvents);
@@ -1603,6 +1626,14 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Force rebuild to show new events
     if (mounted) setState(() {});
+    } finally {
+      // Always reset loading state
+      if (mounted) {
+        setState(() {
+          _isLoadingEvents = false;
+        });
+      }
+    }
   }
 
   /// Parse dueTime string (HH:mm) to DateTime for target date
@@ -2636,30 +2667,35 @@ class _CalendarPageState extends State<CalendarPage> {
                             // Capture the local position of the tap within the viewport
                             _lastTapDownPosition = event.localPosition;
                           },
-                          child: DayView(
-                            // Use unique key to force rebuild when switching views or dates OR zooming
-                            key: _dayViewKey,
-                            scrollOffset: _initialScrollOffset,
-                            controller: _showPlanned
-                                ? _plannedEventController
-                                : _completedEventController,
-                            // Assuming initialDay sets the date
-                            initialDay: _selectedDate,
-                            heightPerMinute: _calculateHeightPerMinute(),
-                            backgroundColor: Colors.white,
-                            timeLineWidth: 50,
-                            hourIndicatorSettings: HourIndicatorSettings(
-                              color: Colors.grey.shade300,
-                            ),
-                            eventTileBuilder: (date, events, a, b, c) {
-                              return _buildEventTile(
-                                  events.first, !_showPlanned);
-                            },
-                            dayTitleBuilder: (date) {
-                              return const SizedBox
-                                  .shrink(); // Hide default header
-                            },
-                            onDateLongPress: (date) {
+                          child: Stack(
+                            children: [
+                              // DayView is wrapped in a keyed widget to force rebuild when date changes
+                              // The GlobalKey is recreated in _changeDate() to ensure proper date updates
+                              DayView(
+                                // Use unique key to force rebuild when switching views or dates OR zooming
+                                // Key is recreated in _changeDate() to ensure DayView reflects selected date
+                                key: _dayViewKey,
+                                scrollOffset: _initialScrollOffset,
+                                controller: _showPlanned
+                                    ? _plannedEventController
+                                    : _completedEventController,
+                                // initialDay sets the date - this should update when _selectedDate changes
+                                initialDay: _selectedDate,
+                                heightPerMinute: _calculateHeightPerMinute(),
+                                backgroundColor: Colors.white,
+                                timeLineWidth: 50,
+                                hourIndicatorSettings: HourIndicatorSettings(
+                                  color: Colors.grey.shade300,
+                                ),
+                                eventTileBuilder: (date, events, a, b, c) {
+                                  return _buildEventTile(
+                                      events.first, !_showPlanned);
+                                },
+                                dayTitleBuilder: (date) {
+                                  return const SizedBox
+                                      .shrink(); // Hide default header
+                                },
+                                onDateLongPress: (date) {
                               // Calculate precise time from touch position details
                               // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
                               // use _lastTapDownPosition + scrollOffset to get pixels from top.
@@ -2746,6 +2782,18 @@ class _CalendarPageState extends State<CalendarPage> {
                                 );
                               }
                             },
+                          ),
+                              // Loading overlay
+                              if (_isLoadingEvents)
+                                Positioned.fill(
+                                  child: Container(
+                                    color: Colors.white.withOpacity(0.7),
+                                    child: const Center(
+                                      child: CircularProgressIndicator(),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
                       ),
