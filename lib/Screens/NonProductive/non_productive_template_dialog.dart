@@ -27,7 +27,7 @@ class _NonProductiveTemplateDialogState
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
   final _unitController = TextEditingController();
-  String _selectedTrackingType = 'time';
+  String _selectedTrackingType = 'binary';
   dynamic _targetValue;
   bool _isSaving = false;
   final List<String> _trackingTypes = ['binary', 'quantitative', 'time'];
@@ -47,8 +47,8 @@ class _NonProductiveTemplateDialogState
       }
       _updateTargetValue();
     } else {
-      _selectedTrackingType = 'time';
-      _targetValue = 5; // Default 5 minutes for time tracking
+      _selectedTrackingType = 'binary';
+      _targetValue = null; // No target for binary/to-do tracking
     }
   }
 
@@ -118,7 +118,7 @@ class _NonProductiveTemplateDialogState
         );
         // Fetch updated template
         final updatedDoc = await widget.existingTemplate!.reference.get();
-        if (updatedDoc.exists) {
+        if (updatedDoc.exists && mounted) {
           final updated = ActivityRecord.fromSnapshot(updatedDoc);
           if (widget.onTemplateUpdated != null) {
             widget.onTemplateUpdated!(updated);
@@ -153,14 +153,16 @@ class _NonProductiveTemplateDialogState
       }
       if (mounted) {
         Navigator.of(context).pop();
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(widget.existingTemplate != null
-                ? 'Template updated successfully!'
-                : 'Template created successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(widget.existingTemplate != null
+                  ? 'Template updated successfully!'
+                  : 'Template created successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
       }
     } catch (e) {
       if (mounted) {
