@@ -531,6 +531,7 @@ class DayEndProcessor {
           .toList();
 
       final today = DateService.todayStart;
+      final yesterday = DateService.yesterdayStart;
 
       for (final habit in activeHabits) {
         // Check if there's at least one pending instance for this habit
@@ -542,6 +543,83 @@ class DayEndProcessor {
         final pendingInstances = pendingSnapshot.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .toList();
+
+        // CRITICAL: Check if there's a pending instance for yesterday
+        // If yes, do NOT auto-skip it or generate today's instance
+        // User must confirm yesterday's status first
+        final yesterdayPending = pendingInstances.where((inst) {
+          if (inst.belongsToDate != null) {
+            final belongsToDateOnly = DateTime(
+              inst.belongsToDate!.year,
+              inst.belongsToDate!.month,
+              inst.belongsToDate!.day,
+            );
+            if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
+              return true;
+            }
+          }
+          // Also check windowEndDate - if window ended yesterday, it belongs to yesterday
+          if (inst.windowEndDate != null) {
+            final windowEndDateOnly = DateTime(
+              inst.windowEndDate!.year,
+              inst.windowEndDate!.month,
+              inst.windowEndDate!.day,
+            );
+            if (windowEndDateOnly.isAtSameMomentAs(yesterday)) {
+              return true;
+            }
+          }
+          return false;
+        }).toList();
+
+        // If there's a pending instance for yesterday, do NOT generate today's instance
+        // This preserves the rule: new instances are generated only on completion/skip
+        if (yesterdayPending.isNotEmpty) {
+          // Still clean up instances that are strictly before yesterday (not yesterday itself)
+          final pastPendingInstances = pendingInstances.where((inst) {
+            if (inst.belongsToDate != null) {
+              final belongsToDateOnly = DateTime(
+                inst.belongsToDate!.year,
+                inst.belongsToDate!.month,
+                inst.belongsToDate!.day,
+              );
+              return belongsToDateOnly.isBefore(yesterday);
+            }
+            if (inst.windowEndDate != null) {
+              final windowEndDateOnly = DateTime(
+                inst.windowEndDate!.year,
+                inst.windowEndDate!.month,
+                inst.windowEndDate!.day,
+              );
+              return windowEndDateOnly.isBefore(yesterday);
+            }
+            return false;
+          }).toList();
+
+          // Skip only instances strictly before yesterday (not yesterday itself)
+          for (final pastInstance in pastPendingInstances) {
+            try {
+              final windowEndDate = pastInstance.windowEndDate;
+              if (windowEndDate != null) {
+                final windowEndDateOnly = DateTime(
+                  windowEndDate.year,
+                  windowEndDate.month,
+                  windowEndDate.day,
+                );
+                if (windowEndDateOnly.isBefore(yesterday)) {
+                  // Past instance that should be skipped
+                  await ActivityInstanceService.skipInstance(
+                    instanceId: pastInstance.reference.id,
+                    skippedAt: windowEndDateOnly,
+                  );
+                }
+              }
+            } catch (e) {
+              // Error cleaning up past instance
+            }
+          }
+          continue; // Do NOT generate today's instance - wait for user to handle yesterday
+        }
 
         // Check if there's already a pending instance for today or future dates
         final todayOrFuturePending = pendingInstances.where((inst) {
@@ -569,7 +647,7 @@ class DayEndProcessor {
 
         // If there's already a pending instance for today or future, skip creation
         if (todayOrFuturePending.isNotEmpty) {
-          // Clean up duplicate past pending instances if found
+          // Clean up duplicate past pending instances if found (strictly before yesterday)
           final pastPendingInstances = pendingInstances.where((inst) {
             if (inst.belongsToDate != null) {
               final belongsToDateOnly = DateTime(
@@ -577,7 +655,7 @@ class DayEndProcessor {
                 inst.belongsToDate!.month,
                 inst.belongsToDate!.day,
               );
-              return belongsToDateOnly.isBefore(today);
+              return belongsToDateOnly.isBefore(yesterday);
             }
             if (inst.windowEndDate != null) {
               final windowEndDateOnly = DateTime(
@@ -585,7 +663,7 @@ class DayEndProcessor {
                 inst.windowEndDate!.month,
                 inst.windowEndDate!.day,
               );
-              return windowEndDateOnly.isBefore(today);
+              return windowEndDateOnly.isBefore(yesterday);
             }
             return false;
           }).toList();
@@ -593,7 +671,6 @@ class DayEndProcessor {
           // Skip past pending instances that should have been auto-skipped
           for (final pastInstance in pastPendingInstances) {
             try {
-              final yesterday = DateService.yesterdayStart;
               final windowEndDate = pastInstance.windowEndDate;
               if (windowEndDate != null) {
                 final windowEndDateOnly = DateTime(
@@ -616,7 +693,8 @@ class DayEndProcessor {
           continue; // Skip creating new instance
         }
 
-        // No pending instance for today/future found - need to generate one
+        // No pending instance for today/future/yesterday found - need to generate one
+        // This only happens when there are NO pending instances at all for this template
 
         // Find the most recent instance (completed or skipped) to generate from
         final allInstancesQuery =
@@ -646,7 +724,6 @@ class DayEndProcessor {
                 windowEndDate.month,
                 windowEndDate.day,
               );
-              final yesterday = DateService.yesterdayStart;
 
               // If the window ended before yesterday, use bulk skip to fill the gap
               if (windowEndDateOnly.isBefore(yesterday)) {
@@ -664,7 +741,9 @@ class DayEndProcessor {
                 );
                 // Instance generated via bulk skip
               } else {
-                // Window ended recently, just generate next instance normally
+                // Window ended recently (yesterday or later), but no pending instance exists
+                // This should be rare - only if instance was deleted or status changed externally
+                // Generate next instance normally
                 await ActivityInstanceService.skipInstance(
                   instanceId: mostRecentInstance.reference.id,
                   skippedAt: windowEndDate,

@@ -23,7 +23,7 @@ class TimerTaskTemplateService {
         categoryId: inboxCategory.reference.id,
         categoryName: inboxCategory.name,
         categoryType: 'task',
-        trackingType: 'time',
+        trackingType: 'binary', // Timer tasks are binary by default
         target: 0,
         unit: 'minutes',
         priority: 1,

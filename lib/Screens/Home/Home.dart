@@ -18,6 +18,8 @@ import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog.dart';
 import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
+import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Settings/settings_page.dart';
 import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
@@ -52,8 +54,7 @@ class _HomeState extends State<Home> {
     "Habits": 1,
     "Queue": 2,
     "Routines": 3,
-    "Timer": 4,
-    "Calendar": 5,
+    "Calendar": 4,
   };
   // Prevent race conditions in morning catch-up check
   static bool _isCheckingCatchUp = false;
@@ -66,8 +67,7 @@ class _HomeState extends State<Home> {
       const HabitsPage(showCompleted: true), // index 1
       const QueuePage(), // index 2
       const Routines(), // index 3
-      const TimerPage(), // index 4
-      const CalendarPage(), // index 5
+      const CalendarPage(), // index 4
     ];
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -135,7 +135,7 @@ class _HomeState extends State<Home> {
                   ),
             ),
             actions: [
-              // Catch-up button - always visible
+              // Catch-up button - temporary, will be removed later
               Padding(
                 padding: const EdgeInsets.only(right: 8.0),
                 child: IconButton(
@@ -178,6 +178,22 @@ class _HomeState extends State<Home> {
                           ),
                     ),
                   ),
+                ),
+              ),
+              // Timer button - utility tool accessible from AppBar (rightmost position)
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: IconButton(
+                  icon: const Icon(Icons.timer, color: Colors.white),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const TimerPage(),
+                      ),
+                    );
+                  },
+                  tooltip: 'Timer',
                 ),
               ),
               Visibility(
@@ -386,7 +402,6 @@ class _HomeState extends State<Home> {
                   "Habits",
                   "Queue",
                   "Routines",
-                  "Timer",
                   "Calendar"
                 ];
                 if (i >= 0 && i < pageNames.length) {
@@ -415,10 +430,6 @@ class _HomeState extends State<Home> {
                 BottomNavigationBarItem(
                   icon: const Icon(Icons.playlist_play),
                   label: 'Routines',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.timer),
-                  label: 'Timer',
                 ),
                 BottomNavigationBarItem(
                   icon: Icon(Icons.calendar_today),
@@ -545,8 +556,7 @@ class _HomeState extends State<Home> {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       
-      // Check if we need to process end-of-day activities
-      // This should run after midnight (12 AM) when a new day starts
+      // Check if we've already processed today
       final prefs = await SharedPreferences.getInstance();
       final lastProcessedDateString = prefs.getString('last_end_of_day_processed');
       DateTime? lastProcessedDate;
@@ -558,9 +568,8 @@ class _HomeState extends State<Home> {
           lastProcessedDate.day,
         );
         
-        // If we've already processed today, skip
+        // If we've already processed today, just check if dialog should show
         if (lastProcessedDateOnly.isAtSameMomentAs(today)) {
-          // Already processed today - just check if dialog should show
           final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
           if (shouldShow && mounted) {
             showDialog(
@@ -573,21 +582,47 @@ class _HomeState extends State<Home> {
         }
       }
       
-      // It's a new day (or first time) - process end-of-day activities
-      // This runs even if there are no pending items
-      await MorningCatchUpService.processEndOfDayActivities(userId);
+      // It's a new day (or first time) - simplified flow:
+      // 1. Do minimal setup: auto-skip expired items before yesterday, ensure instances exist
+      // 2. Check if there are pending items from yesterday (pure check)
+      // 3. If yes: show dialog (dialog will handle finalization after user confirms)
+      // 4. If no: process end-of-day activities immediately (finalize scoring/records)
       
-      // Mark as processed for today
-      await prefs.setString('last_end_of_day_processed', today.toIso8601String());
+      // Step 1: Minimal setup (auto-skip expired, ensure instances)
+      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
+      await DayEndProcessor.ensurePendingInstancesExist(userId);
       
-      // Now check if dialog should show (for pending items)
-      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
-      if (shouldShow && mounted) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const MorningCatchUpDialog(),
+      // Step 2: Check for pending items from yesterday (pure check)
+      final hasPendingItems = await MorningCatchUpService.hasPendingItemsFromYesterday(userId);
+      
+      if (hasPendingItems) {
+        // There are pending items - show dialog first
+        // Dialog will handle finalization after user confirms item status
+        // Update lastDayValue only (defer finalization to dialog)
+        await DayEndProcessor.updateLastDayValuesOnly(userId, DateService.yesterdayStart);
+        
+        // Mark as processed to prevent re-running on same day
+        await prefs.setString('last_end_of_day_processed', today.toIso8601String());
+        
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => const MorningCatchUpDialog(),
+          );
+        }
+      } else {
+        // No pending items - process end-of-day activities immediately
+        // This will finalize scoring and create daily progress records
+        await DayEndProcessor.processDayEnd(
+          userId: userId,
+          targetDate: DateService.yesterdayStart,
+          closeInstances: false,
+          ensureInstances: false, // Already ensured above
         );
+        
+        // Mark as processed for today
+        await prefs.setString('last_end_of_day_processed', today.toIso8601String());
       }
     } catch (e) {
       // Error checking morning catch-up

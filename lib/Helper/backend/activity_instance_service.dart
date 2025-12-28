@@ -1786,6 +1786,17 @@ class ActivityInstanceService {
         final totalTime = existingSessions.fold<int>(0,
             (sum, session) => sum + (session['durationMilliseconds'] as int));
 
+        // Calculate new currentValue based on tracking type
+        // Only update currentValue with time for time-based tracking
+        // For quantitative/binary, preserve the existing quantity/counter
+        dynamic newCurrentValue;
+        if (instance.templateTrackingType == 'time') {
+          newCurrentValue = totalTime;
+        } else {
+          // Preserve existing quantity/counter for quantitative/binary tracking
+          newCurrentValue = instance.currentValue;
+        }
+
         // 2. Create optimistic instance for stopping timer
         final updateData = <String, dynamic>{
           'isTimerActive': false, // Legacy field
@@ -1795,7 +1806,7 @@ class ActivityInstanceService {
           'timeLogSessions': existingSessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime, // Keep legacy field updated
-          'currentValue': totalTime,
+          'currentValue': newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
         };
         // For windowed habits, update lastDayValue to track differential progress
         if (instance.templateCategoryType == 'habit' &&

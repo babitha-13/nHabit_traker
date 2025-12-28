@@ -34,16 +34,36 @@ class _TimerPageState extends State<TimerPage> {
   Duration _remainingTime = Duration.zero;
   DocumentReference? _taskInstanceRef;
   DateTime? _timerStartTime; // Track when timer started
+  String? _templateTrackingType; // Store tracking type for button logic
   @override
   void initState() {
     super.initState();
     if (widget.initialTimerLogRef != null) {
       // Set the task instance reference from swipe action
       _taskInstanceRef = widget.initialTimerLogRef;
-      // Auto-start timer when coming from swipe
+      // Load instance data to get tracking type if from swipe
       if (widget.fromSwipe) {
+        _loadInstanceData();
+        // Auto-start timer when coming from swipe
         _startTimer(fromTask: true);
       }
+    }
+  }
+
+  /// Load instance data to determine tracking type for button logic
+  Future<void> _loadInstanceData() async {
+    if (_taskInstanceRef == null) return;
+    try {
+      final instance =
+          await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
+      if (mounted) {
+        setState(() {
+          _templateTrackingType = instance.templateTrackingType;
+        });
+      }
+    } catch (e) {
+      // If loading fails, continue without tracking type (will use fallback)
+      print('Error loading instance data: $e');
     }
   }
 
@@ -108,7 +128,18 @@ class _TimerPageState extends State<TimerPage> {
     });
   }
 
+  /// Stop timer and log time (without marking complete)
   void _stopTimer() async {
+    await _stopTimerInternal(markComplete: false);
+  }
+
+  /// Stop timer, log time, AND mark task as complete
+  void _stopAndCompleteTimer() async {
+    await _stopTimerInternal(markComplete: true);
+  }
+
+  /// Internal method to handle timer stopping with optional completion
+  Future<void> _stopTimerInternal({required bool markComplete}) async {
     // Play stop button sound
     SoundHelper().playStopButtonSound();
     final duration =
@@ -121,8 +152,8 @@ class _TimerPageState extends State<TimerPage> {
     }
     _timer.cancel();
 
-    // Handle auto-complete for swipe or non-productive timers
-    if (widget.fromSwipe || widget.isNonProductive) {
+    // Handle timer-created instances (swipe, non-productive, or timer-created from timer page)
+    if (widget.fromSwipe || widget.isNonProductive || _taskInstanceRef != null) {
       if (_taskInstanceRef != null) {
         try {
           if (widget.isNonProductive) {
@@ -136,11 +167,12 @@ class _TimerPageState extends State<TimerPage> {
               activityType: 'non_productive',
             );
           } else {
-            // For swipe: stop time logging and mark complete
-            // Instance already has all template info, just need to stop logging and mark complete
+            // For swipe or timer-created instances: stop time logging (with or without completion based on button pressed)
+            // For binary tasks: markComplete is true for "Stop and Complete", false for "Stop"
+            // For qty/time tasks: always false (completion is automatic based on progress)
             await TaskInstanceService.stopTimeLogging(
               activityInstanceRef: _taskInstanceRef!,
-              markComplete: true,
+              markComplete: markComplete,
             );
           }
         } catch (e) {
@@ -151,9 +183,14 @@ class _TimerPageState extends State<TimerPage> {
           }
         }
       }
-      // Auto-return to previous page
+      // Auto-return to previous page for swipe/non-productive, navigate back for timer-created
       if (mounted) {
-        Navigator.of(context).pop();
+        if (widget.fromSwipe || widget.isNonProductive) {
+          Navigator.of(context).pop();
+        } else if (_taskInstanceRef != null) {
+          // For timer-created instances, navigate back after saving
+          Navigator.of(context).pop();
+        }
       }
     } else {
       // Calculate start and end times for the modal
@@ -205,6 +242,16 @@ class _TimerPageState extends State<TimerPage> {
         // Timer not initialized yet, ignore
       }
     });
+    
+    // Auto-open countdown picker when switching to countdown mode
+    if (!value && mounted) {
+      // Use addPostFrameCallback to ensure state update completes first
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _showCountdownPicker();
+        }
+      });
+    }
   }
 
   void _showTimeLogModal(
@@ -447,6 +494,50 @@ class _TimerPageState extends State<TimerPage> {
     super.dispose();
   }
 
+  /// Build stop buttons based on tracking type
+  Widget _buildStopButtons() {
+    // For qty/time tasks from swipe: show only "Stop" (completion is automatic)
+    if (widget.fromSwipe &&
+        (_templateTrackingType == 'quantitative' ||
+            _templateTrackingType == 'time')) {
+      return Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          ElevatedButton(
+            onPressed: _isRunning ? null : () => _startTimer(),
+            child: const Text('Start'),
+          ),
+          const SizedBox(width: 20),
+          ElevatedButton(
+            onPressed: !_isRunning ? null : _stopTimer,
+            child: const Text('Stop'),
+          ),
+        ],
+      );
+    }
+    
+    // For binary tasks from swipe OR timer-created instances (non-swipe): show both buttons
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        ElevatedButton(
+          onPressed: _isRunning ? null : () => _startTimer(),
+          child: const Text('Start'),
+        ),
+        const SizedBox(width: 20),
+        ElevatedButton(
+          onPressed: !_isRunning ? null : _stopTimer,
+          child: const Text('Stop'),
+        ),
+        const SizedBox(width: 20),
+        ElevatedButton(
+          onPressed: !_isRunning ? null : _stopAndCompleteTimer,
+          child: const Text('Stop and Complete'),
+        ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayTime = _isStopwatch ? _stopwatch.elapsed : _remainingTime;
@@ -483,31 +574,22 @@ class _TimerPageState extends State<TimerPage> {
                 ),
               ),
             ],
-            Text(
-              _formatTime(displayTime),
-              style: const TextStyle(fontSize: 72),
-            ),
-            const SizedBox(height: 30),
-            if (!_isStopwatch)
-              TextButton(
-                onPressed: _showCountdownPicker,
-                child: const Text('Set Countdown Duration'),
+            // Make displayed time clickable in countdown mode
+            GestureDetector(
+              onTap: !_isStopwatch ? _showCountdownPicker : null,
+              child: Text(
+                _formatTime(displayTime),
+                style: TextStyle(
+                  fontSize: 72,
+                  color: !_isStopwatch
+                      ? Theme.of(context).primaryColor
+                      : null,
+                ),
               ),
-            const SizedBox(height: 30),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(
-                  onPressed: _isRunning ? null : () => _startTimer(),
-                  child: const Text('Start'),
-                ),
-                const SizedBox(width: 20),
-                ElevatedButton(
-                  onPressed: !_isRunning ? null : _stopTimer,
-                  child: const Text('Stop and Complete'),
-                ),
-              ],
             ),
+            const SizedBox(height: 30),
+            // Show different buttons based on tracking type and context
+            _buildStopButtons(),
             const SizedBox(height: 16),
             // Discard button - show if timer instance exists (started but not saved)
             // This allows user to discard even after stopping and canceling modal

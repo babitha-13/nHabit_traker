@@ -23,7 +23,21 @@ class MorningCatchUpService {
       'morning_catchup_reminder_count_date';
   static const int maxReminderCount = 3;
 
+  /// Pure check: Does the user have pending items from yesterday?
+  /// This method has NO side effects - it only queries and returns a boolean
+  /// Use this before running any processing logic
+  static Future<bool> hasPendingItemsFromYesterday(String userId) async {
+    try {
+      return await _hasIncompleteItemsFromYesterday(userId);
+    } catch (e) {
+      return false; // On error, assume no pending items
+    }
+  }
+
   /// Check if the catch-up dialog should be shown
+  /// This includes UI state checks (shown date, snooze, reminder count)
+  /// NOTE: This method may have side effects (auto-skip, ensure instances) for backward compatibility
+  /// For new code, use hasPendingItemsFromYesterday() for pure checks
   static Future<bool> shouldShowDialog(String userId) async {
     try {
       final now = DateTime.now();
@@ -32,9 +46,8 @@ class MorningCatchUpService {
       // Check if it's after midnight - but allow dialog if there are incomplete items
       // This handles cases where user opens app in first hour but has items to handle
       if (now.hour == 0) {
-        // Still in first hour - check if there are incomplete items
-        final hasIncompleteItems =
-            await _hasIncompleteItemsFromYesterday(userId);
+        // Still in first hour - check if there are incomplete items (pure check)
+        final hasIncompleteItems = await hasPendingItemsFromYesterday(userId);
         if (!hasIncompleteItems) {
           return false; // No items, don't show
         }
@@ -88,8 +101,8 @@ class MorningCatchUpService {
         return false; // Don't show dialog after forcing skip
       }
 
-      // Check if there are incomplete items from yesterday
-      final hasIncompleteItems = await _hasIncompleteItemsFromYesterday(userId);
+      // Check if there are incomplete items from yesterday (pure check)
+      final hasIncompleteItems = await hasPendingItemsFromYesterday(userId);
 
       // Ensure record exists even if dialog will be shown
       if (hasIncompleteItems) {
@@ -105,7 +118,7 @@ class MorningCatchUpService {
       }
 
       return hasIncompleteItems;
-    } catch (e, stackTrace) {
+    } catch (e) {
       // Attempt to create record anyway as fallback
       try {
         await createDailyProgressRecordForDate(
@@ -496,11 +509,14 @@ class MorningCatchUpService {
   }
 
   /// Process all end-of-day activities for yesterday
-  /// This runs regardless of whether there are pending items to show in the dialog
-  /// Should be called after midnight (12 AM) when a new day starts
+  /// This should be called after midnight (12 AM) when a new day starts
   /// 
-  /// IMPORTANT: If there are pending items, finalization (daily progress record creation)
-  /// is deferred to the dialog, which will finalize AFTER user confirms item status.
+  /// Flow:
+  /// 1. Auto-skip expired items before yesterday (brings everything up to date)
+  /// 2. Ensure all active habits have pending instances (but respects yesterday-pending)
+  /// 3. Check if there are pending items from yesterday (pure check)
+  /// 4. If NO pending items: finalize immediately (update lastDayValue + create daily progress record)
+  /// 5. If YES pending items: only update lastDayValue (defer finalization to dialog)
   static Future<void> processEndOfDayActivities(String userId) async {
     try {
       final yesterday = DateService.yesterdayStart;
@@ -510,11 +526,11 @@ class MorningCatchUpService {
       await autoSkipExpiredItemsBeforeYesterday(userId);
       
       // Step 2: Ensure all active habits have pending instances
-      // This is now handled by DayEndProcessor
+      // This respects yesterday-pending instances (won't auto-skip them)
       await DayEndProcessor.ensurePendingInstancesExist(userId);
       
-      // Step 3: Check if there are pending items from yesterday
-      final hasPendingItems = await _hasIncompleteItemsFromYesterday(userId);
+      // Step 3: Pure check - are there pending items from yesterday?
+      final hasPendingItems = await hasPendingItemsFromYesterday(userId);
       
       if (!hasPendingItems) {
         // No pending items - safe to finalize now

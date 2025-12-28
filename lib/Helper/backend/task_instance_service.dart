@@ -798,7 +798,7 @@ class TaskInstanceService {
         templateCategoryType:
             'task', // CRITICAL: Required for task page filtering
         templatePriority: template.priority,
-        templateTrackingType: 'time', // Force time tracking for timer tasks
+        templateTrackingType: 'binary', // Timer tasks are binary by default
         templateTarget: template.target,
         templateUnit: template.unit,
         templateDescription: template.description,
@@ -1201,6 +1201,12 @@ class TaskInstanceService {
         updateData['completedAt'] = DateTime.now();
       }
       await activityInstanceRef.update(updateData);
+      
+      // Fetch the updated instance and broadcast update notification
+      // This ensures the calendar page refreshes to show the new time boxes
+      final updatedInstance =
+          await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       rethrow;
     }
@@ -1507,13 +1513,24 @@ class TaskInstanceService {
           final currentTotalLogged = existingInstance.totalTimeLogged;
           final newTotalLogged = currentTotalLogged + totalTime;
 
+          // Calculate new currentValue based on tracking type
+          // Only update currentValue with time for time-based tracking
+          // For quantitative/binary, preserve the existing quantity/counter
+          dynamic newCurrentValue;
+          if (existingInstance.templateTrackingType == 'time') {
+            newCurrentValue = newTotalLogged;
+          } else {
+            // Preserve existing quantity/counter for quantitative/binary tracking
+            newCurrentValue = existingInstance.currentValue;
+          }
+
           // ==================== OPTIMISTIC BROADCAST ====================
           // 1. Create optimistic instance
           final optimisticInstance =
               InstanceEvents.createOptimisticProgressInstance(
             existingInstance,
             accumulatedTime: newTotalLogged,
-            currentValue: newTotalLogged,
+            currentValue: newCurrentValue,
             timeLogSessions: currentSessions,
             totalTimeLogged: newTotalLogged,
           );
@@ -1539,7 +1556,7 @@ class TaskInstanceService {
             'timeLogSessions': currentSessions,
             'totalTimeLogged': newTotalLogged,
             'accumulatedTime': newTotalLogged,
-            'currentValue': newTotalLogged, // Update current value for progress
+            'currentValue': newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
             'lastUpdated': DateTime.now(),
           };
 
@@ -1618,13 +1635,19 @@ class TaskInstanceService {
           // Now update it with the session
           // Recurse or just update? Update is safer
           final sessions = [newSession];
-          await instanceRef.update({
+          // Only set currentValue to totalTime for time-based tracking
+          // For quantitative/binary, the instance was just created with default currentValue (0 or null)
+          final newCurrentValue = template.trackingType == 'time' ? totalTime : null;
+          final updateData = <String, dynamic>{
             'timeLogSessions': sessions,
             'totalTimeLogged': totalTime,
             'accumulatedTime': totalTime,
-            'currentValue': totalTime,
             'lastUpdated': DateTime.now(),
-          });
+          };
+          if (newCurrentValue != null) {
+            updateData['currentValue'] = newCurrentValue;
+          }
+          await instanceRef.update(updateData);
 
           // Only auto-complete tasks if:
           // 1. It's a task (not habit/non-productive)
@@ -1794,13 +1817,24 @@ class TaskInstanceService {
       final totalTime = sessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
 
+      // Calculate new currentValue based on tracking type
+      // Only update currentValue with time for time-based tracking
+      // For quantitative/binary, preserve the existing quantity/counter
+      dynamic newCurrentValue;
+      if (instance.templateTrackingType == 'time') {
+        newCurrentValue = totalTime;
+      } else {
+        // Preserve existing quantity/counter for quantitative/binary tracking
+        newCurrentValue = instance.currentValue;
+      }
+
       // ==================== OPTIMISTIC BROADCAST ====================
       // 1. Create optimistic instance
       final optimisticInstance =
           InstanceEvents.createOptimisticProgressInstance(
         instance,
         accumulatedTime: totalTime,
-        currentValue: totalTime,
+        currentValue: newCurrentValue,
         timeLogSessions: sessions,
         totalTimeLogged: totalTime,
       );
@@ -1827,7 +1861,7 @@ class TaskInstanceService {
           'timeLogSessions': sessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime,
-          'currentValue': totalTime,
+          'currentValue': newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
           'lastUpdated': DateTime.now(),
         });
 

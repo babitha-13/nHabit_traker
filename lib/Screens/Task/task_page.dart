@@ -82,7 +82,7 @@ class _TaskPageState extends State<TaskPage> {
     // Listen for instance events
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
-      if (param is ActivityInstanceRecord && mounted) {
+      if (mounted) {
         _handleInstanceCreated(param);
       }
     });
@@ -2175,7 +2175,23 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   // Event handlers for live updates
-  void _handleInstanceCreated(ActivityInstanceRecord instance) {
+  void _handleInstanceCreated(dynamic param) {
+    // Handle both optimistic and reconciled creation events
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
     // Only add task instances to this page
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
@@ -2183,9 +2199,42 @@ class _TaskPageState extends State<TaskPage> {
           instance.templateCategoryName == widget.categoryName;
       if (matchesCategory) {
         setState(() {
-          _taskInstances.add(instance);
-          // Invalidate cache when instance is added
-          _cachedBucketedItems = null;
+          if (isOptimistic) {
+            // Add optimistic instance immediately to show it right away
+            // Track the operation ID for later reconciliation
+            _taskInstances.add(instance);
+            if (operationId != null) {
+              _optimisticOperations[operationId] = instance.reference.id;
+            }
+            // Invalidate cache when instance is added
+            _cachedBucketedItems = null;
+          } else {
+            // Reconciled creation - replace optimistic instance or add if not found
+            if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+              // Find and replace the optimistic instance
+              final optimisticId = _optimisticOperations[operationId];
+              final index = _taskInstances.indexWhere(
+                (inst) => inst.reference.id == optimisticId,
+              );
+              if (index != -1) {
+                _taskInstances[index] = instance;
+              } else {
+                // Optimistic instance not found, just add
+                _taskInstances.add(instance);
+              }
+              _optimisticOperations.remove(operationId);
+            } else {
+              // No matching optimistic instance, check for duplicates and add
+              final exists = _taskInstances.any(
+                (inst) => inst.reference.id == instance.reference.id,
+              );
+              if (!exists) {
+                _taskInstances.add(instance);
+              }
+            }
+            // Invalidate cache when instance is added/updated
+            _cachedBucketedItems = null;
+          }
         });
       }
     }
