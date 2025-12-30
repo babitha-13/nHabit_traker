@@ -1390,6 +1390,7 @@ class _TaskPageState extends State<TaskPage> {
     showModalBottomSheet(
       context: context,
       isScrollControlled: true,
+      barrierColor: Colors.transparent,
       backgroundColor: Colors.transparent,
       builder: (context) => StatefulBuilder(
         builder: (BuildContext context, StateSetter setModalState) {
@@ -1515,9 +1516,6 @@ class _TaskPageState extends State<TaskPage> {
       _resetQuickAdd();
       // Close the bottom sheet
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Task created successfully')),
-        );
         Navigator.pop(context);
       }
       // The createActivity function already broadcasts the instance creation event
@@ -1983,6 +1981,7 @@ class _TaskPageState extends State<TaskPage> {
       showTypeIcon: false,
       showRecurringIcon: instance.status != 'completed',
       showCompleted: bucketKey == 'Recent Completions' ? true : null,
+      showExpandedCategoryName: widget.categoryName == null,
     );
   }
 

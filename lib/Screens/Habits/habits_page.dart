@@ -313,13 +313,6 @@ class _HabitsPageState extends State<HabitsPage> {
     }
   }
 
-  void _showAddCategoryDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => const CreateCategory(),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -362,15 +355,6 @@ class _HabitsPageState extends State<HabitsPage> {
                     tooltip: 'Add Habit',
                     backgroundColor: FlutterFlowTheme.of(context).primary,
                     child: const Icon(Icons.add, color: Colors.white),
-                  ),
-                  const SizedBox(height: 12),
-                  FloatingActionButton(
-                    heroTag: 'fab_add_category',
-                    onPressed: _showAddCategoryDialog,
-                    tooltip: 'Add Category',
-                    backgroundColor: FlutterFlowTheme.of(context).secondary,
-                    child: const Icon(Icons.create_new_folder,
-                        color: Colors.white),
                   ),
                 ],
               ),
@@ -646,7 +630,11 @@ class _HabitsPageState extends State<HabitsPage> {
     showDialog(
       context: context,
       builder: (context) => CreateCategory(category: category),
-    );
+    ).then((value) {
+      if (value != null && value != false) {
+        _loadHabits();
+      }
+    });
   }
 
   void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {

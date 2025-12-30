@@ -11,6 +11,7 @@ class ItemExpandedDetails extends StatelessWidget {
   final String frequencyDisplay;
   final bool? hasReminders;
   final String? reminderDisplayText;
+  final bool showCategoryOnExpansion;
   final VoidCallback? onEdit;
 
   const ItemExpandedDetails({
@@ -23,6 +24,7 @@ class ItemExpandedDetails extends StatelessWidget {
     required this.frequencyDisplay,
     this.hasReminders,
     this.reminderDisplayText,
+    this.showCategoryOnExpansion = false,
     this.onEdit,
   }) : super(key: key);
 
@@ -61,7 +63,9 @@ class ItemExpandedDetails extends StatelessWidget {
               const SizedBox(width: 4),
             ],
             // Show category name (for queue page)
-            if ((page == 'queue' || _isQueuePageSubtitle(subtitle ?? '')) &&
+            if ((page == 'queue' ||
+                    _isQueuePageSubtitle(subtitle ?? '') ||
+                    showCategoryOnExpansion) &&
                 instance.templateCategoryName.isNotEmpty) ...[
               Text(
                 instance.templateCategoryName,

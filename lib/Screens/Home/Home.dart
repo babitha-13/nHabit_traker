@@ -60,6 +60,7 @@ class _HomeState extends State<Home> {
   static bool _isCheckingCatchUp = false;
   @override
   void initState() {
+    NotificationCenter.addObserver(this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
     // Initialize all pages once - they will be cached in IndexedStack
     _pages = [
@@ -99,8 +100,15 @@ class _HomeState extends State<Home> {
     });
   }
 
+  void _onNavigateBottomTab(Object? param) {
+    if (param is String) {
+      loadPage(param);
+    }
+  }
+
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
     super.dispose();
   }

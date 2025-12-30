@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/app_state.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/engagement_tracker.dart';
+import 'package:habit_tracker/Helper/utils/global_route_observer.dart';
 import 'package:habit_tracker/Helper/utils/notification_service.dart';
 import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
@@ -172,6 +173,7 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
         home: (BuildContext context) => const Home(),
         login: (BuildContext context) => const SignIn(),
       },
+      navigatorObservers: [globalRouteObserver],
     );
   }
 }

@@ -34,6 +34,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
   bool _isSaving = false;
   bool _isSelectedItemsExpanded = true;
   bool _wasKeyboardVisible = false;
+  // Current routine (fetched from Firestore when editing)
+  RoutineRecord? _currentRoutine;
   // Reminder state
   TimeOfDay? _startTime;
   List<ReminderConfig> _reminders = [];
@@ -46,29 +48,64 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
   @override
   void initState() {
     super.initState();
+    // Fetch latest routine from Firestore if editing
     if (widget.existingRoutine != null) {
-      _nameController.text = widget.existingRoutine!.name;
-      // Load existing reminder config
-      if (widget.existingRoutine!.hasDueTime()) {
-        _startTime =
-            TimeUtils.stringToTimeOfDay(widget.existingRoutine!.dueTime);
-      }
-      if (widget.existingRoutine!.hasReminders()) {
-        _reminders =
-            ReminderConfigList.fromMapList(widget.existingRoutine!.reminders);
-      }
-      _reminderFrequencyType =
-          widget.existingRoutine!.reminderFrequencyType.isEmpty
-              ? null
-              : widget.existingRoutine!.reminderFrequencyType;
-      _everyXValue = widget.existingRoutine!.everyXValue;
-      _everyXPeriodType = widget.existingRoutine!.everyXPeriodType.isEmpty
-          ? null
-          : widget.existingRoutine!.everyXPeriodType;
-      _specificDays = List.from(widget.existingRoutine!.specificDays);
-      _remindersEnabled = widget.existingRoutine!.remindersEnabled;
+      _fetchLatestRoutine();
+    } else {
+      _loadActivities();
     }
-    _loadActivities();
+  }
+
+  /// Fetch the latest routine document from Firestore to avoid stale data
+  Future<void> _fetchLatestRoutine() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty || widget.existingRoutine == null) return;
+
+      // Fetch the latest routine document (uses cache first, then server)
+      final routineRef = RoutineRecord.collectionForUser(userId)
+          .doc(widget.existingRoutine!.reference.id);
+      final latestRoutine = await RoutineRecord.getDocumentOnce(routineRef);
+
+      if (mounted) {
+        setState(() {
+          _currentRoutine = latestRoutine;
+        });
+        // Initialize form from latest routine
+        _initializeFromRoutine(latestRoutine);
+        // Now load activities (which will load existing items)
+        _loadActivities();
+      }
+    } catch (e) {
+      // Fallback to widget.existingRoutine if fetch fails
+      if (mounted) {
+        setState(() {
+          _currentRoutine = widget.existingRoutine;
+        });
+        _initializeFromRoutine(widget.existingRoutine!);
+        _loadActivities();
+      }
+    }
+  }
+
+  /// Initialize form state from a routine record
+  void _initializeFromRoutine(RoutineRecord routine) {
+    _nameController.text = routine.name;
+    // Load existing reminder config
+    if (routine.hasDueTime()) {
+      _startTime = TimeUtils.stringToTimeOfDay(routine.dueTime);
+    }
+    if (routine.hasReminders()) {
+      _reminders = ReminderConfigList.fromMapList(routine.reminders);
+    }
+    _reminderFrequencyType = routine.reminderFrequencyType.isEmpty
+        ? null
+        : routine.reminderFrequencyType;
+    _everyXValue = routine.everyXValue;
+    _everyXPeriodType =
+        routine.everyXPeriodType.isEmpty ? null : routine.everyXPeriodType;
+    _specificDays = List.from(routine.specificDays);
+    _remindersEnabled = routine.remindersEnabled;
   }
 
   @override
@@ -115,8 +152,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
           _filteredActivities = filteredActivities;
           _isLoading = false;
         });
-        // If editing, load existing items
-        if (widget.existingRoutine != null) {
+        // If editing, load existing items from current routine
+        if (_currentRoutine != null) {
           _loadExistingItems();
         }
       }
@@ -128,9 +165,12 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
   }
 
   void _loadExistingItems() {
-    if (widget.existingRoutine == null) return;
+    if (_currentRoutine == null) return;
     final existingItems = <ActivityRecord>[];
-    for (final itemId in widget.existingRoutine!.itemIds) {
+    final orderedIds = _currentRoutine!.itemOrder.isNotEmpty
+        ? _currentRoutine!.itemOrder
+        : _currentRoutine!.itemIds;
+    for (final itemId in orderedIds) {
       try {
         final activity =
             _allActivities.firstWhere((a) => a.reference.id == itemId);
@@ -281,11 +321,14 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
       final itemIds = _selectedItems.map((item) => item.reference.id).toList();
       final itemOrder =
           _selectedItems.map((item) => item.reference.id).toList();
+      final itemNames = _selectedItems.map((item) => item.name).toList();
+      final itemTypes =
+          _selectedItems.map((item) => item.categoryType).toList();
       print('🔍 DEBUG: - name: ${_nameController.text.trim()}');
-      if (widget.existingRoutine != null) {
-        // Update existing routine
+      if (_currentRoutine != null) {
+        // Update existing routine using current routine's ID
         await RoutineService.updateRoutine(
-          routineId: widget.existingRoutine!.reference.id,
+          routineId: _currentRoutine!.reference.id,
           name: _nameController.text.trim(),
           itemIds: itemIds,
           itemOrder: itemOrder,
@@ -315,11 +358,17 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.of(context).pop(true);
+          Navigator.of(context).pop(<String, dynamic>{
+            'routineId': _currentRoutine!.reference.id,
+            'itemIds': itemIds,
+            'itemOrder': itemOrder,
+            'itemNames': itemNames,
+            'itemTypes': itemTypes,
+          });
         }
       } else {
         // Create new routine
-        await RoutineService.createRoutine(
+        final ref = await RoutineService.createRoutine(
           name: _nameController.text.trim(),
           itemIds: itemIds,
           itemOrder: itemOrder,
@@ -349,7 +398,13 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
               backgroundColor: Colors.green,
             ),
           );
-          Navigator.of(context).pop(true);
+          Navigator.of(context).pop(<String, dynamic>{
+            'routineId': ref.id,
+            'itemIds': itemIds,
+            'itemOrder': itemOrder,
+            'itemNames': itemNames,
+            'itemTypes': itemTypes,
+          });
         }
       }
     } catch (e) {
@@ -680,32 +735,33 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                         ],
                       ),
                     ),
-                    // Reminder Section
-                    RoutineReminderSection(
-                      dueTime: _startTime,
-                      onDueTimeChanged: (newDueTime) {
-                        setState(() {
-                          _startTime = newDueTime;
-                        });
-                      },
-                      reminders: _reminders,
-                      frequencyType: _reminderFrequencyType,
-                      everyXValue: _everyXValue,
-                      everyXPeriodType: _everyXPeriodType,
-                      specificDays: _specificDays,
-                      remindersEnabled: _remindersEnabled,
-                      onConfigChanged: (config) {
-                        setState(() {
-                          _startTime = config.startTime;
-                          _reminders = config.reminders;
-                          _reminderFrequencyType = config.frequencyType;
-                          _everyXValue = config.everyXValue;
-                          _everyXPeriodType = config.everyXPeriodType;
-                          _specificDays = config.specificDays;
-                          _remindersEnabled = config.remindersEnabled;
-                        });
-                      },
-                    ),
+                    // Reminder Section (only during create; edit is done via quick chips on the routine card)
+                    if (widget.existingRoutine == null)
+                      RoutineReminderSection(
+                        dueTime: _startTime,
+                        onDueTimeChanged: (newDueTime) {
+                          setState(() {
+                            _startTime = newDueTime;
+                          });
+                        },
+                        reminders: _reminders,
+                        frequencyType: _reminderFrequencyType,
+                        everyXValue: _everyXValue,
+                        everyXPeriodType: _everyXPeriodType,
+                        specificDays: _specificDays,
+                        remindersEnabled: _remindersEnabled,
+                        onConfigChanged: (config) {
+                          setState(() {
+                            _startTime = config.startTime;
+                            _reminders = config.reminders;
+                            _reminderFrequencyType = config.frequencyType;
+                            _everyXValue = config.everyXValue;
+                            _everyXPeriodType = config.everyXPeriodType;
+                            _specificDays = config.specificDays;
+                            _remindersEnabled = config.remindersEnabled;
+                          });
+                        },
+                      ),
                     // Search and Add Items
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -766,34 +822,36 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
-                              Container(
-                                decoration: BoxDecoration(
-                                  gradient: theme.primaryButtonGradient,
-                                  borderRadius:
-                                      BorderRadius.circular(theme.buttonRadius),
-                                ),
-                                child: ElevatedButton.icon(
-                                  onPressed: _createNewSequenceItem,
-                                  style: ElevatedButton.styleFrom(
-                                    backgroundColor: Colors.transparent,
-                                    shadowColor: Colors.transparent,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 16,
-                                      vertical: 12,
+                              if (widget.existingRoutine == null) ...[
+                                const SizedBox(width: 8),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    gradient: theme.primaryButtonGradient,
+                                    borderRadius: BorderRadius.circular(
+                                        theme.buttonRadius),
+                                  ),
+                                  child: ElevatedButton.icon(
+                                    onPressed: _createNewSequenceItem,
+                                    style: ElevatedButton.styleFrom(
+                                      backgroundColor: Colors.transparent,
+                                      shadowColor: Colors.transparent,
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 16,
+                                        vertical: 12,
+                                      ),
+                                    ),
+                                    icon: const Icon(Icons.add,
+                                        color: Colors.white),
+                                    label: Text(
+                                      'New Item',
+                                      style: theme.bodyMedium.override(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w600,
+                                      ),
                                     ),
                                   ),
-                                  icon: const Icon(Icons.add,
-                                      color: Colors.white),
-                                  label: Text(
-                                    'New Item',
-                                    style: theme.bodyMedium.override(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
                                 ),
-                              ),
+                              ],
                             ],
                           ),
                         ],

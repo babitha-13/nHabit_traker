@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Helper/utils/global_route_observer.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -12,10 +13,17 @@ class SearchFAB extends StatefulWidget {
   State<SearchFAB> createState() => _SearchFABState();
 }
 
-class _SearchFABState extends State<SearchFAB> {
+class _SearchFABState extends State<SearchFAB> with RouteAware {
   PersistentBottomSheetController? _bottomSheetController;
   TextEditingController? _textController;
   bool _isDisposed = false;
+  ModalRoute<dynamic>? _subscribedRoute;
+  bool _isSearchOpen = false;
+
+  void _updateSearchOpenState(bool value) {
+    _isSearchOpen = value;
+    SearchStateManager().setSearchOpen(value);
+  }
 
   void _showSearchBottomSheet(BuildContext context) {
     // Close existing bottom sheet if open
@@ -27,10 +35,21 @@ class _SearchFABState extends State<SearchFAB> {
     // Use persistent bottom sheet (non-modal) to allow background interaction
     _bottomSheetController = Scaffold.of(context).showBottomSheet(
       backgroundColor: Colors.transparent,
-      enableDrag: true,
-      (context) => _SearchBottomSheet(controller: _textController!),
+      enableDrag: false,
+      (context) => _SearchBottomSheet(
+        controller: _textController!,
+        onRequestClose: _closeBottomSheet,
+      ),
     );
-    
+
+    if (mounted && !_isDisposed) {
+      setState(() {
+        _updateSearchOpenState(true);
+      });
+    } else {
+      _updateSearchOpenState(true);
+    }
+
     // Listen for when the bottom sheet closes and clear search query
     _bottomSheetController?.closed.then((_) {
       _handleBottomSheetClosed();
@@ -70,14 +89,30 @@ class _SearchFABState extends State<SearchFAB> {
     if (mounted && !_isDisposed) {
       setState(() {
         _bottomSheetController = null;
+        _updateSearchOpenState(false);
       });
+    } else {
+      _bottomSheetController = null;
+      _updateSearchOpenState(false);
     }
   }
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    _subscribeToRouteObserver();
     _checkAndCloseIfRouteInactive();
+  }
+
+  void _subscribeToRouteObserver() {
+    final route = ModalRoute.of(context);
+    if (route == null) return;
+    if (_subscribedRoute == route) return;
+    if (_subscribedRoute != null) {
+      globalRouteObserver.unsubscribe(this);
+    }
+    _subscribedRoute = route;
+    globalRouteObserver.subscribe(this, route);
   }
 
   void _checkAndCloseIfRouteInactive() {
@@ -92,6 +127,7 @@ class _SearchFABState extends State<SearchFAB> {
 
   @override
   void dispose() {
+    globalRouteObserver.unsubscribe(this);
     _isDisposed = true;
     // Close bottom sheet if still open when widget is disposed
     _closeBottomSheet();
@@ -100,7 +136,15 @@ class _SearchFABState extends State<SearchFAB> {
   }
 
   @override
+  void didPushNext() {
+    _closeBottomSheet();
+  }
+
+  @override
   Widget build(BuildContext context) {
+    if (_isSearchOpen) {
+      return const SizedBox.shrink();
+    }
     // Check if route is still active on each build (only if bottom sheet is open)
     if (_bottomSheetController != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -130,8 +174,12 @@ class _SearchFABState extends State<SearchFAB> {
 /// Bottom sheet modal for search input
 class _SearchBottomSheet extends StatefulWidget {
   final TextEditingController controller;
+  final VoidCallback onRequestClose;
 
-  const _SearchBottomSheet({required this.controller});
+  const _SearchBottomSheet({
+    required this.controller,
+    required this.onRequestClose,
+  });
 
   @override
   State<_SearchBottomSheet> createState() => _SearchBottomSheetState();
@@ -178,37 +226,20 @@ class _SearchBottomSheetState extends State<_SearchBottomSheet> {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-    return SafeArea(
-      top: false,
-      child: Container(
-        constraints: BoxConstraints(
-          maxHeight: MediaQuery.of(context).size.height * 0.3,
-        ),
-        decoration: BoxDecoration(
-          color: theme.primaryBackground,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-        ),
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.of(context).viewInsets.bottom,
-          left: 12,
-          right: 12,
-          top: 8,
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // Drag handle
-            Container(
-              width: 40,
-              height: 4,
-              margin: const EdgeInsets.only(bottom: 8),
-              decoration: BoxDecoration(
-                color: theme.secondaryText.withOpacity(0.3),
-                borderRadius: BorderRadius.circular(2),
-              ),
-            ),
-            // Search input field
-            TextField(
+    return WillPopScope(
+      onWillPop: () async {
+        widget.onRequestClose();
+        return false;
+      },
+      child: SafeArea(
+        top: false,
+        child: Padding(
+          padding: EdgeInsets.only(
+            bottom: MediaQuery.of(context).viewInsets.bottom,
+          ),
+          child: SizedBox(
+            width: double.infinity,
+            child: TextField(
               controller: widget.controller,
               focusNode: _focusNode,
               autofocus: true,
@@ -225,18 +256,32 @@ class _SearchBottomSheetState extends State<_SearchBottomSheet> {
                 border: OutlineInputBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
+                enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: theme.surfaceBorderColor.withOpacity(0.4),
+                    width: 1,
+                  ),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(12),
+                  borderSide: BorderSide(
+                    color: theme.primary,
+                    width: 1.5,
+                  ),
+                ),
                 filled: true,
                 fillColor: theme.secondaryBackground,
                 contentPadding: const EdgeInsets.symmetric(
                   horizontal: 12,
-                  vertical: 12,
+                  vertical: 14,
                 ),
+                isDense: true,
               ),
               onChanged: _onTextChanged,
               textInputAction: TextInputAction.search,
             ),
-            const SizedBox(height: 8),
-          ],
+          ),
         ),
       ),
     );

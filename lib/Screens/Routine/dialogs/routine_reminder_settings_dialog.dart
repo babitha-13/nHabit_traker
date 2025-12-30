@@ -70,6 +70,19 @@ class _RoutineReminderSettingsDialogState
   }
 
   void _save() {
+    // If there are no reminders, repeat settings are not applicable.
+    if (_reminders.isEmpty) {
+      Navigator.of(context).pop(RoutineReminderSettingsResult(
+        reminders: const [],
+        frequencyType: null,
+        everyXValue: 1,
+        everyXPeriodType: null,
+        specificDays: const [],
+        remindersEnabled: false,
+      ));
+      return;
+    }
+
     if (_frequencyType == 'specific_days' && _specificDays.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -150,29 +163,38 @@ class _RoutineReminderSettingsDialogState
                       onRemindersChanged: (reminders) {
                         setState(() {
                           _reminders = reminders;
+                          // If reminders are removed, repeat options no longer apply.
+                          if (_reminders.isEmpty) {
+                            _frequencyType = null;
+                            _everyXValue = 1;
+                            _everyXPeriodType = 'day';
+                            _specificDays = [];
+                          }
                         });
                       },
                     ),
-                    const SizedBox(height: 20),
-                    const Divider(),
-                    const SizedBox(height: 20),
-                    Text('Repeat', style: theme.titleMedium),
-                    const SizedBox(height: 8),
-                    RoutineRepeatEditor(
-                      frequencyType: _frequencyType,
-                      everyXValue: _everyXValue,
-                      everyXPeriodType: _everyXPeriodType,
-                      specificDays: _specificDays,
-                      onConfigChanged: (frequencyType, everyXValue,
-                          everyXPeriodType, specificDays) {
-                        setState(() {
-                          _frequencyType = frequencyType;
-                          _everyXValue = everyXValue;
-                          _everyXPeriodType = everyXPeriodType;
-                          _specificDays = specificDays;
-                        });
-                      },
-                    ),
+                    if (_reminders.isNotEmpty) ...[
+                      const SizedBox(height: 20),
+                      const Divider(),
+                      const SizedBox(height: 20),
+                      Text('Repeat', style: theme.titleMedium),
+                      const SizedBox(height: 8),
+                      RoutineRepeatEditor(
+                        frequencyType: _frequencyType,
+                        everyXValue: _everyXValue,
+                        everyXPeriodType: _everyXPeriodType,
+                        specificDays: _specificDays,
+                        onConfigChanged: (frequencyType, everyXValue,
+                            everyXPeriodType, specificDays) {
+                          setState(() {
+                            _frequencyType = frequencyType;
+                            _everyXValue = everyXValue;
+                            _everyXPeriodType = everyXPeriodType;
+                            _specificDays = specificDays;
+                          });
+                        },
+                      ),
+                    ],
                   ],
                 ),
               ),

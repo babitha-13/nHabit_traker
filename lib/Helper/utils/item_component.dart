@@ -43,6 +43,7 @@ class ItemComponent extends StatefulWidget {
   final bool showTypeIcon;
   final bool showRecurringIcon;
   final String? subtitle;
+  final bool showExpandedCategoryName;
   const ItemComponent(
       {Key? key,
       required this.instance,
@@ -61,7 +62,8 @@ class ItemComponent extends StatefulWidget {
       this.showTypeIcon = true,
       this.showRecurringIcon = false,
       this.subtitle,
-      this.page})
+      this.page,
+      this.showExpandedCategoryName = false})
       : super(key: key);
   @override
   State<ItemComponent> createState() => _ItemComponentState();
@@ -115,7 +117,8 @@ class _ItemComponentState extends State<ItemComponent>
       final backendCompleted = _isBackendCompleted;
       final instanceChanged = widget.instance.reference.id !=
           oldWidget.instance.reference.id;
-      if (backendCompleted == _binaryCompletionOverride || instanceChanged) {
+      final statusChanged = widget.instance.status != oldWidget.instance.status;
+      if (backendCompleted == _binaryCompletionOverride || instanceChanged || statusChanged) {
         setState(() => _binaryCompletionOverride = null);
       }
     }
@@ -456,6 +459,8 @@ class _ItemComponentState extends State<ItemComponent>
                               frequencyDisplay: _getFrequencyDisplay(),
                               hasReminders: _hasReminders,
                               reminderDisplayText: _reminderDisplayText,
+                              showCategoryOnExpansion:
+                                  widget.showExpandedCategoryName,
                               onEdit: _editActivity,
                             ),
                           ],
@@ -1760,15 +1765,29 @@ class _ItemComponentState extends State<ItemComponent>
     
     // Update UI optimistically immediately
     final currentValue = _currentProgressLocal();
-    final newOptimisticValue = (currentValue + _pendingQuantIncrement).clamp(0, double.infinity);
-    setState(() => _quantProgressOverride = newOptimisticValue.toInt());
+    final newOptimisticValue =
+        (currentValue + _pendingQuantIncrement).clamp(0, double.infinity);
+    
+    final targetValue = _getTargetValue();
+    setState(() {
+      _quantProgressOverride = newOptimisticValue.toInt();
+      // Optimistically update completion status based on target
+      if (targetValue > 0) {
+        if (newOptimisticValue >= targetValue) {
+          _binaryCompletionOverride = true;
+        } else {
+          // If value falls below target, clear completion override optimistically
+          // This ensures immediate UI update when decreasing quantity
+          _binaryCompletionOverride = false;
+        }
+      }
+    });
     
     // Play step counter sound for quantitative updates
     SoundHelper().playStepCounterSound();
     
     // Check if target is reached and play completion sound
-    final target = _getTargetValue();
-    if (target > 0 && newOptimisticValue >= target) {
+    if (targetValue > 0 && newOptimisticValue >= targetValue) {
       SoundHelper().playCompletionSound();
     }
     
@@ -1808,6 +1827,12 @@ class _ItemComponentState extends State<ItemComponent>
         instanceId: widget.instance.reference.id,
         currentValue: currentValue,
       );
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      widget.onInstanceUpdated?.call(updatedInstance);
+      await _handleQuantCompletion(updatedInstance);
+      await _handleQuantUncompletion(updatedInstance);
       // Reconciliation happens automatically via service method broadcasts
       // The override will be cleared when backend value matches
     } catch (e) {
@@ -1835,6 +1860,77 @@ class _ItemComponentState extends State<ItemComponent>
         _quantUpdateTimer = Timer(const Duration(milliseconds: 300), () {
           _processPendingQuantUpdate();
         });
+      }
+    }
+  }
+
+  bool _shouldAutoCompleteQuant(ActivityInstanceRecord instance) {
+    final target = _valueToNum(instance.templateTarget);
+    if (target <= 0) return false;
+    if (instance.status == 'completed' || instance.status == 'skipped') return false;
+    final current = _valueToNum(instance.currentValue);
+    return current >= target;
+  }
+
+  num _valueToNum(dynamic value) {
+    if (value is num) return value;
+    if (value is String) return num.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  bool _shouldAutoUncompleteQuant(ActivityInstanceRecord instance) {
+    final target = _valueToNum(instance.templateTarget);
+    if (target <= 0) return false;
+    if (instance.status != 'completed' && instance.status != 'skipped') return false;
+    final current = _valueToNum(instance.currentValue);
+    return current < target;
+  }
+
+  Future<void> _handleQuantCompletion(
+      ActivityInstanceRecord updatedInstance) async {
+    if (!_shouldAutoCompleteQuant(updatedInstance)) return;
+    try {
+      await ActivityInstanceService.completeInstance(
+        instanceId: widget.instance.reference.id,
+        finalValue: updatedInstance.currentValue,
+      );
+      final completedInstance =
+          await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      widget.onInstanceUpdated?.call(completedInstance);
+      if (widget.instance.templateCategoryType == 'habit') {
+        widget.onRefresh?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error completing task: $e')),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleQuantUncompletion(
+      ActivityInstanceRecord updatedInstance) async {
+    if (!_shouldAutoUncompleteQuant(updatedInstance)) return;
+    try {
+      await ActivityInstanceService.uncompleteInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      final uncompletedInstance =
+          await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      widget.onInstanceUpdated?.call(uncompletedInstance);
+      if (widget.instance.templateCategoryType == 'habit') {
+        widget.onRefresh?.call();
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error uncompleting task: $e')),
+        );
       }
     }
   }

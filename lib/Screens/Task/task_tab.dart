@@ -15,7 +15,7 @@ class TaskTab extends StatefulWidget {
 class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   late TabController _tabController;
   List<CategoryRecord> _categories = [];
-  List<String> _tabNames = ["Inbox"];
+  List<String> _tabNames = ["All"];
   static bool _hasEnsuredInbox = false;
   @override
   void initState() {
@@ -48,12 +48,27 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     );
     if (!mounted) return;
 
-    final otherCategories =
-        updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
+    final List<String> newTabNames = ['All'];
+    if (updatedFetched.isNotEmpty) {
+      CategoryRecord? inboxCategory;
+      for (final category in updatedFetched) {
+        if (category.name.toLowerCase() == 'inbox') {
+          inboxCategory = category;
+          break;
+        }
+      }
+      final inboxName = inboxCategory?.name ?? 'Inbox';
+      final otherCategories = updatedFetched
+          .where((c) => c.name.toLowerCase() != 'inbox')
+          .toList();
+      newTabNames
+        ..add(inboxName)
+        ..addAll(otherCategories.map((c) => c.name));
+    }
     if (mounted) {
       setState(() {
         _categories = updatedFetched;
-        _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
+        _tabNames = newTabNames;
         _tabController.removeListener(_onTabChanged);
         _tabController.dispose();
         _tabController = TabController(length: _tabNames.length, vsync: this);
@@ -149,7 +164,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   : TabBarView(
                       controller: _tabController,
                       children: _tabNames.map((name) {
-                        return TaskPage(categoryName: name);
+                        final categoryName = name == 'All' ? null : name;
+                        return TaskPage(categoryName: categoryName);
                       }).toList(),
                     ))
         ],

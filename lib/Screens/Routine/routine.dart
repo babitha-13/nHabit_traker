@@ -2,14 +2,18 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/routine_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/routine_order_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
+import 'package:habit_tracker/Screens/Routine/dialogs/routine_reminder_settings_dialog.dart';
 import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
@@ -146,8 +150,38 @@ class _RoutinesState extends State<Routines> {
         ),
       ),
     )
-        .then((_) {
-      // Reload the list after editing a routine
+        .then((result) {
+      // Apply edit result immediately to avoid stale data on quick re-open
+      if (result is Map<String, dynamic> && result['routineId'] != null) {
+        final routineId = result['routineId'] as String;
+        final itemIds = result['itemIds'] as List<String>?;
+        final itemOrder = result['itemOrder'] as List<String>?;
+        final itemNames = result['itemNames'] as List<String>?;
+        final itemTypes = result['itemTypes'] as List<String>?;
+
+        if (itemIds != null && mounted) {
+          // Find and update the routine in local list immediately
+          final routineIndex =
+              _routines.indexWhere((r) => r.reference.id == routineId);
+          if (routineIndex != -1) {
+            final updatedRoutine = RoutineRecord.getDocumentFromData(
+              {
+                ..._routines[routineIndex].snapshotData,
+                'itemIds': itemIds,
+                'itemOrder': itemOrder ?? itemIds,
+                'itemNames': itemNames ?? [],
+                'itemTypes': itemTypes ?? [],
+                'lastUpdated': DateTime.now(),
+              },
+              _routines[routineIndex].reference,
+            );
+            setState(() {
+              _routines[routineIndex] = updatedRoutine;
+            });
+          }
+        }
+      }
+      // Reload the list to ensure everything is in sync
       _loadData();
     });
   }
@@ -485,10 +519,11 @@ class _RoutinesState extends State<Routines> {
                 routine.description,
                 style: FlutterFlowTheme.of(context).bodyMedium,
               ),
-            const SizedBox(height: 4),
-            Text(
-              '${itemNames.length} items',
-              style: FlutterFlowTheme.of(context).bodySmall,
+            const SizedBox(height: 6),
+            Wrap(
+              spacing: 6,
+              runSpacing: 4,
+              children: _buildRoutineInfoChips(routine),
             ),
           ],
         ),
@@ -499,6 +534,138 @@ class _RoutinesState extends State<Routines> {
             color: FlutterFlowTheme.of(context).secondaryText,
           ),
         ),
+      ),
+    );
+  }
+
+  List<Widget> _buildRoutineInfoChips(RoutineRecord routine) {
+    final theme = FlutterFlowTheme.of(context);
+    final dueTimeLabel = routine.hasDueTime()
+        ? TimeUtils.formatTimeForDisplay(routine.dueTime)
+        : 'Set due time';
+    final reminderLabel = _getReminderChipLabel(routine);
+
+    return [
+      _buildRoutineInfoChip(
+        icon: Icons.access_time,
+        label: dueTimeLabel,
+        onPressed: () => _selectDueTime(routine),
+        theme: theme,
+      ),
+      _buildRoutineInfoChip(
+        icon: Icons.notifications_none,
+        label: reminderLabel,
+        onPressed: () => _selectReminders(routine),
+        theme: theme,
+      ),
+    ];
+  }
+
+  Future<void> _selectDueTime(RoutineRecord routine) async {
+    final currentDueTime = TimeUtils.stringToTimeOfDay(routine.dueTime);
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: currentDueTime ?? TimeUtils.getCurrentTime(),
+    );
+
+    if (picked == null) return;
+
+    try {
+      await RoutineService.updateRoutine(
+        routineId: routine.reference.id,
+        dueTime: TimeUtils.timeOfDayToString(picked),
+        userId: currentUserUid,
+      );
+      await _loadData(); // Refresh list
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating due time: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  Future<void> _selectReminders(RoutineRecord routine) async {
+    final reminders = ReminderConfigList.fromMapList(routine.reminders);
+    final result = await RoutineReminderSettingsDialog.show(
+      context: context,
+      dueTime: TimeUtils.stringToTimeOfDay(routine.dueTime),
+      initialReminders: reminders,
+      initialFrequencyType: routine.reminderFrequencyType.isEmpty
+          ? null
+          : routine.reminderFrequencyType,
+      initialEveryXValue: routine.everyXValue,
+      initialEveryXPeriodType:
+          routine.everyXPeriodType.isEmpty ? null : routine.everyXPeriodType,
+      initialSpecificDays: List.from(routine.specificDays),
+    );
+
+    if (result == null) return;
+
+    try {
+      await RoutineService.updateRoutine(
+        routineId: routine.reference.id,
+        reminders: ReminderConfigList.toMapList(result.reminders),
+        reminderFrequencyType: result.frequencyType,
+        everyXValue: result.frequencyType == 'every_x' ? result.everyXValue : 1,
+        everyXPeriodType:
+            result.frequencyType == 'every_x' ? result.everyXPeriodType : null,
+        specificDays: result.frequencyType == 'specific_days'
+            ? result.specificDays
+            : const [],
+        remindersEnabled: result.remindersEnabled,
+        userId: currentUserUid,
+      );
+      await _loadData(); // Refresh list
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error updating reminders: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  String _getReminderChipLabel(RoutineRecord routine) {
+    final reminders = ReminderConfigList.fromMapList(routine.reminders);
+    if (!routine.remindersEnabled || reminders.isEmpty) {
+      return 'Set reminders';
+    }
+    if (reminders.length == 1) {
+      return reminders.first.getDescription();
+    }
+    return '${reminders.length} reminders';
+  }
+
+  Widget _buildRoutineInfoChip({
+    required IconData icon,
+    required String label,
+    required VoidCallback onPressed,
+    required FlutterFlowTheme theme,
+  }) {
+    return ActionChip(
+      onPressed: onPressed,
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      avatar: Icon(icon, size: 16, color: theme.secondaryText),
+      label: Text(
+        label,
+        style: theme.bodySmall.copyWith(
+          color: theme.secondaryText,
+          fontWeight: FontWeight.w500,
+        ),
+        overflow: TextOverflow.ellipsis,
+      ),
+      labelPadding: const EdgeInsets.only(left: 4, right: 6),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      backgroundColor: theme.secondaryBackground,
+      shape: StadiumBorder(
+        side: BorderSide(color: theme.surfaceBorderColor, width: 0.4),
       ),
     );
   }

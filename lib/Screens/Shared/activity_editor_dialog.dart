@@ -38,6 +38,7 @@ class ActivityEditorDialog extends StatefulWidget {
 }
 
 class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
+  static const String _createNewCategoryValue = 'CREATE_NEW_CATEGORY_SPECIAL_VALUE';
   late TextEditingController _titleController;
   late TextEditingController _unitController;
   late TextEditingController _descriptionController;
@@ -134,7 +135,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   }
 
   /// Load categories from backend if not provided
-  Future<void> _loadCategories() async {
+  Future<void> _loadCategories({String? selectCategoryId}) async {
     if (_isLoadingCategories) return;
 
     if (!mounted) return;
@@ -163,9 +164,14 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
         setState(() {
           _loadedCategories = categories;
           _isLoadingCategories = false;
+          if (selectCategoryId != null) {
+            _selectedCategoryId = selectCategoryId;
+          }
         });
-        // Initialize category after loading
-        _initializeCategory(widget.activity);
+        // Initialize category after loading if not already selected or if we have a new ID
+        if (selectCategoryId == null) {
+          _initializeCategory(widget.activity);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -197,8 +203,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           'DEBUG ActivityEditorDialog: Available categories=${_categories.map((c) => '${c.name}(${c.reference.id})').toList()}');
       print(
           'DEBUG ActivityEditorDialog: Selected categoryId=$_selectedCategoryId');
-    } else if (_categories.isNotEmpty) {
-      // Default to first category if creating new
+    } else if (_selectedCategoryId == null && _categories.isNotEmpty) {
+      // Default to first category if creating new and nothing selected yet
       if (mounted) {
         setState(() => _selectedCategoryId = _categories.first.reference.id);
       }
@@ -299,6 +305,23 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     final isValid =
         _categories.any((c) => c.reference.id == _selectedCategoryId);
     return isValid ? _selectedCategoryId : null;
+  }
+
+  Future<void> _showCreateCategoryDialog() async {
+    final result = await showDialog(
+      context: context,
+      builder: (context) => CreateCategory(
+        categoryType: widget.isHabit ? 'habit' : 'task',
+      ),
+    );
+
+    if (result != null && result is String) {
+      // New category created, reload and select it
+      await _loadCategories(selectCategoryId: result);
+    } else if (result == true) {
+      // Category was updated or created but no ID returned (fallback)
+      await _loadCategories();
+    }
   }
 
   Future<void> _save() async {
@@ -439,9 +462,6 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     );
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Created successfully')),
-      );
       Navigator.pop(context, true);
     }
     widget.onSave?.call(null); // Pass null or new record if available
@@ -690,9 +710,6 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     widget.onSave?.call(updatedRecord);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Updated successfully')),
-      );
       Navigator.pop(context, true);
     }
   }
@@ -867,63 +884,55 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           width: 1,
         ),
       ),
-      child: Row(
-        children: [
-          Expanded(
-            child: DropdownButtonFormField<String>(
-              key: dropdownKey,
-              value: _validCategoryId,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
+      child: DropdownButtonFormField<String>(
+        key: dropdownKey,
+        value: _validCategoryId,
+        decoration: const InputDecoration(
+          border: InputBorder.none,
+          isDense: true,
+          contentPadding: EdgeInsets.zero,
+        ),
+        isExpanded: true,
+        icon: Icon(Icons.keyboard_arrow_down, color: theme.secondaryText),
+        dropdownColor: theme.secondaryBackground,
+        style: theme.bodySmall,
+        hint: Text('Select Category',
+            style: TextStyle(color: theme.secondaryText)),
+        items: [
+          ..._categories.map(
+            (c) => DropdownMenuItem(
+              value: c.reference.id,
+              child: Text(
+                c.name,
+                style: theme.bodySmall,
               ),
-              isExpanded: true,
-              icon: Icon(Icons.keyboard_arrow_down, color: theme.secondaryText),
-              dropdownColor: theme.secondaryBackground,
-              style: theme.bodySmall,
-              hint: Text('Select Category',
-                  style: TextStyle(color: theme.secondaryText)),
-              items: _categories
-                  .map(
-                    (c) => DropdownMenuItem(
-                      value: c.reference.id,
-                      child: Text(
-                        c.name,
-                        style: theme.bodySmall,
-                      ),
-                    ),
-                  )
-                  .toList(),
-              onChanged: _categories.isEmpty || _isLoadingCategories
-                  ? null
-                  : (v) {
-                      if (mounted) {
-                        setState(() => _selectedCategoryId = v);
-                      }
-                    },
-              menuMaxHeight: 260,
-              borderRadius: BorderRadius.circular(12),
             ),
           ),
-          IconButton(
-            icon: Icon(Icons.add, color: theme.primary),
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => const CreateCategory(
-                    categoryType:
-                        'habit'), // or 'task' if we wanted to differentiate
-              ).then((value) {
-                // Ideally we should reload categories here.
-                // Since categories are passed in, we can't easily reload them inside the dialog
-                // without a callback or parent rebuild.
-                // For now, let's assume the parent updates or we just dismiss/re-open.
-                // Better UX: Trigger a reload callback if provided.
-              });
-            },
+          const DropdownMenuItem(
+            value: _createNewCategoryValue,
+            child: Row(
+              children: [
+                Icon(Icons.add, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Create New Category...',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
+            ),
           ),
         ],
+        onChanged: _categories.isEmpty || _isLoadingCategories
+            ? null
+            : (v) {
+                if (v == _createNewCategoryValue) {
+                  _showCreateCategoryDialog();
+                } else if (mounted) {
+                  setState(() => _selectedCategoryId = v);
+                }
+              },
+        menuMaxHeight: 260,
+        borderRadius: BorderRadius.circular(12),
       ),
     );
   }

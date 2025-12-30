@@ -36,24 +36,6 @@ class RoutineReminderSection extends StatelessWidget {
     return '${reminders.length} reminders';
   }
 
-  String _getFrequencyDescription() {
-    if (!remindersEnabled || frequencyType == null) return 'No repeat';
-    if (frequencyType == 'specific_days') {
-      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      final selectedDayNames = specificDays
-          .map((day) => days[day - 1])
-          .join(', ');
-      return 'Repeats on $selectedDayNames';
-    } else if (frequencyType == 'every_x') {
-      final period = everyXPeriodType ?? 'day';
-      if (everyXValue == 1 && period == 'day') {
-        return 'Repeats daily';
-      }
-      return 'Repeats every $everyXValue $period${everyXValue > 1 ? 's' : ''}';
-    }
-    return 'No repeat';
-  }
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
@@ -66,19 +48,6 @@ class RoutineReminderSection extends StatelessWidget {
           _buildDueTimeField(context, theme),
           const SizedBox(height: 10),
           _buildReminderField(context, theme),
-          if (reminders.isNotEmpty) ...[
-            const SizedBox(height: 8),
-            _buildReminderChips(theme),
-          ],
-          if (remindersEnabled && frequencyType != null) ...[
-            const SizedBox(height: 8),
-            Text(
-              _getFrequencyDescription(),
-              style: theme.bodySmall.override(
-                color: theme.secondaryText,
-              ),
-            ),
-          ],
         ],
       ),
     );
@@ -178,45 +147,6 @@ class RoutineReminderSection extends StatelessWidget {
       remindersEnabled: false,
     );
     onConfigChanged(config);
-  }
-
-  Widget _buildReminderChips(FlutterFlowTheme theme) {
-    final chips = <Widget>[];
-    final display = reminders.take(3).toList();
-    for (final r in display) {
-      chips.add(
-        Chip(
-          label: Text(
-            r.getDescription(),
-            style: theme.bodySmall,
-          ),
-          backgroundColor: theme.secondaryBackground,
-          side: BorderSide(color: theme.surfaceBorderColor),
-          visualDensity: VisualDensity.compact,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    }
-    final remaining = reminders.length - display.length;
-    if (remaining > 0) {
-      chips.add(
-        Chip(
-          label: Text(
-            '+$remaining more',
-            style: theme.bodySmall,
-          ),
-          backgroundColor: theme.secondaryBackground,
-          side: BorderSide(color: theme.surfaceBorderColor),
-          visualDensity: VisualDensity.compact,
-          materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-        ),
-      );
-    }
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: chips,
-    );
   }
 
   Future<void> _showReminderDialog(BuildContext context) async {

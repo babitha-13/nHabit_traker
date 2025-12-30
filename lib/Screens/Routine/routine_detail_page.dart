@@ -28,6 +28,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   RoutineWithInstances? _routineWithInstances;
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
+  bool _isReordering = false;
   @override
   void initState() {
     super.initState();
@@ -144,18 +145,151 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   }
 
   void _editRoutine() {
+    final routineToEdit = _routineWithInstances?.routine ?? widget.routine;
     Navigator.of(context)
         .push(
       MaterialPageRoute(
         builder: (context) => CreateRoutinePage(
-          existingRoutine: widget.routine,
+          existingRoutine: routineToEdit,
         ),
       ),
     )
-        .then((_) {
-      // Refresh the routine data after editing
-      _refreshRoutine();
+        .then((result) {
+      // Keep UI in sync immediately when coming back from edit
+      if (result is Map<String, dynamic> && result['itemIds'] != null) {
+        final itemIds = List<String>.from(result['itemIds'] as List);
+        final itemOrder = result['itemOrder'] != null
+            ? List<String>.from(result['itemOrder'] as List)
+            : itemIds;
+        final itemNames = result['itemNames'] != null
+            ? List<String>.from(result['itemNames'] as List)
+            : null;
+        final itemTypes = result['itemTypes'] != null
+            ? List<String>.from(result['itemTypes'] as List)
+            : null;
+
+        // Check if items were added or removed
+        final previousIds =
+            _routineWithInstances?.routine.itemIds ?? <String>[];
+        final itemsChanged = itemIds.length != previousIds.length ||
+            !itemIds.every((id) => previousIds.contains(id)) ||
+            !previousIds.every((id) => itemIds.contains(id));
+
+        _applyRoutineEdit(itemIds, itemOrder, itemNames, itemTypes);
+
+        // If items were added/removed, refresh instances in background
+        if (itemsChanged) {
+          _refreshRoutine();
+        }
+      }
     });
+  }
+
+  /// Apply routine edit result immediately to keep UI in sync
+  void _applyRoutineEdit(
+    List<String> itemIds,
+    List<String> itemOrder,
+    List<String>? itemNames,
+    List<String>? itemTypes,
+  ) {
+    if (_routineWithInstances == null) return;
+    final currentRoutine = _routineWithInstances!.routine;
+
+    // Use provided names/types if available, otherwise fall back to existing
+    final finalNames = itemNames ??
+        itemOrder.map((id) {
+          final index = currentRoutine.itemIds.indexOf(id);
+          return index != -1 && index < currentRoutine.itemNames.length
+              ? currentRoutine.itemNames[index]
+              : 'Unknown Item';
+        }).toList();
+
+    final finalTypes = itemTypes ??
+        itemOrder.map((id) {
+          final index = currentRoutine.itemIds.indexOf(id);
+          return index != -1 && index < currentRoutine.itemTypes.length
+              ? currentRoutine.itemTypes[index]
+              : 'habit';
+        }).toList();
+
+    final updatedData = Map<String, dynamic>.from(currentRoutine.snapshotData);
+    updatedData['itemIds'] = itemIds;
+    updatedData['itemOrder'] = itemOrder;
+    updatedData['itemNames'] = finalNames;
+    updatedData['itemTypes'] = finalTypes;
+    updatedData['lastUpdated'] = DateTime.now();
+
+    final updatedRoutine = RoutineRecord.getDocumentFromData(
+      updatedData,
+      currentRoutine.reference,
+    );
+
+    // Filter instances to only include items that still exist
+    final filteredInstances = <String, ActivityInstanceRecord>{};
+    for (final itemId in itemOrder) {
+      if (_routineWithInstances!.instances.containsKey(itemId)) {
+        filteredInstances[itemId] = _routineWithInstances!.instances[itemId]!;
+      }
+    }
+
+    setState(() {
+      _routineWithInstances = RoutineWithInstances(
+        routine: updatedRoutine,
+        instances: filteredInstances,
+      );
+    });
+  }
+
+  /// Legacy method for backward compatibility (reorder only)
+  void _applyRoutineOrder(List<String> orderedIds) {
+    _applyRoutineEdit(orderedIds, orderedIds, null, null);
+  }
+
+  Future<void> _onReorderItems(int oldIndex, int newIndex) async {
+    if (_routineWithInstances == null) return;
+    if (_isReordering) return;
+
+    // Adjust newIndex for the case where we're moving down
+    int adjustedNewIndex = newIndex;
+    if (oldIndex < newIndex) {
+      adjustedNewIndex -= 1;
+    }
+
+    final currentOrder = List<String>.from(_routineWithInstances!.routine.itemOrder);
+    if (oldIndex < 0 ||
+        oldIndex >= currentOrder.length ||
+        adjustedNewIndex < 0 ||
+        adjustedNewIndex >= currentOrder.length) {
+      return;
+    }
+
+    final moved = currentOrder.removeAt(oldIndex);
+    currentOrder.insert(adjustedNewIndex, moved);
+
+    // Immediate UI sync (no refresh)
+    _applyRoutineOrder(currentOrder);
+
+    setState(() => _isReordering = true);
+    try {
+      await RoutineService.updateRoutine(
+        routineId: _routineWithInstances!.routine.reference.id,
+        userId: currentUserUid,
+        itemIds: currentOrder,
+        itemOrder: currentOrder,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error reordering routine items: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _isReordering = false);
+      }
+    }
   }
 
   /// Create a pending instance for a non-productive item (for display with ItemComponent)
@@ -386,7 +520,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         : _getCategoryColor(instance);
 
     return ItemComponent(
-      key: Key(instance.reference.id),
+      key: ValueKey('${instance.reference.id}_${instance.status}'),
       instance: instance,
       categoryColorHex: categoryColor,
       onRefresh: _refreshRoutine,
@@ -484,28 +618,37 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                           ),
                         ),
                       ),
-                    // Items in Order
-                    SliverList(
-                      delegate: SliverChildBuilderDelegate(
-                        (context, index) {
-                          final itemId =
-                              _routineWithInstances!.routine.itemOrder[index];
-                          final instance =
-                              _routineWithInstances!.instances[itemId];
-                          final itemType = _routineWithInstances!
-                                  .routine.itemTypes.isNotEmpty
-                              ? _routineWithInstances!.routine.itemTypes[index]
-                              : 'habit';
-                          final itemName = _routineWithInstances!
-                                  .routine.itemNames.isNotEmpty
-                              ? _routineWithInstances!.routine.itemNames[index]
-                              : 'Unknown Item';
-                          return _buildItemComponent(
-                              instance, itemId, itemType, itemName);
-                        },
-                        childCount:
-                            _routineWithInstances!.routine.itemOrder.length,
-                      ),
+                    // Items in Order (reorderable)
+                    SliverReorderableList(
+                      itemCount: _routineWithInstances!.routine.itemOrder.length,
+                      onReorder: _onReorderItems,
+                      itemBuilder: (context, index) {
+                        final itemId =
+                            _routineWithInstances!.routine.itemOrder[index];
+                        final instance = _routineWithInstances!.instances[itemId];
+                        final itemType = _routineWithInstances!.routine.itemTypes
+                                    .isNotEmpty &&
+                                index < _routineWithInstances!.routine.itemTypes.length
+                            ? _routineWithInstances!.routine.itemTypes[index]
+                            : 'habit';
+                        final itemName = _routineWithInstances!.routine.itemNames
+                                    .isNotEmpty &&
+                                index < _routineWithInstances!.routine.itemNames.length
+                            ? _routineWithInstances!.routine.itemNames[index]
+                            : 'Unknown Item';
+
+                        return ReorderableDelayedDragStartListener(
+                          key: ValueKey('routine_item_$itemId'),
+                          index: index,
+                          enabled: !_isReordering,
+                          child: _buildItemComponent(
+                            instance,
+                            itemId,
+                            itemType,
+                            itemName,
+                          ),
+                        );
+                      },
                     ),
                     // Missing Instances Info
                     if (_routineWithInstances!.missingInstances.isNotEmpty)

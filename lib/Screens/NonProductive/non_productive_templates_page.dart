@@ -5,7 +5,9 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 
@@ -21,6 +23,14 @@ class _NonProductiveTemplatesPageState
     extends State<NonProductiveTemplatesPage> {
   List<ActivityRecord> _templates = [];
   bool _isLoading = true;
+  static const List<String> _bottomTabNames = [
+    'Tasks',
+    'Habits',
+    'Queue',
+    'Routines',
+    'Calendar'
+  ];
+  int _bottomNavIndex = 2;
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
@@ -289,6 +299,23 @@ class _NonProductiveTemplatesPageState
     }
   }
 
+  void _handleBottomNavTap(int index) {
+    if (index < 0 || index >= _bottomTabNames.length) return;
+    final targetPage = _bottomTabNames[index];
+    bool reachedHome = false;
+    Navigator.of(context).popUntil((route) {
+      if (route.settings.name == home) {
+        reachedHome = true;
+        return true;
+      }
+      return false;
+    });
+    if (!reachedHome) {
+      Navigator.of(context).popUntil((route) => route.isFirst);
+    }
+    NotificationCenter.post('navigateBottomTab', targetPage);
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -297,9 +324,11 @@ class _NonProductiveTemplatesPageState
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
         title: const Text('Non-Productive Items'),
       ),
-      body: Stack(
-        children: [
-          _isLoading
+      body: SafeArea(
+        top: false,
+        child: Stack(
+          children: [
+            _isLoading
               ? const Center(child: CircularProgressIndicator())
               : _filteredTemplates.isEmpty
                   ? Center(
@@ -332,7 +361,7 @@ class _NonProductiveTemplatesPageState
                   : RefreshIndicator(
                       onRefresh: _loadTemplates,
                       child: ListView.builder(
-                        padding: const EdgeInsets.all(16),
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 120),
                         itemCount: _filteredTemplates.length,
                         itemBuilder: (context, index) {
                           final template = _filteredTemplates[index];
@@ -439,7 +468,58 @@ class _NonProductiveTemplatesPageState
               tooltip: 'Create Non-Productive Template',
             ),
           ),
-        ],
+          ],
+        ),
+      ),
+      bottomNavigationBar: Container(
+        decoration: BoxDecoration(
+          color: FlutterFlowTheme.of(context).secondaryBackground,
+          border: Border(
+            top: BorderSide(
+              color: FlutterFlowTheme.of(context).alternate,
+              width: 1,
+            ),
+          ),
+        ),
+        child: BottomNavigationBar(
+          currentIndex: _bottomNavIndex,
+          onTap: (index) {
+            if (!mounted) return;
+            setState(() {
+              _bottomNavIndex = index;
+            });
+            _handleBottomNavTap(index);
+          },
+          type: BottomNavigationBarType.fixed,
+          backgroundColor:
+              FlutterFlowTheme.of(context).secondaryBackground,
+          selectedItemColor: FlutterFlowTheme.of(context).primary,
+          unselectedItemColor: FlutterFlowTheme.of(context).secondaryText,
+          selectedFontSize: 12,
+          unselectedFontSize: 12,
+          items: const [
+            BottomNavigationBarItem(
+              icon: Icon(Icons.assignment),
+              label: 'Tasks',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.flag),
+              label: 'Habits',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.queue),
+              label: 'Queue',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.playlist_play),
+              label: 'Routines',
+            ),
+            BottomNavigationBarItem(
+              icon: Icon(Icons.calendar_today),
+              label: 'Calendar',
+            ),
+          ],
+        ),
       ),
     );
   }

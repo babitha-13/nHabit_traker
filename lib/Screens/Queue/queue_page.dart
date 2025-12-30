@@ -29,7 +29,6 @@ import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
     show QueueSortState, QueueSortStateManager, QueueSortType;
 import 'package:habit_tracker/Screens/Queue/queue_filter_dialog.dart';
 import 'package:habit_tracker/Helper/backend/points_service.dart';
-import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
@@ -71,6 +70,7 @@ class _QueuePageState extends State<QueuePage> {
   // Search functionality
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
+  bool _isSearchBarVisible = false;
   // Filter and sort state
   QueueFilterState _currentFilter = QueueFilterState();
   QueueSortState _currentSort = QueueSortState();
@@ -138,7 +138,9 @@ class _QueuePageState extends State<QueuePage> {
       }
     });
     // Listen for search changes
+    _isSearchBarVisible = _searchManager.isSearchOpen;
     _searchManager.addListener(_onSearchChanged);
+    _searchManager.addSearchOpenListener(_onSearchVisibilityChanged);
     // Listen for instance events (but ignore during initial load)
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
@@ -194,6 +196,7 @@ class _QueuePageState extends State<QueuePage> {
   void dispose() {
     NotificationCenter.removeObserver(this);
     _searchManager.removeListener(_onSearchChanged);
+    _searchManager.removeSearchOpenListener(_onSearchVisibilityChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -243,6 +246,16 @@ class _QueuePageState extends State<QueuePage> {
         _cachedBucketedItems = null;
       });
     }
+  }
+
+  void _onSearchVisibilityChanged(bool isVisible) {
+    if (!mounted) {
+      _isSearchBarVisible = isVisible;
+      return;
+    }
+    setState(() {
+      _isSearchBarVisible = isVisible;
+    });
   }
 
   Future<void> _loadData() async {
@@ -1533,12 +1546,6 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  /// Get active floating timer instances
-  /// Uses TimerManager to get globally tracked active timers
-  List<ActivityInstanceRecord> get _activeFloatingInstances {
-    return TimerManager().activeTimers;
-  }
-
   Widget _buildDailyView() {
     final buckets = _bucketedItems;
     final order = ['Overdue', 'Pending', 'Completed', 'Skipped/Snoozed'];
@@ -1688,6 +1695,22 @@ class _QueuePageState extends State<QueuePage> {
         );
       }
     }
+    final bodySlivers = <Widget>[];
+    if (!_isSearchBarVisible) {
+      bodySlivers.add(
+        SliverToBoxAdapter(
+          child: _buildProgressCharts(),
+        ),
+      );
+      bodySlivers.add(const SliverToBoxAdapter(
+        child: SizedBox(height: 16),
+      ));
+    }
+    bodySlivers.addAll(slivers);
+    bodySlivers.add(const SliverToBoxAdapter(
+      child: SizedBox(height: 140),
+    ));
+
     return RefreshIndicator(
       onRefresh: () async {
         await _loadData();
@@ -1698,19 +1721,7 @@ class _QueuePageState extends State<QueuePage> {
       },
       child: CustomScrollView(
         controller: _scrollController,
-        slivers: [
-          // Progress charts as first scrollable item
-          SliverToBoxAdapter(
-            child: _buildProgressCharts(),
-          ),
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 16),
-          ),
-          ...slivers,
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 140),
-          ),
-        ],
+        slivers: bodySlivers,
       ),
     );
   }

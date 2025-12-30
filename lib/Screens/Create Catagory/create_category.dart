@@ -315,18 +315,10 @@ class _CreateCategoryState extends State<CreateCategory> {
                           }
                         }
                       }
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Category "${nameController.text}" updated successfully!'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      }
+                      Navigator.of(context).pop(true);
                     } else {
                       // ✅ Create new
-                      await createCategory(
+                      final newCategoryRef = await createCategory(
                         name: nameController.text,
                         description: descriptionController.text.isNotEmpty
                             ? descriptionController.text
@@ -336,17 +328,8 @@ class _CreateCategoryState extends State<CreateCategory> {
                         categoryType: widget.categoryType ??
                             'habit', // Default to habit if not specified
                       );
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(
-                                'Category "${nameController.text}" created successfully!'),
-                            backgroundColor: Colors.green,
-                          ),
-                        );
-                      }
+                      Navigator.of(context).pop(newCategoryRef.id);
                     }
-                    Navigator.of(context).pop(true);
                   } catch (e) {
                     if (mounted) {
                       // Check if it's a duplicate name error from backend
