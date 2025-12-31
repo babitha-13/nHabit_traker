@@ -831,7 +831,7 @@ class _CalendarPageState extends State<CalendarPage> {
     );
 
     // Check if new instance should appear in planned section on selected date
-    bool shouldRefresh = false;
+    bool affectsPlannedSection = false;
 
     // Check if instance is due on the selected date and has a due time
     // (planned events require both dueDate and dueTime)
@@ -845,41 +845,49 @@ class _CalendarPageState extends State<CalendarPage> {
       );
       if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
         // Instance is due on selected date and has a time - should appear in planned section
-        shouldRefresh = true;
+        affectsPlannedSection = true;
       }
     }
 
     // Also check if instance belongs to the selected date (for habits)
-    if (instance.belongsToDate != null) {
+    if (instance.belongsToDate != null &&
+        !affectsPlannedSection &&
+        instance.dueTime != null &&
+        instance.dueTime!.isNotEmpty) {
       final belongsToDateOnly = DateTime(
         instance.belongsToDate!.year,
         instance.belongsToDate!.month,
         instance.belongsToDate!.day,
       );
-      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly) &&
-          instance.dueTime != null &&
-          instance.dueTime!.isNotEmpty) {
-        shouldRefresh = true;
+      if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        affectsPlannedSection = true;
       }
     }
 
-    // Handle optimistic updates immediately, reconciled updates trigger refresh
+    // Handle optimistic updates with immediate UI patches
     if (isOptimistic) {
       // Track optimistic operation
       if (operationId != null) {
         _optimisticOperations[operationId] = instance.reference.id;
       }
-      // Refresh immediately for optimistic updates to show instant UI changes
-      if (shouldRefresh) {
-        _loadEvents();
+      
+      // Store optimistic instance for planned section
+      if (affectsPlannedSection) {
+        _optimisticInstances[instance.reference.id] = instance;
+        // Apply immediate UI patch
+        _applyOptimisticPlannedPatch(instance);
       }
     } else {
       // Reconciled update - remove from optimistic tracking
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      // Refresh if instance affects current view
-      if (shouldRefresh) {
+      
+      // Remove from optimistic cache
+      _optimisticInstances.remove(instance.reference.id);
+      
+      // Background reconciliation: reload events to sync with backend
+      if (affectsPlannedSection) {
         _loadEvents();
       }
     }
@@ -912,7 +920,8 @@ class _CalendarPageState extends State<CalendarPage> {
     );
 
     // Check if instance affects the selected date
-    bool shouldRefresh = false;
+    bool affectsSelectedDate = false;
+    bool affectsPlannedSection = false;
 
     // Check if instance has timeLogSessions on the selected date
     if (instance.timeLogSessions.isNotEmpty) {
@@ -924,14 +933,13 @@ class _CalendarPageState extends State<CalendarPage> {
           sessionStart.day,
         );
         if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
-          shouldRefresh = true;
+          affectsSelectedDate = true;
           break;
         }
       }
     }
 
-    // Also refresh if instance belongs to the selected date (for habits and tasks)
-    // This covers cases where completion/uncompletion might add/remove time logs
+    // Check if instance belongs to the selected date (for habits and tasks)
     if (instance.belongsToDate != null) {
       final belongsToDateOnly = DateTime(
         instance.belongsToDate!.year,
@@ -939,27 +947,58 @@ class _CalendarPageState extends State<CalendarPage> {
         instance.belongsToDate!.day,
       );
       if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-        shouldRefresh = true;
+        affectsSelectedDate = true;
       }
     }
 
-    // Handle optimistic updates immediately, reconciled updates trigger refresh
+    // Check if instance affects planned section (has dueDate + dueTime on selected date)
+    if (instance.dueDate != null &&
+        instance.dueTime != null &&
+        instance.dueTime!.isNotEmpty) {
+      final dueDateOnly = DateTime(
+        instance.dueDate!.year,
+        instance.dueDate!.month,
+        instance.dueDate!.day,
+      );
+      if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        affectsPlannedSection = true;
+        affectsSelectedDate = true;
+      }
+    }
+
+    // Handle optimistic updates with immediate UI patches
     if (isOptimistic) {
       // Track optimistic operation
       if (operationId != null) {
         _optimisticOperations[operationId] = instance.reference.id;
       }
-      // Refresh immediately for optimistic updates to show instant UI changes
-      if (shouldRefresh) {
-        _loadEvents();
+      
+      // Store optimistic instance for planned section
+      if (affectsPlannedSection) {
+        _optimisticInstances[instance.reference.id] = instance;
+      }
+      
+      // Apply immediate UI patches if instance affects selected date
+      if (affectsSelectedDate) {
+        _applyOptimisticPlannedPatch(instance);
+        // For completed events (time logs), we still need full reload
+        // but we can optimize planned section immediately
+        if (instance.timeLogSessions.isNotEmpty) {
+          // Background reload for completed events
+          _loadEvents();
+        }
       }
     } else {
       // Reconciled update - remove from optimistic tracking
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      // Refresh if instance affects current view
-      if (shouldRefresh) {
+      
+      // Remove from optimistic cache
+      _optimisticInstances.remove(instance.reference.id);
+      
+      // Background reconciliation: reload events to sync with backend
+      if (affectsSelectedDate) {
         _loadEvents();
       }
     }
@@ -982,8 +1021,14 @@ class _CalendarPageState extends State<CalendarPage> {
       _selectedDate.day,
     );
 
+    final instanceId = instance.reference.id;
+
+    // Remove from optimistic cache
+    _optimisticInstances.remove(instanceId);
+
     // Check if deleted instance affected the selected date
-    bool shouldRefresh = false;
+    bool affectsSelectedDate = false;
+    bool affectsPlannedSection = false;
 
     // Check if instance was in planned section (dueDate + dueTime on selected date)
     if (instance.dueDate != null &&
@@ -995,8 +1040,8 @@ class _CalendarPageState extends State<CalendarPage> {
         instance.dueDate!.day,
       );
       if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-        // Instance was in planned section - needs refresh
-        shouldRefresh = true;
+        affectsPlannedSection = true;
+        affectsSelectedDate = true;
       }
     }
 
@@ -1010,7 +1055,7 @@ class _CalendarPageState extends State<CalendarPage> {
           sessionStart.day,
         );
         if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
-          shouldRefresh = true;
+          affectsSelectedDate = true;
           break;
         }
       }
@@ -1024,12 +1069,34 @@ class _CalendarPageState extends State<CalendarPage> {
         instance.belongsToDate!.day,
       );
       if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-        shouldRefresh = true;
+        affectsSelectedDate = true;
       }
     }
 
-    // Refresh if the deleted instance affected the selected date
-    if (shouldRefresh) {
+    // Apply immediate UI patch for planned section
+    if (affectsPlannedSection) {
+      _plannedEventController.removeWhere((e) {
+        final metadata = CalendarEventMetadata.fromMap(e.event);
+        return metadata?.instanceId == instanceId;
+      });
+      _sortedPlannedEvents.removeWhere((e) {
+        final metadata = CalendarEventMetadata.fromMap(e.event);
+        return metadata?.instanceId == instanceId;
+      });
+
+      // Recalculate overlaps
+      final overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
+      _plannedOverlapPairCount = overlapInfo.pairCount;
+      _plannedOverlappedEventIds
+        ..clear()
+        ..addAll(overlapInfo.overlappedIds);
+      _plannedOverlapGroups = overlapInfo.groups;
+
+      if (mounted) setState(() {});
+    }
+
+    // Background reload for completed events (time logs)
+    if (affectsSelectedDate && instance.timeLogSessions.isNotEmpty) {
       _loadEvents();
     }
   }
@@ -1047,11 +1114,172 @@ class _CalendarPageState extends State<CalendarPage> {
           // Remove from optimistic cache on rollback
           if (instanceId != null) {
             _optimisticInstances.remove(instanceId);
+            // Remove optimistic event from planned section
+            _plannedEventController.removeWhere((e) {
+              final metadata = CalendarEventMetadata.fromMap(e.event);
+              return metadata?.instanceId == instanceId;
+            });
+            _sortedPlannedEvents.removeWhere((e) {
+              final metadata = CalendarEventMetadata.fromMap(e.event);
+              return metadata?.instanceId == instanceId;
+            });
           }
         });
         // Reload events to restore correct state
         _loadEvents();
       }
+    }
+  }
+
+  /// Apply optimistic patch to planned events without waiting for backend
+  void _applyOptimisticPlannedPatch(ActivityInstanceRecord instance) {
+    if (!mounted) return;
+
+    final selectedDateOnly = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+
+    // Only handle instances with dueDate + dueTime on selected date
+    if (instance.dueDate == null ||
+        instance.dueTime == null ||
+        instance.dueTime!.isEmpty) {
+      return;
+    }
+
+    final dueDateOnly = DateTime(
+      instance.dueDate!.year,
+      instance.dueDate!.month,
+      instance.dueDate!.day,
+    );
+
+    if (!dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+      return;
+    }
+
+    final instanceId = instance.reference.id;
+
+    // Remove existing event for this instance (if any)
+    _plannedEventController.removeWhere((e) {
+      final metadata = CalendarEventMetadata.fromMap(e.event);
+      return metadata?.instanceId == instanceId;
+    });
+    _sortedPlannedEvents.removeWhere((e) {
+      final metadata = CalendarEventMetadata.fromMap(e.event);
+      return metadata?.instanceId == instanceId;
+    });
+
+    // If instance is completed or skipped, don't add to planned section
+    if (instance.status == 'completed' || instance.status == 'skipped') {
+      // Recalculate overlaps and update UI
+      final overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
+      _plannedOverlapPairCount = overlapInfo.pairCount;
+      _plannedOverlappedEventIds
+        ..clear()
+        ..addAll(overlapInfo.overlappedIds);
+      _plannedOverlapGroups = overlapInfo.groups;
+      if (mounted) setState(() {});
+      return;
+    }
+
+    // Create new planned event for this instance
+    try {
+      // Determine category color (use fallback if categories not loaded)
+      Color categoryColor;
+      if (instance.templateCategoryType == 'habit') {
+        // Try to use cached category color, fallback to blue
+        if (instance.templateCategoryColor.isNotEmpty) {
+          categoryColor = _parseColor(instance.templateCategoryColor);
+        } else {
+          categoryColor = Colors.blue;
+        }
+      } else if (instance.templateCategoryType == 'non_productive') {
+        categoryColor = Colors.grey;
+      } else {
+        // Tasks default to Dark Charcoal/Black
+        categoryColor = const Color(0xFF1A1A1A);
+      }
+
+      // Parse due time
+      final startTime = _parseDueTime(instance.dueTime!, _selectedDate);
+
+      // Determine duration (fast heuristic for optimistic update)
+      int? durationMinutes;
+      if (instance.templateTrackingType == 'time' && instance.templateTarget != null) {
+        // Use target minutes if available
+        final target = instance.templateTarget;
+        if (target is num) {
+          durationMinutes = target.toInt();
+        } else if (target is String) {
+          durationMinutes = int.tryParse(target);
+        }
+      }
+      
+      // Fallback to default duration if no target
+      durationMinutes ??= _defaultDurationMinutes;
+
+      final isDueMarker = durationMinutes <= 0;
+      final endTime = isDueMarker
+          ? startTime.add(const Duration(minutes: 1))
+          : startTime.add(Duration(minutes: durationMinutes));
+
+      final metadata = CalendarEventMetadata(
+        instanceId: instanceId,
+        sessionIndex: -1,
+        activityName: instance.templateName,
+        activityType: instance.templateCategoryType,
+        templateId: instance.templateId,
+        categoryId: instance.templateCategoryId.isNotEmpty
+            ? instance.templateCategoryId
+            : null,
+        categoryName: instance.templateCategoryName.isNotEmpty
+            ? instance.templateCategoryName
+            : null,
+        categoryColorHex: instance.templateCategoryColor.isNotEmpty
+            ? instance.templateCategoryColor
+            : null,
+      );
+
+      final newEvent = CalendarEventData(
+        date: _selectedDate,
+        startTime: startTime,
+        endTime: endTime,
+        title: instance.templateName,
+        color: categoryColor,
+        description: isDueMarker
+            ? null
+            : _formatDuration(Duration(minutes: durationMinutes)),
+        event: {
+          ...metadata.toMap(),
+          'isDueMarker': isDueMarker,
+        },
+      );
+
+      // Add to planned events
+      _sortedPlannedEvents.add(newEvent);
+      _sortedPlannedEvents.sort((a, b) {
+        if (a.startTime == null || b.startTime == null) return 0;
+        return a.startTime!.compareTo(b.startTime!);
+      });
+
+      // Update controller
+      _plannedEventController.add(newEvent);
+
+      // Recalculate overlaps
+      final overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
+      _plannedOverlapPairCount = overlapInfo.pairCount;
+      _plannedOverlappedEventIds
+        ..clear()
+        ..addAll(overlapInfo.overlappedIds);
+      _plannedOverlapGroups = overlapInfo.groups;
+
+      // Update UI
+      if (mounted) setState(() {});
+    } catch (e) {
+      // On error, fall back to full reload
+      print('Error applying optimistic planned patch: $e');
+      _loadEvents();
     }
   }
 

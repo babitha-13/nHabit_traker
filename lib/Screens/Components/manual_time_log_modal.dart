@@ -15,6 +15,7 @@ import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
 class ManualTimeLogModal extends StatefulWidget {
   final DateTime selectedDate;
   final VoidCallback onSave;
+  final bool markCompleteOnSave;
 
   const ManualTimeLogModal({
     super.key,
@@ -25,6 +26,7 @@ class ManualTimeLogModal extends StatefulWidget {
     this.onPreviewChange,
     this.fromTimer = false,
     this.editMetadata,
+    this.markCompleteOnSave = true,
   });
 
   final DateTime? initialStartTime;
@@ -382,6 +384,16 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     );
   }
 
+  bool _shouldMarkCompleteOnSave() {
+    bool shouldComplete = widget.markCompleteOnSave;
+    if (_selectedTemplate != null &&
+        _selectedTemplate!.trackingType == 'binary' &&
+        _markAsComplete) {
+      shouldComplete = true;
+    }
+    return shouldComplete;
+  }
+
   Future<void> _pickStartTime() async {
     // Hide suggestions dropdown before showing time picker
     if (mounted) {
@@ -561,47 +573,15 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
         );
       } else {
         // Create new entry
+        final shouldMarkComplete = _shouldMarkCompleteOnSave();
         await TaskInstanceService.logManualTimeEntry(
           taskName: _selectedTemplate?.name ?? name,
           startTime: _startTime,
           endTime: _endTime,
           activityType: _selectedType, // 'task', 'habit', 'non_productive'
           templateId: templateId,
+          markComplete: shouldMarkComplete,
         );
-      }
-
-      // Handle completion separately if needed
-      // If from timer and should mark complete
-      if (widget.fromTimer) {
-        bool shouldMarkComplete = false;
-
-        // If creating a new task (no template selected), mark as complete
-        // Timer tasks are binary by default
-        if (_selectedType == 'task' && _selectedTemplate == null) {
-          shouldMarkComplete = true;
-        }
-        // If selected template is binary and checkbox is checked
-        else if (_selectedTemplate != null &&
-            _selectedTemplate!.trackingType == 'binary' &&
-            _markAsComplete) {
-          shouldMarkComplete = true;
-        }
-        // For non-productive, qty, and timer type habits: don't mark complete
-        // (shouldMarkComplete stays false)
-
-        if (shouldMarkComplete && templateId != null) {
-          // Find the instance that was just created/updated and mark it complete
-          try {
-            // The logManualTimeEntry creates/updates an instance
-            // We need to find it and mark it complete
-            // For now, completion is handled automatically for new task instances
-            // in logManualTimeEntry, so we may not need to do anything here
-            // But if we do, we'd need to query for the instance
-          } catch (e) {
-            // Error marking instance as complete
-            // Don't fail the save if completion marking fails
-          }
-        }
       }
 
       // Close modal first, then call onSave
@@ -763,6 +743,47 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     }
   }
 
+  /// Handle back button - show warning if user has unsaved changes
+  Future<bool> _onWillPop() async {
+    // Check if user has made any changes
+    final hasChanges = _activityController.text.isNotEmpty ||
+        _selectedTemplate != null ||
+        _markAsComplete ||
+        _quantityValue > 0;
+
+    if (!hasChanges) {
+      // No changes, allow back navigation
+      return true;
+    }
+
+    // Show warning dialog
+    final shouldDiscard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Discard Changes?'),
+        content: const Text(
+          'You have unsaved changes. Are you sure you want to discard them?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            style: ElevatedButton.styleFrom(
+              backgroundColor: Colors.red,
+              foregroundColor: Colors.white,
+            ),
+            child: const Text('Discard'),
+          ),
+        ],
+      ),
+    );
+
+    return shouldDiscard ?? false;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
@@ -772,7 +793,9 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     final bottomBuffer = bottomSafeArea + 24;
     final containerBottomPadding = keyboardInset + bottomBuffer;
 
-    return SafeArea(
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: SafeArea(
       top: false,
       minimum: const EdgeInsets.only(bottom: 12),
       child: Container(
@@ -997,6 +1020,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

@@ -15,12 +15,15 @@ class WindowDisplayHelper {
       instance.windowEndDate!.day,
     );
     if (windowEnd.isAtSameMomentAs(today)) {
-      return '${instance.templateCategoryName} • Window ends Today';
+      return _withCategoryPrefix(
+          instance, 'Window ends Today');
     } else if (windowEnd.isAtSameMomentAs(today.add(const Duration(days: 1)))) {
-      return '${instance.templateCategoryName} • Window ends Tomorrow';
+      return _withCategoryPrefix(
+          instance, 'Window ends Tomorrow');
     } else {
       final formattedDate = DateFormat.MMMd().format(windowEnd);
-      return '${instance.templateCategoryName} • Window ends $formattedDate';
+      return _withCategoryPrefix(
+          instance, 'Window ends $formattedDate');
     }
   }
   /// Get subtitle text for when the next window starts
@@ -39,16 +42,28 @@ class WindowDisplayHelper {
       nextWindowStart.day,
     );
     if (nextStart.isAtSameMomentAs(today)) {
-      return '${instance.templateCategoryName} • Next window starts Today';
+      return _withCategoryPrefix(
+          instance, 'Next window starts Today');
     } else if (nextStart.isAtSameMomentAs(today.add(const Duration(days: 1)))) {
-      return '${instance.templateCategoryName} • Next window starts Tomorrow';
+      return _withCategoryPrefix(
+          instance, 'Next window starts Tomorrow');
     } else {
       final formattedDate = DateFormat.MMMd().format(nextStart);
-      return '${instance.templateCategoryName} • Next window starts $formattedDate';
+      return _withCategoryPrefix(
+          instance, 'Next window starts $formattedDate');
     }
   }
   /// Check if an instance has a completion window
   static bool hasCompletionWindow(ActivityInstanceRecord instance) {
     return instance.windowEndDate != null && instance.windowDuration > 1;
+  }
+
+  static String _withCategoryPrefix(
+      ActivityInstanceRecord instance, String suffix) {
+    final categoryName = instance.templateCategoryName.trim();
+    if (categoryName.isEmpty) {
+      return suffix;
+    }
+    return '$categoryName • $suffix';
   }
 }

@@ -121,6 +121,7 @@ class ActivityInstanceService {
       templateTarget: template.target,
       templateUnit: template.unit,
       templateDescription: template.description,
+      templateTimeEstimateMinutes: template.timeEstimateMinutes,
       templateShowInFloatingTimer: template.showInFloatingTimer,
       templateIsRecurring: template.isRecurring,
       templateEveryXValue: template.everyXValue,
@@ -262,12 +263,24 @@ class ActivityInstanceService {
       final allInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
-      // Sort by due date (oldest first, nulls last)
+      // Sort by due date (oldest first, nulls last) then by createdTime (latest first)
       allInstances.sort((a, b) {
-        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null && b.dueDate == null) {
+          // Both null: Sort by createdTime (latest first)
+          final createdA = a.createdTime ?? DateTime(0);
+          final createdB = b.createdTime ?? DateTime(0);
+          return createdB.compareTo(createdA);
+        }
         if (a.dueDate == null) return 1;
         if (b.dueDate == null) return -1;
-        return a.dueDate!.compareTo(b.dueDate!);
+        
+        final dateCompare = a.dueDate!.compareTo(b.dueDate!);
+        if (dateCompare != 0) return dateCompare;
+        
+        // Same due date: Sort by createdTime (latest first)
+        final createdA = a.createdTime ?? DateTime(0);
+        final createdB = b.createdTime ?? DateTime(0);
+        return createdB.compareTo(createdA);
       });
       return allInstances;
     } catch (e) {
@@ -1001,6 +1014,7 @@ class ActivityInstanceService {
     String? notes,
     String? userId,
     DateTime? completedAt, // If null, uses current time
+    bool forceSessionBackdate = false,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -1057,7 +1071,44 @@ class ActivityInstanceService {
         'lastUpdated': now,
       };
 
-      if (durationMs > 0 && existingSessions.isEmpty) {
+      int? forcedDurationMs;
+      if (forceSessionBackdate) {
+        final int recordedDuration =
+            finalAccumulatedTime ?? instance.accumulatedTime;
+        final int totalLogged = instance.totalTimeLogged;
+        final int candidateDuration =
+            recordedDuration > 0 ? recordedDuration : (totalLogged > 0 ? totalLogged : 0);
+        if (candidateDuration > 0) {
+          forcedDurationMs = candidateDuration;
+        } else if (durationMs > 0) {
+          forcedDurationMs = durationMs;
+        }
+      }
+
+      if (forceSessionBackdate && (forcedDurationMs ?? 0) > 0) {
+        final stackedTimes = await calculateStackedStartTime(
+          userId: uid,
+          completionTime: completionTime,
+          durationMs: forcedDurationMs!,
+          instanceId: instanceId,
+          effectiveEstimateMinutes: effectiveEstimateMinutes,
+        );
+
+        final forcedSession = {
+          'startTime': stackedTimes.startTime,
+          'endTime': stackedTimes.endTime,
+          'durationMilliseconds': forcedDurationMs,
+        };
+
+        existingSessions
+          ..clear()
+          ..add(forcedSession);
+
+        updateData['timeLogSessions'] = existingSessions;
+        updateData['totalTimeLogged'] = forcedDurationMs;
+        updateData['accumulatedTime'] =
+            finalAccumulatedTime ?? forcedDurationMs;
+      } else if (durationMs > 0 && existingSessions.isEmpty) {
         // Calculate stacked start and end times (backwards from completion time)
         final stackedTimes = await calculateStackedStartTime(
           userId: uid,
@@ -2150,6 +2201,7 @@ class ActivityInstanceService {
               templateTarget: template.target,
               templateUnit: template.unit,
               templateDescription: template.description,
+              templateTimeEstimateMinutes: template.timeEstimateMinutes,
               templateShowInFloatingTimer: template.showInFloatingTimer,
               templateIsRecurring: template.isRecurring,
               templateEveryXValue: template.everyXValue,
@@ -2985,6 +3037,7 @@ class ActivityInstanceService {
         templateTarget: template.target,
         templateUnit: template.unit,
         templateDescription: template.description,
+        templateTimeEstimateMinutes: template.timeEstimateMinutes,
         templateShowInFloatingTimer: template.showInFloatingTimer,
         templateIsRecurring: template.isRecurring,
         templateEveryXValue: template.everyXValue,

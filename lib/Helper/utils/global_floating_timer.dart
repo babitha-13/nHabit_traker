@@ -6,6 +6,11 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/sound_helper.dart';
+import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Screens/Timer/timer_stop_flow.dart';
 
 /// Global floating timer widget that appears on all pages when timers are active
 class GlobalFloatingTimer extends StatefulWidget {
@@ -72,8 +77,11 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   /// Handle instance update events from NotificationCenter
   void _onInstanceUpdated(Object? data) {
     if (data is ActivityInstanceRecord) {
-      // Check if it's a timer instance and sync with TimerManager
-      if (data.templateTrackingType == 'time') {
+      // Check if it's a timer instance (time type or binary with time logging) and sync with TimerManager
+      final isTimeType = data.templateTrackingType == 'time';
+      final isBinaryTimerSession = data.templateTrackingType == 'binary' &&
+          (data.isTimeLogging || data.currentSessionStartTime != null);
+      if (isTimeType || isBinaryTimerSession) {
         _timerManager.updateInstance(data);
       }
     }
@@ -287,6 +295,11 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   Widget _buildTimerItem(
       ActivityInstanceRecord instance, FlutterFlowTheme theme) {
     final currentTime = _getCurrentTime(instance);
+    
+    // Determine which buttons to show based on tracking type
+    final trackingType = instance.templateTrackingType;
+    final isBinary = trackingType == 'binary';
+    final isQtyOrTime = trackingType == 'quantitative' || trackingType == 'time';
 
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -315,38 +328,126 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
           ),
           // Elapsed time
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
             child: Text(
               _formatDuration(currentTime),
               style: theme.titleSmall.override(
                 fontFamily: 'Readex Pro',
                 fontWeight: FontWeight.w600,
                 color: theme.primary,
-                fontSize: 16,
+                fontSize: 14,
               ),
             ),
           ),
-          // Stop button
-          SizedBox(
-            width: 60,
-            child: ElevatedButton(
-              onPressed: () => _stopTimer(instance),
-              style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.redAccent,
-                foregroundColor: Colors.white,
-                padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 8),
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(8),
+          // Buttons based on tracking type
+          if (isBinary) ...[
+            // Binary tasks: Show Stop, Done, and Cancel buttons
+            SizedBox(
+              width: 45,
+              child: ElevatedButton(
+                onPressed: () => _stopTimer(instance, markComplete: false),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
-                minimumSize: Size.zero,
-                tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-              child: const Text(
-                'Stop',
-                style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                child: const Text(
+                  'Stop',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+                ),
               ),
             ),
-          ),
+            const SizedBox(width: 3),
+            SizedBox(
+              width: 45,
+              child: ElevatedButton(
+                onPressed: () => _stopTimer(instance, markComplete: true),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.green,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Done',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(width: 3),
+            SizedBox(
+              width: 45,
+              child: ElevatedButton(
+                onPressed: () => _cancelTimer(instance),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontSize: 9, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ] else if (isQtyOrTime) ...[
+            // Qty or Time tasks: Show Stop and Cancel buttons
+            SizedBox(
+              width: 50,
+              child: ElevatedButton(
+                onPressed: () => _stopTimer(instance, markComplete: false),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Stop',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+            const SizedBox(width: 4),
+            SizedBox(
+              width: 50,
+              child: ElevatedButton(
+                onPressed: () => _cancelTimer(instance),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.red,
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  minimumSize: Size.zero,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+          ],
         ],
       ),
     );
@@ -355,12 +456,22 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
   /// Get current elapsed time for an instance
   int _getCurrentTime(ActivityInstanceRecord instance) {
     int totalMilliseconds = instance.accumulatedTime;
-    if (instance.isTimerActive && instance.timerStartTime != null) {
+    
+    // For binary timer sessions, use currentSessionStartTime
+    if (instance.templateTrackingType == 'binary' && 
+        instance.currentSessionStartTime != null) {
+      final elapsed = DateTime.now()
+          .difference(instance.currentSessionStartTime!)
+          .inMilliseconds;
+      totalMilliseconds += elapsed;
+    } else if (instance.isTimerActive && instance.timerStartTime != null) {
+      // For time-tracking instances, use timerStartTime
       final elapsed = DateTime.now()
           .difference(instance.timerStartTime!)
           .inMilliseconds;
       totalMilliseconds += elapsed;
     }
+    
     return totalMilliseconds;
   }
 
@@ -381,25 +492,198 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
     }
   }
 
-  /// Stop timer
-  Future<void> _stopTimer(ActivityInstanceRecord instance) async {
+  /// Cancel timer - directly discard without showing modal
+  Future<void> _cancelTimer(ActivityInstanceRecord instance) async {
     try {
-      final wasActive = instance.isTimerActive;
-      if (wasActive) {
-        await ActivityInstanceService.toggleInstanceTimer(
-          instanceId: instance.reference.id,
+      // Show confirmation dialog
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Discard Timer?'),
+          content: const Text(
+            'Are you sure you want to discard this timer session? All progress will be lost.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('No'),
+            ),
+            ElevatedButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.red,
+                foregroundColor: Colors.white,
+              ),
+              child: const Text('Discard'),
+            ),
+          ],
+        ),
+      );
+
+      if (confirmed != true) {
+        return; // User cancelled
+      }
+
+      // For binary timer sessions (from timer page), discard and delete if temporary
+      if (instance.templateTrackingType == 'binary' &&
+          (instance.isTimeLogging || instance.currentSessionStartTime != null)) {
+        // Check if this is a temporary timer task (not from swipe)
+        // Timer tasks have templateCategoryType 'task' and are binary
+        if (instance.templateCategoryType == 'task') {
+          // Discard time logging first
+          try {
+            await TaskInstanceService.discardTimeLogging(
+              activityInstanceRef: instance.reference,
+            );
+          } catch (e) {
+            // Ignore errors - might already be discarded
+          }
+
+          // Delete the template if it exists
+          try {
+            if (instance.hasTemplateId()) {
+              final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+                  .doc(instance.templateId);
+              await templateRef.delete();
+            }
+            // Delete the instance
+            await instance.reference.delete();
+          } catch (e) {
+            // Handle error silently - cleanup is best effort
+          }
+        } else {
+          // For swipe-started instances, just discard time logging
+          await TaskInstanceService.discardTimeLogging(
+            activityInstanceRef: instance.reference,
+          );
+        }
+      } else {
+        // For time-tracking instances, just discard time logging
+        await TaskInstanceService.discardTimeLogging(
+          activityInstanceRef: instance.reference,
         );
       }
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instance.reference.id,
-      );
-      // If timer was stopped, remove it from TimerManager
-      if (wasActive && !updatedInstance.isTimerActive) {
-        _timerManager.stopInstance(updatedInstance);
-      } else {
-        _timerManager.updateInstance(updatedInstance);
+
+      // Remove from TimerManager
+      _timerManager.stopInstance(instance);
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Timer discarded'),
+            duration: Duration(seconds: 2),
+          ),
+        );
       }
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error discarding timer: $e')),
+        );
+      }
+    }
+  }
+
+  /// Check if instance is from a swipe (has real task details, not temporary timer task)
+  bool _isFromSwipe(ActivityInstanceRecord instance) {
+    // Timer-created instances have template name "Timer Task"
+    // Swipe-started instances have the actual task name
+    return instance.templateName != 'Timer Task' && 
+           instance.templateName.isNotEmpty;
+  }
+
+  /// Stop timer with optional completion
+  Future<void> _stopTimer(ActivityInstanceRecord instance, {required bool markComplete}) async {
+    try {
+      // Play stop button sound
+      SoundHelper().playStopButtonSound();
+      
+      // Check if this is from a swipe (has task details already)
+      final isFromSwipe = _isFromSwipe(instance);
+      
+      // For binary timer sessions
+      if (instance.templateTrackingType == 'binary' && 
+          (instance.isTimeLogging || instance.currentSessionStartTime != null)) {
+        
+        // If from swipe, save directly without showing modal (task details already available)
+        if (isFromSwipe) {
+          try {
+            // For swipe-started instances: stop time logging (with or without completion)
+            await TaskInstanceService.stopTimeLogging(
+              activityInstanceRef: instance.reference,
+              markComplete: markComplete,
+            );
+            
+            // Remove from TimerManager after save
+            _timerManager.stopInstance(instance);
+            
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text(markComplete 
+                      ? 'Timer completed and saved' 
+                      : 'Timer stopped and saved'),
+                  duration: const Duration(seconds: 2),
+                ),
+              );
+            }
+          } catch (e) {
+            if (mounted) {
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(content: Text('Error saving timer: $e')),
+              );
+            }
+          }
+        } else {
+          // For timer-created instances, show modal to get task details
+          final success = await TimerStopFlow.handleTimerStop(
+            context: context,
+            instance: instance,
+            markComplete: markComplete,
+            timerStartTime: instance.currentSessionStartTime,
+            onSaveComplete: () {
+              // Remove from TimerManager after save
+              _timerManager.stopInstance(instance);
+              if (mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(markComplete 
+                        ? 'Timer completed and saved' 
+                        : 'Timer stopped and saved'),
+                    duration: const Duration(seconds: 2),
+                  ),
+                );
+              }
+            },
+          );
+          
+          if (!success) {
+            // Modal was cancelled, refresh instance state
+            final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+              instanceId: instance.reference.id,
+            );
+            _timerManager.updateInstance(updatedInstance);
+          }
+        }
+      } else {
+        // For time-tracking instances, use existing toggle logic
+        final wasActive = instance.isTimerActive;
+        if (wasActive) {
+          await ActivityInstanceService.toggleInstanceTimer(
+            instanceId: instance.reference.id,
+          );
+        }
+        final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        // If timer was stopped, remove it from TimerManager
+        if (wasActive && !updatedInstance.isTimerActive) {
+          _timerManager.stopInstance(updatedInstance);
+        } else {
+          _timerManager.updateInstance(updatedInstance);
+        }
+        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      }
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

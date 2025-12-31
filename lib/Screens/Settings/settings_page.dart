@@ -145,13 +145,13 @@ class _SettingsPageState extends State<SettingsPage> {
             // Time bonus points switch
             SwitchListTile(
               title: Text(
-                'Time Bonus Points',
+                'Effort Mode (Time Bonus)',
                 style: theme.bodyMedium.override(
                   fontWeight: FontWeight.w500,
                 ),
               ),
               subtitle: Text(
-                'Earn bonus points for binary and quantity activities when you log time beyond 30 minutes',
+                'ON: points reward time spent (30-min blocks). OFF: points follow your targets.',
                 style: theme.bodySmall,
               ),
               value: _timeBonusEnabled,
@@ -177,8 +177,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   Expanded(
                     child: Text(
                       _timeBonusEnabled
-                          ? 'Time bonuses are enabled. Log time for binary/quantity activities to earn extra points for time spent beyond 30 minutes.'
-                          : 'Time bonuses are disabled. Logged time will still be recorded for calendar view but won\'t affect points.',
+                          ? 'Effort Mode is ON. Binary and time-based activities award more points for more time spent (in 30-min blocks). Quantity activities still score by quantity.'
+                          : 'Effort Mode is OFF. Binary is completion-based, time-based scores vs your time target, and quantity scores vs your quantity target. Logged time is still recorded.',
                       style: theme.bodySmall.override(
                         color: Colors.blue.shade700,
                       ),

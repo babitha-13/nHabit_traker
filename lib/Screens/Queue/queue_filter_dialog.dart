@@ -248,9 +248,11 @@ class _QueueFilterDialogState extends State<QueueFilterDialog> {
         color: theme.primaryBackground,
         borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
           // Handle bar
           Container(
             margin: const EdgeInsets.only(top: 12),
@@ -429,7 +431,8 @@ class _QueueFilterDialogState extends State<QueueFilterDialog> {
           ),
         ],
       ),
-    );
+    ),
+  );
   }
 }
 

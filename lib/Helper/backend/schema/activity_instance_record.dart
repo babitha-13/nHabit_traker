@@ -117,6 +117,10 @@ class ActivityInstanceRecord extends FirestoreRecord {
   String? _templateDescription;
   String get templateDescription => _templateDescription ?? '';
   bool hasTemplateDescription() => _templateDescription != null;
+  int? _templateTimeEstimateMinutes;
+  int? get templateTimeEstimateMinutes => _templateTimeEstimateMinutes;
+  bool hasTemplateTimeEstimateMinutes() =>
+      _templateTimeEstimateMinutes != null;
   // Template due time (denormalized from template)
   String? _templateDueTime;
   String? get templateDueTime => _templateDueTime;
@@ -204,6 +208,8 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _templateTarget = snapshotData['templateTarget'];
     _templateUnit = snapshotData['templateUnit'] as String?;
     _templateDescription = snapshotData['templateDescription'] as String?;
+    _templateTimeEstimateMinutes =
+        snapshotData['templateTimeEstimateMinutes'] as int?;
     _templateShowInFloatingTimer =
         snapshotData['templateShowInFloatingTimer'] as bool?;
     _templateIsRecurring = snapshotData['templateIsRecurring'] as bool?;
@@ -290,6 +296,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   dynamic templateTarget,
   String? templateUnit,
   String? templateDescription,
+  int? templateTimeEstimateMinutes,
   bool? templateShowInFloatingTimer,
   bool? templateIsRecurring,
   int? templateEveryXValue,
@@ -337,6 +344,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateTarget': templateTarget,
       'templateUnit': templateUnit,
       'templateDescription': templateDescription,
+      'templateTimeEstimateMinutes': templateTimeEstimateMinutes,
       'templateShowInFloatingTimer': templateShowInFloatingTimer,
       'templateIsRecurring': templateIsRecurring,
       'templateEveryXValue': templateEveryXValue,
@@ -391,6 +399,8 @@ class ActivityInstanceRecordDocumentEquality
         e1?.templateTarget == e2?.templateTarget &&
         e1?.templateUnit == e2?.templateUnit &&
         e1?.templateDescription == e2?.templateDescription &&
+        e1?.templateTimeEstimateMinutes ==
+            e2?.templateTimeEstimateMinutes &&
         e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer &&
         e1?.templateEveryXValue == e2?.templateEveryXValue &&
         e1?.templateEveryXPeriodType == e2?.templateEveryXPeriodType &&
@@ -434,6 +444,7 @@ class ActivityInstanceRecordDocumentEquality
         e?.templateTarget,
         e?.templateUnit,
         e?.templateDescription,
+        e?.templateTimeEstimateMinutes,
         e?.templateShowInFloatingTimer,
         e?.templateEveryXValue,
         e?.templateEveryXPeriodType,

@@ -378,7 +378,19 @@ class _ProgressPageState extends State<ProgressPage> {
       if (userStats != null && mounted) {
         setState(() {
           _cumulativeScore = userStats.cumulativeScore;
-          _dailyScoreGain = userStats.lastDailyGain;
+
+          // Check if the last calculation was today
+          final today = DateService.todayStart;
+          final lastCalc = userStats.lastCalculationDate;
+          final isLastCalcToday = lastCalc != null &&
+              lastCalc.year == today.year &&
+              lastCalc.month == today.month &&
+              lastCalc.day == today.day;
+
+          // If last calculation wasn't today, today's gain is 0 initially,
+          // but will be overwritten by _updateProjectedScore() below
+          _dailyScoreGain = isLastCalcToday ? userStats.lastDailyGain : 0.0;
+
           // Load aggregate statistics
           _averageDailyScore7Day = userStats.averageDailyScore7Day;
           _averageDailyScore30Day = userStats.averageDailyScore30Day;
@@ -393,7 +405,7 @@ class _ProgressPageState extends State<ProgressPage> {
         });
       }
 
-      // Calculate projected score for today
+      // Always calculate/update projected score for today (handles midnight reset correctly)
       await _updateProjectedScore();
 
       // Load cumulative score history
@@ -411,60 +423,42 @@ class _ProgressPageState extends State<ProgressPage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      // Only show projection if today has progress
-      if (_todayPercentage > 0) {
-        final projectionData =
-            await CumulativeScoreService.calculateProjectedDailyScore(
-          userId,
-          _todayPercentage,
-          _todayEarned,
+      // Always show projection based on today's current progress (even if 0)
+      final projectionData =
+          await CumulativeScoreService.calculateProjectedDailyScore(
+        userId,
+        _todayPercentage,
+        _todayEarned,
+      );
+
+      if (mounted) {
+        setState(() {
+          _projectedCumulativeScore =
+              projectionData['projectedCumulative'] ?? 0.0;
+          _projectedDailyGain = projectionData['projectedGain'] ?? 0.0;
+          _hasProjection = true;
+          // Store breakdown components for tooltip
+          _dailyScore =
+              (projectionData['dailyScore'] as num?)?.toDouble() ?? 0.0;
+          _consistencyBonus =
+              (projectionData['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
+          _recoveryBonus =
+              (projectionData['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
+          _decayPenalty =
+              (projectionData['decayPenalty'] as num?)?.toDouble() ?? 0.0;
+          _categoryNeglectPenalty =
+              0.0; // Not included in projected score calculation
+        });
+
+        // Publish cumulative score to shared state
+        TodayProgressState().updateCumulativeScore(
+          cumulativeScore: _projectedCumulativeScore,
+          dailyGain: _projectedDailyGain,
+          hasLiveScore: true,
         );
 
-        if (mounted) {
-          setState(() {
-            _projectedCumulativeScore =
-                projectionData['projectedCumulative'] ?? 0.0;
-            _projectedDailyGain = projectionData['projectedGain'] ?? 0.0;
-            _hasProjection = true;
-            // Store breakdown components for tooltip
-            _dailyScore =
-                (projectionData['dailyScore'] as num?)?.toDouble() ?? 0.0;
-            _consistencyBonus =
-                (projectionData['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
-            _recoveryBonus =
-                (projectionData['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
-            _decayPenalty =
-                (projectionData['decayPenalty'] as num?)?.toDouble() ?? 0.0;
-            _categoryNeglectPenalty =
-                0.0; // Not included in projected score calculation
-          });
-
-          // Publish cumulative score to shared state
-          TodayProgressState().updateCumulativeScore(
-            cumulativeScore: _projectedCumulativeScore,
-            dailyGain: _projectedDailyGain,
-            hasLiveScore: true,
-          );
-
-          // Update today's entry in history if available
-          _updateTodayInHistory();
-        }
-      } else {
-        if (mounted) {
-          setState(() {
-            _hasProjection = false;
-          });
-
-          // Publish base cumulative score (without projection)
-          TodayProgressState().updateCumulativeScore(
-            cumulativeScore: _cumulativeScore,
-            dailyGain: _dailyScoreGain,
-            hasLiveScore: false,
-          );
-
-          // Update today's entry in history if available
-          _updateTodayInHistory();
-        }
+        // Update today's entry in history if available
+        _updateTodayInHistory();
       }
     } catch (e) {
       // Error updating projected score
@@ -1190,11 +1184,9 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   Widget _buildCumulativeScoreCard() {
-    // Use live score if today has progress, otherwise use stored cumulative score
-    final showLive = _hasProjection && _todayPercentage > 0;
-    final displayScore =
-        showLive ? _projectedCumulativeScore : _cumulativeScore;
-    final displayGain = showLive ? _projectedDailyGain : _dailyScoreGain;
+    // Always use projection for the today's gain display to ensure it's calculated/fresh
+    final displayScore = _projectedCumulativeScore;
+    final displayGain = _projectedDailyGain;
 
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;

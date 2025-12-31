@@ -244,18 +244,18 @@ class InstanceOrderService {
         return orderComparison;
       }
       
-      // Secondary sort: by template name (alphabetical)
-      final nameA = a.templateName.toLowerCase();
-      final nameB = b.templateName.toLowerCase();
-      final nameComparison = nameA.compareTo(nameB);
-      if (nameComparison != 0) {
-        return nameComparison;
-      }
-      
-      // Tertiary sort: by createdTime (earliest first) for stable ordering
+      // Secondary sort: by createdTime (latest first) for new tasks to appear on top
       final createdA = a.createdTime ?? DateTime(0);
       final createdB = b.createdTime ?? DateTime(0);
-      return createdA.compareTo(createdB);
+      final timeComparison = createdB.compareTo(createdA);
+      if (timeComparison != 0) {
+        return timeComparison;
+      }
+      
+      // Tertiary sort: by template name (alphabetical)
+      final nameA = a.templateName.toLowerCase();
+      final nameB = b.templateName.toLowerCase();
+      return nameA.compareTo(nameB);
     });
     return sortedInstances;
   }

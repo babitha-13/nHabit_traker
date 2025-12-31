@@ -5,6 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
@@ -60,6 +61,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   List<CategoryRecord> _loadedCategories = [];
   bool _isLoadingCategories = false;
   int? _timeEstimateMinutes;
+  int? _defaultTimeEstimateMinutes;
 
   bool get _isRecurring => quickIsTaskRecurring && _frequencyConfig != null;
 
@@ -99,6 +101,14 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
         : const Duration(hours: 1);
     _unit = t?.unit ?? '';
     _dueDate = t?.dueDate;
+    // If the template doesn't have a due date but the instance was scheduled,
+    // use the instance-specific due date so the editor reflects what the user set.
+    if (_dueDate == null &&
+        widget.instance?.dueDate != null &&
+        !quickIsTaskRecurring &&
+        !widget.isHabit) {
+      _dueDate = widget.instance!.dueDate;
+    }
     _endDate = t?.endDate;
 
     // Load categories if not provided
@@ -112,6 +122,14 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     // Load due time
     if (t != null && t.hasDueTime()) {
       _selectedDueTime = TimeUtils.stringToTimeOfDay(t.dueTime);
+    }
+    // Fall back to the instance's due time (or cached template due time) if needed.
+    if (_selectedDueTime == null && widget.instance != null) {
+      final instanceDueTime =
+          widget.instance!.dueTime ?? widget.instance!.templateDueTime;
+      if (instanceDueTime != null && instanceDueTime.isNotEmpty) {
+        _selectedDueTime = TimeUtils.stringToTimeOfDay(instanceDueTime);
+      }
     }
 
     // Load frequency config
@@ -131,6 +149,21 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     // Load time estimate
     if (t != null && t.hasTimeEstimateMinutes()) {
       _timeEstimateMinutes = t.timeEstimateMinutes;
+    }
+    _loadDefaultTimeEstimate();
+  }
+
+  Future<void> _loadDefaultTimeEstimate() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+      final minutes = await TimeLoggingPreferencesService
+          .getDefaultDurationMinutes(userId);
+      if (!mounted) return;
+      setState(() => _defaultTimeEstimateMinutes = minutes);
+    } catch (e) {
+      print(
+          'DEBUG ActivityEditorDialog: Failed to load default time estimate: $e');
     }
   }
 
@@ -680,6 +713,9 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
         'templateEveryXPeriodType': updateData['everyXPeriodType'] ?? '',
         'templateTimesPerPeriod': updateData['timesPerPeriod'] ?? 0,
         'templatePeriodType': updateData['periodType'] ?? '',
+        'templateTimeEstimateMinutes': _timeEstimateMinutes != null
+            ? _timeEstimateMinutes!.clamp(1, 600)
+            : null,
       };
 
       if (containsDueDateUpdate) {
@@ -1079,62 +1115,61 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   }
 
   Widget _buildTimeEstimateField(FlutterFlowTheme theme) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-      decoration: BoxDecoration(
-        color: theme.tertiary.withOpacity(0.3),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(
-          color: theme.surfaceBorderColor,
-          width: 1,
+    final hintText = _defaultTimeEstimateMinutes != null
+        ? '${_defaultTimeEstimateMinutes!} mins (default)'
+        : 'Leave empty to use default';
+
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Time Estimate',
+        labelStyle: TextStyle(color: theme.secondaryText),
+        filled: true,
+        fillColor: theme.tertiary.withOpacity(0.4),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: theme.surfaceBorderColor),
         ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       ),
       child: Row(
         children: [
+          Icon(Icons.timelapse, size: 20, color: theme.secondaryText),
+          const SizedBox(width: 12),
           Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Time Estimate (minutes)',
-                  style: theme.bodySmall.override(
-                    color: theme.primary,
-                    fontWeight: FontWeight.w600,
-                  ),
+            child: TextFormField(
+              initialValue: _timeEstimateMinutes?.toString() ?? '',
+              keyboardType: TextInputType.number,
+              style: theme.bodyMedium,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                hintText: hintText,
+                hintStyle: theme.bodySmall.override(
+                  color: theme.secondaryText.withOpacity(0.65),
                 ),
-                const SizedBox(height: 8),
-                TextFormField(
-                  initialValue: _timeEstimateMinutes?.toString() ?? '',
-                  keyboardType: TextInputType.number,
-                  style: theme.bodyMedium,
-                  decoration: _inputDecoration(
-                    theme,
-                    hint: 'Leave empty to use default',
-                  ),
-                  onChanged: (v) {
-                    setState(() {
-                      _timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
-                    });
-                  },
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'Custom time estimate for this activity (1-600 minutes)',
-                  style: theme.bodySmall.override(
-                    color: theme.secondaryText,
-                    fontSize: 11,
-                  ),
-                ),
-              ],
+              ),
+              onChanged: (v) {
+                setState(() {
+                  _timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
+                });
+              },
             ),
           ),
+          if (_timeEstimateMinutes != null)
+            IconButton(
+              icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() => _timeEstimateMinutes = null),
+            ),
         ],
       ),
     );
   }
 
   InputDecoration _inputDecoration(FlutterFlowTheme theme,
-      {String? hint, String? label}) {
+      {String? hint, String? label, TextStyle? hintStyle}) {
     return InputDecoration(
       isDense: true,
       contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -1144,6 +1179,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
           borderRadius: BorderRadius.circular(8),
           borderSide: BorderSide(color: theme.surfaceBorderColor)),
       hintText: hint,
+      hintStyle: hintStyle,
       labelText: label,
     );
   }

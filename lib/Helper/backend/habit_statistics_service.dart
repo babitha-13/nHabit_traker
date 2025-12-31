@@ -2,7 +2,6 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 
@@ -252,42 +251,8 @@ class HabitStatisticsService {
     // Use the first instance (or aggregate if multiple)
     final instance = instances.first;
     
-    // Calculate points using PointsService
-    final categoryQuery = CategoryRecord.collectionForUser(userId)
-        .where('categoryType', isEqualTo: 'habit');
-    final categorySnapshot = await categoryQuery.get();
-    final categories = categorySnapshot.docs
-        .map((doc) => CategoryRecord.fromSnapshot(doc))
-        .toList();
-    
-    if (categories.isEmpty) {
-      // No categories found - return basic data without points calculation
-      return {
-        'date': todayDate,
-        'status': instance.status,
-        'earned': 0.0,
-        'target': 0.0,
-        'progress': 0.0,
-        'quantity': instance.hasCurrentValue() && instance.currentValue is num 
-            ? (instance.currentValue as num).toDouble() 
-            : null,
-        'timeSpent': instance.hasTotalTimeLogged() && instance.totalTimeLogged > 0
-            ? instance.totalTimeLogged
-            : (instance.hasAccumulatedTime() && instance.accumulatedTime > 0
-                ? instance.accumulatedTime
-                : null),
-        'completedAt': instance.completedAt,
-        'trackingType': instance.templateTrackingType,
-      };
-    }
-    
-    final category = categories.firstWhere(
-      (c) => c.reference.id == instance.templateCategoryId,
-      orElse: () => categories.first, // Fallback to first category
-    );
-    
-    final target = PointsService.calculateDailyTarget(instance, category);
-    final earned = await PointsService.calculatePointsEarned(instance, category, userId);
+    final target = PointsService.calculateDailyTarget(instance);
+    final earned = await PointsService.calculatePointsEarned(instance, userId);
     final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
     
     dynamic quantity;

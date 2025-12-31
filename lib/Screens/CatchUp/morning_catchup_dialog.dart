@@ -240,7 +240,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
           await ActivityInstanceService.completeInstanceWithBackdate(
             instanceId: instanceId,
             finalValue: updatedInstance.currentValue,
+            finalAccumulatedTime: updatedInstance.accumulatedTime,
             completedAt: yesterdayEnd,
+            forceSessionBackdate: true,
           );
         }
       }

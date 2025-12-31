@@ -13,6 +13,7 @@ class ItemExpandedDetails extends StatelessWidget {
   final String? reminderDisplayText;
   final bool showCategoryOnExpansion;
   final VoidCallback? onEdit;
+  final int? timeEstimateMinutes;
 
   const ItemExpandedDetails({
     Key? key,
@@ -26,6 +27,7 @@ class ItemExpandedDetails extends StatelessWidget {
     this.reminderDisplayText,
     this.showCategoryOnExpansion = false,
     this.onEdit,
+    this.timeEstimateMinutes,
   }) : super(key: key);
 
   bool _isQueuePageSubtitle(String subtitle) {
@@ -42,9 +44,148 @@ class ItemExpandedDetails extends StatelessWidget {
   bool get _isNonProductive =>
       instance.templateCategoryType == 'non_productive';
 
+  String? get _timeEstimateDisplay {
+    final minutes = timeEstimateMinutes ?? instance.templateTimeEstimateMinutes;
+    if (minutes == null || minutes <= 0) return null;
+    if (minutes < 60) {
+      return '$minutes min est';
+    }
+    final hours = minutes ~/ 60;
+    final remainingMinutes = minutes % 60;
+    final hourLabel = hours == 1 ? 'hr' : 'hrs';
+    if (remainingMinutes == 0) {
+      return '$hours $hourLabel est';
+    }
+    return '$hours $hourLabel $remainingMinutes min est';
+  }
+
+  Widget _buildSeparator(FlutterFlowTheme theme) {
+    return Text(
+      '•',
+      style: theme.bodySmall.override(
+        fontFamily: 'Readex Pro',
+        color: theme.primaryText.withOpacity(0.7),
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _buildCategoryChip(FlutterFlowTheme theme) {
+    return Text(
+      instance.templateCategoryName,
+      style: theme.bodySmall.override(
+        fontFamily: 'Readex Pro',
+        color: theme.primaryText.withOpacity(0.7),
+        fontSize: 13,
+        fontWeight: FontWeight.w500,
+      ),
+    );
+  }
+
+  Widget _buildFrequencyChip(FlutterFlowTheme theme) {
+    final textStyle = theme.bodySmall.override(
+      fontFamily: 'Readex Pro',
+      color: theme.primaryText.withOpacity(0.7),
+      fontSize: 13,
+      fontWeight: FontWeight.w500,
+    );
+    if (isRecurring && frequencyDisplay.isNotEmpty) {
+      return Text(frequencyDisplay, style: textStyle);
+    }
+    if (isRecurring) {
+      return Icon(
+        Icons.repeat,
+        size: 12,
+        color: theme.secondaryText.withOpacity(0.7),
+      );
+    }
+    return Text('one time', style: textStyle);
+  }
+
+  Widget _buildTimeEstimateChip(FlutterFlowTheme theme, String text) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.timelapse,
+          size: 12,
+          color: theme.secondaryText.withOpacity(0.7),
+        ),
+        const SizedBox(width: 2),
+        Text(
+          text,
+          style: theme.bodySmall.override(
+            fontFamily: 'Readex Pro',
+            color: theme.primaryText.withOpacity(0.7),
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildReminderChip(FlutterFlowTheme theme) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          Icons.notifications_active,
+          size: 12,
+          color: theme.secondaryText.withOpacity(0.7),
+        ),
+        if (reminderDisplayText != null &&
+            reminderDisplayText!.isNotEmpty) ...[
+          const SizedBox(width: 2),
+          Text(
+            reminderDisplayText!,
+            style: theme.bodySmall.override(
+              fontFamily: 'Readex Pro',
+              color: theme.primaryText.withOpacity(0.7),
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+  List<Widget> _buildInfoChips(FlutterFlowTheme theme, String? timeEstimate) {
+    final chips = <Widget>[];
+    void addChip(Widget chip) {
+      if (chips.isNotEmpty) {
+        chips.add(_buildSeparator(theme));
+      }
+      chips.add(chip);
+    }
+
+    final showCategory = (page == 'queue' ||
+            _isQueuePageSubtitle(subtitle ?? '') ||
+            showCategoryOnExpansion) &&
+        instance.templateCategoryName.isNotEmpty;
+
+    if (showCategory) {
+      addChip(_buildCategoryChip(theme));
+    }
+    if (!_isNonProductive) {
+      addChip(_buildFrequencyChip(theme));
+    }
+    if (timeEstimate != null) {
+      addChip(_buildTimeEstimateChip(theme, timeEstimate));
+    }
+    if (hasReminders == true) {
+      addChip(_buildReminderChip(theme));
+    }
+
+    return chips;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
+    final timeEstimateDisplay = _timeEstimateDisplay;
 
     return InkWell(
       onTap: onEdit,
@@ -52,8 +193,8 @@ class ItemExpandedDetails extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
         child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Show habit/task icon in expanded view
             if (!_isNonProductive) ...[
               Icon(
                 isHabit ? Icons.flag : Icons.assignment,
@@ -62,101 +203,14 @@ class ItemExpandedDetails extends StatelessWidget {
               ),
               const SizedBox(width: 4),
             ],
-            // Show category name (for queue page)
-            if ((page == 'queue' ||
-                    _isQueuePageSubtitle(subtitle ?? '') ||
-                    showCategoryOnExpansion) &&
-                instance.templateCategoryName.isNotEmpty) ...[
-              Text(
-                instance.templateCategoryName,
-                style: theme.bodySmall.override(
-                  fontFamily: 'Readex Pro',
-                  color: theme.primaryText.withOpacity(0.7),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
+            Expanded(
+              child: Wrap(
+                spacing: 4,
+                runSpacing: 4,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: _buildInfoChips(theme, timeEstimateDisplay),
               ),
-              const SizedBox(width: 4),
-              // Add bullet separator if there's frequency or "one time" text to follow
-              if (!_isNonProductive &&
-                  ((isRecurring && frequencyDisplay.isNotEmpty) ||
-                      (!isRecurring))) ...[
-                Text(
-                  '•',
-                  style: theme.bodySmall.override(
-                    fontFamily: 'Readex Pro',
-                    color: theme.primaryText.withOpacity(0.7),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-                const SizedBox(width: 4),
-              ],
-            ],
-            // Show frequency if recurring, or "one time" if not recurring
-            if (!_isNonProductive) ...[
-              if (isRecurring && frequencyDisplay.isNotEmpty) ...[
-                Text(
-                  frequencyDisplay,
-                  style: theme.bodySmall.override(
-                    fontFamily: 'Readex Pro',
-                    color: theme.primaryText.withOpacity(0.7),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ] else if (isRecurring) ...[
-                // Just show recurring indicator if no frequency text
-                Icon(
-                  Icons.repeat,
-                  size: 12,
-                  color: theme.secondaryText.withOpacity(0.7),
-                ),
-              ] else ...[
-                // Show "one time" for non-recurring tasks
-                Text(
-                  'one time',
-                  style: theme.bodySmall.override(
-                    fontFamily: 'Readex Pro',
-                    color: theme.primaryText.withOpacity(0.7),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ],
-            // Show reminder icon and times if reminders are configured
-            if (hasReminders == true) ...[
-              const SizedBox(width: 4),
-              Text(
-                '•',
-                style: theme.bodySmall.override(
-                  fontFamily: 'Readex Pro',
-                  color: theme.primaryText.withOpacity(0.7),
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                Icons.notifications_active,
-                size: 12,
-                color: theme.secondaryText.withOpacity(0.7),
-              ),
-              if (reminderDisplayText != null &&
-                  reminderDisplayText!.isNotEmpty) ...[
-                const SizedBox(width: 4),
-                Text(
-                  reminderDisplayText!,
-                  style: theme.bodySmall.override(
-                    fontFamily: 'Readex Pro',
-                    color: theme.primaryText.withOpacity(0.7),
-                    fontSize: 13,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ],
-            ],
+            ),
           ],
         ),
       ),

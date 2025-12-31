@@ -105,18 +105,28 @@ class _RoutinesState extends State<Routines> {
   }
 
   Future<void> _deleteRoutine(RoutineRecord routine) async {
+    final routineName = routine.name;
+    final routineId = routine.reference.id;
+    
+    // OPTIMISTIC UPDATE: Remove from local list immediately
+    setState(() {
+      _routines.removeWhere((r) => r.reference.id == routineId);
+    });
+    
     try {
-      await deleteRoutine(routine.reference.id, userId: currentUserUid);
-      await _loadData(); // Reload the list
+      await deleteRoutine(routineId, userId: currentUserUid);
+      // Background reconciliation: reload to ensure sync
+      _loadData();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Routine "${routine.name}" deleted successfully!'),
+            content: Text('Routine "$routineName" deleted successfully!'),
             backgroundColor: Colors.green,
           ),
         );
       }
     } catch (e) {
+      // On error: show snackbar and reload to restore correct state
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -124,6 +134,8 @@ class _RoutinesState extends State<Routines> {
             backgroundColor: Colors.red,
           ),
         );
+        // Background refresh to restore correct state
+        _loadData();
       }
     }
   }
@@ -570,13 +582,33 @@ class _RoutinesState extends State<Routines> {
 
     if (picked == null) return;
 
+    final newDueTime = TimeUtils.timeOfDayToString(picked);
+    final routineId = routine.reference.id;
+    
+    // OPTIMISTIC UPDATE: Patch routine's dueTime immediately
+    final routineIndex = _routines.indexWhere((r) => r.reference.id == routineId);
+    if (routineIndex != -1) {
+      final updatedRoutine = RoutineRecord.getDocumentFromData(
+        {
+          ..._routines[routineIndex].snapshotData,
+          'dueTime': newDueTime,
+          'lastUpdated': DateTime.now(),
+        },
+        _routines[routineIndex].reference,
+      );
+      setState(() {
+        _routines[routineIndex] = updatedRoutine;
+      });
+    }
+
     try {
       await RoutineService.updateRoutine(
-        routineId: routine.reference.id,
-        dueTime: TimeUtils.timeOfDayToString(picked),
+        routineId: routineId,
+        dueTime: newDueTime,
         userId: currentUserUid,
       );
-      await _loadData(); // Refresh list
+      // Background reconciliation: reload to ensure sync
+      _loadData();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -585,6 +617,8 @@ class _RoutinesState extends State<Routines> {
           backgroundColor: Colors.red,
         ),
       );
+      // Background refresh to restore correct state
+      _loadData();
     }
   }
 
@@ -605,9 +639,36 @@ class _RoutinesState extends State<Routines> {
 
     if (result == null) return;
 
+    final routineId = routine.reference.id;
+    
+    // OPTIMISTIC UPDATE: Patch routine's reminder fields immediately
+    final routineIndex = _routines.indexWhere((r) => r.reference.id == routineId);
+    if (routineIndex != -1) {
+      final updatedData = Map<String, dynamic>.from(_routines[routineIndex].snapshotData);
+      updatedData['reminders'] = ReminderConfigList.toMapList(result.reminders);
+      updatedData['reminderFrequencyType'] = result.frequencyType ?? '';
+      updatedData['everyXValue'] = result.frequencyType == 'every_x' ? result.everyXValue : 1;
+      updatedData['everyXPeriodType'] = result.frequencyType == 'every_x' 
+          ? (result.everyXPeriodType ?? '') 
+          : '';
+      updatedData['specificDays'] = result.frequencyType == 'specific_days'
+          ? result.specificDays
+          : const [];
+      updatedData['remindersEnabled'] = result.remindersEnabled;
+      updatedData['lastUpdated'] = DateTime.now();
+      
+      final updatedRoutine = RoutineRecord.getDocumentFromData(
+        updatedData,
+        _routines[routineIndex].reference,
+      );
+      setState(() {
+        _routines[routineIndex] = updatedRoutine;
+      });
+    }
+
     try {
       await RoutineService.updateRoutine(
-        routineId: routine.reference.id,
+        routineId: routineId,
         reminders: ReminderConfigList.toMapList(result.reminders),
         reminderFrequencyType: result.frequencyType,
         everyXValue: result.frequencyType == 'every_x' ? result.everyXValue : 1,
@@ -619,7 +680,8 @@ class _RoutinesState extends State<Routines> {
         remindersEnabled: result.remindersEnabled,
         userId: currentUserUid,
       );
-      await _loadData(); // Refresh list
+      // Background reconciliation: reload to ensure sync
+      _loadData();
     } catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -628,6 +690,8 @@ class _RoutinesState extends State<Routines> {
           backgroundColor: Colors.red,
         ),
       );
+      // Background refresh to restore correct state
+      _loadData();
     }
   }
 

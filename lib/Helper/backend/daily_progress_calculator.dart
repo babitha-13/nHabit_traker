@@ -97,18 +97,17 @@ class DailyProgressCalculator {
     try {
       habitTargetPoints =
           await PointsService.calculateTotalDailyTargetWithTemplates(
-              allForMath, categories, userId);
+              allForMath, userId);
     } catch (e) {
-      habitTargetPoints =
-          PointsService.calculateTotalDailyTarget(allForMath, categories);
+      habitTargetPoints = PointsService.calculateTotalDailyTarget(allForMath);
     }
     final habitEarnedPoints =
-        await PointsService.calculateTotalPointsEarned(earnedSet, categories, userId);
-    // Calculate task points using ActivityInstanceRecord
+        await PointsService.calculateTotalPointsEarned(earnedSet, userId);
+    // Calculate task points using unified PointsService method
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
     final taskEarnedPoints =
-        _calculateTaskPointsFromActivityInstances(allTasksForMath);
+        await PointsService.calculatePointsFromActivityInstances(allTasksForMath, userId);
     // Combine habit and task points
     final totalTargetPoints = habitTargetPoints + taskTargetPoints;
     final totalEarnedPoints = habitEarnedPoints + taskEarnedPoints;
@@ -117,43 +116,39 @@ class DailyProgressCalculator {
     // Calculate detailed breakdown for habits
     final habitBreakdown = <Map<String, dynamic>>[];
     for (final habit in allForMath) {
-      final category = _findCategoryForInstance(habit, categories);
-      if (category != null) {
-        final target = PointsService.calculateDailyTarget(habit, category);
-        final earned = await PointsService.calculatePointsEarned(habit, category, userId);
-        final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+      final target = PointsService.calculateDailyTarget(habit);
+      final earned = await PointsService.calculatePointsEarned(habit, userId);
+      final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
 
-        // Extract additional data for statistics
-        dynamic quantity;
-        if (habit.hasCurrentValue() && habit.currentValue is num) {
-          quantity = (habit.currentValue as num).toDouble();
-        }
-
-        int? timeSpent; // milliseconds
-        if (habit.hasTotalTimeLogged() && habit.totalTimeLogged > 0) {
-          timeSpent = habit.totalTimeLogged;
-        } else if (habit.hasAccumulatedTime() && habit.accumulatedTime > 0) {
-          timeSpent = habit.accumulatedTime;
-        }
-
-        habitBreakdown.add({
-          'name': habit.templateName,
-          'status': habit.status,
-          'target': target,
-          'earned': earned,
-          'progress': progress,
-          'trackingType': habit.templateTrackingType,
-          'quantity': quantity,
-          'timeSpent': timeSpent,
-          'completedAt': habit.completedAt,
-        });
+      dynamic quantity;
+      if (habit.hasCurrentValue() && habit.currentValue is num) {
+        quantity = (habit.currentValue as num).toDouble();
       }
+
+      int? timeSpent;
+      if (habit.hasTotalTimeLogged() && habit.totalTimeLogged > 0) {
+        timeSpent = habit.totalTimeLogged;
+      } else if (habit.hasAccumulatedTime() && habit.accumulatedTime > 0) {
+        timeSpent = habit.accumulatedTime;
+      }
+
+      habitBreakdown.add({
+        'name': habit.templateName,
+        'status': habit.status,
+        'target': target,
+        'earned': earned,
+        'progress': progress,
+        'trackingType': habit.templateTrackingType,
+        'quantity': quantity,
+        'timeSpent': timeSpent,
+        'completedAt': habit.completedAt,
+      });
     }
     // Calculate detailed breakdown for tasks
     final taskBreakdown = <Map<String, dynamic>>[];
     for (final task in allTasksForMath) {
       final target = _calculateTaskTargetFromActivityInstances([task]);
-      final earned = _calculateTaskPointsFromActivityInstances([task]);
+      final earned = await PointsService.calculatePointsEarned(task, userId);
       final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
       taskBreakdown.add({
         'name': task.templateName,
@@ -290,15 +285,15 @@ class DailyProgressCalculator {
     // OPTIMISTIC CALCULATION: Use synchronous method without Firestore queries
     // This uses cached template data from instances instead of querying Firestore
     final habitTargetPoints =
-        PointsService.calculateTotalDailyTarget(allForMath, categories);
+        PointsService.calculateTotalDailyTarget(allForMath);
     final habitEarnedPoints =
-        await PointsService.calculateTotalPointsEarned(earnedSet, categories, userId);
+        await PointsService.calculateTotalPointsEarned(earnedSet, userId);
     
-    // Calculate task points using ActivityInstanceRecord
+    // Calculate task points using unified PointsService method
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
     final taskEarnedPoints =
-        _calculateTaskPointsFromActivityInstances(allTasksForMath);
+        await PointsService.calculatePointsFromActivityInstances(allTasksForMath, userId);
     
     // Combine habit and task points
     final totalTargetPoints = habitTargetPoints + taskTargetPoints;
@@ -317,30 +312,6 @@ class DailyProgressCalculator {
     };
   }
 
-  /// Helper method to find category for an instance
-  static CategoryRecord? _findCategoryForInstance(
-    ActivityInstanceRecord instance,
-    List<CategoryRecord> categories,
-  ) {
-    try {
-      // First try to find by category ID
-      if (instance.templateCategoryId.isNotEmpty) {
-        return categories.firstWhere(
-          (cat) => cat.reference.id == instance.templateCategoryId,
-        );
-      }
-      // Fallback: try to find by category name
-      if (instance.templateCategoryName.isNotEmpty) {
-        return categories.firstWhere(
-          (cat) => cat.name == instance.templateCategoryName,
-        );
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
   /// Calculate task target points from ActivityInstanceRecord list
   /// For tasks: target = priority (no category weightage)
   static double _calculateTaskTargetFromActivityInstances(
@@ -348,95 +319,10 @@ class DailyProgressCalculator {
     double totalTarget = 0.0;
     for (final task in taskInstances) {
       final priority = task.templatePriority.toDouble();
-      totalTarget += priority;
+      final timeBonusAdjustment =
+          PointsService.calculateBinaryTimeBonusTargetAdjustment(task);
+      totalTarget += priority + timeBonusAdjustment;
     }
     return totalTarget;
-  }
-
-  /// Calculate task earned points from ActivityInstanceRecord list
-  /// Returns fractional points based on completion percentage
-  static double _calculateTaskPointsFromActivityInstances(
-      List<ActivityInstanceRecord> taskInstances) {
-    double totalPoints = 0.0;
-    for (final task in taskInstances) {
-      final priority = task.templatePriority.toDouble();
-      double points = 0.0;
-      switch (task.templateTrackingType) {
-        case 'binary':
-          // Binary habits: use counter if available, otherwise status
-          final count = task.currentValue ?? 0;
-          final countValue = (count is num ? count.toDouble() : 0.0);
-          if (countValue > 0) {
-            // Has counter: calculate proportional points (counter / target)
-            final target = task.templateTarget ?? 1;
-            points = (countValue / target).clamp(0.0, 1.0) * priority;
-          } else if (task.status == 'completed') {
-            // No counter but completed: full points (backward compatibility)
-            points = priority;
-          } else {
-            points = 0.0;
-          }
-          break;
-        case 'quantitative':
-          // Quantitative tasks: points based on progress percentage
-          if (task.status == 'completed') {
-            points = priority;
-          } else {
-            final currentValue = _getTaskCurrentValue(task);
-            final target = _getTaskTargetValue(task);
-            if (target > 0) {
-              final completionFraction =
-                  (currentValue / target).clamp(0.0, 1.0);
-              points = completionFraction * priority;
-            }
-          }
-          break;
-        case 'time':
-          // Time-based tasks: points based on accumulated time vs target
-          if (task.status == 'completed') {
-            // Use actual accumulated time (in milliseconds) for proportional points
-            final accumulatedTime = task.accumulatedTime;
-            final accumulatedMinutes = accumulatedTime / 60000.0; // Convert ms to minutes
-            final durationMultiplier =
-                PointsService.calculateDurationMultiplier(accumulatedMinutes);
-            points = priority * durationMultiplier;
-          } else {
-            final accumulatedTime = task.accumulatedTime;
-            final accumulatedMinutes = accumulatedTime / 60000.0; // Convert ms to minutes
-            final targetMinutes = _getTaskTargetValue(task);
-            final targetMs =
-                targetMinutes * 60000; // Convert minutes to milliseconds
-            if (targetMs > 0) {
-              final completionFraction =
-                  (accumulatedTime / targetMs).clamp(0.0, 1.0);
-              final durationMultiplier =
-                  PointsService.calculateDurationMultiplier(accumulatedMinutes);
-              points = completionFraction * priority * durationMultiplier;
-            }
-          }
-          break;
-        default:
-          points = 0.0;
-      }
-      totalPoints += points;
-    }
-    return totalPoints;
-  }
-
-  /// Helper method to get current value from task instance
-  static double _getTaskCurrentValue(ActivityInstanceRecord task) {
-    final value = task.currentValue;
-    // For quantitative/binary tracking types, use value as-is
-    if (value is num) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
-  }
-
-  /// Helper method to get target value from task instance
-  static double _getTaskTargetValue(ActivityInstanceRecord task) {
-    final target = task.templateTarget;
-    if (target is num) return target.toDouble();
-    if (target is String) return double.tryParse(target) ?? 0.0;
-    return 0.0;
   }
 }

@@ -383,8 +383,6 @@ class MorningCatchUpService {
     try {
       final yesterday = DateService.yesterdayStart;
       final Set<DateTime> affectedDates = {};
-      int totalSkipped = 0;
-      int habitSkipped = 0;
 
       // For habits: Use new efficient bulk skip with batch writes
       // Find all habit instances where windowEndDate < yesterday
@@ -424,8 +422,6 @@ class MorningCatchUpService {
               );
 
               if (yesterdayInstanceRef != null) {
-                habitSkipped++;
-                totalSkipped++;
               } else {
                 // Fallback: skip expired instance and generate next one normally
                 // This should rarely happen as bulkSkipExpiredInstancesWithBatches now always returns a reference
@@ -435,8 +431,6 @@ class MorningCatchUpService {
                   skipAutoGeneration: false, // Allow normal generation
                   userId: userId,
                 );
-                habitSkipped++;
-                totalSkipped++;
               }
             } catch (e) {
               // Fallback: skip normally if bulk skip fails
@@ -446,8 +440,6 @@ class MorningCatchUpService {
                 skipAutoGeneration: true,
                 userId: userId,
               );
-              habitSkipped++;
-              totalSkipped++;
             }
 
             // Track affected dates for progress recalculation
@@ -469,8 +461,6 @@ class MorningCatchUpService {
 
       // Recalculate progress for all affected dates in parallel (with concurrency limit)
       if (affectedDates.isNotEmpty) {
-        const maxConcurrency = 5; // Process up to 5 dates in parallel
-        final datesList = affectedDates.toList();
 
         // Historical edit functionality removed - progress recalculation disabled
         // Process dates in batches
@@ -858,10 +848,10 @@ class MorningCatchUpService {
             final categoryCompleted = completedOnDate
                 .where((i) => i.templateCategoryId == category.reference.id)
                 .toList();
-            final categoryTarget = PointsService.calculateTotalDailyTarget(
-                categoryAll, [category]);
+            final categoryTarget =
+                PointsService.calculateTotalDailyTarget(categoryAll);
             final categoryEarned = await PointsService.calculateTotalPointsEarned(
-                categoryCompleted, [category], userId);
+                categoryCompleted, userId);
             categoryBreakdown[category.reference.id] = {
               'target': categoryTarget,
               'earned': categoryEarned,

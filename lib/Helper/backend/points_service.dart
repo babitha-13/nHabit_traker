@@ -1,7 +1,9 @@
+import 'package:habit_tracker/Helper/backend/binary_time_bonus_helper.dart';
+import 'package:habit_tracker/Helper/backend/points_value_helper.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/app_state.dart';
+
 /// Service for calculating fractional points and daily targets for habit tracking
 class PointsService {
   /// Convert period type to number of days
@@ -25,7 +27,6 @@ class PointsService {
   /// Returns the expected daily points based on frequency and importance
   static double calculateDailyTarget(
     ActivityInstanceRecord instance,
-    CategoryRecord category,
   ) {
     // Skip non-productive items - they don't earn points
     if (instance.templateCategoryType == 'non_productive') {
@@ -37,7 +38,7 @@ class PointsService {
 
     // For time-based habits, apply duration multiplier
     if (instance.templateTrackingType == 'time') {
-      final targetMinutes = _getTargetValue(instance);
+      final targetMinutes = PointsValueHelper.targetValue(instance);
       final durationMultiplier = calculateDurationMultiplier(targetMinutes);
       return dailyFrequency * habitPriority * durationMultiplier;
     }
@@ -49,7 +50,6 @@ class PointsService {
   /// Use this when you have access to the template data
   static double calculateDailyTargetWithTemplate(
     ActivityInstanceRecord instance,
-    CategoryRecord category,
     ActivityRecord template,
   ) {
     // Skip non-productive items - they don't earn points
@@ -117,7 +117,6 @@ class PointsService {
   /// Returns fractional points based on completion percentage
   static Future<double> calculatePointsEarned(
     ActivityInstanceRecord instance,
-    CategoryRecord category,
     String userId,
   ) async {
     // Skip non-productive items - they don't earn points
@@ -130,12 +129,17 @@ class PointsService {
     switch (instance.templateTrackingType) {
       case 'binary':
         // Binary habits: use counter if available, otherwise status
-        final count = instance.currentValue ?? 0;
-        final countValue = (count is num ? count.toDouble() : 0.0);
-        if (countValue > 0) {
-          // Has counter: calculate proportional points (counter / target)
+        final countValue = PointsValueHelper.currentValue(instance);
+
+        // Some "binary" items (e.g., timer tasks) store time (milliseconds) in currentValue.
+        // In those cases, do NOT treat currentValue as a counter, or points will explode.
+        final isTimeLikeUnit =
+            BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
+
+        if (!isTimeLikeUnit && countValue > 0) {
+          // Has counter: calculate proportional points (counter / target), allowing over-completion
           final target = instance.templateTarget ?? 1;
-          earnedPoints = (countValue / target).clamp(0.0, 1.0) * habitPriority;
+          earnedPoints = (countValue / target) * habitPriority;
         } else if (instance.status == 'completed') {
           // No counter but completed: base points
           earnedPoints = habitPriority;
@@ -147,77 +151,74 @@ class PointsService {
         final timeMinutes = await _getTimeMinutesForInstance(instance, userId);
         if (timeMinutes != null && earnedPoints > 0) {
           final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled && timeMinutes >= 15.0) {
-            // Only award bonus if time >= 15 minutes and >= 30 minutes (excess)
-            if (timeMinutes >= 30.0) {
-              final excessMinutes = timeMinutes - 30.0;
-              final bonusBlocks = (excessMinutes / 30.0).floor();
-              earnedPoints += bonusBlocks * habitPriority;
-            }
+          if (timeBonusEnabled && timeMinutes >= 30.0) {
+            // Award bonus for every 30-minute block beyond the first 30 minutes
+            final excessMinutes = timeMinutes - 30.0;
+            final bonusBlocks = (excessMinutes / 30.0).floor();
+            earnedPoints += bonusBlocks * habitPriority;
           }
         }
 
         return earnedPoints;
       case 'quantitative':
-        // Quantitative habits: points based on progress percentage
-        if (instance.status == 'completed') {
-          earnedPoints = habitPriority;
+        // Quantitative habits: points based on progress, allowing over-completion
+        final currentValue = PointsValueHelper.currentValue(instance);
+        final target = PointsValueHelper.targetValue(instance);
+        if (target <= 0) {
+          earnedPoints = 0.0;
         } else {
-          final currentValue = _getCurrentValue(instance);
-          final target = _getTargetValue(instance);
-          if (target <= 0) {
-            earnedPoints = 0.0;
+          // For windowed habits, use differential progress (today's contribution)
+          if (instance.templateCategoryType == 'habit' &&
+              instance.windowDuration > 1) {
+            final lastDayValue = PointsValueHelper.lastDayValue(instance);
+            final todayContribution = currentValue - lastDayValue;
+            // For windowed habits, calculate progress as fraction of total target
+            // Each increment should contribute proportionally to the total target, allowing over-completion
+            final progressFraction = todayContribution / target;
+            earnedPoints = progressFraction * habitPriority;
           } else {
-            // For windowed habits, use differential progress (today's contribution)
-            if (instance.templateCategoryType == 'habit' &&
-                instance.windowDuration > 1) {
-              final lastDayValue = _getLastDayValue(instance);
-              final todayContribution = currentValue - lastDayValue;
-              // For windowed habits, calculate progress as fraction of total target
-              // Each increment should contribute proportionally to the total target
-              if (target <= 0) {
-                earnedPoints = 0.0;
-              } else {
-                final progressFraction =
-                    (todayContribution / target).clamp(0.0, 1.0);
-                earnedPoints = progressFraction * habitPriority;
-              }
-            } else {
-              // For non-windowed habits, use total progress
-              final completionFraction =
-                  (currentValue / target).clamp(0.0, 1.0);
-              earnedPoints = completionFraction * habitPriority;
-            }
-          }
-        }
-
-        // Add time bonus if enabled and time is logged
-        final timeMinutes = await _getTimeMinutesForInstance(instance, userId);
-        if (timeMinutes != null && earnedPoints > 0) {
-          final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled && timeMinutes >= 15.0) {
-            // Only award bonus if time >= 15 minutes and >= 30 minutes (excess)
-            if (timeMinutes >= 30.0) {
-              final excessMinutes = timeMinutes - 30.0;
-              final bonusBlocks = (excessMinutes / 30.0).floor();
-              earnedPoints += bonusBlocks * habitPriority;
-            }
+            // For non-windowed habits, use total progress, allowing over-completion
+            final completionFraction = currentValue / target;
+            earnedPoints = completionFraction * habitPriority;
           }
         }
 
         return earnedPoints;
       case 'time':
-        // Time-based habits: points based on accumulated time vs target
-        if (instance.status == 'completed') {
-          // Use actual accumulated time (in milliseconds) for proportional points
-          final accumulatedTime = instance.accumulatedTime;
-          final accumulatedMinutes = accumulatedTime / 60000.0; // Convert ms to minutes
-          final durationMultiplier =
-              calculateDurationMultiplier(accumulatedMinutes);
-          earnedPoints = habitPriority * durationMultiplier;
+        // Time-based habits: scoring depends on Time Bonus setting
+        final accumulatedTime = instance.accumulatedTime;
+        final accumulatedMinutes =
+            accumulatedTime / 60000.0; // Convert ms to minutes
+
+        // Check if Time Bonus (effort mode) is enabled
+        final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+
+        if (timeBonusEnabled) {
+          // Effort mode:
+          // - Reward proportionally until the time target is met
+          // - Once the target is met, reward in 30-minute blocks
+          //
+          // Example (priority=1, target=20m):
+          // - 10m => 0.5 pts
+          // - 20m => 1 pt
+          // - 30m => 1 pt
+          // - 60m => 2 pts
+          if (accumulatedMinutes <= 0) {
+            earnedPoints = 0.0;
+          } else {
+            final targetMinutes = PointsValueHelper.targetValue(instance);
+            if (targetMinutes > 0 && accumulatedMinutes < targetMinutes) {
+              earnedPoints =
+                  (accumulatedMinutes / targetMinutes) * habitPriority;
+            } else {
+              final blocks = (accumulatedMinutes / 30.0).floor();
+              earnedPoints = (blocks > 0 ? blocks : 1) * habitPriority;
+            }
+          }
         } else {
-          final accumulatedTime = instance.accumulatedTime;
-          final targetMinutes = _getTargetValue(instance);
+          // Goal/progress mode: Points scale proportionally with accumulated time vs target
+          // If 2x time is logged, get 2x points (allowing over-completion)
+          final targetMinutes = PointsValueHelper.targetValue(instance);
           final targetMs =
               targetMinutes * 60000; // Convert minutes to milliseconds
           if (targetMs <= 0) {
@@ -226,30 +227,16 @@ class PointsService {
             // For windowed habits, use differential progress (today's contribution)
             if (instance.templateCategoryType == 'habit' &&
                 instance.windowDuration > 1) {
-              final lastDayValue = _getLastDayValue(instance);
+              final lastDayValue = PointsValueHelper.lastDayValue(instance);
               final todayContribution = accumulatedTime - lastDayValue;
-              final todayContributionMinutes = todayContribution / 60000.0; // Convert ms to minutes
-              // For windowed habits, calculate progress as fraction of total target
-              // Each increment should contribute proportionally to the total target
-              if (targetMs <= 0) {
-                earnedPoints = 0.0;
-              } else {
-                final progressFraction =
-                    (todayContribution / targetMs).clamp(0.0, 1.0);
-                final durationMultiplier =
-                    calculateDurationMultiplier(todayContributionMinutes);
-                earnedPoints =
-                    progressFraction * habitPriority * durationMultiplier;
-              }
+              // For windowed habits, calculate progress as fraction of total target, allowing over-completion
+              final progressFraction = todayContribution / targetMs;
+              earnedPoints = progressFraction * habitPriority;
             } else {
-              // For non-windowed habits, use total progress
-              final accumulatedMinutes = accumulatedTime / 60000.0; // Convert ms to minutes
-              final completionFraction =
-                  (accumulatedTime / targetMs).clamp(0.0, 1.0);
-              final durationMultiplier =
-                  calculateDurationMultiplier(accumulatedMinutes);
-              earnedPoints =
-                  completionFraction * habitPriority * durationMultiplier;
+              // For non-windowed habits, use total progress, allowing over-completion
+              // Points scale proportionally: 2x time = 2x points
+              final completionFraction = accumulatedTime / targetMs;
+              earnedPoints = completionFraction * habitPriority;
             }
           }
         }
@@ -263,18 +250,13 @@ class PointsService {
   /// Calculate total daily target for all habit instances
   static double calculateTotalDailyTarget(
     List<ActivityInstanceRecord> instances,
-    List<CategoryRecord> categories,
   ) {
     double totalTarget = 0.0;
     for (final instance in instances) {
       // Skip non-productive items, only process habits
       if (instance.templateCategoryType != 'habit' ||
           instance.templateCategoryType == 'non_productive') continue;
-      final category = _findCategoryForInstance(instance, categories);
-      if (category == null) {
-        continue;
-      }
-      final target = calculateDailyTarget(instance, category);
+      final target = calculateDailyTarget(instance);
       totalTarget += target;
     }
     return totalTarget;
@@ -284,7 +266,6 @@ class PointsService {
   /// Use this when you have access to template data for accurate frequency calculation
   static Future<double> calculateTotalDailyTargetWithTemplates(
     List<ActivityInstanceRecord> instances,
-    List<CategoryRecord> categories,
     String userId,
   ) async {
     double totalTarget = 0.0;
@@ -292,18 +273,15 @@ class PointsService {
       // Skip non-productive items, only process habits
       if (instance.templateCategoryType != 'habit' ||
           instance.templateCategoryType == 'non_productive') continue;
-      final category = _findCategoryForInstance(instance, categories);
-      if (category == null) continue;
       try {
         // Fetch template data for accurate frequency calculation
         final templateRef =
             ActivityRecord.collectionForUser(userId).doc(instance.templateId);
         final template = await ActivityRecord.getDocumentOnce(templateRef);
-        totalTarget +=
-            calculateDailyTargetWithTemplate(instance, category, template);
+        totalTarget += calculateDailyTargetWithTemplate(instance, template);
       } catch (e) {
         // Fallback to basic calculation if template fetch fails
-        totalTarget += calculateDailyTarget(instance, category);
+        totalTarget += calculateDailyTarget(instance);
       }
     }
     return totalTarget;
@@ -312,7 +290,6 @@ class PointsService {
   /// Calculate total points earned for all habit instances
   static Future<double> calculateTotalPointsEarned(
     List<ActivityInstanceRecord> instances,
-    List<CategoryRecord> categories,
     String userId,
   ) async {
     double totalPoints = 0.0;
@@ -320,11 +297,23 @@ class PointsService {
       if (instance.templateCategoryType != 'habit') continue;
       // Skip non-productive items
       if (instance.templateCategoryType == 'non_productive') continue;
-      final category = _findCategoryForInstance(instance, categories);
-      if (category == null) {
-        continue;
-      }
-      final points = await calculatePointsEarned(instance, category, userId);
+      final points = await calculatePointsEarned(instance, userId);
+      totalPoints += points;
+    }
+    return totalPoints;
+  }
+
+  /// Calculate total points earned for all activity instances (habits and tasks)
+  /// Works for any ActivityInstanceRecord type and includes time bonuses when enabled
+  static Future<double> calculatePointsFromActivityInstances(
+    List<ActivityInstanceRecord> instances,
+    String userId,
+  ) async {
+    double totalPoints = 0.0;
+    for (final instance in instances) {
+      // Skip non-productive items
+      if (instance.templateCategoryType == 'non_productive') continue;
+      final points = await calculatePointsEarned(instance, userId);
       totalPoints += points;
     }
     return totalPoints;
@@ -342,30 +331,6 @@ class PointsService {
         0.0, double.infinity); // Allow >100% for overachievement
   }
 
-  /// Helper method to get current value from instance
-  static double _getCurrentValue(ActivityInstanceRecord instance) {
-    final value = instance.currentValue;
-    if (value is num) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
-  }
-
-  /// Helper method to get target value from instance
-  static double _getTargetValue(ActivityInstanceRecord instance) {
-    final target = instance.templateTarget;
-    if (target is num) return target.toDouble();
-    if (target is String) return double.tryParse(target) ?? 0.0;
-    return 0.0;
-  }
-
-  /// Helper method to get last day value from instance (for differential progress)
-  static double _getLastDayValue(ActivityInstanceRecord instance) {
-    final value = instance.lastDayValue;
-    if (value is num) return value.toDouble();
-    if (value is String) return double.tryParse(value) ?? 0.0;
-    return 0.0;
-  }
-
   /// Get time in minutes for an instance using priority order:
   /// 1. Manual/recorded time (accumulatedTime or totalTimeLogged)
   /// 2. Activity-specific estimate (template.timeEstimateMinutes)
@@ -375,18 +340,16 @@ class PointsService {
     String userId,
   ) async {
     // Priority 1: Manual/recorded time
-    final loggedMs = instance.accumulatedTime > 0 
-        ? instance.accumulatedTime 
-        : instance.totalTimeLogged;
-    if (loggedMs > 0) {
-      return loggedMs / 60000.0; // Convert to minutes
+    final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+    if (loggedMinutes != null) {
+      return loggedMinutes;
     }
-    
+
     // Priority 2: Activity-specific estimate
     if (instance.hasTemplateId()) {
       try {
-        final templateRef = ActivityRecord.collectionForUser(userId)
-            .doc(instance.templateId);
+        final templateRef =
+            ActivityRecord.collectionForUser(userId).doc(instance.templateId);
         final template = await ActivityRecord.getDocumentOnce(templateRef);
         if (template.hasTimeEstimateMinutes()) {
           return template.timeEstimateMinutes!.toDouble();
@@ -395,35 +358,10 @@ class PointsService {
         // Continue to fallback
       }
     }
-    
+
     // Priority 3: No time source
     return null;
   }
-
-  /// Helper method to find category for an instance
-  static CategoryRecord? _findCategoryForInstance(
-    ActivityInstanceRecord instance,
-    List<CategoryRecord> categories,
-  ) {
-    try {
-      // First try to find by category ID
-      if (instance.templateCategoryId.isNotEmpty) {
-        return categories.firstWhere(
-          (cat) => cat.reference.id == instance.templateCategoryId,
-        );
-      }
-      // Fallback: try to find by category name
-      if (instance.templateCategoryName.isNotEmpty) {
-        return categories.firstWhere(
-          (cat) => cat.name == instance.templateCategoryName,
-        );
-      }
-      return null;
-    } catch (e) {
-      return null;
-    }
-  }
-
 
   /// Calculate duration multiplier based on target minutes
   /// Returns the number of 30-minute blocks, minimum 1
@@ -431,20 +369,20 @@ class PointsService {
     if (targetMinutes <= 0) return 1;
     return (targetMinutes / 30).round().clamp(1, double.infinity).toInt();
   }
+
+  /// Calculate extra target to match binary time bonus awards (tasks only)
+  static double calculateBinaryTimeBonusTargetAdjustment(
+    ActivityInstanceRecord instance,
+  ) {
+    final habitPriority = instance.templatePriority.toDouble();
+    final countValue = PointsValueHelper.currentValue(instance);
+    final isTimeLikeUnit =
+        BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
+    return BinaryTimeBonusHelper.calculateTargetAdjustment(
+      instance: instance,
+      countValue: countValue,
+      priority: habitPriority,
+      isTimeLikeUnit: isTimeLikeUnit,
+    );
+  }
 }
-/// Example calculations for simplified point system:
-/// 
-/// Example 1: "Exercise" habit
-/// - Frequency: Every 2 days
-/// - Habit priority: 3 (high priority)
-/// - Daily target = (1/2) * 3 = 1.5 points per day
-/// 
-/// Example 2: "Read" habit  
-/// - Frequency: 3 times per week
-/// - Habit priority: 2 (medium priority)
-/// - Daily target = (3/7) * 2 = 0.86 points per day
-/// 
-/// Example 3: "Meditate" habit
-/// - Frequency: Daily (1 time per day)
-/// - Habit priority: 1 (low priority)
-/// - Daily target = 1.0 * 1 = 1.0 points per day

@@ -22,6 +22,7 @@ import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Settings/settings_page.dart';
+import 'package:habit_tracker/Screens/Help/faq_page.dart';
 import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
@@ -347,6 +348,19 @@ class _HomeState extends State<Home> {
                                     MaterialPageRoute(
                                       builder: (context) =>
                                           const SettingsPage(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _DrawerItem(
+                                icon: Icons.help_outline,
+                                label: 'FAQ',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const FaqPage(),
                                     ),
                                   );
                                 },

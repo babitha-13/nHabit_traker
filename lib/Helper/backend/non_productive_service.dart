@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 
 /// Service to manage non-productive items (sleep, travel, rest, etc.)
 /// These items track time but don't earn points
@@ -32,7 +33,7 @@ class NonProductiveService {
       categoryName: categoryName ?? 'Non-Productive',
       categoryType: 'non_productive',
       description: description,
-      trackingType: trackingType ?? 'time', // Default to time tracking
+      trackingType: trackingType ?? 'binary', // Default to binary tracking
       target: target,
       unit: unit,
       isActive: true,
@@ -104,7 +105,7 @@ class NonProductiveService {
       templateCategoryName: template.categoryName,
       templateCategoryType: 'non_productive',
       templatePriority: template.priority,
-      templateTrackingType: 'time',
+      templateTrackingType: template.trackingType,
       templateDescription: template.description,
       // Time logging fields
       timeLogSessions: [timeLogSession],
@@ -263,6 +264,26 @@ class NonProductiveService {
             : null;
       }
       await templateRef.update(updateData);
+
+      // Cascade updates to instances
+      final instanceUpdates = <String, dynamic>{};
+      if (name != null) instanceUpdates['templateName'] = name;
+      if (description != null) instanceUpdates['templateDescription'] = description;
+      if (categoryName != null) instanceUpdates['templateCategoryName'] = categoryName;
+      if (trackingType != null) instanceUpdates['templateTrackingType'] = trackingType;
+      if (target != null) instanceUpdates['templateTarget'] = target;
+      if (unit != null) instanceUpdates['templateUnit'] = unit;
+      if (updateData.containsKey('timeEstimateMinutes')) {
+        instanceUpdates['templateTimeEstimateMinutes'] = updateData['timeEstimateMinutes'];
+      }
+
+      if (instanceUpdates.isNotEmpty) {
+        await ActivityInstanceService.updateActivityInstancesCascade(
+          templateId: templateId,
+          updates: instanceUpdates,
+          updateHistorical: false, // Non-productive usually doesn't need historical updates
+        );
+      }
     } catch (e) {
       rethrow;
     }

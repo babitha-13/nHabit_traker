@@ -99,6 +99,7 @@ class TaskInstanceService {
       templateTarget: template.target,
       templateUnit: template.unit,
       templateDescription: template.description,
+      templateTimeEstimateMinutes: template.timeEstimateMinutes,
       templateShowInFloatingTimer: template.showInFloatingTimer,
       // Inherit order from previous instance
       queueOrder: queueOrder,
@@ -125,6 +126,7 @@ class TaskInstanceService {
       if (!instanceDoc.exists) {
         throw Exception('Task instance not found');
       }
+
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
 
       // Check if this is a habit - habits should use ActivityInstanceService completion logic
@@ -802,7 +804,8 @@ class TaskInstanceService {
         templateTarget: template.target,
         templateUnit: template.unit,
         templateDescription: template.description,
-        templateShowInFloatingTimer: template.showInFloatingTimer,
+        templateTimeEstimateMinutes: template.timeEstimateMinutes,
+        templateShowInFloatingTimer: true, // Always show timer task instances in floating timer
         // Session tracking fields
         currentSessionStartTime: DateTime.now(),
         isTimeLogging: true,
@@ -865,7 +868,7 @@ class TaskInstanceService {
         if (matchingTemplate == null) {
           templateRef = await NonProductiveService.createNonProductiveTemplate(
             name: taskName,
-            trackingType: 'time',
+            trackingType: 'binary',
             userId: uid,
           );
         } else {
@@ -885,7 +888,8 @@ class TaskInstanceService {
           'templateName': taskName,
           'templateCategoryType': 'non_productive',
           'templateCategoryName': 'Non-Productive',
-          'templateTrackingType': 'time',
+          'templateTrackingType':
+              matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': DateTime.now(),
         };
@@ -1003,7 +1007,7 @@ class TaskInstanceService {
         if (matchingTemplate == null) {
           templateRef = await NonProductiveService.createNonProductiveTemplate(
             name: taskName,
-            trackingType: 'time',
+            trackingType: 'binary',
             userId: uid,
           );
         } else {
@@ -1023,7 +1027,8 @@ class TaskInstanceService {
           'templateName': taskName,
           'templateCategoryType': 'non_productive',
           'templateCategoryName': 'Non-Productive',
-          'templateTrackingType': 'time',
+          'templateTrackingType':
+              matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': DateTime.now(),
         };
@@ -1189,24 +1194,68 @@ class TaskInstanceService {
       // Calculate total time across all sessions
       final totalTime = sessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
+      final now = DateTime.now();
       final updateData = <String, dynamic>{
         'timeLogSessions': sessions,
         'totalTimeLogged': totalTime,
+        'accumulatedTime': totalTime,
         'isTimeLogging': false,
         'currentSessionStartTime': null,
-        'lastUpdated': DateTime.now(),
+        'lastUpdated': now,
       };
+      if (instance.templateTrackingType == 'time') {
+        updateData['currentValue'] = totalTime;
+      }
       if (markComplete) {
         updateData['status'] = 'completed';
-        updateData['completedAt'] = DateTime.now();
+        updateData['completedAt'] = now;
       }
-      await activityInstanceRef.update(updateData);
-      
-      // Fetch the updated instance and broadcast update notification
-      // This ensures the calendar page refreshes to show the new time boxes
-      final updatedInstance =
-          await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+      final optimisticData = Map<String, dynamic>.from(instance.snapshotData)
+        ..['timeLogSessions'] = sessions
+        ..['totalTimeLogged'] = totalTime
+        ..['accumulatedTime'] = totalTime
+        ..['currentValue'] = instance.templateTrackingType == 'time'
+            ? totalTime
+            : instance.currentValue
+        ..['isTimeLogging'] = false
+        ..['currentSessionStartTime'] = null
+        ..['lastUpdated'] = now;
+      if (markComplete) {
+        optimisticData['status'] = 'completed';
+        optimisticData['completedAt'] = now;
+      }
+      var optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
+        optimisticData,
+        instance.reference,
+      );
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instance.reference.id,
+        operationType: markComplete ? 'complete' : 'progress',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+        optimisticInstance,
+        operationId,
+      );
+
+      try {
+        await activityInstanceRef.update(updateData);
+
+        // Fetch the updated instance and broadcast update notification
+        // This ensures the calendar page refreshes to show the new time boxes
+        final updatedInstance =
+            await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
+        OptimisticOperationTracker.reconcileOperation(
+            operationId, updatedInstance);
+        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      } catch (e) {
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        rethrow;
+      }
     } catch (e) {
       rethrow;
     }
@@ -1373,6 +1422,7 @@ class TaskInstanceService {
     String? categoryName,
     String? templateId, // Optional: if selecting an existing activity
     String? userId,
+    bool markComplete = true,
   }) async {
     final uid = userId ?? _currentUserId;
 
@@ -1395,8 +1445,6 @@ class TaskInstanceService {
       if (templateId != null) {
         DocumentReference? targetInstanceRef;
         dynamic existingInstance;
-        bool isHabitInstanceRecord =
-            false; // Track if instance is from HabitInstanceRecord collection
 
         // 1. Try to find an instance for this template (including completed ones)
         // First check pending/active instances
@@ -1424,8 +1472,6 @@ class TaskInstanceService {
             if (habitMatch != null) {
               targetInstanceRef = habitMatch.reference;
               existingInstance = habitMatch;
-              isHabitInstanceRecord =
-                  false; // ActivityInstanceRecord from getHabitInstancesForDate
             }
           } catch (e) {
             // Don't continue to create new instance - throw error instead
@@ -1439,8 +1485,6 @@ class TaskInstanceService {
           if (match != null) {
             targetInstanceRef = match.reference;
             existingInstance = match;
-            isHabitInstanceRecord =
-                false; // ActivityInstanceRecord from getTodaysTaskInstances
           }
 
           // 2. If not found in pending, check ALL instances (including completed) for this template
@@ -1486,15 +1530,11 @@ class TaskInstanceService {
                       instance.dueDate == null) {
                     targetInstanceRef = instance.reference;
                     existingInstance = instance;
-                    isHabitInstanceRecord =
-                        false; // ActivityInstanceRecord from this query
                   }
                 } else {
                   // If no date info, use the instance anyway (flexible matching)
                   targetInstanceRef = instance.reference;
                   existingInstance = instance;
-                  isHabitInstanceRecord =
-                      false; // ActivityInstanceRecord from this query
                 }
               }
             } catch (e) {
@@ -1679,6 +1719,7 @@ class TaskInstanceService {
 
       // Create a temporary task instance to log this manual entry against.
       final taskInstanceRef = await createTimerTaskInstance(userId: uid);
+      final now = DateTime.now();
 
       final isNonProductive = activityType == 'non_productive';
       final timeLogSessions = [newSession];
@@ -1700,7 +1741,7 @@ class TaskInstanceService {
         if (matchingTemplate == null) {
           templateRef = await NonProductiveService.createNonProductiveTemplate(
             name: taskName,
-            trackingType: 'time',
+            trackingType: 'binary',
             userId: uid,
           );
         } else {
@@ -1709,8 +1750,8 @@ class TaskInstanceService {
 
         // Update the instance with non-productive data
         final updateData = <String, dynamic>{
-          'status': 'completed',
-          'completedAt': endTime,
+          'status': markComplete ? 'completed' : 'pending',
+          'completedAt': markComplete ? endTime : FieldValue.delete(),
           'isTimerActive': false,
           'timeLogSessions': timeLogSessions,
           'totalTimeLogged': totalTime,
@@ -1720,8 +1761,10 @@ class TaskInstanceService {
           'templateName': taskName,
           'templateCategoryType': 'non_productive',
           'templateCategoryName': 'Non-Productive',
-          'templateTrackingType': 'time',
-          'lastUpdated': DateTime.now(),
+          'templateTrackingType':
+              matchingTemplate?.trackingType ?? 'binary',
+          'currentSessionStartTime': null,
+          'lastUpdated': now,
         };
         await taskInstanceRef.update(updateData);
       } else {
@@ -1733,8 +1776,8 @@ class TaskInstanceService {
 
         // Update the instance with the manual log data.
         final updateData = <String, dynamic>{
-          'status': 'completed',
-          'completedAt': endTime,
+          'status': markComplete ? 'completed' : 'pending',
+          'completedAt': markComplete ? endTime : FieldValue.delete(),
           'isTimerActive': false,
           'timeLogSessions': timeLogSessions,
           'totalTimeLogged': totalTime,
@@ -1745,7 +1788,8 @@ class TaskInstanceService {
           'templateCategoryType': 'task',
           'templateTrackingType':
               'binary', // Force binary for one-offs per previous request
-          'lastUpdated': DateTime.now(),
+          'lastUpdated': now,
+          'currentSessionStartTime': null,
         };
 
         if (categoryId != null) updateData['templateCategoryId'] = categoryId;
@@ -1757,8 +1801,8 @@ class TaskInstanceService {
         // Update the underlying template as well.
         final templateUpdateData = <String, dynamic>{
           'name': taskName,
-          'lastUpdated': DateTime.now(),
-          'isActive': false, // Mark one-off templates as inactive.
+          'lastUpdated': now,
+          'isActive': markComplete ? false : true,
           'trackingType': 'binary',
         };
 

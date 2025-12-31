@@ -81,9 +81,16 @@ class _ItemComponentState extends State<ItemComponent>
   bool _isExpanded = false;
   bool? _hasReminders; // Cache for reminder check
   String? _reminderDisplayText; // Cache for reminder display text
+  int? _resolvedTimeEstimateMinutes;
+  bool _isFetchingTimeEstimate = false;
   @override
   void initState() {
     super.initState();
+    _resolvedTimeEstimateMinutes =
+        _normalizeTimeEstimate(widget.instance.templateTimeEstimateMinutes);
+    if (_shouldFetchTemplateEstimate()) {
+      _fetchTemplateTimeEstimate();
+    }
     if (widget.instance.templateTrackingType == 'time' &&
         widget.instance.isTimerActive) {
       _startTimer();
@@ -115,10 +122,12 @@ class _ItemComponentState extends State<ItemComponent>
     // Reset binary completion override when backend catches up or instance changes
     if (_binaryCompletionOverride != null) {
       final backendCompleted = _isBackendCompleted;
-      final instanceChanged = widget.instance.reference.id !=
-          oldWidget.instance.reference.id;
+      final instanceChanged =
+          widget.instance.reference.id != oldWidget.instance.reference.id;
       final statusChanged = widget.instance.status != oldWidget.instance.status;
-      if (backendCompleted == _binaryCompletionOverride || instanceChanged || statusChanged) {
+      if (backendCompleted == _binaryCompletionOverride ||
+          instanceChanged ||
+          statusChanged) {
         setState(() => _binaryCompletionOverride = null);
       }
     }
@@ -129,6 +138,23 @@ class _ItemComponentState extends State<ItemComponent>
       } else if (!widget.instance.isTimerActive &&
           oldWidget.instance.isTimerActive) {
         _stopTimer();
+      }
+    }
+    final estimateChanged =
+        widget.instance.templateTimeEstimateMinutes !=
+            oldWidget.instance.templateTimeEstimateMinutes;
+    final instanceChanged =
+        widget.instance.reference.id != oldWidget.instance.reference.id;
+    if (estimateChanged || instanceChanged) {
+      final newValue =
+          _normalizeTimeEstimate(widget.instance.templateTimeEstimateMinutes);
+      if (_resolvedTimeEstimateMinutes != newValue) {
+        setState(() {
+          _resolvedTimeEstimateMinutes = newValue;
+        });
+      }
+      if (_shouldFetchTemplateEstimate()) {
+        _fetchTemplateTimeEstimate();
       }
     }
   }
@@ -216,6 +242,44 @@ class _ItemComponentState extends State<ItemComponent>
   void _stopTimer() {
     _timer?.cancel();
     _timer = null;
+  }
+
+  int? _normalizeTimeEstimate(int? minutes) {
+    if (minutes == null) return null;
+    if (minutes <= 0) return null;
+    return minutes.clamp(1, 600);
+  }
+
+  bool _shouldFetchTemplateEstimate() {
+    if (_resolvedTimeEstimateMinutes != null) return false;
+    if (_isFetchingTimeEstimate) return false;
+    if (widget.instance.templateTrackingType == 'time') return false;
+    return widget.instance.templateId.isNotEmpty;
+  }
+
+  Future<void> _fetchTemplateTimeEstimate() async {
+    if (_isFetchingTimeEstimate) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    if (uid == null) return;
+    _isFetchingTimeEstimate = true;
+    try {
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
+      final template = await ActivityRecord.getDocumentOnce(templateRef);
+      if (!mounted) return;
+      final sanitized = _normalizeTimeEstimate(template.timeEstimateMinutes);
+      if (sanitized != null &&
+          sanitized != _resolvedTimeEstimateMinutes &&
+          mounted) {
+        setState(() {
+          _resolvedTimeEstimateMinutes = sanitized;
+        });
+      }
+    } catch (_) {
+      // Ignore fetch errors for this non-critical UI enhancement
+    } finally {
+      _isFetchingTimeEstimate = false;
+    }
   }
 
   @override
@@ -425,7 +489,8 @@ class _ItemComponentState extends State<ItemComponent>
                                           .primaryText,
                                 ),
                           ),
-                          if (_getEnhancedSubtitle(includeProgress: _shouldShowProgress)
+                          if (_getEnhancedSubtitle(
+                                      includeProgress: _shouldShowProgress)
                                   .isNotEmpty &&
                               !_isNonProductive) ...[
                             const SizedBox(height: 2),
@@ -461,6 +526,8 @@ class _ItemComponentState extends State<ItemComponent>
                               reminderDisplayText: _reminderDisplayText,
                               showCategoryOnExpansion:
                                   widget.showExpandedCategoryName,
+                            timeEstimateMinutes:
+                                _resolvedTimeEstimateMinutes,
                               onEdit: _editActivity,
                             ),
                           ],
@@ -612,6 +679,12 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Future<void> _updateTemplatePriority(int newPriority) async {
+    final previousInstance = widget.instance;
+    final optimisticInstance = InstanceEvents.createOptimisticPropertyUpdateInstance(
+      previousInstance,
+      {'templatePriority': newPriority},
+    );
+    widget.onInstanceUpdated?.call(optimisticInstance);
     try {
       // Get the template document
       final uid = FirebaseAuth.instance.currentUser!.uid;
@@ -638,6 +711,7 @@ class _ItemComponentState extends State<ItemComponent>
       // Broadcast the instance update event
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
+      widget.onInstanceUpdated?.call(previousInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error updating priority: $e')),
@@ -671,6 +745,16 @@ class _ItemComponentState extends State<ItemComponent>
           isHabit: widget.instance.templateCategoryType == 'habit',
           categories: widget.categories ?? [],
           onSave: (updatedHabit) async {
+            final newEstimate = updatedHabit != null
+                ? _normalizeTimeEstimate(updatedHabit.timeEstimateMinutes)
+                : null;
+            if (mounted) {
+              setState(() {
+                _resolvedTimeEstimateMinutes = newEstimate;
+              });
+            } else {
+              _resolvedTimeEstimateMinutes = newEstimate;
+            }
             if (widget.onRefresh != null) {
               await widget.onRefresh!();
             }
@@ -748,6 +832,10 @@ class _ItemComponentState extends State<ItemComponent>
         ),
       );
       if (shouldDelete == true) {
+        final deletedInstance = widget.instance;
+        // Optimistically remove the instance from the UI
+        widget.onInstanceDeleted?.call(deletedInstance);
+        InstanceEvents.broadcastInstanceDeleted(deletedInstance);
         try {
           // Soft delete the template
           await deleteHabit(templateRef);
@@ -758,16 +846,15 @@ class _ItemComponentState extends State<ItemComponent>
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Activity deleted')),
             );
-            // Call onInstanceDeleted for granular UI update
-            widget.onInstanceDeleted?.call(widget.instance);
-            // Broadcast the instance deletion event
-            InstanceEvents.broadcastInstanceDeleted(widget.instance);
           }
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Error deleting activity: $e')),
             );
+          }
+          if (widget.onRefresh != null) {
+            await widget.onRefresh!();
           }
         }
       }
@@ -1003,16 +1090,18 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Future<void> _handleScheduleAction(String action) async {
+    final previousInstance = widget.instance;
     try {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final tomorrow = today.add(const Duration(days: 1));
       switch (action) {
         case 'unskip':
+          _applyOptimisticUnskip();
           await _handleUnskip();
           break;
         case 'skip':
-          // Handle both regular skip and habit skip
+          _applyOptimisticSkip();
           await ActivityInstanceService.skipInstance(
             instanceId: widget.instance.reference.id,
           );
@@ -1024,6 +1113,7 @@ class _ItemComponentState extends State<ItemComponent>
           );
           break;
         case 'skip_until_today':
+          _applyOptimisticSkip();
           await ActivityInstanceService.skipInstancesUntil(
             templateId: widget.instance.templateId,
             untilDate: today,
@@ -1040,6 +1130,7 @@ class _ItemComponentState extends State<ItemComponent>
             lastDate: today.add(const Duration(days: 365 * 5)),
           );
           if (picked != null) {
+            _applyOptimisticSkip();
             await ActivityInstanceService.skipInstancesUntil(
               templateId: widget.instance.templateId,
               untilDate: picked,
@@ -1051,6 +1142,10 @@ class _ItemComponentState extends State<ItemComponent>
           }
           break;
         case 'today':
+          _applyOptimisticReschedule(
+            today,
+            newDueTime: widget.instance.dueTime,
+          );
           await ActivityInstanceService.rescheduleInstance(
             instanceId: widget.instance.reference.id,
             newDueDate: today,
@@ -1060,6 +1155,10 @@ class _ItemComponentState extends State<ItemComponent>
           );
           break;
         case 'tomorrow':
+          _applyOptimisticReschedule(
+            tomorrow,
+            newDueTime: widget.instance.dueTime,
+          );
           await ActivityInstanceService.rescheduleInstance(
             instanceId: widget.instance.reference.id,
             newDueDate: tomorrow,
@@ -1076,6 +1175,10 @@ class _ItemComponentState extends State<ItemComponent>
             lastDate: today.add(const Duration(days: 365 * 5)),
           );
           if (picked != null) {
+            _applyOptimisticReschedule(
+              picked,
+              newDueTime: widget.instance.dueTime,
+            );
             await ActivityInstanceService.rescheduleInstance(
               instanceId: widget.instance.reference.id,
               newDueDate: picked,
@@ -1087,6 +1190,7 @@ class _ItemComponentState extends State<ItemComponent>
           }
           break;
         case 'clear_due_date':
+          _applyOptimisticClearDueDate();
           await ActivityInstanceService.removeDueDateFromInstance(
             instanceId: widget.instance.reference.id,
           );
@@ -1095,6 +1199,7 @@ class _ItemComponentState extends State<ItemComponent>
           );
           break;
         case 'skip_rest':
+          _applyOptimisticSkip();
           await _handleHabitSkipRest();
           break;
         case 'snooze_today':
@@ -1113,13 +1218,68 @@ class _ItemComponentState extends State<ItemComponent>
       );
       // Call the instance update callback for real-time updates
       widget.onInstanceUpdated?.call(updatedInstance);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error: $e')),
         );
       }
+      widget.onInstanceUpdated?.call(previousInstance);
+      if (widget.onRefresh != null) {
+        await widget.onRefresh!();
+      }
     }
+  }
+
+  void _applyOptimisticInstance(ActivityInstanceRecord optimisticInstance) {
+    widget.onInstanceUpdated?.call(optimisticInstance);
+  }
+
+  void _applyOptimisticSkip() {
+    _applyOptimisticInstance(
+      InstanceEvents.createOptimisticSkippedInstance(widget.instance),
+    );
+  }
+
+  void _applyOptimisticUnskip() {
+    _applyOptimisticInstance(
+      InstanceEvents.createOptimisticUncompletedInstance(widget.instance),
+    );
+  }
+
+  void _applyOptimisticReschedule(DateTime newDueDate, {String? newDueTime}) {
+    _applyOptimisticInstance(
+      InstanceEvents.createOptimisticRescheduledInstance(
+        widget.instance,
+        newDueDate: newDueDate,
+        newDueTime: newDueTime,
+      ),
+    );
+  }
+
+  void _applyOptimisticClearDueDate() {
+    _applyOptimisticInstance(
+      InstanceEvents.createOptimisticPropertyUpdateInstance(
+        widget.instance,
+        {'dueDate': null, 'dueTime': null},
+      ),
+    );
+  }
+
+  void _applyOptimisticSnooze(DateTime until) {
+    _applyOptimisticInstance(
+      InstanceEvents.createOptimisticSnoozedInstance(
+        widget.instance,
+        snoozedUntil: until,
+      ),
+    );
+  }
+
+  void _applyOptimisticUnsnooze() {
+    _applyOptimisticInstance(
+      InstanceEvents.createOptimisticUnsnoozedInstance(widget.instance),
+    );
   }
 
   Future<void> _handleUnskip() async {
@@ -1139,14 +1299,6 @@ class _ItemComponentState extends State<ItemComponent>
         instanceId: widget.instance.reference.id,
         deleteLogs: deleteLogs,
       );
-      // Get the updated instance
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      // Call the instance update callback
-      widget.onInstanceUpdated?.call(updatedInstance);
-      // Broadcast update
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -1603,35 +1755,40 @@ class _ItemComponentState extends State<ItemComponent>
     // TODO: Phase 3 - Re-implement completion logic for each type
     switch (widget.instance.templateTrackingType) {
       case 'binary':
-        return Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: _isCompleted ? _impactLevelColor : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-            border: _isCompleted
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: _isUpdating
                 ? null
-                : Border.all(
-                    color: _leftStripeColor,
-                    width: 2,
-                  ),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: _isUpdating
-                  ? null
-                  : () async {
-                      await _handleBinaryCompletion(!_isCompleted);
-                    },
-              child: _isCompleted
-                  ? const Icon(
-                      Icons.check,
-                      size: 20,
-                      color: Colors.white,
-                    )
-                  : null,
+                : () async {
+                    await _handleBinaryCompletion(!_isCompleted);
+                  },
+            child: Container(
+              width: 48,
+              height: 48,
+              alignment: Alignment.center,
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: _isCompleted ? _impactLevelColor : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                  border: _isCompleted
+                      ? null
+                      : Border.all(
+                          color: _leftStripeColor,
+                          width: 2,
+                        ),
+                ),
+                child: _isCompleted
+                    ? const Icon(
+                        Icons.check,
+                        size: 18,
+                        color: Colors.white,
+                      )
+                    : null,
+              ),
             ),
           ),
         );
@@ -1639,29 +1796,33 @@ class _ItemComponentState extends State<ItemComponent>
         final current = _currentProgressLocal();
         final canDecrement = current > 0;
         return Builder(
-          builder: (btnCtx) => GestureDetector(
-            onLongPress: () => _showQuantControlsMenu(btnCtx, canDecrement),
-            child: Container(
-              width: 40,
-              height: 40,
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(6),
-                border: Border.all(
-                  color: _leftStripeColor,
-                  width: 2,
-                ),
-              ),
-              child: Material(
-                color: Colors.transparent,
-                child: InkWell(
-                  borderRadius: BorderRadius.circular(6),
-                  onTap: () => _updateProgress(1), // Always allow clicks for batching
+          builder: (btnCtx) => Material(
+            color: Colors.transparent,
+            child: InkWell(
+              borderRadius: BorderRadius.circular(20),
+              onTap: () => _updateProgress(1),
+              onLongPress: () => _showQuantControlsMenu(btnCtx, canDecrement),
+              child: Container(
+                width: 48,
+                height: 48,
+                alignment: Alignment.center,
+                child: Container(
+                  width: 24,
+                  height: 24,
+                  decoration: BoxDecoration(
+                    color: Colors.transparent,
+                    borderRadius: BorderRadius.circular(4),
+                    border: Border.all(
+                      color: _leftStripeColor,
+                      width: 2,
+                    ),
+                  ),
                   child: Opacity(
-                    opacity: (_isUpdating || _pendingQuantIncrement > 0) ? 0.6 : 1.0,
+                    opacity:
+                        (_isUpdating || _pendingQuantIncrement > 0) ? 0.6 : 1.0,
                     child: Icon(
                       Icons.add,
-                      size: 22,
+                      size: 20,
                       color: _leftStripeColor,
                     ),
                   ),
@@ -1672,32 +1833,37 @@ class _ItemComponentState extends State<ItemComponent>
         );
       case 'time':
         final bool isActive = _isTimerActiveLocal;
-        return Container(
-          width: 40,
-          height: 40,
-          decoration: BoxDecoration(
-            color: isActive
-                ? FlutterFlowTheme.of(context).error
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(6),
-            border: isActive
-                ? null
-                : Border.all(
-                    color: _leftStripeColor,
-                    width: 2,
-                  ),
-          ),
-          child: Material(
-            color: Colors.transparent,
-            child: InkWell(
-              borderRadius: BorderRadius.circular(6),
-              onTap: _isUpdating ? null : () => _toggleTimer(),
-              onLongPress:
-                  _isUpdating ? null : () => _showTimeControlsMenu(context),
-              child: Icon(
-                isActive ? Icons.stop : Icons.play_arrow,
-                size: 20,
-                color: isActive ? Colors.white : _leftStripeColor,
+        return Material(
+          color: Colors.transparent,
+          child: InkWell(
+            borderRadius: BorderRadius.circular(20),
+            onTap: _isUpdating ? null : () => _toggleTimer(),
+            onLongPress:
+                _isUpdating ? null : () => _showTimeControlsMenu(context),
+            child: Container(
+              width: 48,
+              height: 48,
+              alignment: Alignment.center,
+              child: Container(
+                width: 24,
+                height: 24,
+                decoration: BoxDecoration(
+                  color: isActive
+                      ? FlutterFlowTheme.of(context).error
+                      : Colors.transparent,
+                  borderRadius: BorderRadius.circular(4),
+                  border: isActive
+                      ? null
+                      : Border.all(
+                          color: _leftStripeColor,
+                          width: 2,
+                        ),
+                ),
+                child: Icon(
+                  isActive ? Icons.stop : Icons.play_arrow,
+                  size: 18,
+                  color: isActive ? Colors.white : _leftStripeColor,
+                ),
               ),
             ),
           ),
@@ -1734,7 +1900,7 @@ class _ItemComponentState extends State<ItemComponent>
         }
         // Set optimistic state immediately for local UI
         setState(() => _quantProgressOverride = newValue.toInt());
-        
+
         // Service method will broadcast optimistically
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
@@ -1762,12 +1928,12 @@ class _ItemComponentState extends State<ItemComponent>
     // For quantitative activities: batch processing with immediate UI update
     // Accumulate the increment
     _pendingQuantIncrement += delta;
-    
+
     // Update UI optimistically immediately
     final currentValue = _currentProgressLocal();
     final newOptimisticValue =
         (currentValue + _pendingQuantIncrement).clamp(0, double.infinity);
-    
+
     final targetValue = _getTargetValue();
     setState(() {
       _quantProgressOverride = newOptimisticValue.toInt();
@@ -1782,18 +1948,18 @@ class _ItemComponentState extends State<ItemComponent>
         }
       }
     });
-    
+
     // Play step counter sound for quantitative updates
     SoundHelper().playStepCounterSound();
-    
+
     // Check if target is reached and play completion sound
     if (targetValue > 0 && newOptimisticValue >= targetValue) {
       SoundHelper().playCompletionSound();
     }
-    
+
     // Cancel existing timer if any
     _quantUpdateTimer?.cancel();
-    
+
     // Schedule batched backend update after a short delay (300ms)
     // This allows rapid clicks to accumulate before sending to backend
     _quantUpdateTimer = Timer(const Duration(milliseconds: 300), () {
@@ -1816,7 +1982,7 @@ class _ItemComponentState extends State<ItemComponent>
     // _quantProgressOverride already includes all pending increments
     final currentValue = _currentProgressLocal();
     _pendingQuantIncrement = 0; // Reset before processing
-    
+
     setState(() {
       _isUpdating = true;
     });
@@ -1838,7 +2004,9 @@ class _ItemComponentState extends State<ItemComponent>
     } catch (e) {
       // Revert optimistic state on error - subtract what we tried to process
       setState(() {
-        _quantProgressOverride = (currentValue - incrementToProcess).clamp(0, double.infinity).toInt();
+        _quantProgressOverride = (currentValue - incrementToProcess)
+            .clamp(0, double.infinity)
+            .toInt();
       });
       // Re-add to pending since it failed
       _pendingQuantIncrement += incrementToProcess;
@@ -1854,7 +2022,7 @@ class _ItemComponentState extends State<ItemComponent>
           _isUpdating = false;
         });
       }
-      
+
       // Process any new pending increments that accumulated during the update
       if (_pendingQuantIncrement != 0) {
         _quantUpdateTimer = Timer(const Duration(milliseconds: 300), () {
@@ -1867,7 +2035,8 @@ class _ItemComponentState extends State<ItemComponent>
   bool _shouldAutoCompleteQuant(ActivityInstanceRecord instance) {
     final target = _valueToNum(instance.templateTarget);
     if (target <= 0) return false;
-    if (instance.status == 'completed' || instance.status == 'skipped') return false;
+    if (instance.status == 'completed' || instance.status == 'skipped')
+      return false;
     final current = _valueToNum(instance.currentValue);
     return current >= target;
   }
@@ -1881,7 +2050,8 @@ class _ItemComponentState extends State<ItemComponent>
   bool _shouldAutoUncompleteQuant(ActivityInstanceRecord instance) {
     final target = _valueToNum(instance.templateTarget);
     if (target <= 0) return false;
-    if (instance.status != 'completed' && instance.status != 'skipped') return false;
+    if (instance.status != 'completed' && instance.status != 'skipped')
+      return false;
     final current = _valueToNum(instance.currentValue);
     return current < target;
   }
@@ -1980,7 +2150,7 @@ class _ItemComponentState extends State<ItemComponent>
         _binaryCompletionOverride = completed;
       });
     }
-    
+
     try {
       if (completed) {
         // Play completion sound
@@ -2014,6 +2184,11 @@ class _ItemComponentState extends State<ItemComponent>
       if (widget.instance.templateCategoryType == 'habit' && completed) {
         widget.onRefresh?.call();
       }
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: widget.instance.reference.id,
+      );
+      widget.onInstanceUpdated?.call(updatedInstance);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
     } catch (e) {
       // Revert optimistic state on error
       widget.onInstanceUpdated?.call(widget.instance);
@@ -2046,12 +2221,12 @@ class _ItemComponentState extends State<ItemComponent>
       final newTimerState = !wasActive;
       // Set optimistic state immediately for local UI
       setState(() => _timerStateOverride = newTimerState);
-      
+
       // Service method will broadcast optimistically
       await ActivityInstanceService.toggleInstanceTimer(
         instanceId: widget.instance.reference.id,
       );
-      
+
       // Get the updated instance data for TimerManager integration
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
@@ -2323,7 +2498,7 @@ class _ItemComponentState extends State<ItemComponent>
     try {
       // Get current instance to check status
       final instance = widget.instance;
-      
+
       // Reset timer - use direct update for now since updateInstanceProgress
       // doesn't handle timer-specific fields. The uncompleteInstance call below
       // will handle optimistic broadcast if needed.
@@ -2339,7 +2514,7 @@ class _ItemComponentState extends State<ItemComponent>
         'timerStartTime': null,
         'lastUpdated': DateTime.now(),
       });
-      
+
       // If the item was completed or skipped based on timer, uncomplete it
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if timer was the only progress (for time-based tracking)
@@ -2384,13 +2559,13 @@ class _ItemComponentState extends State<ItemComponent>
     try {
       // Get current instance to check status
       final instance = widget.instance;
-      
+
       // Reset quantity using service method (will broadcast optimistically)
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
         currentValue: 0,
       );
-      
+
       // If the item was completed or skipped based on quantity, uncomplete it
       if (instance.status == 'completed' || instance.status == 'skipped') {
         // Check if quantity was the only progress (for quantitative tracking)
@@ -2502,7 +2677,7 @@ class _ItemComponentState extends State<ItemComponent>
       // Step 5: Create a time log session with the full target duration
       // This ensures the calendar shows the complete 3 hours, not just the timer duration
       final completionTime = DateTime.now();
-      final sessionStartTime =
+      final stackedTimes =
           await ActivityInstanceService.calculateStackedStartTime(
         userId: currentUserUid,
         completionTime: completionTime,
@@ -2518,8 +2693,8 @@ class _ItemComponentState extends State<ItemComponent>
 
       // Create new session with full target duration
       final newSession = {
-        'startTime': sessionStartTime,
-        'endTime': completionTime,
+        'startTime': stackedTimes.startTime,
+        'endTime': stackedTimes.endTime,
         'durationMilliseconds': newAccumulatedTime,
       };
 
@@ -2793,6 +2968,7 @@ class _ItemComponentState extends State<ItemComponent>
 
   /// Handle skip for habits with partial progress
   Future<void> _handleHabitSkipRest() async {
+    _applyOptimisticSkip();
     try {
       // Mark as skipped but preserve currentValue for points calculation
       await ActivityInstanceService.skipInstance(
@@ -2830,6 +3006,7 @@ class _ItemComponentState extends State<ItemComponent>
         lastDate: maxDate,
       );
       if (picked != null) {
+        _applyOptimisticSnooze(picked);
         await ActivityInstanceService.snoozeInstance(
           instanceId: widget.instance.reference.id,
           snoozeUntil: picked,
@@ -2854,6 +3031,7 @@ class _ItemComponentState extends State<ItemComponent>
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
       final tomorrow = today.add(const Duration(days: 1));
+      _applyOptimisticSnooze(tomorrow);
       await ActivityInstanceService.snoozeInstance(
         instanceId: widget.instance.reference.id,
         snoozeUntil: tomorrow,
@@ -2873,6 +3051,7 @@ class _ItemComponentState extends State<ItemComponent>
   /// Unsnooze instance
   Future<void> _handleBringBack() async {
     try {
+      _applyOptimisticUnsnooze();
       await ActivityInstanceService.unsnoozeInstance(
         instanceId: widget.instance.reference.id,
       );

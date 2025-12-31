@@ -7,7 +7,9 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/sound_helper.dart';
+import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
+import 'package:habit_tracker/Screens/Timer/timer_stop_flow.dart';
 
 class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;
@@ -152,76 +154,98 @@ class _TimerPageState extends State<TimerPage> {
     }
     _timer.cancel();
 
-    // Handle timer-created instances (swipe, non-productive, or timer-created from timer page)
-    if (widget.fromSwipe || widget.isNonProductive || _taskInstanceRef != null) {
+    final shouldSaveDirectly = widget.fromSwipe || widget.isNonProductive;
+
+    // Handle swipe-started timers or explicitly non-productive sessions inline.
+    if (shouldSaveDirectly) {
+      if (_taskInstanceRef == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Unable to save timer session. Please try again.'),
+            ),
+          );
+        }
+        return;
+      }
+      try {
+        if (widget.isNonProductive) {
+          // For non-productive: update with pre-filled name and activity type
+          await TaskInstanceService.updateTimerTaskOnStop(
+            taskInstanceRef: _taskInstanceRef!,
+            duration: duration,
+            taskName: widget.taskTitle ?? 'Non-Productive Activity',
+            categoryId: null,
+            categoryName: null,
+            activityType: 'non_productive',
+          );
+        } else {
+          // For swipe-started instances: stop time logging (with or without completion based on button pressed)
+          // For binary tasks: markComplete is true for "Stop and Complete", false for "Stop"
+          // For qty/time tasks: always false (completion is automatic based on progress)
+          await TaskInstanceService.stopTimeLogging(
+            activityInstanceRef: _taskInstanceRef!,
+            markComplete: markComplete,
+          );
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error saving timer: $e')),
+          );
+        }
+      }
+
+      if (mounted) {
+        Navigator.of(context).pop();
+      }
+    } else {
+      // Use shared timer stop flow
       if (_taskInstanceRef != null) {
         try {
-          if (widget.isNonProductive) {
-            // For non-productive: update with pre-filled name and activity type
-            await TaskInstanceService.updateTimerTaskOnStop(
-              taskInstanceRef: _taskInstanceRef!,
-              duration: duration,
-              taskName: widget.taskTitle ?? 'Non-Productive Activity',
-              categoryId: null,
-              categoryName: null,
-              activityType: 'non_productive',
-            );
-          } else {
-            // For swipe or timer-created instances: stop time logging (with or without completion based on button pressed)
-            // For binary tasks: markComplete is true for "Stop and Complete", false for "Stop"
-            // For qty/time tasks: always false (completion is automatic based on progress)
-            await TaskInstanceService.stopTimeLogging(
-              activityInstanceRef: _taskInstanceRef!,
-              markComplete: markComplete,
-            );
+          final instance =
+              await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
+          
+          final success = await TimerStopFlow.handleTimerStop(
+            context: context,
+            instance: instance,
+            markComplete: markComplete,
+            timerStartTime: _timerStartTime,
+            localDuration: duration,
+            onSaveComplete: () {
+              // Reset timer after saving
+              _resetTimer();
+            },
+          );
+          
+          if (!success && mounted) {
+            // Modal was cancelled, cleanup already handled by TimerStopFlow
+            _resetTimer();
           }
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
-              SnackBar(content: Text('Error saving timer: $e')),
+              SnackBar(content: Text('Error: $e')),
             );
           }
         }
-      }
-      // Auto-return to previous page for swipe/non-productive, navigate back for timer-created
-      if (mounted) {
-        if (widget.fromSwipe || widget.isNonProductive) {
-          Navigator.of(context).pop();
-        } else if (_taskInstanceRef != null) {
-          // For timer-created instances, navigate back after saving
-          Navigator.of(context).pop();
-        }
-      }
-    } else {
-      // Calculate start and end times for the modal
-      DateTime startTime;
-      DateTime endTime = DateTime.now();
-
-      // Get start time from tracked value or from instance
-      // Keep the session active until modal resolves (save or cancel)
-      if (_timerStartTime != null) {
-        startTime = _timerStartTime!;
-      } else if (_taskInstanceRef != null) {
-        try {
-          final instance =
-              await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
-          // Use currentSessionStartTime if available, otherwise calculate from duration
-          startTime =
-              instance.currentSessionStartTime ?? endTime.subtract(duration);
-        } catch (e) {
-          // Fallback: calculate from duration
+      } else {
+        // Fallback: calculate times manually if no instance
+        DateTime startTime;
+        DateTime endTime = DateTime.now();
+        
+        if (_timerStartTime != null) {
+          startTime = _timerStartTime!;
+        } else {
           startTime = endTime.subtract(duration);
         }
-      } else {
-        // Fallback: calculate from duration
-        startTime = endTime.subtract(duration);
+        
+        _showTimeLogModal(
+          startTime: startTime,
+          endTime: endTime,
+          markCompleteOnSave: markComplete,
+        );
       }
-
-      // Don't clear session start time yet - we need it for the modal
-      // It will be cleared when modal saves (via logManualTimeEntry) or cancels (via cleanup)
-
-      // Show modal to get activity details
-      _showTimeLogModal(startTime: startTime, endTime: endTime);
     }
   }
 
@@ -254,8 +278,11 @@ class _TimerPageState extends State<TimerPage> {
     }
   }
 
-  void _showTimeLogModal(
-      {required DateTime startTime, required DateTime endTime}) {
+  void _showTimeLogModal({
+    required DateTime startTime,
+    required DateTime endTime,
+    required bool markCompleteOnSave,
+  }) {
     // Get the date from start time for the modal
     final selectedDate = DateTime(
       startTime.year,
@@ -275,6 +302,7 @@ class _TimerPageState extends State<TimerPage> {
           selectedDate: selectedDate,
           initialStartTime: startTime,
           initialEndTime: endTime,
+          markCompleteOnSave: markCompleteOnSave,
           fromTimer:
               true, // Indicate this is from timer for auto-completion logic
           onSave: () {
@@ -538,14 +566,72 @@ class _TimerPageState extends State<TimerPage> {
     );
   }
 
+  /// Handle back button - preserve timer session to floating timer
+  Future<bool> _onWillPop() async {
+    // If timer is running and has an instance, hand it off to floating timer
+    if (_isRunning && _taskInstanceRef != null) {
+      try {
+        // Ensure the instance is set to show in floating timer
+        await _taskInstanceRef!.update({
+          'templateShowInFloatingTimer': true,
+        });
+        
+        // Load the updated instance and register with TimerManager
+        final instance = await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
+        TimerManager().startInstance(instance);
+        
+        // Show feedback message
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Timer is still running in the floating timer'),
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+        
+        // Reset local state but keep Firestore timer active
+        setState(() {
+          _isRunning = false;
+          if (_isStopwatch) {
+            _stopwatch.stop();
+          }
+          try {
+            if (_timer.isActive) {
+              _timer.cancel();
+            }
+          } catch (e) {
+            // Timer not initialized yet, ignore
+          }
+        });
+        
+        // Allow navigation
+        return true;
+      } catch (e) {
+        // If handoff fails, show error but still allow navigation
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error handing off timer: $e')),
+          );
+        }
+        return true;
+      }
+    }
+    
+    // If no active timer, allow normal back navigation
+    return true;
+  }
+
   @override
   Widget build(BuildContext context) {
     final displayTime = _isStopwatch ? _stopwatch.elapsed : _remainingTime;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.taskTitle ?? 'Timer'),
-      ),
-      body: Center(
+    return WillPopScope(
+      onWillPop: _onWillPop,
+      child: Scaffold(
+        appBar: AppBar(
+          title: Text(widget.taskTitle ?? 'Timer'),
+        ),
+        body: Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
@@ -616,6 +702,7 @@ class _TimerPageState extends State<TimerPage> {
             ),
           ],
         ),
+      ),
       ),
     );
   }

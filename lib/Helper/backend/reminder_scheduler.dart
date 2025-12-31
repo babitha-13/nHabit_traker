@@ -386,41 +386,74 @@ class ReminderScheduler {
   }
 
   /// Cancel all reminders for a specific instance
-  static Future<void> cancelReminderForInstance(String instanceId) async {
+  static Future<void> cancelReminderForInstance(
+    String instanceId, {
+    ActivityInstanceRecord? instanceOverride,
+  }) async {
     try {
       // Cancel default notification
       await NotificationService.cancelNotification(instanceId);
 
-      // Cancel all reminder-specific notifications/alarms
-      // We need to get the template to know all reminder IDs
-      try {
-        final instances = await queryAllInstances(userId: currentUserUid);
-        final instance = instances.firstWhere(
-          (i) => i.reference.id == instanceId,
-          orElse: () => instances.first,
-        );
+      final userId = currentUserUid;
+      if (userId.isEmpty) {
+        return;
+      }
 
-        final userId = currentUserUid;
-        if (userId.isEmpty) return;
-        final templateRef =
-            ActivityRecord.collectionForUser(userId).doc(instance.templateId);
-        final templateDoc = await templateRef.get();
-        if (templateDoc.exists) {
-          final template = ActivityRecord.fromSnapshot(templateDoc);
-          if (template.hasReminders()) {
-            final reminders =
-                ReminderConfigList.fromMapList(template.reminders);
-            for (final reminder in reminders) {
-              final reminderId = '${instanceId}_${reminder.id}';
-              await NotificationService.cancelNotification(reminderId);
-              if (reminder.type == 'alarm' && AlarmService.isSupported()) {
-                await AlarmService.cancelAlarm(reminderId.hashCode);
-              }
-            }
+      // Resolve the instance record if not provided
+      ActivityInstanceRecord? instance = instanceOverride;
+      if (instance == null) {
+        try {
+          final instanceDoc = await ActivityInstanceRecord.collectionForUser(
+                  userId)
+              .doc(instanceId)
+              .get();
+          if (!instanceDoc.exists) {
+            return;
           }
+          instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+        } catch (e) {
+          return;
+        }
+      }
+
+      // Load the template for reminder configuration lookups
+      ActivityRecord? template;
+      try {
+        final templateDoc = await ActivityRecord.collectionForUser(userId)
+            .doc(instance.templateId)
+            .get();
+        if (templateDoc.exists) {
+          template = ActivityRecord.fromSnapshot(templateDoc);
+        } else {
+          return;
         }
       } catch (e) {
-        // If we can't get template, just cancel the main notification
+        return;
+      }
+
+      final reminderConfigs = template.hasReminders()
+          ? ReminderConfigList.fromMapList(template.reminders)
+          : <ReminderConfig>[];
+
+      if (reminderConfigs.isEmpty) {
+        // Cancel IDs used by the default reminder scheduler for recurring items
+        final defaultIds =
+            _buildDefaultReminderIds(template, instance).toSet();
+        for (final reminderId in defaultIds) {
+          await NotificationService.cancelNotification(reminderId);
+        }
+        return;
+      }
+
+      for (final reminder in reminderConfigs) {
+        final reminderIds =
+            _buildReminderIdsForConfig(template, instance, reminder).toSet();
+        for (final reminderId in reminderIds) {
+          await NotificationService.cancelNotification(reminderId);
+          if (reminder.type == 'alarm' && AlarmService.isSupported()) {
+            await AlarmService.cancelAlarm(reminderId.hashCode);
+          }
+        }
       }
     } catch (e) {
       // Error canceling reminders
@@ -431,7 +464,10 @@ class ReminderScheduler {
   static Future<void> rescheduleReminderForInstance(
       ActivityInstanceRecord instance) async {
     // First cancel existing reminder
-    await cancelReminderForInstance(instance.reference.id);
+    await cancelReminderForInstance(
+      instance.reference.id,
+      instanceOverride: instance,
+    );
     // Then schedule new one if conditions are met
     await scheduleReminderForInstance(instance);
   }
@@ -731,5 +767,82 @@ class ReminderScheduler {
     );
 
     return actions;
+  }
+
+  static Iterable<String> _buildReminderIdsForConfig(
+    ActivityRecord template,
+    ActivityInstanceRecord instance,
+    ReminderConfig reminder,
+  ) {
+    final ids = <String>{};
+    final templateId = template.reference.id;
+    final instanceId = instance.reference.id;
+
+    if (template.isRecurring) {
+      if (_isSpecificDayRecurring(template)) {
+        final weekday = _getInstanceWeekday(instance);
+        if (weekday != null) {
+          ids.add('${templateId}_${reminder.id}_$weekday');
+        } else {
+          for (var day = 1; day <= 7; day++) {
+            ids.add('${templateId}_${reminder.id}_$day');
+          }
+        }
+      } else if (_isDailyRecurring(template)) {
+        ids.add('${templateId}_${reminder.id}_daily');
+      } else {
+        ids.add('${instanceId}_${reminder.id}');
+      }
+    } else {
+      ids.add('${instanceId}_${reminder.id}');
+    }
+
+    return ids;
+  }
+
+  static Iterable<String> _buildDefaultReminderIds(
+    ActivityRecord template,
+    ActivityInstanceRecord instance,
+  ) {
+    final ids = <String>{};
+    final templateId = template.reference.id;
+
+    if (!template.isRecurring) {
+      return ids;
+    }
+
+    if (_isSpecificDayRecurring(template)) {
+      final weekday = _getInstanceWeekday(instance);
+      if (weekday != null) {
+        ids.add('${templateId}_default_$weekday');
+      } else {
+        for (var day = 1; day <= 7; day++) {
+          ids.add('${templateId}_default_$day');
+        }
+      }
+    } else if (_isDailyRecurring(template)) {
+      ids.add('${templateId}_default_daily');
+    }
+
+    return ids;
+  }
+
+  static bool _isSpecificDayRecurring(ActivityRecord template) {
+    return template.frequencyType == 'specific_days' ||
+        (template.everyXPeriodType == 'week' && template.everyXValue == 1);
+  }
+
+  static bool _isDailyRecurring(ActivityRecord template) {
+    return template.everyXPeriodType == 'day' && template.everyXValue == 1;
+  }
+
+  static int? _getInstanceWeekday(ActivityInstanceRecord instance) {
+    if (instance.dueDate != null) {
+      return instance.dueDate!.weekday;
+    }
+    if (instance.belongsToDate != null) {
+      return instance.belongsToDate!.weekday;
+    }
+    return null;
   }
 }

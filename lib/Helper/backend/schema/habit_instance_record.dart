@@ -76,6 +76,10 @@ class HabitInstanceRecord extends FirestoreRecord {
   String? _templateUnit;
   String get templateUnit => _templateUnit ?? '';
   bool hasTemplateUnit() => _templateUnit != null;
+  int? _templateTimeEstimateMinutes;
+  int? get templateTimeEstimateMinutes => _templateTimeEstimateMinutes;
+  bool hasTemplateTimeEstimateMinutes() =>
+      _templateTimeEstimateMinutes != null;
   // Template frequency fields (cached from template)
   int? _templateEveryXValue;
   int get templateEveryXValue => _templateEveryXValue ?? 1;
@@ -121,6 +125,8 @@ class HabitInstanceRecord extends FirestoreRecord {
     _templateTrackingType = snapshotData['templateTrackingType'] as String?;
     _templateTarget = snapshotData['templateTarget'];
     _templateUnit = snapshotData['templateUnit'] as String?;
+    _templateTimeEstimateMinutes =
+        snapshotData['templateTimeEstimateMinutes'] as int?;
     _templateEveryXValue = snapshotData['templateEveryXValue'] as int?;
     _templateEveryXPeriodType =
         snapshotData['templateEveryXPeriodType'] as String?;
@@ -183,6 +189,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   dynamic templateTarget,
   String? templateUnit,
   String? templateDescription,
+  int? templateTimeEstimateMinutes,
   bool? templateShowInFloatingTimer,
   bool? templateIsRecurring,
   int? templateEveryXValue,
@@ -216,6 +223,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateTarget': templateTarget,
       'templateUnit': templateUnit,
       'templateDescription': templateDescription,
+      'templateTimeEstimateMinutes': templateTimeEstimateMinutes,
       'templateShowInFloatingTimer': templateShowInFloatingTimer,
       'templateIsRecurring': templateIsRecurring,
       'templateEveryXValue': templateEveryXValue,

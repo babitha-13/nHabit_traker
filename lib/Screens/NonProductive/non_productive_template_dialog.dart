@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
+import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -32,6 +33,7 @@ class _NonProductiveTemplateDialogState
   bool _isSaving = false;
   final List<String> _trackingTypes = ['binary', 'quantitative', 'time'];
   int? _timeEstimateMinutes;
+  int? _defaultTimeEstimateMinutes;
 
   @override
   void initState() {
@@ -49,6 +51,20 @@ class _NonProductiveTemplateDialogState
     } else {
       _selectedTrackingType = 'binary';
       _targetValue = null; // No target for binary/to-do tracking
+    }
+    _loadDefaultTimeEstimate();
+  }
+
+  Future<void> _loadDefaultTimeEstimate() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isEmpty) return;
+      final minutes = await TimeLoggingPreferencesService
+          .getDefaultDurationMinutes(userId);
+      if (!mounted) return;
+      setState(() => _defaultTimeEstimateMinutes = minutes);
+    } catch (e) {
+      print('NonProductiveTemplateDialog: Failed to load default time: $e');
     }
   }
 
@@ -489,57 +505,57 @@ class _NonProductiveTemplateDialogState
   }
 
   Widget _buildTimeEstimateField(FlutterFlowTheme theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          'Time Estimate (minutes)',
-          style: theme.bodySmall.override(
-            color: theme.secondaryText,
-            fontWeight: FontWeight.w500,
-          ),
+    final hintText = _defaultTimeEstimateMinutes != null
+        ? '${_defaultTimeEstimateMinutes!} mins (default)'
+        : 'Leave empty to use default';
+
+    return InputDecorator(
+      decoration: InputDecoration(
+        labelText: 'Time Estimate',
+        labelStyle: TextStyle(color: theme.secondaryText),
+        filled: true,
+        fillColor: theme.tertiary.withOpacity(0.3),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(10),
+          borderSide: BorderSide(color: theme.surfaceBorderColor),
         ),
-        const SizedBox(height: 6),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: theme.tertiary.withOpacity(0.3),
-            borderRadius: BorderRadius.circular(10),
-            border: Border.all(
-              color: theme.surfaceBorderColor,
-              width: 1,
-            ),
-          ),
-          child: TextFormField(
-            initialValue: _timeEstimateMinutes?.toString() ?? '',
-            keyboardType: TextInputType.number,
-            style: theme.bodyMedium,
-            decoration: InputDecoration(
-              hintText: 'Leave empty to use default',
-              hintStyle: TextStyle(
-                color: theme.secondaryText,
-                fontSize: 14,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      ),
+      child: Row(
+        children: [
+          Icon(Icons.timelapse, size: 20, color: theme.secondaryText),
+          const SizedBox(width: 12),
+          Expanded(
+            child: TextFormField(
+              initialValue: _timeEstimateMinutes?.toString() ?? '',
+              keyboardType: TextInputType.number,
+              style: theme.bodyMedium,
+              decoration: InputDecoration(
+                border: InputBorder.none,
+                isDense: true,
+                contentPadding: EdgeInsets.zero,
+                hintText: hintText,
+                hintStyle: theme.bodySmall.override(
+                  color: theme.secondaryText.withOpacity(0.6),
+                  fontSize: 12,
+                ),
               ),
-              border: InputBorder.none,
-              isDense: true,
-              contentPadding: EdgeInsets.zero,
+              onChanged: (v) {
+                setState(() {
+                  _timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
+                });
+              },
             ),
-            onChanged: (v) {
-              setState(() {
-                _timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
-              });
-            },
           ),
-        ),
-        const SizedBox(height: 4),
-        Text(
-          'Custom time estimate for this activity (1-600 minutes)',
-          style: theme.bodySmall.override(
-            color: theme.secondaryText,
-            fontSize: 11,
-          ),
-        ),
-      ],
+          if (_timeEstimateMinutes != null)
+            IconButton(
+              icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(),
+              onPressed: () => setState(() => _timeEstimateMinutes = null),
+            ),
+        ],
+      ),
     );
   }
 

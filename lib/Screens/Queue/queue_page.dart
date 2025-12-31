@@ -548,29 +548,17 @@ class _QueuePageState extends State<QueuePage> {
       final todayPercentage = _dailyPercentage;
       final todayEarned = _pointsEarned;
 
-      double currentCumulativeScore = 0.0;
-      double currentDailyGain = 0.0;
+      // Calculate projected score including today's progress (even if 0)
+      final projectionData =
+          await CumulativeScoreService.calculateProjectedDailyScore(
+        userId,
+        todayPercentage,
+        todayEarned,
+      );
 
-      if (todayPercentage > 0) {
-        // Calculate projected score including today's progress
-        final projectionData =
-            await CumulativeScoreService.calculateProjectedDailyScore(
-          userId,
-          todayPercentage,
-          todayEarned,
-        );
-
-        currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
-        currentDailyGain = projectionData['projectedGain'] ?? 0.0;
-      } else {
-        // No progress today, use base score from Firestore
-        final userStats =
-            await CumulativeScoreService.getCumulativeScore(userId);
-        if (userStats != null) {
-          currentCumulativeScore = userStats.cumulativeScore;
-          currentDailyGain = userStats.lastDailyGain;
-        }
-      }
+      final currentCumulativeScore =
+          projectionData['projectedCumulative'] ?? 0.0;
+      final currentDailyGain = projectionData['projectedGain'] ?? 0.0;
 
       // Update cumulative score values
       if (mounted) {
@@ -599,7 +587,7 @@ class _QueuePageState extends State<QueuePage> {
       TodayProgressState().updateCumulativeScore(
         cumulativeScore: currentCumulativeScore,
         dailyGain: currentDailyGain,
-        hasLiveScore: todayPercentage > 0,
+        hasLiveScore: true,
       );
     } catch (e) {
       // Error updating cumulative score live - non-critical, continue silently
@@ -634,40 +622,23 @@ class _QueuePageState extends State<QueuePage> {
         final todayPercentage = progressData['percentage'] ?? 0.0;
         final todayEarned = progressData['earned'] ?? 0.0;
 
-        if (todayPercentage > 0) {
-          // Calculate projected score including today's progress
-          final projectionData =
-              await CumulativeScoreService.calculateProjectedDailyScore(
-            userId,
-            todayPercentage,
-            todayEarned,
-          );
+        // Calculate projected score including today's progress (even if 0)
+        final projectionData =
+            await CumulativeScoreService.calculateProjectedDailyScore(
+          userId,
+          todayPercentage,
+          todayEarned,
+        );
 
-          currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
-          currentDailyGain = projectionData['projectedGain'] ?? 0.0;
+        currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
+        currentDailyGain = projectionData['projectedGain'] ?? 0.0;
 
-          // Publish to shared state for other pages
-          TodayProgressState().updateCumulativeScore(
-            cumulativeScore: currentCumulativeScore,
-            dailyGain: currentDailyGain,
-            hasLiveScore: true,
-          );
-        } else {
-          // No progress today, use base score from Firestore
-          final userStats =
-              await CumulativeScoreService.getCumulativeScore(userId);
-          if (userStats != null) {
-            currentCumulativeScore = userStats.cumulativeScore;
-            currentDailyGain = userStats.lastDailyGain;
-
-            // Publish base cumulative score to shared state
-            TodayProgressState().updateCumulativeScore(
-              cumulativeScore: currentCumulativeScore,
-              dailyGain: currentDailyGain,
-              hasLiveScore: false,
-            );
-          }
-        }
+        // Publish to shared state for other pages
+        TodayProgressState().updateCumulativeScore(
+          cumulativeScore: currentCumulativeScore,
+          dailyGain: currentDailyGain,
+          hasLiveScore: true,
+        );
       }
 
       // Update state with calculated values
@@ -961,25 +932,19 @@ class _QueuePageState extends State<QueuePage> {
     final sortedItems = List<ActivityInstanceRecord>.from(items);
 
     if (_currentSort.sortType == QueueSortType.points) {
-      // Sort by daily target points - always descending (highest first)
+      // Sort by daily target points (with priority fallback) - descending
       sortedItems.sort((a, b) {
-        final categoryA = _categories
-            .firstWhereOrNull((c) => c.reference.id == a.templateCategoryId);
-        final categoryB = _categories
-            .firstWhereOrNull((c) => c.reference.id == b.templateCategoryId);
+        final pointsA = _getSortPointsForInstance(a);
+        final pointsB = _getSortPointsForInstance(b);
 
-        double pointsA = 0.0;
-        double pointsB = 0.0;
-
-        if (categoryA != null) {
-          pointsA = PointsService.calculateDailyTarget(a, categoryA);
+        final comparison = pointsB.compareTo(pointsA);
+        if (comparison != 0) {
+          return comparison;
         }
-        if (categoryB != null) {
-          pointsB = PointsService.calculateDailyTarget(b, categoryB);
-        }
-
-        // Always descending for points
-        return pointsB.compareTo(pointsA);
+        // Stable fallback: alphabetical by name
+        return a.templateName.toLowerCase().compareTo(
+              b.templateName.toLowerCase(),
+            );
       });
     } else if (_currentSort.sortType == QueueSortType.time) {
       // Sort by time only - date-agnostic, always ascending (earliest time first)
@@ -1042,18 +1007,6 @@ class _QueuePageState extends State<QueuePage> {
         return _compareTimes(a.dueTime, b.dueTime);
       });
     }
-
-    // Note: We don't update _instances here to avoid triggering infinite loops
-    // The order will be persisted to the database for future loads
-    // Save the updated order to database (async, don't wait)
-    InstanceOrderService.reorderInstancesInSection(
-      sortedItems,
-      'queue',
-      0,
-      sortedItems.length - 1,
-    ).catchError((e) {
-      // Error saving sorted order
-    });
 
     return sortedItems;
   }
@@ -1338,6 +1291,16 @@ class _QueuePageState extends State<QueuePage> {
               ),
               tooltip: 'Sort',
               onSelected: (String sortType) async {
+                if (sortType == QueueSortType.none) {
+                  await QueueSortStateManager().clearSortState();
+                  if (mounted) {
+                    setState(() {
+                      _currentSort = QueueSortState();
+                      _cachedBucketedItems = null;
+                    });
+                  }
+                  return;
+                }
                 if (sortType == QueueSortType.points) {
                   final sort = QueueSortState(
                     sortType: QueueSortType.points,
@@ -1377,6 +1340,10 @@ class _QueuePageState extends State<QueuePage> {
                 }
               },
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
+                PopupMenuItem<String>(
+                  value: QueueSortType.none,
+                  child: const Text('Manual Order'),
+                ),
                 PopupMenuItem<String>(
                   value: QueueSortType.points,
                   child: const Text('Sort by Points'),
@@ -1729,8 +1696,15 @@ class _QueuePageState extends State<QueuePage> {
   String _getCategoryColor(ActivityInstanceRecord instance) {
     final category = _categories
         .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
-    if (category == null) {}
     return category?.color ?? '#000000';
+  }
+
+  double _getSortPointsForInstance(ActivityInstanceRecord instance) {
+    final points = PointsService.calculateDailyTarget(instance);
+    if (points > 0) {
+      return points;
+    }
+    return instance.templatePriority.toDouble();
   }
 
   /// Check if filter is in default state (all categories selected)

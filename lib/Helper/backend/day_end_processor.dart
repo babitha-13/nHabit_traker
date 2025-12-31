@@ -220,6 +220,7 @@ class DayEndProcessor {
         templateTarget: instance.templateTarget,
         templateUnit: instance.templateUnit,
         templateDescription: instance.templateDescription,
+        templateTimeEstimateMinutes: instance.templateTimeEstimateMinutes,
         templateShowInFloatingTimer: instance.templateShowInFloatingTimer,
         templateIsRecurring: instance.templateIsRecurring,
         templateEveryXValue: instance.templateEveryXValue,
@@ -372,9 +373,9 @@ class DayEndProcessor {
             .where((i) => i.templateCategoryId == category.reference.id)
             .toList();
         final categoryTarget =
-            PointsService.calculateTotalDailyTarget(categoryAll, [category]);
+            PointsService.calculateTotalDailyTarget(categoryAll);
         final categoryEarned = await PointsService.calculateTotalPointsEarned(
-            categoryCompleted, [category], userId);
+            categoryCompleted, userId);
         categoryBreakdown[category.reference.id] = {
           'target': categoryTarget,
           'earned': categoryEarned,

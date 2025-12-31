@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
@@ -36,6 +37,18 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
         _refreshRoutine();
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
+        (param) {
+      if (mounted) {
+        _handleRoutineInstanceUpdated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
+        (param) {
+      if (mounted) {
+        _handleRoutineInstanceDeleted(param);
       }
     });
   }
@@ -136,6 +149,50 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
 
   Future<void> _refreshRoutine() async {
     await _loadRoutineWithInstances();
+  }
+
+  ActivityInstanceRecord? _extractInstanceFromNotification(Object? param) {
+    if (param is ActivityInstanceRecord) {
+      return param;
+    }
+    if (param is Map && param['instance'] is ActivityInstanceRecord) {
+      return param['instance'] as ActivityInstanceRecord;
+    }
+    return null;
+  }
+
+  void _handleRoutineInstanceUpdated(Object? param) {
+    final updatedInstance = _extractInstanceFromNotification(param);
+    if (updatedInstance == null || _routineWithInstances == null) {
+      return;
+    }
+    final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
+      (mapEntry) =>
+          mapEntry.value.reference.id == updatedInstance.reference.id,
+    );
+    if (entry == null) {
+      return;
+    }
+    setState(() {
+      _routineWithInstances!.instances[entry.key] = updatedInstance;
+    });
+  }
+
+  void _handleRoutineInstanceDeleted(Object? param) {
+    final deletedInstance = _extractInstanceFromNotification(param);
+    if (deletedInstance == null || _routineWithInstances == null) {
+      return;
+    }
+    final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
+      (mapEntry) =>
+          mapEntry.value.reference.id == deletedInstance.reference.id,
+    );
+    if (entry == null) {
+      return;
+    }
+    setState(() {
+      _routineWithInstances!.instances.remove(entry.key);
+    });
   }
 
   @override
