@@ -11,7 +11,6 @@ import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/main.dart';
 
-
 class AlarmRingingPage extends StatefulWidget {
   final String title;
   final String? body;
@@ -28,7 +27,8 @@ class AlarmRingingPage extends StatefulWidget {
   State<AlarmRingingPage> createState() => _AlarmRingingPageState();
 }
 
-class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBindingObserver {
+class _AlarmRingingPageState extends State<AlarmRingingPage>
+    with WidgetsBindingObserver {
   late AudioPlayer _audioPlayer;
   ActivityInstanceRecord? _instance;
   bool _isLoadingInstance = true;
@@ -51,7 +51,8 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
       // Parse payload - could be instanceId directly or ALARM_RINGING:title|body|instanceId
       String? instanceId;
       if (widget.payload!.startsWith('ALARM_RINGING:')) {
-        final parts = widget.payload!.substring('ALARM_RINGING:'.length).split('|');
+        final parts =
+            widget.payload!.substring('ALARM_RINGING:'.length).split('|');
         if (parts.length >= 3) {
           instanceId = parts[2];
         }
@@ -92,26 +93,26 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
 
   Future<void> _initializeAlarm() async {
     _audioPlayer = AudioPlayer();
-    
+
     // Configure audio session for playback
     try {
       // Loop the alarm sound
       await _audioPlayer.setLoopMode(LoopMode.one);
-      
+
       // Load a default alarm sound (ensure you have one in assets or use a system sound if possible)
       // For now we'll use a placeholder or asset. Ideally, bundle a 'alarm.mp3' in assets.
       // If no asset, just vibration will work for testing.
-      // await _audioPlayer.setAsset('assets/audios/alarm.mp3'); 
-      
+      // await _audioPlayer.setAsset('assets/audios/alarm.mp3');
+
       // Start vibration
       final hasVibrator = await Vibration.hasVibrator();
       if (hasVibrator == true) {
         Vibration.vibrate(pattern: [500, 1000, 500, 1000], repeat: 0);
       }
-      
+
       // Start playing
       // await _audioPlayer.play();
-      
+
       setState(() {
         // Alarm is initialized
       });
@@ -150,7 +151,8 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
   Future<void> _handleComplete() async {
     if (_instance == null) return;
     try {
-      await ActivityInstanceService.completeInstance(instanceId: _instance!.reference.id);
+      await ActivityInstanceService.completeInstance(
+          instanceId: _instance!.reference.id);
       _dismissAlarm();
       // Navigate to Queue page
       Navigator.of(context).pushNamedAndRemoveUntil(
@@ -162,7 +164,9 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
         if (homeContext != null) {
           Navigator.of(homeContext).push(
             MaterialPageRoute(
-              builder: (context) => const QueuePage(),
+              builder: (context) => QueuePage(
+                focusInstanceId: _instance?.reference.id,
+              ),
             ),
           );
         }
@@ -180,7 +184,7 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
       );
       final currentValue = instance.currentValue ?? 0;
       final newValue = (currentValue is num) ? (currentValue + 1) : 1;
-      
+
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: _instance!.reference.id,
         currentValue: newValue,
@@ -196,7 +200,9 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
         if (homeContext != null) {
           Navigator.of(homeContext).push(
             MaterialPageRoute(
-              builder: (context) => const QueuePage(),
+              builder: (context) => QueuePage(
+                focusInstanceId: _instance?.reference.id,
+              ),
             ),
           );
         }
@@ -213,7 +219,7 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
       await ActivityInstanceService.toggleInstanceTimer(
         instanceId: _instance!.reference.id,
       );
-      
+
       _dismissAlarm();
       // Navigate to Queue page
       Navigator.of(context).pushNamedAndRemoveUntil(
@@ -225,7 +231,10 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
         if (homeContext != null) {
           Navigator.of(homeContext).push(
             MaterialPageRoute(
-              builder: (context) => const QueuePage(expandCompleted: true),
+              builder: (context) => QueuePage(
+                expandCompleted: true,
+                focusInstanceId: _instance?.reference.id,
+              ),
             ),
           );
         }
@@ -237,22 +246,24 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
 
   Future<void> _handleSnooze() async {
     if (_instance == null) return;
-    
+
     // Find reminder ID from payload or construct it
     String reminderId;
     // Check if payload contains the original reminder ID
-    if (widget.payload != null && widget.payload!.startsWith('ALARM_RINGING:')) {
+    if (widget.payload != null &&
+        widget.payload!.startsWith('ALARM_RINGING:')) {
       // payload format: ALARM_RINGING:title|body|instanceId|reminderId
-      final parts = widget.payload!.substring('ALARM_RINGING:'.length).split('|');
+      final parts =
+          widget.payload!.substring('ALARM_RINGING:'.length).split('|');
       if (parts.length >= 4) {
         reminderId = parts[3];
       } else {
-         reminderId = '${_instance!.reference.id}_reminder';
+        reminderId = '${_instance!.reference.id}_reminder';
       }
     } else {
-       reminderId = '${_instance!.reference.id}_reminder';
+      reminderId = '${_instance!.reference.id}_reminder';
     }
-    
+
     await SnoozeDialog.show(context: context, reminderId: reminderId);
     _dismissAlarm();
   }
@@ -410,4 +421,3 @@ class _AlarmRingingPageState extends State<AlarmRingingPage> with WidgetsBinding
     );
   }
 }
-

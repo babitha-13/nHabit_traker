@@ -774,6 +774,8 @@ class TaskInstanceService {
     String? categoryId,
     String? categoryName,
     String? userId,
+    bool startTimer = true,
+    bool showInFloatingTimer = true,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -785,13 +787,14 @@ class TaskInstanceService {
       // Use provided category or default to Inbox
       String finalCategoryId = categoryId ?? template.categoryId;
       String finalCategoryName = categoryName ?? template.categoryName;
+      final now = DateTime.now();
       final instanceData = createActivityInstanceRecordData(
         templateId: templateRef.id,
         status: 'pending',
-        isTimerActive: true,
-        timerStartTime: DateTime.now(),
-        createdTime: DateTime.now(),
-        lastUpdated: DateTime.now(),
+        isTimerActive: startTimer,
+        timerStartTime: startTimer ? now : null,
+        createdTime: now,
+        lastUpdated: now,
         isActive: true,
         // Cache template data for quick access
         templateName: template.name,
@@ -805,10 +808,11 @@ class TaskInstanceService {
         templateUnit: template.unit,
         templateDescription: template.description,
         templateTimeEstimateMinutes: template.timeEstimateMinutes,
-        templateShowInFloatingTimer: true, // Always show timer task instances in floating timer
+        templateShowInFloatingTimer:
+            showInFloatingTimer, // allow caller to suppress floating timer linkage
         // Session tracking fields
-        currentSessionStartTime: DateTime.now(),
-        isTimeLogging: true,
+        currentSessionStartTime: startTimer ? now : null,
+        isTimeLogging: startTimer,
       );
       return await ActivityInstanceRecord.collectionForUser(uid)
           .add(instanceData);
@@ -1718,7 +1722,11 @@ class TaskInstanceService {
       // FALLBACK / NEW ONE-OFF LOGIC (Current Behavior + enhancements)
 
       // Create a temporary task instance to log this manual entry against.
-      final taskInstanceRef = await createTimerTaskInstance(userId: uid);
+      final taskInstanceRef = await createTimerTaskInstance(
+        userId: uid,
+        startTimer: false,
+        showInFloatingTimer: false,
+      );
       final now = DateTime.now();
 
       final isNonProductive = activityType == 'non_productive';

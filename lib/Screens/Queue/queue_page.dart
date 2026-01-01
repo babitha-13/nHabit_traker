@@ -30,12 +30,20 @@ import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
 import 'package:habit_tracker/Screens/Queue/queue_filter_dialog.dart';
 import 'package:habit_tracker/Helper/backend/points_service.dart';
 import 'dart:async';
+import 'dart:math' as math;
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 
 class QueuePage extends StatefulWidget {
   final bool expandCompleted;
-  const QueuePage({super.key, this.expandCompleted = false});
+  final String? focusTemplateId;
+  final String? focusInstanceId;
+  const QueuePage({
+    super.key,
+    this.expandCompleted = false,
+    this.focusTemplateId,
+    this.focusInstanceId,
+  });
   @override
   _QueuePageState createState() => _QueuePageState();
 }
@@ -47,6 +55,7 @@ class _QueuePageState extends State<QueuePage> {
   List<CategoryRecord> _categories = [];
   Set<String> _expandedSections = {};
   final Map<String, GlobalKey> _sectionKeys = {};
+  final Map<String, GlobalKey> _itemKeys = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
@@ -55,7 +64,8 @@ class _QueuePageState extends State<QueuePage> {
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
   // Optimistic operation tracking
-  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
+  final Map<String, String> _optimisticOperations =
+      {}; // operationId -> instanceId
   // Progress tracking variables
   double _dailyTarget = 0.0;
   double _pointsEarned = 0.0;
@@ -82,9 +92,16 @@ class _QueuePageState extends State<QueuePage> {
   QueueFilterState? _lastFilter;
   QueueSortState? _lastSort;
   Set<String> _lastExpandedSections = {};
+  String? _pendingFocusTemplateId;
+  String? _pendingFocusInstanceId;
+  bool _hasAppliedInitialFocus = false;
+  String? _highlightedInstanceId;
+  Timer? _highlightTimer;
   @override
   void initState() {
     super.initState();
+    _pendingFocusTemplateId = widget.focusTemplateId;
+    _pendingFocusInstanceId = widget.focusInstanceId;
     _loadExpansionState();
     // Load filter and sort state first, then load data to ensure filters are applied correctly
     _loadFilterAndSortState().then((_) {
@@ -198,6 +215,7 @@ class _QueuePageState extends State<QueuePage> {
     _searchManager.removeListener(_onSearchChanged);
     _searchManager.removeSearchOpenListener(_onSearchVisibilityChanged);
     _scrollController.dispose();
+    _highlightTimer?.cancel();
     super.dispose();
   }
 
@@ -212,6 +230,23 @@ class _QueuePageState extends State<QueuePage> {
       }
     } else {
       _didInitialDependencies = true;
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant QueuePage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final templateChanged = widget.focusTemplateId != oldWidget.focusTemplateId;
+    final instanceChanged = widget.focusInstanceId != oldWidget.focusInstanceId;
+    if (templateChanged || instanceChanged) {
+      _pendingFocusTemplateId = widget.focusTemplateId;
+      _pendingFocusInstanceId = widget.focusInstanceId;
+      _hasAppliedInitialFocus = false;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _maybeApplyPendingFocus();
+        }
+      });
     }
   }
 
@@ -297,6 +332,10 @@ class _QueuePageState extends State<QueuePage> {
             _categories = allCategories;
             // Invalidate cache when data changes
             _cachedBucketedItems = null;
+            _itemKeys.removeWhere(
+              (id, key) => !deduplicatedInstances
+                  .any((instance) => instance.reference.id == id),
+            );
 
             // Initialize default filter state (all categories selected) if filter is empty
             var updatedFilter = _currentFilter;
@@ -342,6 +381,11 @@ class _QueuePageState extends State<QueuePage> {
             _isLoading = false;
             _isLoadingData = false;
           });
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) {
+              _maybeApplyPendingFocus();
+            }
+          });
           // Calculate progress for today's habits
           _calculateProgress();
           // Enable instance event listeners after initial load completes
@@ -372,6 +416,82 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
+  void _maybeApplyPendingFocus() {
+    if (_hasAppliedInitialFocus) return;
+    final targetInstanceId = _pendingFocusInstanceId ?? widget.focusInstanceId;
+    final targetTemplateId = _pendingFocusTemplateId ?? widget.focusTemplateId;
+    if (targetInstanceId == null && targetTemplateId == null) {
+      return;
+    }
+
+    final buckets = _bucketedItems;
+    ActivityInstanceRecord? target;
+    String? sectionKey;
+
+    if (targetInstanceId != null) {
+      for (final entry in buckets.entries) {
+        final match = entry.value
+            .firstWhereOrNull((inst) => inst.reference.id == targetInstanceId);
+        if (match != null) {
+          target = match;
+          sectionKey = entry.key;
+          break;
+        }
+      }
+    }
+
+    if (target == null && targetTemplateId != null) {
+      for (final entry in buckets.entries) {
+        final match = entry.value
+            .firstWhereOrNull((inst) => inst.templateId == targetTemplateId);
+        if (match != null) {
+          target = match;
+          sectionKey = entry.key;
+          break;
+        }
+      }
+    }
+
+    if (target == null) {
+      return;
+    }
+
+    final resolvedInstanceId = target.reference.id;
+    _pendingFocusInstanceId = null;
+    _pendingFocusTemplateId = null;
+    _hasAppliedInitialFocus = true;
+
+    setState(() {
+      _highlightedInstanceId = resolvedInstanceId;
+      if (sectionKey != null) {
+        _expandedSections.add(sectionKey);
+        _cachedBucketedItems = null;
+      }
+    });
+    if (sectionKey != null) {
+      ExpansionStateManager().setQueueExpandedSections(_expandedSections);
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      final highlightKey = _itemKeys[resolvedInstanceId];
+      if (highlightKey?.currentContext != null) {
+        Scrollable.ensureVisible(
+          highlightKey!.currentContext!,
+          duration: const Duration(milliseconds: 400),
+          alignment: 0.1,
+          alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+        );
+      }
+    });
+
+    _highlightTimer?.cancel();
+    _highlightTimer = Timer(const Duration(seconds: 6), () {
+      if (mounted) {
+        setState(() => _highlightedInstanceId = null);
+      }
+    });
+  }
+
   /// Calculate progress for today's habits and tasks
   /// Uses shared DailyProgressCalculator for consistency with historical data
   /// [optimistic] - If true, calculates instantly from local data without Firestore queries
@@ -383,18 +503,19 @@ class _QueuePageState extends State<QueuePage> {
     final taskInstances = _instances
         .where((inst) => inst.templateCategoryType == 'task')
         .toList();
-    
+
     if (optimistic) {
       // INSTANT UPDATE: Calculate from local data only (no Firestore queries)
       try {
         final userId = currentUserUid;
-        final progressData = await DailyProgressCalculator.calculateTodayProgressOptimistic(
+        final progressData =
+            await DailyProgressCalculator.calculateTodayProgressOptimistic(
           userId: userId,
           allInstances: habitInstances,
           categories: _categories,
           taskInstances: taskInstances,
         );
-        
+
         // Update UI immediately
         if (mounted) {
           setState(() {
@@ -403,14 +524,14 @@ class _QueuePageState extends State<QueuePage> {
             _dailyPercentage = progressData['percentage'] as double;
           });
         }
-        
+
         // Publish to shared state for other pages
         TodayProgressState().updateProgress(
           target: _dailyTarget,
           earned: _pointsEarned,
           percentage: _dailyPercentage,
         );
-        
+
         // Update cumulative score optimistically
         _updateCumulativeScoreLiveOptimistic();
       } catch (e) {
@@ -420,13 +541,14 @@ class _QueuePageState extends State<QueuePage> {
     } else {
       // BACKEND RECONCILIATION: Use full calculation with Firestore
       try {
-        final progressData = await DailyProgressCalculator.calculateTodayProgress(
+        final progressData =
+            await DailyProgressCalculator.calculateTodayProgress(
           userId: currentUserUid,
           allInstances: habitInstances,
           categories: _categories,
           taskInstances: taskInstances,
         );
-        
+
         // Update UI with backend data
         if (mounted) {
           setState(() {
@@ -435,14 +557,14 @@ class _QueuePageState extends State<QueuePage> {
             _dailyPercentage = progressData['percentage'] as double;
           });
         }
-        
+
         // Publish to shared state for other pages
         TodayProgressState().updateProgress(
           target: _dailyTarget,
           earned: _pointsEarned,
           percentage: _dailyPercentage,
         );
-        
+
         // Update cumulative score live when progress changes
         _updateCumulativeScoreLive();
       } catch (e) {
@@ -464,8 +586,10 @@ class _QueuePageState extends State<QueuePage> {
 
       // Get last known cumulative score from shared state
       final sharedData = TodayProgressState().getCumulativeScoreData();
-      final lastKnownCumulative = sharedData['cumulativeScore'] as double? ?? _cumulativeScore;
-      final lastKnownGain = sharedData['dailyGain'] as double? ?? _dailyScoreGain;
+      final lastKnownCumulative =
+          sharedData['cumulativeScore'] as double? ?? _cumulativeScore;
+      final lastKnownGain =
+          sharedData['dailyGain'] as double? ?? _dailyScoreGain;
       final hasPreviousLiveScore = sharedData['hasLiveScore'] as bool? ?? false;
 
       if (todayPercentage > 0) {
@@ -476,24 +600,26 @@ class _QueuePageState extends State<QueuePage> {
           todayPercentage,
           todayEarned,
         );
-        
+
         // Simplified projection: assume no bonus/penalty for instant update
         // Full calculation with bonuses/penalties happens in background
         currentDailyGain = dailyScore;
-        
+
         // Get base cumulative score (without today's previous live gain)
         // If previous state had a live score, we need to subtract it to get the base
         double baseCumulativeScore;
         if (hasPreviousLiveScore && lastKnownGain > 0) {
           // Previous cumulative includes today's gain, subtract it to get base
-          baseCumulativeScore = (lastKnownCumulative - lastKnownGain).clamp(0.0, double.infinity);
+          baseCumulativeScore =
+              (lastKnownCumulative - lastKnownGain).clamp(0.0, double.infinity);
         } else {
           // Previous cumulative is the base (no live score was added)
           baseCumulativeScore = lastKnownCumulative;
         }
-        
+
         // Now add the new daily gain to the base
-        currentCumulativeScore = (baseCumulativeScore + currentDailyGain).clamp(0.0, double.infinity);
+        currentCumulativeScore = (baseCumulativeScore + currentDailyGain)
+            .clamp(0.0, double.infinity);
       } else {
         // No progress today, use last known values
         currentCumulativeScore = lastKnownCumulative;
@@ -788,8 +914,14 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  Widget _buildCumulativeScoreMiniGraph() {
-    if (_cumulativeScoreHistory.isEmpty) {
+  /// Returns a copy of the currently loaded cumulative score history.
+  List<Map<String, dynamic>> _getMiniGraphHistory() {
+    if (_cumulativeScoreHistory.isEmpty) return [];
+    return List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
+  }
+
+  Widget _buildCumulativeScoreMiniGraph(List<Map<String, dynamic>> history) {
+    if (history.isEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
@@ -808,7 +940,7 @@ class _QueuePageState extends State<QueuePage> {
     }
 
     return CumulativeScoreGraph(
-      history: _cumulativeScoreHistory,
+      history: history,
       color: FlutterFlowTheme.of(context).primary,
     );
   }
@@ -1396,6 +1528,8 @@ class _QueuePageState extends State<QueuePage> {
 
   /// Build the progress charts widget (used in scrollable view)
   Widget _buildProgressCharts() {
+    final miniGraphHistory = _getMiniGraphHistory();
+
     return GestureDetector(
       onTap: () {
         Navigator.push(
@@ -1456,7 +1590,7 @@ class _QueuePageState extends State<QueuePage> {
                   Container(
                     width: 120,
                     height: 80,
-                    child: _buildCumulativeScoreMiniGraph(),
+                    child: _buildCumulativeScoreMiniGraph(miniGraphHistory),
                   ),
                   const SizedBox(height: 4),
                   Text(
@@ -1470,20 +1604,20 @@ class _QueuePageState extends State<QueuePage> {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        _cumulativeScoreHistory.isNotEmpty
-                            ? '${(_cumulativeScoreHistory.last['score'] as double).toStringAsFixed(0)} pts'
+                        miniGraphHistory.isNotEmpty
+                            ? '${(miniGraphHistory.last['score'] as double).toStringAsFixed(0)} pts'
                             : '0 pts',
                         style: FlutterFlowTheme.of(context).bodySmall.override(
                               fontFamily: 'Readex Pro',
                               color: FlutterFlowTheme.of(context).secondaryText,
                             ),
                       ),
-                      if (_cumulativeScoreHistory.isNotEmpty) ...[
+                      if (miniGraphHistory.isNotEmpty) ...[
                         const SizedBox(width: 8),
                         Builder(
                           builder: (context) {
                             final dailyGain =
-                                _cumulativeScoreHistory.last['gain'] as double;
+                                miniGraphHistory.last['gain'] as double;
                             if (dailyGain == 0) return const SizedBox.shrink();
                             return Text(
                               dailyGain >= 0
@@ -1631,27 +1765,53 @@ class _QueuePageState extends State<QueuePage> {
             itemBuilder: (context, index) {
               final item = items[index];
               final isHabit = item.templateCategoryType == 'habit';
+              final highlightKey = _itemKeys.putIfAbsent(
+                item.reference.id,
+                () => GlobalKey(),
+              );
+              final isHighlighted = _highlightedInstanceId == item.reference.id;
               return ReorderableDelayedDragStartListener(
                 index: index,
                 key: Key('${item.reference.id}_drag'),
-                child: ItemComponent(
-                  key: Key(item.reference.id),
-                  subtitle: _getSubtitle(item, key),
-                  instance: item,
-                  categoryColorHex: _getCategoryColor(item),
-                  onRefresh: _refreshWithoutFlicker,
-                  onInstanceUpdated: _updateInstanceInLocalState,
-                  onInstanceDeleted: _removeInstanceFromLocalState,
-                  onHabitUpdated: (updated) => {},
-                  onHabitDeleted: (deleted) async => _refreshWithoutFlicker(),
-                  isHabit: isHabit,
-                  showTypeIcon: true,
-                  showRecurringIcon: true,
-                  showCompleted:
-                      (key == 'Completed' || key == 'Skipped/Snoozed')
-                          ? true
-                          : null,
-                  page: 'queue',
+                child: AnimatedContainer(
+                  key: highlightKey,
+                  duration: const Duration(milliseconds: 250),
+                  margin: const EdgeInsets.symmetric(vertical: 4),
+                  decoration: isHighlighted
+                      ? BoxDecoration(
+                          borderRadius: BorderRadius.circular(20),
+                          border: Border.all(
+                            color: theme.primary,
+                            width: 2,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: theme.primary.withOpacity(0.25),
+                              blurRadius: 18,
+                              spreadRadius: 1,
+                            ),
+                          ],
+                        )
+                      : null,
+                  child: ItemComponent(
+                    key: ValueKey(item.reference.id),
+                    subtitle: _getSubtitle(item, key),
+                    instance: item,
+                    categoryColorHex: _getCategoryColor(item),
+                    onRefresh: _refreshWithoutFlicker,
+                    onInstanceUpdated: _updateInstanceInLocalState,
+                    onInstanceDeleted: _removeInstanceFromLocalState,
+                    onHabitUpdated: (updated) => {},
+                    onHabitDeleted: (deleted) async => _refreshWithoutFlicker(),
+                    isHabit: isHabit,
+                    showTypeIcon: true,
+                    showRecurringIcon: true,
+                    showCompleted:
+                        (key == 'Completed' || key == 'Skipped/Snoozed')
+                            ? true
+                            : null,
+                    page: 'queue',
+                  ),
                 ),
               );
             },
@@ -1924,7 +2084,7 @@ class _QueuePageState extends State<QueuePage> {
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -1935,16 +2095,16 @@ class _QueuePageState extends State<QueuePage> {
     } else {
       return;
     }
-    
+
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }
-    
+
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
-      
+
       if (index != -1) {
         if (isOptimistic) {
           // Store optimistic state with operation ID for later reconciliation
@@ -1967,30 +2127,31 @@ class _QueuePageState extends State<QueuePage> {
         _cachedBucketedItems = null;
       }
     });
-    
+
     // OPTIMISTIC UPDATE: Calculate progress instantly from local data
     _calculateProgress(optimistic: true);
-    
+
     // BACKGROUND RECONCILIATION: Only if this is a reconciled update
     if (!isOptimistic) {
       _calculateProgress(optimistic: false);
     }
   }
-  
+
   void _handleRollback(dynamic param) {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
-      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
-      
-      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+      final originalInstance =
+          param['originalInstance'] as ActivityInstanceRecord?;
+
+      if (operationId != null &&
+          _optimisticOperations.containsKey(operationId)) {
         setState(() {
           _optimisticOperations.remove(operationId);
           if (originalInstance != null) {
             // Restore from original state
-            final index = _instances.indexWhere(
-              (inst) => inst.reference.id == instanceId
-            );
+            final index = _instances
+                .indexWhere((inst) => inst.reference.id == instanceId);
             if (index != -1) {
               _instances[index] = originalInstance;
               _cachedBucketedItems = null;
@@ -2005,15 +2166,15 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
   }
-  
+
   Future<void> _revertOptimisticUpdate(String instanceId) async {
     try {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instanceId,
       );
       setState(() {
-        final index = _instances
-            .indexWhere((inst) => inst.reference.id == instanceId);
+        final index =
+            _instances.indexWhere((inst) => inst.reference.id == instanceId);
         if (index != -1) {
           _instances[index] = updatedInstance;
           _cachedBucketedItems = null;
@@ -2180,10 +2341,10 @@ class CumulativeScoreGraph extends StatefulWidget {
   final Color color;
 
   const CumulativeScoreGraph({
-    Key? key,
+    super.key,
     required this.history,
     required this.color,
-  }) : super(key: key);
+  });
 
   @override
   State<CumulativeScoreGraph> createState() => _CumulativeScoreGraphState();
@@ -2195,23 +2356,15 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
   @override
   void initState() {
     super.initState();
-    _scrollToEnd();
+    _jumpToLatestPoint();
   }
 
   @override
-  void didUpdateWidget(CumulativeScoreGraph oldWidget) {
+  void didUpdateWidget(covariant CumulativeScoreGraph oldWidget) {
     super.didUpdateWidget(oldWidget);
     if (widget.history.length != oldWidget.history.length) {
-      _scrollToEnd();
+      _jumpToLatestPoint();
     }
-  }
-
-  void _scrollToEnd() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-      }
-    });
   }
 
   @override
@@ -2220,189 +2373,159 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
     super.dispose();
   }
 
+  void _jumpToLatestPoint() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
+    if (widget.history.isEmpty) return const SizedBox();
     return LayoutBuilder(
-      builder: (context, constraints) {
-        // We want exactly 7 days to be visible at once
-        final double visibleDays = 7.0;
-        final double dayWidth = constraints.maxWidth / visibleDays;
-
-        double totalWidth = dayWidth * widget.history.length;
-        if (totalWidth < constraints.maxWidth) {
-          totalWidth = constraints.maxWidth;
-        }
-
-        // Calculate min/max scores for scale
-        final minScore = widget.history.isEmpty
-            ? 0.0
-            : widget.history
-                .map((d) => d['score'] as double)
-                .reduce((a, b) => a < b ? a : b);
-        final maxScore = widget.history.isEmpty
-            ? 100.0
-            : widget.history
-                .map((d) => d['score'] as double)
-                .reduce((a, b) => a > b ? a : b);
-        final adjustedMaxScore =
-            maxScore == minScore ? minScore + 10.0 : maxScore;
-        final adjustedRange = adjustedMaxScore - minScore;
-
-        // Generate scale labels (3-5 labels)
-        final numLabels = 5;
-        final scaleLabels = <double>[];
-        for (int i = 0; i < numLabels; i++) {
-          final value = minScore + (adjustedRange * i / (numLabels - 1));
-          scaleLabels.add(value);
-        }
-
-        // Calculate date labels - ensure minimum 1-day interval between labels
-        final dateLabels = <Map<String, dynamic>>[];
-        if (widget.history.isNotEmpty) {
-          // Always include the first date
-          final firstDate = widget.history[0]['date'] as DateTime;
-          dateLabels.add({
-            'index': 0,
-            'date': firstDate,
-          });
-
-          // Track the last displayed date to ensure minimum 1-day spacing
-          DateTime? lastDisplayedDate = firstDate;
-
-          // Iterate through remaining dates, ensuring at least 1 day apart
-          for (int i = 1; i < widget.history.length; i++) {
-            final currentDate = widget.history[i]['date'] as DateTime;
-            final daysSinceLastLabel =
-                currentDate.difference(lastDisplayedDate!).inDays;
-
-            // Only add label if at least 1 day has passed since last label
-            // Also limit to approximately 5 labels total to avoid crowding
-            if (daysSinceLastLabel >= 1 && dateLabels.length < 5) {
-              dateLabels.add({
-                'index': i,
-                'date': currentDate,
-              });
-              lastDisplayedDate = currentDate;
-            }
-          }
-
-          // Always include the last date if not already included
-          final lastIndex = widget.history.length - 1;
-          final lastDate = widget.history[lastIndex]['date'] as DateTime;
-          final alreadyIncluded =
-              dateLabels.any((label) => label['index'] == lastIndex);
-          if (!alreadyIncluded) {
-            // Check if last date is at least 1 day from the previous label
-            final lastLabelDate = dateLabels.isNotEmpty
-                ? dateLabels.last['date'] as DateTime
-                : null;
-            if (lastLabelDate == null ||
-                lastDate.difference(lastLabelDate).inDays >= 1) {
-              dateLabels.add({
-                'index': lastIndex,
-                'date': lastDate,
-              });
-            } else {
-              // Replace the last label with the actual last date if they're too close
-              dateLabels.removeLast();
-              dateLabels.add({
-                'index': lastIndex,
-                'date': lastDate,
-              });
-            }
-          }
-        }
-
-        return Container(
-          decoration: BoxDecoration(
-            color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
-            borderRadius: BorderRadius.circular(8),
-          ),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              // Y-axis scale labels
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  crossAxisAlignment: CrossAxisAlignment.end,
-                  children: scaleLabels.reversed.map((value) {
-                    return Text(
-                      value.toStringAsFixed(0),
-                      style: FlutterFlowTheme.of(context).bodySmall.override(
-                            fontFamily: 'Readex Pro',
-                            fontSize: 9,
-                            color: FlutterFlowTheme.of(context).secondaryText,
-                          ),
-                    );
-                  }).toList(),
-                ),
-              ),
-              // Chart and date labels with horizontal scroll
-              Expanded(
-                child: SingleChildScrollView(
-                  controller: _scrollController,
-                  scrollDirection: Axis.horizontal,
-                  child: SizedBox(
-                    width: totalWidth,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        // Graph area
-                        SizedBox(
-                          height: constraints.maxHeight > 0
-                              ? constraints.maxHeight - 20
-                              : 80,
-                          child: CustomPaint(
-                            painter: CumulativeScoreLinePainter(
-                              data: widget.history,
-                              minScore: minScore,
-                              maxScore: adjustedMaxScore,
-                              scoreRange: adjustedRange,
-                              color: widget.color,
-                            ),
-                          ),
-                        ),
-                        // X-axis date labels
-                        Container(
-                          height: 20,
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Stack(
-                            children: dateLabels.map((label) {
-                              final index = label['index'] as int;
-                              final date = label['date'] as DateTime;
-                              final xPosition = (index /
-                                      (widget.history.length > 1
-                                          ? widget.history.length - 1
-                                          : 1)) *
-                                  totalWidth;
-                              return Positioned(
-                                left: xPosition - 15, // Center the label
-                                child: Text(
-                                  DateFormat('MM/dd').format(date),
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        fontSize: 8,
-                                        color: FlutterFlowTheme.of(context)
-                                            .secondaryText,
-                                      ),
-                                ),
-                              );
-                            }).toList(),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
+      builder: (context, constraints) =>
+          _buildScrollableGraph(context, constraints),
     );
   }
+
+  Widget _buildScrollableGraph(
+      BuildContext context, BoxConstraints constraints) {
+    final theme = FlutterFlowTheme.of(context);
+    final scores = widget.history.map((d) => d['score'] as double).toList();
+    final minScore = scores.reduce(math.min);
+    final maxScore = scores.reduce(math.max);
+    final adjustedMax = maxScore == minScore ? minScore + 10.0 : maxScore;
+    final adjustedRange = adjustedMax - minScore;
+    final scaleLabels = _buildScaleLabels(minScore, adjustedRange);
+    const visibleDays = 7.0;
+    final dayWidth = constraints.maxWidth / visibleDays;
+    final totalWidth =
+        math.max(dayWidth * widget.history.length, constraints.maxWidth);
+    final verticalPadding = 8.0; // top + bottom padding
+    final labelAreaHeight = 18.0;
+    final graphHeight = math.max(
+        constraints.maxHeight - labelAreaHeight - verticalPadding, 30.0);
+
+    return Container(
+      decoration: BoxDecoration(
+        color: theme.alternate.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _buildYAxis(theme, scaleLabels),
+          const SizedBox(width: 6),
+          Expanded(
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              scrollDirection: Axis.horizontal,
+              child: SizedBox(
+                width: totalWidth,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    SizedBox(
+                      height: graphHeight,
+                      child: CustomPaint(
+                        painter: CumulativeScoreLinePainter(
+                          data: widget.history,
+                          minScore: minScore,
+                          maxScore: adjustedMax,
+                          scoreRange: adjustedRange,
+                          color: widget.color,
+                        ),
+                      ),
+                    ),
+                    SizedBox(
+                      height: 18,
+                      child:
+                          _buildDateLabels(theme, totalWidth, widget.history),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildYAxis(FlutterFlowTheme theme, List<double> labels) {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      crossAxisAlignment: CrossAxisAlignment.end,
+      children: labels.reversed
+          .map(
+            (value) => Text(
+              value.toStringAsFixed(0),
+              style: theme.bodySmall.override(
+                fontFamily: 'Readex Pro',
+                fontSize: 9,
+                color: theme.secondaryText,
+              ),
+            ),
+          )
+          .toList(),
+    );
+  }
+
+  List<double> _buildScaleLabels(double minScore, double range) {
+    const count = 4;
+    return List.generate(
+      count,
+      (index) => minScore + (range * index / math.max(count - 1, 1)),
+    );
+  }
+
+  Widget _buildDateLabels(FlutterFlowTheme theme, double width,
+      List<Map<String, dynamic>> history) {
+    final labels = _generateDateLabels(history);
+    return Stack(
+      children: labels.map((label) {
+        final divisor = history.length > 1 ? history.length - 1 : 1;
+        final xPosition = (label.index / divisor) * width;
+        const labelWidth = 36.0;
+        final desiredLeft = xPosition - labelWidth / 2;
+        final clampedLeft = desiredLeft.clamp(0.0, width - labelWidth);
+        return Positioned(
+          left: clampedLeft,
+          child: Text(
+            DateFormat('MM/dd').format(label.date),
+            style: theme.bodySmall.override(
+              fontFamily: 'Readex Pro',
+              fontSize: 8,
+              color: theme.secondaryText,
+            ),
+          ),
+        );
+      }).toList(),
+    );
+  }
+
+  List<_DateLabel> _generateDateLabels(List<Map<String, dynamic>> history) {
+    if (history.isEmpty) return [];
+    final indices = <int>{};
+    final step = 3;
+    final lastIndex = history.length - 1;
+    for (int i = 0; i <= lastIndex; i++) {
+      if (i % step == 0) {
+        indices.add(i);
+      }
+    }
+    indices.add(lastIndex);
+    final labels = indices.toList()..sort();
+    return labels
+        .map((index) => _DateLabel(index, history[index]['date'] as DateTime))
+        .toList();
+  }
+}
+
+class _DateLabel {
+  final int index;
+  final DateTime date;
+  const _DateLabel(this.index, this.date);
 }

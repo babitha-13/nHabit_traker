@@ -1767,9 +1767,9 @@ class _CalendarPageState extends State<CalendarPage> {
       ));
     }
 
-    // Add routines with due time as planned events (single block = sum of item durations).
+    // Add routines and standalone non-productive items with due time as planned events.
     // Excludes items already scheduled explicitly in the planned list.
-    if (userId.isNotEmpty && routines.isNotEmpty) {
+    if (userId.isNotEmpty) {
       final routinePlanned =
           await RoutinePlannedCalendarService.getPlannedRoutineEvents(
         userId: userId,
@@ -1787,11 +1787,13 @@ class _CalendarPageState extends State<CalendarPage> {
             : startTime.add(Duration(minutes: r.durationMinutes!));
 
         final metadata = CalendarEventMetadata(
-          instanceId: 'routine:${r.routineId}',
+          instanceId: r.routineId != null
+              ? 'routine:${r.routineId}'
+              : 'activity:${r.activityId}',
           sessionIndex: -1,
           activityName: r.name,
-          activityType: 'routine',
-          templateId: null,
+          activityType: r.routineId != null ? 'routine' : 'non_productive',
+          templateId: r.activityId,
           categoryId: null,
           categoryName: null,
           categoryColorHex: null,
@@ -1801,14 +1803,15 @@ class _CalendarPageState extends State<CalendarPage> {
           date: _selectedDate,
           startTime: startTime,
           endTime: endTime,
-          title: 'Routine: ${r.name}',
-          color: Colors.deepPurple,
+          title: r.routineId != null ? 'Routine: ${r.name}' : r.name,
+          color: r.routineId != null ? Colors.deepPurple : Colors.blueGrey,
           description: isDueMarker
               ? null
               : _formatDuration(Duration(minutes: r.durationMinutes!)),
           event: {
             ...metadata.toMap(),
-            'routineId': r.routineId,
+            if (r.routineId != null) 'routineId': r.routineId,
+            if (r.activityId != null) 'activityId': r.activityId,
             'isDueMarker': isDueMarker,
           },
         ));

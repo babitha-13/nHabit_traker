@@ -796,231 +796,233 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     return WillPopScope(
       onWillPop: _onWillPop,
       child: SafeArea(
-      top: false,
-      minimum: const EdgeInsets.only(bottom: 12),
-      child: Container(
-        padding: EdgeInsets.only(
-          bottom: containerBottomPadding,
-        ),
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black.withOpacity(0.1),
-              blurRadius: 10,
-              offset: const Offset(0, -2),
-            ),
-          ],
-        ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Divider(color: Colors.grey[200], height: 1),
-            ),
-            Flexible(
-              child: SingleChildScrollView(
-                padding: EdgeInsets.only(bottom: bottomBuffer),
-                child: Padding(
-                  padding: const EdgeInsets.all(16.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      // Activity Type Selector
-                      Row(
-                        children: [
-                          _buildTypeChip('Task', 'task', theme),
-                          const SizedBox(width: 8),
-                          _buildTypeChip('Habit', 'habit', theme),
-                          const SizedBox(width: 8),
-                          _buildTypeChip(
-                              'Non-Productive', 'non_productive', theme),
-                        ],
-                      ),
-                      const SizedBox(height: 12),
-
-                      // Activity Input with Overlay Dropdown
-                      Container(
-                        key: _textFieldKey,
-                        padding: const EdgeInsets.symmetric(horizontal: 10),
-                        constraints: const BoxConstraints(minHeight: 42),
-                        decoration: BoxDecoration(
-                          color: theme.tertiary.withOpacity(0.3),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: theme.surfaceBorderColor,
-                            width: 1,
-                          ),
+        top: false,
+        minimum: const EdgeInsets.only(bottom: 12),
+        child: Container(
+          padding: EdgeInsets.only(
+            bottom: containerBottomPadding,
+          ),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Divider(color: Colors.grey[200], height: 1),
+              ),
+              Flexible(
+                child: SingleChildScrollView(
+                  padding: EdgeInsets.only(bottom: bottomBuffer),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        // Activity Type Selector
+                        Row(
+                          children: [
+                            _buildTypeChip('Task', 'task', theme),
+                            const SizedBox(width: 8),
+                            _buildTypeChip('Habit', 'habit', theme),
+                            const SizedBox(width: 8),
+                            _buildTypeChip(
+                                'Non-Productive', 'non_productive', theme),
+                          ],
                         ),
-                        child: TextField(
-                          controller: _activityController,
-                          focusNode: _activityFocusNode,
-                          style: theme.bodyMedium,
-                          textAlignVertical: TextAlignVertical.center,
-                          decoration: InputDecoration(
-                            hintText: _selectedType == 'habit'
-                                ? 'Search existing habit...'
-                                : 'Type or search activity...',
-                            hintStyle: TextStyle(
-                              color: theme.secondaryText,
-                              fontSize: 14,
-                            ),
-                            border: InputBorder.none,
-                            isDense: true,
-                            contentPadding:
-                                const EdgeInsets.symmetric(vertical: 10),
-                            icon: const Icon(Icons.search,
-                                size: 20, color: Colors.grey),
-                            suffixIcon: _activityController.text.isNotEmpty
-                                ? IconButton(
-                                    padding: const EdgeInsets.all(8),
-                                    constraints: const BoxConstraints(),
-                                    icon: const Icon(Icons.clear, size: 16),
-                                    onPressed: () {
-                                      _activityController.clear();
-                                      setState(() => _selectedTemplate = null);
-                                      _removeOverlay();
-                                    },
-                                  )
-                                : null,
-                          ),
-                        ),
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      // Time Pickers Row
-                      Row(
-                        children: [
-                          Expanded(
-                            child: InkWell(
-                              onTap: _pickStartTime,
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 12, horizontal: 12),
-                                decoration: BoxDecoration(
-                                  border:
-                                      Border.all(color: Colors.grey.shade300),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.access_time,
-                                        size: 18, color: Colors.grey),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      DateFormat.jm().format(_startTime),
-                                      style: theme.bodyMedium.copyWith(
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                          const Padding(
-                            padding: EdgeInsets.symmetric(horizontal: 12),
-                            child: Icon(Icons.arrow_forward,
-                                size: 16, color: Colors.grey),
-                          ),
-                          Expanded(
-                            child: InkWell(
-                              onTap: _pickEndTime,
-                              borderRadius: BorderRadius.circular(10),
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                    vertical: 12, horizontal: 12),
-                                decoration: BoxDecoration(
-                                  border:
-                                      Border.all(color: Colors.grey.shade300),
-                                  borderRadius: BorderRadius.circular(10),
-                                ),
-                                child: Row(
-                                  children: [
-                                    const Icon(Icons.access_time_filled,
-                                        size: 18, color: Colors.grey),
-                                    const SizedBox(width: 8),
-                                    Text(
-                                      DateFormat.jm().format(_endTime),
-                                      style: theme.bodyMedium.copyWith(
-                                          fontWeight: FontWeight.w600),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-
-                      const SizedBox(height: 10),
-
-                      // Completion Controls (conditional based on tracking type)
-                      if (_selectedTemplate != null) ...[
-                        _buildCompletionControls(theme),
                         const SizedBox(height: 12),
-                      ],
 
-                      const SizedBox(height: 6),
-
-                      // Submit Button (and delete when editing)
-                      Row(
-                        children: [
-                          Expanded(
-                            child: ElevatedButton(
-                              onPressed: _isLoading ? null : _saveEntry,
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: theme.primary,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 16),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(12),
-                                ),
-                                elevation: 0,
-                              ),
-                              child: _isLoading
-                                  ? const SizedBox(
-                                      width: 20,
-                                      height: 20,
-                                      child: CircularProgressIndicator(
-                                          color: Colors.white, strokeWidth: 2),
-                                    )
-                                  : Text(
-                                      isEditMode
-                                          ? 'Update Entry'
-                                          : 'Log Time Entry',
-                                      style: const TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold),
-                                    ),
+                        // Activity Input with Overlay Dropdown
+                        Container(
+                          key: _textFieldKey,
+                          padding: const EdgeInsets.symmetric(horizontal: 10),
+                          constraints: const BoxConstraints(minHeight: 42),
+                          decoration: BoxDecoration(
+                            color: theme.tertiary.withOpacity(0.3),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                              color: theme.surfaceBorderColor,
+                              width: 1,
                             ),
                           ),
-                          if (isEditMode) ...[
-                            const SizedBox(width: 6),
-                            IconButton(
-                              padding: const EdgeInsets.all(8),
-                              constraints: const BoxConstraints(),
-                              icon: const Icon(Icons.delete),
-                              color: Colors.red,
-                              tooltip: 'Delete entry',
-                              onPressed: _isLoading ? null : _deleteEntry,
+                          child: TextField(
+                            controller: _activityController,
+                            focusNode: _activityFocusNode,
+                            style: theme.bodyMedium,
+                            textAlignVertical: TextAlignVertical.center,
+                            decoration: InputDecoration(
+                              hintText: _selectedType == 'habit'
+                                  ? 'Search existing habit...'
+                                  : 'Create New or Search...',
+                              hintStyle: TextStyle(
+                                color: theme.secondaryText,
+                                fontSize: 14,
+                              ),
+                              border: InputBorder.none,
+                              isDense: true,
+                              contentPadding:
+                                  const EdgeInsets.symmetric(vertical: 10),
+                              icon: const Icon(Icons.search,
+                                  size: 20, color: Colors.grey),
+                              suffixIcon: _activityController.text.isNotEmpty
+                                  ? IconButton(
+                                      padding: const EdgeInsets.all(8),
+                                      constraints: const BoxConstraints(),
+                                      icon: const Icon(Icons.clear, size: 16),
+                                      onPressed: () {
+                                        _activityController.clear();
+                                        setState(
+                                            () => _selectedTemplate = null);
+                                        _removeOverlay();
+                                      },
+                                    )
+                                  : null,
+                            ),
+                          ),
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        // Time Pickers Row
+                        Row(
+                          children: [
+                            Expanded(
+                              child: InkWell(
+                                onTap: _pickStartTime,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12, horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    border:
+                                        Border.all(color: Colors.grey.shade300),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.access_time,
+                                          size: 18, color: Colors.grey),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        DateFormat.jm().format(_startTime),
+                                        style: theme.bodyMedium.copyWith(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ),
+                            const Padding(
+                              padding: EdgeInsets.symmetric(horizontal: 12),
+                              child: Icon(Icons.arrow_forward,
+                                  size: 16, color: Colors.grey),
+                            ),
+                            Expanded(
+                              child: InkWell(
+                                onTap: _pickEndTime,
+                                borderRadius: BorderRadius.circular(10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 12, horizontal: 12),
+                                  decoration: BoxDecoration(
+                                    border:
+                                        Border.all(color: Colors.grey.shade300),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.access_time_filled,
+                                          size: 18, color: Colors.grey),
+                                      const SizedBox(width: 8),
+                                      Text(
+                                        DateFormat.jm().format(_endTime),
+                                        style: theme.bodyMedium.copyWith(
+                                            fontWeight: FontWeight.w600),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
                             ),
                           ],
+                        ),
+
+                        const SizedBox(height: 10),
+
+                        // Completion Controls (conditional based on tracking type)
+                        if (_selectedTemplate != null) ...[
+                          _buildCompletionControls(theme),
+                          const SizedBox(height: 12),
                         ],
-                      ),
-                      const SizedBox(height: 4), // Bottom padding
-                    ],
+
+                        const SizedBox(height: 6),
+
+                        // Submit Button (and delete when editing)
+                        Row(
+                          children: [
+                            Expanded(
+                              child: ElevatedButton(
+                                onPressed: _isLoading ? null : _saveEntry,
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: theme.primary,
+                                  foregroundColor: Colors.white,
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 16),
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  elevation: 0,
+                                ),
+                                child: _isLoading
+                                    ? const SizedBox(
+                                        width: 20,
+                                        height: 20,
+                                        child: CircularProgressIndicator(
+                                            color: Colors.white,
+                                            strokeWidth: 2),
+                                      )
+                                    : Text(
+                                        isEditMode
+                                            ? 'Update Entry'
+                                            : 'Log Time Entry',
+                                        style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.bold),
+                                      ),
+                              ),
+                            ),
+                            if (isEditMode) ...[
+                              const SizedBox(width: 6),
+                              IconButton(
+                                padding: const EdgeInsets.all(8),
+                                constraints: const BoxConstraints(),
+                                icon: const Icon(Icons.delete),
+                                color: Colors.red,
+                                tooltip: 'Delete entry',
+                                onPressed: _isLoading ? null : _deleteEntry,
+                              ),
+                            ],
+                          ],
+                        ),
+                        const SizedBox(height: 4), // Bottom padding
+                      ],
+                    ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
       ),
     );
   }

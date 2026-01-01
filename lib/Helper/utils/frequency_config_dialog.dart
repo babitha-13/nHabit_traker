@@ -68,9 +68,11 @@ enum PeriodType {
 /// Dialog for configuring task/habit frequency
 class FrequencyConfigDialog extends StatefulWidget {
   final FrequencyConfig initialConfig;
+  final Set<FrequencyType>? allowedTypes;
   const FrequencyConfigDialog({
     super.key,
     required this.initialConfig,
+    this.allowedTypes,
   });
   @override
   State<FrequencyConfigDialog> createState() => _FrequencyConfigDialogState();
@@ -171,6 +173,7 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
                   child: FrequencyConfigWidget(
                     initialConfig: _config,
                     onChanged: _updateConfig,
+                  allowedTypes: widget.allowedTypes,
                   ),
                 ),
               ),
@@ -242,6 +245,7 @@ class _FrequencyConfigDialogState extends State<FrequencyConfigDialog> {
 Future<FrequencyConfig?> showFrequencyConfigDialog({
   required BuildContext context,
   FrequencyConfig? initialConfig,
+  Set<FrequencyType>? allowedTypes,
 }) async {
   return await showDialog<FrequencyConfig>(
     context: context,
@@ -249,6 +253,7 @@ Future<FrequencyConfig?> showFrequencyConfigDialog({
     builder: (context) => FrequencyConfigDialog(
       initialConfig:
           initialConfig ?? FrequencyConfig(type: FrequencyType.everyXPeriod),
+      allowedTypes: allowedTypes,
     ),
   );
 }

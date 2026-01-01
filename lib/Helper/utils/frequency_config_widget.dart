@@ -5,10 +5,12 @@ import 'frequency_config_dialog.dart'; // Import FrequencyConfig, FrequencyType,
 class FrequencyConfigWidget extends StatefulWidget {
   final FrequencyConfig initialConfig;
   final Function(FrequencyConfig) onChanged;
+  final Set<FrequencyType>? allowedTypes;
   const FrequencyConfigWidget({
     super.key,
     required this.initialConfig,
     required this.onChanged,
+    this.allowedTypes,
   });
   @override
   State<FrequencyConfigWidget> createState() => _FrequencyConfigWidgetState();
@@ -16,11 +18,39 @@ class FrequencyConfigWidget extends StatefulWidget {
 
 class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
   late FrequencyConfig _config;
+  late final List<FrequencyType> _allowedTypes;
+
   @override
   void initState() {
     super.initState();
-    _config = widget.initialConfig;
+    _allowedTypes = _resolveAllowedTypes();
+    _config = _ensureAllowedConfig(widget.initialConfig);
   }
+
+  List<FrequencyType> _resolveAllowedTypes() {
+    final defaults = const [
+      FrequencyType.everyXPeriod,
+      FrequencyType.timesPerPeriod,
+      FrequencyType.specificDays,
+    ];
+    final provided = widget.allowedTypes;
+    final list = (provided != null && provided.isNotEmpty)
+        ? provided.toList()
+        : defaults;
+    if (list.isEmpty) {
+      return defaults;
+    }
+    return list;
+  }
+
+  FrequencyConfig _ensureAllowedConfig(FrequencyConfig config) {
+    if (_allowedTypes.contains(config.type)) {
+      return config;
+    }
+    return config.copyWith(type: _allowedTypes.first);
+  }
+
+  bool _isAllowed(FrequencyType type) => _allowedTypes.contains(type);
 
   void _updateConfig(FrequencyConfig newConfig) {
     setState(() {
@@ -247,28 +277,40 @@ class _FrequencyConfigWidgetState extends State<FrequencyConfigWidget> {
   }
 
   Widget _buildFrequencyTypeSelection(FlutterFlowTheme theme) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
+    final children = <Widget>[];
+    if (_isAllowed(FrequencyType.everyXPeriod)) {
+      children.add(
         _buildRadioOption(
           theme,
           FrequencyType.everyXPeriod,
           'Every X period',
           null,
         ),
+      );
+    }
+    if (_isAllowed(FrequencyType.timesPerPeriod)) {
+      children.add(
         _buildRadioOption(
           theme,
           FrequencyType.timesPerPeriod,
           'Times per period',
           null,
         ),
+      );
+    }
+    if (_isAllowed(FrequencyType.specificDays)) {
+      children.add(
         _buildRadioOption(
           theme,
           FrequencyType.specificDays,
           'Specific days of the week',
           null,
         ),
-      ],
+      );
+    }
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: children,
     );
   }
 

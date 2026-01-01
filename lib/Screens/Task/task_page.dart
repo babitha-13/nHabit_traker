@@ -220,6 +220,8 @@ class _TaskPageState extends State<TaskPage> {
             'Instance ${inst.templateName} matches filter: $matches (categoryName: ${inst.templateCategoryName} vs ${widget.categoryName})');
         return matches;
       }).toList();
+      final sortedInstances =
+          InstanceOrderService.sortInstancesByOrder(categoryFiltered, 'tasks');
       final categories = await queryTaskCategoriesOnce(
         userId: uid,
         callerTag: 'TaskPage._loadDataSilently.${widget.categoryName ?? 'all'}',
@@ -235,15 +237,11 @@ class _TaskPageState extends State<TaskPage> {
         setState(() {
           _categories = categories;
           // Store all instances
-          _taskInstances = categoryFiltered;
+          _taskInstances = sortedInstances;
           // Invalidate cache when instances change
           _cachedBucketedItems = null;
           if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
-            // Set the quick-add category to the current tab's category
-            final currentCategory = categories.firstWhere(
-              (c) => c.name == widget.categoryName,
-              orElse: () => categories.first,
-            );
+            final currentCategory = _resolveQuickAddCategory(categories);
             _selectedQuickCategoryId = currentCategory.reference.id;
             print(
                 'TaskPage: Set quick-add category to: ${currentCategory.name} (${currentCategory.reference.id})');
@@ -254,7 +252,8 @@ class _TaskPageState extends State<TaskPage> {
       // Initialize missing order values during load (avoid DB writes during build/getters).
       // Best-effort: don't crash UI if something was deleted concurrently.
       try {
-        await InstanceOrderService.initializeOrderValues(categoryFiltered, 'tasks');
+        await InstanceOrderService.initializeOrderValues(
+            sortedInstances, 'tasks');
       } catch (_) {}
     } catch (e) {
       setState(() => _isLoading = false);
@@ -264,6 +263,20 @@ class _TaskPageState extends State<TaskPage> {
         );
       }
     }
+  }
+
+  CategoryRecord _resolveQuickAddCategory(List<CategoryRecord> categories) {
+    if (widget.categoryName == null) {
+      // All tab should create tasks in Inbox by default
+      return categories.firstWhere(
+        (c) => c.name.toLowerCase() == 'inbox',
+        orElse: () => categories.first,
+      );
+    }
+    return categories.firstWhere(
+      (c) => c.name.toLowerCase() == widget.categoryName!.toLowerCase(),
+      orElse: () => categories.first,
+    );
   }
 
   Widget _buildQuickAddWithState(StateSetter setModalState) {
@@ -2130,17 +2143,20 @@ class _TaskPageState extends State<TaskPage> {
             inst.templateCategoryName == widget.categoryName);
         return matches;
       }).toList();
+      final sortedInstances =
+          InstanceOrderService.sortInstancesByOrder(categoryFiltered, 'tasks');
       if (mounted) {
         setState(() {
           _categories = categories;
-          _taskInstances = categoryFiltered;
+          _taskInstances = sortedInstances;
           // Invalidate cache when instances change
           _cachedBucketedItems = null;
         });
       }
       // Best-effort initialize missing order values (safe, caught).
       try {
-        await InstanceOrderService.initializeOrderValues(categoryFiltered, 'tasks');
+        await InstanceOrderService.initializeOrderValues(
+            sortedInstances, 'tasks');
       } catch (_) {}
     } catch (e) {
       // Silent error handling - don't disrupt UI

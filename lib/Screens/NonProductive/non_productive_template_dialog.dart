@@ -4,6 +4,8 @@ import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
 import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 
 class NonProductiveTemplateDialog extends StatefulWidget {
   final ActivityRecord? existingTemplate;
@@ -34,6 +36,9 @@ class _NonProductiveTemplateDialogState
   final List<String> _trackingTypes = ['binary', 'quantitative', 'time'];
   int? _timeEstimateMinutes;
   int? _defaultTimeEstimateMinutes;
+  TimeOfDay? _selectedDueTime;
+  bool _frequencyEnabled = false;
+  FrequencyConfig? _frequencyConfig;
 
   @override
   void initState() {
@@ -47,10 +52,17 @@ class _NonProductiveTemplateDialogState
       if (widget.existingTemplate!.hasTimeEstimateMinutes()) {
         _timeEstimateMinutes = widget.existingTemplate!.timeEstimateMinutes;
       }
+      if (widget.existingTemplate!.hasDueTime()) {
+        _selectedDueTime =
+            TimeUtils.stringToTimeOfDay(widget.existingTemplate!.dueTime);
+      }
+      _initializeFrequencyFromTemplate(widget.existingTemplate!);
       _updateTargetValue();
     } else {
       _selectedTrackingType = 'binary';
       _targetValue = null; // No target for binary/to-do tracking
+      _frequencyEnabled = false;
+      _frequencyConfig = _defaultFrequencyConfig();
     }
     _loadDefaultTimeEstimate();
   }
@@ -59,8 +71,8 @@ class _NonProductiveTemplateDialogState
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
-      final minutes = await TimeLoggingPreferencesService
-          .getDefaultDurationMinutes(userId);
+      final minutes =
+          await TimeLoggingPreferencesService.getDefaultDurationMinutes(userId);
       if (!mounted) return;
       setState(() => _defaultTimeEstimateMinutes = minutes);
     } catch (e) {
@@ -114,6 +126,11 @@ class _NonProductiveTemplateDialogState
       _isSaving = true;
     });
     try {
+      final dueTimeString = _selectedDueTime != null
+          ? TimeUtils.timeOfDayToString(_selectedDueTime!)
+          : null;
+      final freqPayload = _frequencyPayloadForBackend(
+          isUpdate: widget.existingTemplate != null);
       if (widget.existingTemplate != null) {
         // Update existing template
         await NonProductiveService.updateNonProductiveTemplate(
@@ -131,6 +148,11 @@ class _NonProductiveTemplateDialogState
           timeEstimateMinutes: _timeEstimateMinutes != null
               ? _timeEstimateMinutes!.clamp(1, 600)
               : null,
+          dueTime: dueTimeString,
+          frequencyType: freqPayload.frequencyType,
+          everyXValue: freqPayload.everyXValue,
+          everyXPeriodType: freqPayload.everyXPeriodType,
+          specificDays: freqPayload.specificDays,
         );
         // Fetch updated template
         final updatedDoc = await widget.existingTemplate!.reference.get();
@@ -157,6 +179,11 @@ class _NonProductiveTemplateDialogState
           timeEstimateMinutes: _timeEstimateMinutes != null
               ? _timeEstimateMinutes!.clamp(1, 600)
               : null,
+          dueTime: dueTimeString,
+          frequencyType: freqPayload.frequencyType,
+          everyXValue: freqPayload.everyXValue,
+          everyXPeriodType: freqPayload.everyXPeriodType,
+          specificDays: freqPayload.specificDays,
         );
         // Fetch created template
         final createdDoc = await templateRef.get();
@@ -247,7 +274,7 @@ class _NonProductiveTemplateDialogState
                   const SizedBox(height: 12),
                   _buildTextField(
                       theme, _descriptionController, 'Description (Optional)',
-                      maxLines: 3),
+                      maxLines: 1),
                   const SizedBox(height: 12),
                   Text(
                     'Tracking Type',
@@ -269,6 +296,10 @@ class _NonProductiveTemplateDialogState
                     const SizedBox(height: 12),
                     _buildTimeEstimateField(theme),
                   ],
+                  const SizedBox(height: 16),
+                  _buildDueTimeField(theme),
+                  const SizedBox(height: 12),
+                  _buildFrequencyField(theme),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(12),
@@ -559,6 +590,266 @@ class _NonProductiveTemplateDialogState
     );
   }
 
+  Widget _buildDueTimeField(FlutterFlowTheme theme) {
+    final label = _selectedDueTime != null
+        ? _selectedDueTime!.format(context)
+        : 'Add Due time';
+    return InkWell(
+      onTap: _pickDueTime,
+      borderRadius: BorderRadius.circular(10),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Due Time',
+          labelStyle: TextStyle(color: theme.secondaryText),
+          filled: true,
+          fillColor: theme.tertiary.withOpacity(0.3),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: theme.surfaceBorderColor),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.access_time, size: 20, color: theme.secondaryText),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                label,
+                style: theme.bodyMedium.override(
+                  color: _selectedDueTime != null
+                      ? theme.primaryText
+                      : theme.secondaryText,
+                ),
+              ),
+            ),
+            if (_selectedDueTime != null)
+              IconButton(
+                icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: () => setState(() => _selectedDueTime = null),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildFrequencyField(FlutterFlowTheme theme) {
+    final summary = _frequencySummary();
+    return InkWell(
+      onTap: _openFrequencyDialog,
+      borderRadius: BorderRadius.circular(10),
+      child: InputDecorator(
+        decoration: InputDecoration(
+          labelText: 'Frequency',
+          labelStyle: TextStyle(color: theme.secondaryText),
+          filled: true,
+          fillColor: theme.tertiary.withOpacity(0.3),
+          border: OutlineInputBorder(
+            borderRadius: BorderRadius.circular(10),
+            borderSide: BorderSide(color: theme.surfaceBorderColor),
+          ),
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
+        ),
+        child: Row(
+          children: [
+            Icon(Icons.repeat, size: 20, color: theme.secondaryText),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                summary,
+                style: theme.bodyMedium.override(
+                  color: _frequencyEnabled
+                      ? theme.primaryText
+                      : theme.secondaryText,
+                ),
+              ),
+            ),
+            if (_frequencyEnabled)
+              IconButton(
+                icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
+                padding: EdgeInsets.zero,
+                constraints: const BoxConstraints(),
+                onPressed: _clearFrequency,
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<void> _pickDueTime() async {
+    final initial = _selectedDueTime ?? TimeUtils.getCurrentTime();
+    final picked = await showTimePicker(
+      context: context,
+      initialTime: initial,
+    );
+    if (picked != null) {
+      setState(() {
+        _selectedDueTime = picked;
+      });
+    }
+  }
+
+  Future<void> _openFrequencyDialog() async {
+    final config = await showFrequencyConfigDialog(
+      context: context,
+      initialConfig: _frequencyConfig ?? _defaultFrequencyConfig(),
+      allowedTypes: const {
+        FrequencyType.everyXPeriod,
+        FrequencyType.specificDays,
+      },
+    );
+    if (config != null) {
+      setState(() {
+        _frequencyEnabled = true;
+        _frequencyConfig = config;
+      });
+    }
+  }
+
+  void _clearFrequency() {
+    setState(() {
+      _frequencyEnabled = false;
+      _frequencyConfig = _defaultFrequencyConfig();
+    });
+  }
+
+  String _frequencySummary() {
+    if (!_frequencyEnabled || _frequencyConfig == null) {
+      return "Manual only (won't auto-schedule)";
+    }
+    final config = _frequencyConfig!;
+    switch (config.type) {
+      case FrequencyType.specificDays:
+        final days = config.selectedDays.isNotEmpty
+            ? config.selectedDays
+            : [1, 2, 3, 4, 5, 6, 7];
+        final label = days.map(_weekdayShortLabel).join(', ');
+        return 'Specific days ($label)';
+      case FrequencyType.everyXPeriod:
+      default:
+        final value = config.everyXValue > 0 ? config.everyXValue : 1;
+        final unit = _describePeriod(config.everyXPeriodType, value);
+        if (value == 1 && config.everyXPeriodType == PeriodType.days) {
+          return 'Every day';
+        }
+        return 'Every $value $unit';
+    }
+  }
+
+  FrequencyConfig _defaultFrequencyConfig() {
+    return FrequencyConfig(
+      type: FrequencyType.everyXPeriod,
+      everyXValue: 1,
+      everyXPeriodType: PeriodType.days,
+    );
+  }
+
+  void _initializeFrequencyFromTemplate(ActivityRecord template) {
+    if (template.frequencyType.isEmpty) {
+      _frequencyEnabled = false;
+      _frequencyConfig = _defaultFrequencyConfig();
+      return;
+    }
+    _frequencyEnabled = true;
+    _frequencyConfig = _frequencyConfigFromTemplate(template);
+  }
+
+  FrequencyConfig _frequencyConfigFromTemplate(ActivityRecord template) {
+    final type = template.frequencyType;
+    if (type == 'specific_days') {
+      final days = template.specificDays.isNotEmpty
+          ? List<int>.from(template.specificDays)
+          : [1, 2, 3, 4, 5, 6, 7];
+      return FrequencyConfig(
+        type: FrequencyType.specificDays,
+        selectedDays: days,
+      );
+    }
+    final value = template.everyXValue > 0 ? template.everyXValue : 1;
+    final period = _periodTypeFromString(template.everyXPeriodType);
+    return FrequencyConfig(
+      type: FrequencyType.everyXPeriod,
+      everyXValue: value,
+      everyXPeriodType: period,
+    );
+  }
+
+  PeriodType _periodTypeFromString(String? value) {
+    switch (value) {
+      case 'week':
+        return PeriodType.weeks;
+      case 'month':
+        return PeriodType.months;
+      default:
+        return PeriodType.days;
+    }
+  }
+
+  String _periodTypeToString(PeriodType type) {
+    switch (type) {
+      case PeriodType.weeks:
+        return 'week';
+      case PeriodType.months:
+        return 'month';
+      default:
+        return 'day';
+    }
+  }
+
+  String _describePeriod(PeriodType type, int value) {
+    final plural = value == 1 ? '' : 's';
+    switch (type) {
+      case PeriodType.weeks:
+        return 'week$plural';
+      case PeriodType.months:
+        return 'month$plural';
+      default:
+        return 'day$plural';
+    }
+  }
+
+  String _weekdayShortLabel(int day) {
+    const labels = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+    if (day < 1 || day > 7) return 'Day $day';
+    return labels[day - 1];
+  }
+
+  _FrequencyPayload _frequencyPayloadForBackend({required bool isUpdate}) {
+    if (!_frequencyEnabled || _frequencyConfig == null) {
+      return _FrequencyPayload(
+        frequencyType: isUpdate ? '' : null,
+        everyXValue: null,
+        everyXPeriodType: null,
+        specificDays: isUpdate ? <int>[] : null,
+      );
+    }
+    final config = _frequencyConfig!;
+    switch (config.type) {
+      case FrequencyType.specificDays:
+        final days = config.selectedDays.isNotEmpty
+            ? List<int>.from(config.selectedDays)
+            : [1, 2, 3, 4, 5, 6, 7];
+        return _FrequencyPayload(
+          frequencyType: 'specific_days',
+          specificDays: days,
+        );
+      case FrequencyType.everyXPeriod:
+      default:
+        final value = config.everyXValue > 0 ? config.everyXValue : 1;
+        return _FrequencyPayload(
+          frequencyType: 'every_x',
+          everyXValue: value,
+          everyXPeriodType: _periodTypeToString(config.everyXPeriodType),
+        );
+    }
+  }
+
   Widget _buildActionButtons(FlutterFlowTheme theme) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
@@ -594,4 +885,17 @@ class _NonProductiveTemplateDialogState
       ],
     );
   }
+}
+
+class _FrequencyPayload {
+  final String? frequencyType;
+  final int? everyXValue;
+  final String? everyXPeriodType;
+  final List<int>? specificDays;
+  const _FrequencyPayload({
+    this.frequencyType,
+    this.everyXValue,
+    this.everyXPeriodType,
+    this.specificDays,
+  });
 }

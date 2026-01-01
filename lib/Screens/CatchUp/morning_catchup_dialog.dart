@@ -256,6 +256,8 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
           await ActivityInstanceService.skipInstance(
             instanceId: instanceId,
             skippedAt: yesterdayEnd,
+            skipAutoGeneration:
+                true, // prevent generating another “next” instance when backdating
           );
         }
       }
@@ -525,6 +527,14 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     final theme = FlutterFlowTheme.of(context);
     final yesterday = DateService.yesterdayStart;
     final yesterdayLabel = DateFormat('EEEE, MMM d').format(yesterday);
+    final yesterdayEnd = DateTime(
+      yesterday.year,
+      yesterday.month,
+      yesterday.day,
+      23,
+      59,
+      59,
+    );
 
     final remainingItems = _items
         .where((item) =>
@@ -720,6 +730,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         showRecurringIcon: true,
                         showCompleted: false,
                         page: 'catchup',
+                        progressReferenceTime: yesterdayEnd,
                       );
                     },
                   ),

@@ -193,7 +193,7 @@ class ItemExpandedDetails extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
             if (!_isNonProductive) ...[
               Icon(

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
@@ -9,6 +11,7 @@ import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
 import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
 import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
@@ -20,6 +23,7 @@ class NotificationService {
   static final FlutterLocalNotificationsPlugin _notificationsPlugin =
       FlutterLocalNotificationsPlugin();
   static bool _timezoneInitialized = false;
+  static const int _notificationQuickSnoozeMinutes = 15;
 
   /// Initialize the notification service
   static Future<void> initialize() async {
@@ -122,15 +126,20 @@ class NotificationService {
       return;
     }
 
-    final context = navigatorKey.currentContext;
-    if (context == null) return;
-
     // Parse action ID format: "ACTION_TYPE:instanceId" or "SNOOZE:reminderId"
     final parts = actionId.split(':');
     if (parts.length < 2) return;
 
     final actionType = parts[0];
     final identifier = parts[1];
+
+    if (actionType == 'SNOOZE') {
+      _handleSnoozeAction(identifier, navigatorKey.currentContext);
+      return;
+    }
+
+    final context = navigatorKey.currentContext;
+    if (context == null) return;
 
     switch (actionType) {
       case 'COMPLETE':
@@ -142,17 +151,15 @@ class NotificationService {
       case 'TIMER':
         _handleTimerAction(identifier, context);
         break;
-      case 'SNOOZE':
-        _handleSnoozeAction(identifier, context);
-        break;
     }
   }
 
   /// Handle complete action
-  static Future<void> _handleCompleteAction(String instanceId, BuildContext context) async {
+  static Future<void> _handleCompleteAction(
+      String instanceId, BuildContext context) async {
     try {
       await ActivityInstanceService.completeInstance(instanceId: instanceId);
-      
+
       // Navigate to Queue page
       Navigator.of(context).pushNamedAndRemoveUntil(
         home,
@@ -174,19 +181,21 @@ class NotificationService {
   }
 
   /// Handle add action (increment quantitative value)
-  static Future<void> _handleAddAction(String instanceId, BuildContext context) async {
+  static Future<void> _handleAddAction(
+      String instanceId, BuildContext context) async {
     try {
-      final instance = await ActivityInstanceService.getUpdatedInstance(instanceId: instanceId);
-      
+      final instance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instanceId);
+
       // Increment current value by 1
       final currentValue = instance.currentValue ?? 0;
       final newValue = (currentValue is num) ? (currentValue + 1) : 1;
-      
+
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: instanceId,
         currentValue: newValue,
       );
-      
+
       // Navigate to Queue page
       Navigator.of(context).pushNamedAndRemoveUntil(
         home,
@@ -227,22 +236,40 @@ class NotificationService {
   }
 
   /// Handle snooze action
-  static void _handleSnoozeAction(String reminderId, BuildContext context) {
-    // Show snooze dialog - will be imported when SnoozeDialog is created
-    _showSnoozeDialog(context, reminderId);
+  static void _handleSnoozeAction(String reminderId, BuildContext? context) {
+    if (context != null) {
+      // Show snooze dialog inside the app for richer options
+      _showSnoozeDialog(context, reminderId);
+      return;
+    }
+    // If the app is not in the foreground, fall back to a quick snooze so the action still works
+    unawaited(_quickSnoozeReminder(reminderId));
   }
 
   /// Show snooze dialog
-  static Future<void> _showSnoozeDialog(BuildContext context, String reminderId) async {
+  static Future<void> _showSnoozeDialog(
+      BuildContext context, String reminderId) async {
     try {
       await SnoozeDialog.show(context: context, reminderId: reminderId);
     } catch (e) {
       print('NotificationService: Error showing snooze dialog: $e');
+      await _quickSnoozeReminder(reminderId);
       // Fallback: just navigate to Queue page
       Navigator.of(context).pushNamedAndRemoveUntil(
         home,
         (route) => false,
       );
+    }
+  }
+
+  static Future<void> _quickSnoozeReminder(String reminderId) async {
+    try {
+      await ReminderScheduler.snoozeReminder(
+        reminderId: reminderId,
+        durationMinutes: _notificationQuickSnoozeMinutes,
+      );
+    } catch (e) {
+      print('NotificationService: Quick snooze failed: $e');
     }
   }
 
@@ -296,6 +323,8 @@ class NotificationService {
   static void _handleReminderNotificationTap(String payload) {
     final context = navigatorKey.currentContext;
     if (context != null) {
+      final templateId = _extractTemplateIdFromPayload(payload);
+      final instanceId = _extractInstanceIdFromPayload(payload);
       Navigator.of(context).pushNamedAndRemoveUntil(
         home,
         (route) => false,
@@ -305,7 +334,10 @@ class NotificationService {
         if (homeContext != null) {
           Navigator.of(homeContext).push(
             MaterialPageRoute(
-              builder: (context) => const QueuePage(),
+              builder: (context) => QueuePage(
+                focusTemplateId: templateId,
+                focusInstanceId: instanceId,
+              ),
             ),
           );
         }
@@ -454,7 +486,7 @@ class NotificationService {
     try {
       // Ensure timezone is initialized before using tz.local
       _ensureTimezoneInitialized();
-      
+
       // Create TZDateTime directly from the scheduled time components
       final tzDateTime = tz.TZDateTime(
         tz.local,
@@ -621,13 +653,15 @@ class NotificationService {
             'habit_alarms_v1', // CHANGED ID to force update
             'Alarms',
             channelDescription: 'Full screen alarms for habits',
-            importance: Importance.max, // Max importance for heads-up/full-screen
+            importance:
+                Importance.max, // Max importance for heads-up/full-screen
             priority: Priority.max,
             playSound: true,
             enableVibration: true,
             fullScreenIntent: true,
             audioAttributesUsage: AudioAttributesUsage.alarm, // Treat as alarm
-            category: AndroidNotificationCategory.alarm, // System treats as alarm
+            category:
+                AndroidNotificationCategory.alarm, // System treats as alarm
             actions: actions,
           ),
           iOS: const DarwinNotificationDetails(
@@ -725,5 +759,27 @@ class NotificationService {
     required DateTime newProcessTime,
   }) async {
     await scheduleDayEndNotifications(processTime: newProcessTime);
+  }
+
+  static String? _extractTemplateIdFromPayload(String payload) {
+    if (payload.isEmpty) return null;
+    const templatePrefix = 'template:';
+    const instancePrefix = 'instance:';
+    if (payload.startsWith(templatePrefix)) {
+      return payload.substring(templatePrefix.length);
+    }
+    if (payload.startsWith(instancePrefix)) {
+      return null;
+    }
+    return payload;
+  }
+
+  static String? _extractInstanceIdFromPayload(String payload) {
+    if (payload.isEmpty) return null;
+    const instancePrefix = 'instance:';
+    if (payload.startsWith(instancePrefix)) {
+      return payload.substring(instancePrefix.length);
+    }
+    return null;
   }
 }

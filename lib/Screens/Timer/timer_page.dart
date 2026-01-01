@@ -27,19 +27,23 @@ class TimerPage extends StatefulWidget {
   State<TimerPage> createState() => _TimerPageState();
 }
 
-class _TimerPageState extends State<TimerPage> {
+class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
   bool _isStopwatch = true;
   bool _isRunning = false;
-  final Stopwatch _stopwatch = Stopwatch();
-  late Timer _timer;
+  Timer? _timer;
   Duration _countdownDuration = const Duration(minutes: 10);
   Duration _remainingTime = Duration.zero;
   DocumentReference? _taskInstanceRef;
   DateTime? _timerStartTime; // Track when timer started
   String? _templateTrackingType; // Store tracking type for button logic
+  Duration _stopwatchElapsed = Duration.zero;
+  DateTime? _stopwatchRunStart;
+  DateTime? _countdownEndTime;
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _remainingTime = _countdownDuration;
     if (widget.initialTimerLogRef != null) {
       // Set the task instance reference from swipe action
       _taskInstanceRef = widget.initialTimerLogRef;
@@ -69,6 +73,66 @@ class _TimerPageState extends State<TimerPage> {
     }
   }
 
+  Duration _currentStopwatchElapsed() {
+    if (!_isStopwatch) return Duration.zero;
+    final base = _stopwatchElapsed;
+    if (_isRunning && _stopwatchRunStart != null) {
+      return base + DateTime.now().difference(_stopwatchRunStart!);
+    }
+    return base;
+  }
+
+  Duration _currentCountdownRemaining() {
+    if (_countdownEndTime == null) return _remainingTime;
+    final remaining = _countdownEndTime!.difference(DateTime.now());
+    return remaining.isNegative ? Duration.zero : remaining;
+  }
+
+  void _startTicker() {
+    _cancelTicker();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (!_isStopwatch) {
+        final remaining = _currentCountdownRemaining();
+        if (remaining <= Duration.zero) {
+          _remainingTime = Duration.zero;
+          _stopTimer();
+        } else if (mounted) {
+          setState(() {
+            _remainingTime = remaining;
+          });
+        }
+      } else if (mounted) {
+        setState(() {});
+      }
+    });
+  }
+
+  void _cancelTicker() {
+    if (_timer == null) return;
+    _timer!.cancel();
+    _timer = null;
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!_isRunning) return;
+    if (state == AppLifecycleState.resumed) {
+      if (_isStopwatch && mounted) {
+        setState(() {});
+      } else if (!_isStopwatch && _countdownEndTime != null) {
+        final remaining = _currentCountdownRemaining();
+        if (remaining <= Duration.zero) {
+          _remainingTime = Duration.zero;
+          _stopTimer();
+        } else if (mounted) {
+          setState(() {
+            _remainingTime = remaining;
+          });
+        }
+      }
+    }
+  }
+
   String _formatTime(Duration duration) {
     String twoDigits(int n) => n.toString().padLeft(2, '0');
     String twoDigitMinutes = twoDigits(duration.inMinutes.remainder(60));
@@ -79,6 +143,7 @@ class _TimerPageState extends State<TimerPage> {
   void _startTimer({bool fromTask = false}) async {
     // Play play button sound
     SoundHelper().playPlayButtonSound();
+    _cancelTicker();
     if (!fromTask) {
       try {
         _taskInstanceRef = await TaskInstanceService.createTimerTaskInstance();
@@ -110,24 +175,14 @@ class _TimerPageState extends State<TimerPage> {
       _isRunning = true;
     });
     if (_isStopwatch) {
-      _stopwatch.start();
+      _stopwatchElapsed = Duration.zero;
+      _stopwatchRunStart = DateTime.now();
     } else {
       _remainingTime =
           _remainingTime > Duration.zero ? _remainingTime : _countdownDuration;
+      _countdownEndTime = DateTime.now().add(_remainingTime);
     }
-    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!_isStopwatch && _remainingTime.inSeconds <= 0) {
-        _stopTimer();
-      } else {
-        if (mounted) {
-          setState(() {
-            if (!_isStopwatch) {
-              _remainingTime -= const Duration(seconds: 1);
-            }
-          });
-        }
-      }
-    });
+    _startTicker();
   }
 
   /// Stop timer and log time (without marking complete)
@@ -144,15 +199,26 @@ class _TimerPageState extends State<TimerPage> {
   Future<void> _stopTimerInternal({required bool markComplete}) async {
     // Play stop button sound
     SoundHelper().playStopButtonSound();
-    final duration =
-        _isStopwatch ? _stopwatch.elapsed : _countdownDuration - _remainingTime;
+    final currentStopwatch = _currentStopwatchElapsed();
+    final currentRemaining = _currentCountdownRemaining();
+    Duration duration;
+    if (_isStopwatch) {
+      duration = currentStopwatch;
+    } else {
+      final elapsed = _countdownDuration - currentRemaining;
+      duration = elapsed.isNegative ? Duration.zero : elapsed;
+    }
     setState(() {
       _isRunning = false;
+      if (_isStopwatch) {
+        _stopwatchElapsed = currentStopwatch;
+        _stopwatchRunStart = null;
+      } else {
+        _remainingTime = currentRemaining;
+        _countdownEndTime = null;
+      }
     });
-    if (_isStopwatch) {
-      _stopwatch.stop();
-    }
-    _timer.cancel();
+    _cancelTicker();
 
     final shouldSaveDirectly = widget.fromSwipe || widget.isNonProductive;
 
@@ -254,17 +320,13 @@ class _TimerPageState extends State<TimerPage> {
       _isStopwatch = value;
       // Reset timer when switching modes
       _isRunning = false;
-      _stopwatch.reset();
+      _stopwatchElapsed = Duration.zero;
+      _stopwatchRunStart = null;
       _remainingTime = Duration.zero;
+      _countdownEndTime = null;
       _taskInstanceRef = null;
       _timerStartTime = null;
-      try {
-        if (_timer.isActive) {
-          _timer.cancel();
-        }
-      } catch (e) {
-        // Timer not initialized yet, ignore
-      }
+      _cancelTicker();
     });
     
     // Auto-open countdown picker when switching to countdown mode
@@ -449,16 +511,19 @@ class _TimerPageState extends State<TimerPage> {
     if (confirmed == true) {
       // Stop timer if running
       if (_isRunning) {
-        if (_isStopwatch) {
-          _stopwatch.stop();
-        }
-        try {
-          if (_timer.isActive) {
-            _timer.cancel();
+        final stopwatchValue = _currentStopwatchElapsed();
+        final countdownRemaining = _currentCountdownRemaining();
+        setState(() {
+          _isRunning = false;
+          if (_isStopwatch) {
+            _stopwatchElapsed = stopwatchValue;
+            _stopwatchRunStart = null;
+          } else {
+            _remainingTime = countdownRemaining;
+            _countdownEndTime = null;
           }
-        } catch (e) {
-          // Timer not initialized yet, ignore
-        }
+        });
+        _cancelTicker();
       }
 
       // Clean up template and instance if they exist
@@ -503,22 +568,21 @@ class _TimerPageState extends State<TimerPage> {
     if (mounted) {
       setState(() {
         _isRunning = false;
-        _stopwatch.reset();
+        _stopwatchElapsed = Duration.zero;
+        _stopwatchRunStart = null;
         _remainingTime = Duration.zero;
+        _countdownEndTime = null;
         _taskInstanceRef = null;
+        _timerStartTime = null;
       });
     }
+    _cancelTicker();
   }
 
   @override
   void dispose() {
-    try {
-      if (_timer.isActive) {
-        _timer.cancel();
-      }
-    } catch (e) {
-      // Timer not initialized yet, ignore
-    }
+    WidgetsBinding.instance.removeObserver(this);
+    _cancelTicker();
     super.dispose();
   }
 
@@ -594,16 +658,14 @@ class _TimerPageState extends State<TimerPage> {
         setState(() {
           _isRunning = false;
           if (_isStopwatch) {
-            _stopwatch.stop();
-          }
-          try {
-            if (_timer.isActive) {
-              _timer.cancel();
-            }
-          } catch (e) {
-            // Timer not initialized yet, ignore
+            _stopwatchElapsed = _currentStopwatchElapsed();
+            _stopwatchRunStart = null;
+          } else {
+            _remainingTime = _currentCountdownRemaining();
+            _countdownEndTime = null;
           }
         });
+        _cancelTicker();
         
         // Allow navigation
         return true;
@@ -624,7 +686,8 @@ class _TimerPageState extends State<TimerPage> {
 
   @override
   Widget build(BuildContext context) {
-    final displayTime = _isStopwatch ? _stopwatch.elapsed : _remainingTime;
+    final displayTime =
+        _isStopwatch ? _currentStopwatchElapsed() : _currentCountdownRemaining();
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(

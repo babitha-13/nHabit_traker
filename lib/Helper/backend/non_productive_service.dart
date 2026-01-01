@@ -25,6 +25,11 @@ class NonProductiveService {
     String? unit,
     String? userId,
     int? timeEstimateMinutes,
+    String? dueTime,
+    String? frequencyType,
+    int? everyXValue,
+    String? everyXPeriodType,
+    List<int>? specificDays,
   }) async {
     final uid = userId ?? _currentUserId;
     final now = DateTime.now();
@@ -37,12 +42,17 @@ class NonProductiveService {
       target: target,
       unit: unit,
       isActive: true,
-      isRecurring: false, // Templates don't auto-generate instances
+      isRecurring: frequencyType != null && frequencyType.isNotEmpty,
       createdTime: now,
       lastUpdated: now,
       userId: uid,
       priority: 1, // Default priority (won't affect points)
       timeEstimateMinutes: timeEstimateMinutes,
+      dueTime: dueTime,
+      frequencyType: frequencyType,
+      everyXValue: everyXValue,
+      everyXPeriodType: everyXPeriodType,
+      specificDays: specificDays,
     );
     return await ActivityRecord.collectionForUser(uid).add(templateData);
   }
@@ -236,6 +246,11 @@ class NonProductiveService {
     String? unit,
     String? userId,
     int? timeEstimateMinutes,
+    String? dueTime,
+    String? frequencyType,
+    int? everyXValue,
+    String? everyXPeriodType,
+    List<int>? specificDays,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -263,6 +278,16 @@ class NonProductiveService {
             ? timeEstimateMinutes.clamp(1, 600)
             : null;
       }
+
+      if (dueTime != null) updateData['dueTime'] = dueTime;
+      if (frequencyType != null) {
+        updateData['frequencyType'] = frequencyType;
+        updateData['isRecurring'] = frequencyType.isNotEmpty;
+      }
+      if (everyXValue != null) updateData['everyXValue'] = everyXValue;
+      if (everyXPeriodType != null) updateData['everyXPeriodType'] = everyXPeriodType;
+      if (specificDays != null) updateData['specificDays'] = specificDays;
+
       await templateRef.update(updateData);
 
       // Cascade updates to instances
@@ -276,6 +301,13 @@ class NonProductiveService {
       if (updateData.containsKey('timeEstimateMinutes')) {
         instanceUpdates['templateTimeEstimateMinutes'] = updateData['timeEstimateMinutes'];
       }
+      if (dueTime != null) instanceUpdates['templateDueTime'] = dueTime;
+      if (frequencyType != null) {
+        instanceUpdates['templateFrequencyType'] = frequencyType;
+        instanceUpdates['templateIsRecurring'] = frequencyType.isNotEmpty;
+      }
+      if (everyXValue != null) instanceUpdates['templateEveryXValue'] = everyXValue;
+      if (everyXPeriodType != null) instanceUpdates['templateEveryXPeriodType'] = everyXPeriodType;
 
       if (instanceUpdates.isNotEmpty) {
         await ActivityInstanceService.updateActivityInstancesCascade(

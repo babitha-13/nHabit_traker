@@ -263,26 +263,7 @@ class ActivityInstanceService {
       final allInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
-      // Sort by due date (oldest first, nulls last) then by createdTime (latest first)
-      allInstances.sort((a, b) {
-        if (a.dueDate == null && b.dueDate == null) {
-          // Both null: Sort by createdTime (latest first)
-          final createdA = a.createdTime ?? DateTime(0);
-          final createdB = b.createdTime ?? DateTime(0);
-          return createdB.compareTo(createdA);
-        }
-        if (a.dueDate == null) return 1;
-        if (b.dueDate == null) return -1;
-        
-        final dateCompare = a.dueDate!.compareTo(b.dueDate!);
-        if (dateCompare != 0) return dateCompare;
-        
-        // Same due date: Sort by createdTime (latest first)
-        final createdA = a.createdTime ?? DateTime(0);
-        final createdB = b.createdTime ?? DateTime(0);
-        return createdB.compareTo(createdA);
-      });
-      return allInstances;
+      return InstanceOrderService.sortInstancesByOrder(allInstances, 'tasks');
     } catch (e) {
       return [];
     }
@@ -1367,6 +1348,7 @@ class ActivityInstanceService {
     required String instanceId,
     required dynamic currentValue,
     String? userId,
+    DateTime? referenceTime,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -1378,6 +1360,7 @@ class ActivityInstanceService {
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
+      final effectiveReferenceTime = referenceTime ?? now;
 
       // For windowed habits, update lastDayValue to current value for next day's calculation
       final updateData = <String, dynamic>{
@@ -1445,7 +1428,8 @@ class ActivityInstanceService {
 
               // Create one time block per increment
               final newSessions = <Map<String, dynamic>>[];
-              DateTime currentEndTime = now; // Start from the most recent time
+              DateTime currentEndTime =
+                  effectiveReferenceTime; // Start from the desired reference time
 
               // Loop through each increment to create separate time blocks
               for (int i = 0; i < delta.toInt(); i++) {
@@ -1535,10 +1519,11 @@ class ActivityInstanceService {
             // Auto-complete if not already completed
             if (instance.status != 'completed') {
               // completeInstance will handle its own optimistic broadcast
-              await completeInstance(
+              await completeInstanceWithBackdate(
                 instanceId: instanceId,
                 finalValue: currentValue,
                 userId: uid,
+                completedAt: referenceTime,
               );
               // Reconcile this progress operation (completeInstance will reconcile its own)
               OptimisticOperationTracker.reconcileOperation(

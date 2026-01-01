@@ -44,6 +44,7 @@ class ItemComponent extends StatefulWidget {
   final bool showRecurringIcon;
   final String? subtitle;
   final bool showExpandedCategoryName;
+  final DateTime? progressReferenceTime;
   const ItemComponent(
       {Key? key,
       required this.instance,
@@ -63,7 +64,8 @@ class ItemComponent extends StatefulWidget {
       this.showRecurringIcon = false,
       this.subtitle,
       this.page,
-      this.showExpandedCategoryName = false})
+      this.showExpandedCategoryName = false,
+      this.progressReferenceTime})
       : super(key: key);
   @override
   State<ItemComponent> createState() => _ItemComponentState();
@@ -1905,6 +1907,7 @@ class _ItemComponentState extends State<ItemComponent>
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
           currentValue: newValue,
+          referenceTime: widget.progressReferenceTime,
         );
       } catch (e) {
         // Revert optimistic state on error
@@ -1992,6 +1995,7 @@ class _ItemComponentState extends State<ItemComponent>
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
         currentValue: currentValue,
+        referenceTime: widget.progressReferenceTime,
       );
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: widget.instance.reference.id,
@@ -2161,6 +2165,7 @@ class _ItemComponentState extends State<ItemComponent>
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
           currentValue: 1,
+          referenceTime: widget.progressReferenceTime,
         );
         await ActivityInstanceService.completeInstance(
           instanceId: widget.instance.reference.id,
@@ -2173,6 +2178,7 @@ class _ItemComponentState extends State<ItemComponent>
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
           currentValue: 0,
+          referenceTime: widget.progressReferenceTime,
         );
         await ActivityInstanceService.uncompleteInstance(
           instanceId: widget.instance.reference.id,
@@ -2564,6 +2570,7 @@ class _ItemComponentState extends State<ItemComponent>
       await ActivityInstanceService.updateInstanceProgress(
         instanceId: widget.instance.reference.id,
         currentValue: 0,
+        referenceTime: widget.progressReferenceTime,
       );
 
       // If the item was completed or skipped based on quantity, uncomplete it
