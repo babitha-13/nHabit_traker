@@ -125,9 +125,9 @@ class FaqPage extends StatelessWidget {
               ),
               const SizedBox(height: 8),
               _Callout(
-                title: 'When Effort Mode is ON (examples for a 1-star activity)',
-                body:
-                    'Binary:\n'
+                title:
+                    'When Effort Mode is ON (examples for a 1-star activity)',
+                body: 'Binary:\n'
                     '- Completed in under 30m → 1 pt\n'
                     '- 1h logged → 2 pts\n'
                     '- 2h logged → 4 pts\n'
@@ -142,9 +142,9 @@ class FaqPage extends StatelessWidget {
               ),
               const SizedBox(height: 12),
               _Callout(
-                title: 'When Effort Mode is OFF (examples for a 1-star activity)',
-                body:
-                    'Binary:\n'
+                title:
+                    'When Effort Mode is OFF (examples for a 1-star activity)',
+                body: 'Binary:\n'
                     '- Completed → 1 pt\n'
                     '- Not completed → 0 pts\n'
                     '- Time is still logged to the calendar, but doesn’t affect binary scoring.\n'
@@ -163,19 +163,26 @@ class FaqPage extends StatelessWidget {
           _Section(
             title: 'Partial completion',
             children: [
-              _Bullet('You don’t have to give up on an activity if you can’t finish it fully—partial effort can still earn points (except Binary).'),
-              _Bullet('Binary: no partial points (it’s either completed or not).'),
-              _Bullet('Quantity: points scale with completion ratio. Example: 4 out of 8 → 0.5 points (for a 1-star item).'),
-              _Bullet('Time: points scale with completion ratio in Goal mode. Example: 15m out of 1h target → 0.25 points (for a 1-star item).'),
+              _Bullet(
+                  'You don’t have to give up on an activity if you can’t finish it fully—partial effort can still earn points (except Binary).'),
+              _Bullet(
+                  'Binary: no partial points (it’s either completed or not).'),
+              _Bullet(
+                  'Quantity: points scale with completion ratio. Example: 4 out of 8 → 0.5 points (for a 1-star item).'),
+              _Bullet(
+                  'Time: points scale with completion ratio in Goal mode. Example: 15m out of 1h target → 0.25 points (for a 1-star item).'),
             ],
           ),
           const SizedBox(height: 16),
           _Section(
             title: 'Over-completion',
             children: [
-              _Bullet('You can earn more points by exceeding your targets—extra effort is rewarded.'),
-              _Bullet('Binary: over-completion is not a concept in Goal mode. In Effort mode, spending more time increases points. In Goal mode, extra time doesn’t add points.'),
-              _Bullet('Quantity: over-completion earns more points in both modes. Example: 10 vs 8 target → 1.25 points (for a 1-star item).'),
+              _Bullet(
+                  'You can earn more points by exceeding your targets—extra effort is rewarded.'),
+              _Bullet(
+                  'Binary: over-completion is not a concept in Goal mode. In Effort mode, spending more time increases points. In Goal mode, extra time doesn’t add points.'),
+              _Bullet(
+                  'Quantity: over-completion earns more points in both modes. Example: 10 vs 8 target → 1.25 points (for a 1-star item).'),
               _Bullet(
                 'Time: you can earn more points by spending more time in both modes, but the calculation differs.\n'
                 '- Effort mode ON: points are based on 30-minute blocks (e.g., 2h → 4 pts for 1-star)\n'
@@ -197,7 +204,7 @@ class FaqPage extends StatelessWidget {
             title: 'What else is worth explaining?',
             children: [
               _Bullet(
-                'Non-productive items track time but do not earn points.',
+                'Essential Activities track time but do not earn points.',
               ),
               _Bullet(
                 'Windowed habits (multi-day windows) can award points based on today’s contribution within the window.',
@@ -348,5 +355,3 @@ class _Callout extends StatelessWidget {
     );
   }
 }
-
-

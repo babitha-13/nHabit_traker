@@ -25,7 +25,7 @@ class RoutineRecord extends FirestoreRecord {
   String? _description;
   String get description => _description ?? '';
   bool hasDescription() => _description != null;
-  // "itemIds" field - references to activities (habits, tasks, non-productive items).
+  // "itemIds" field - references to activities (habits, tasks, Essential Activities).
   List<String>? _itemIds;
   List<String> get itemIds => _itemIds ?? [];
   bool hasItemIds() => _itemIds != null;
@@ -37,7 +37,7 @@ class RoutineRecord extends FirestoreRecord {
   List<String>? _itemOrder;
   List<String> get itemOrder => _itemOrder ?? [];
   bool hasItemOrder() => _itemOrder != null;
-  // "itemTypes" field - cached types ('habit', 'task', 'non_productive').
+  // "itemTypes" field - cached types ('habit', 'task', 'essential').
   List<String>? _itemTypes;
   List<String> get itemTypes => _itemTypes ?? [];
   bool hasItemTypes() => _itemTypes != null;

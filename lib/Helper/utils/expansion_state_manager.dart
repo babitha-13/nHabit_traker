@@ -14,6 +14,7 @@ class ExpansionStateManager {
   static const String _queueKey = 'queue_expanded_sections';
   static const String _taskKey = 'task_expanded_sections';
   static const String _weeklyKey = 'weekly_expanded_sections';
+  static const String _essentialKey = 'essential_expanded_sections';
   
   // App session tracking
   static const String _appSessionKey = 'app_session_id';
@@ -175,6 +176,40 @@ class ExpansionStateManager {
     }
   }
   
+  /// Set the expanded sections for Essential page
+  Future<void> setEssentialExpandedSections(Set<String> sectionNames) async {
+    final prefs = await SharedPreferences.getInstance();
+    if (sectionNames.isEmpty) {
+      await prefs.remove(_essentialKey);
+    } else {
+      await prefs.setString(_essentialKey, jsonEncode(sectionNames.toList()));
+    }
+  }
+  
+  /// Get the currently expanded sections for Essential page
+  /// Returns empty set on new app session (will be handled by page logic)
+  Future<Set<String>> getEssentialExpandedSections() async {
+    final prefs = await SharedPreferences.getInstance();
+    final isNewSession = await isNewAppSession();
+    
+    if (isNewSession) {
+      // New app session - return empty (will be handled by page logic)
+      return {};
+    }
+    
+    final storedValue = prefs.getString(_essentialKey);
+    if (storedValue == null) {
+      return {};
+    }
+    
+    try {
+      final List<dynamic> decoded = jsonDecode(storedValue);
+      return decoded.cast<String>().toSet();
+    } catch (e) {
+      return {};
+    }
+  }
+  
   /// Clear all expansion states (useful for testing or reset)
   Future<void> clearAllStates() async {
     final prefs = await SharedPreferences.getInstance();
@@ -182,5 +217,6 @@ class ExpansionStateManager {
     await prefs.remove(_queueKey);
     await prefs.remove(_taskKey);
     await prefs.remove(_weeklyKey);
+    await prefs.remove(_essentialKey);
   }
 }

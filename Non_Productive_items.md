@@ -1,14 +1,14 @@
-# Add Non-Productive Items Feature
+# Add Essential Activities Feature
 
 ## Overview
 
-Implement "Non-Productive Items" - a new category type for tracking time-consuming activities like sleep, travel, rest, and entertainment. These items won't earn points but will appear in the calendar for complete time accounting and can be included in sequences/routines.
+Implement "Essential Activities" - a new category type for tracking time-consuming activities like sleep, travel, rest, and entertainment. These items won't earn points but will appear in the calendar for complete time accounting and can be included in sequences/routines.
 
 ## Architecture Approach
 
 Model after the existing `sequence_item` pattern:
 
-- **Templates**: Pre-created non-productive item templates stored in `ActivityRecord` with `categoryType: 'non_productive'`
+- **Templates**: Pre-created essential item templates stored in `ActivityRecord` with `categoryType: 'essential'`
 - **Instances**: On-demand instances created with time logs (start/end time) when user taps to record
 - **No Points**: Excluded from all points calculations and daily progress percentages
 - **Calendar Integration**: Display time blocks in calendar view
@@ -20,37 +20,37 @@ Model after the existing `sequence_item` pattern:
 
 **File: `lib/Helper/backend/schema/activity_record.dart`**
 
-- Already supports `categoryType` field - will use value `'non_productive'`
+- Already supports `categoryType` field - will use value `'essential'`
 - No schema changes needed; existing structure supports this
 
 **File: `lib/Helper/backend/schema/activity_instance_record.dart`**
 
 - Already has `timeLogSessions` field for time tracking
-- Will use existing instance structure with `templateCategoryType: 'non_productive'`
+- Will use existing instance structure with `templateCategoryType: 'essential'`
 
 ### 2. Backend Service Layer
 
-**New File: `lib/Helper/backend/non_productive_service.dart`**
+**New File: `lib/Helper/backend/essential_service.dart`**
 
 Create service with methods:
 
-- `createNonProductiveTemplate()` - Create reusable templates (e.g., "Sleep", "Travel")
-- `createNonProductiveInstance()` - Create instance with time log on demand
-- `getNonProductiveTemplates()` - Fetch all non-productive templates for user
+- `createessentialTemplate()` - Create reusable templates (e.g., "Sleep", "Travel")
+- `createessentialInstance()` - Create instance with time log on demand
+- `getessentialTemplates()` - Fetch all essential templates for user
 - `logTimeForInstance()` - Add/update time log session (start/end time, notes)
-- `deleteNonProductiveTemplate()` - Remove template
+- `deleteessentialTemplate()` - Remove template
 
 ### 3. Points System Exclusion
 
 **File: `lib/Helper/backend/points_service.dart`**
 
-- Update `calculateDailyTarget()` - Skip if `templateCategoryType == 'non_productive'`
-- Update `calculatePointsEarned()` - Return 0.0 for non-productive items
-- Update `calculateTaskPointsEarned()` - Skip non-productive items
+- Update `calculateDailyTarget()` - Skip if `templateCategoryType == 'essential'`
+- Update `calculatePointsEarned()` - Return 0.0 for Essential Activities
+- Update `calculateTaskPointsEarned()` - Skip Essential Activities
 
 **File: `lib/Helper/backend/daily_progress_calculator.dart`**
 
-- Filter out non-productive items from habit/task counts
+- Filter out Essential Activities from habit/task counts
 - Exclude from target/earned points calculations
 - Exclude from completion percentage
 
@@ -58,36 +58,36 @@ Create service with methods:
 
 **File: `lib/Screens/Calendar/calendar_page.dart`**
 
-- Update `_loadEvents()` to query non-productive instances with time logs
+- Update `_loadEvents()` to query essential instances with time logs
 - Display time blocks with distinct visual styling (e.g., muted colors, dashed borders)
 - Show notes/description in event details
 
 **File: `lib/Helper/backend/task_instance_service.dart`**
 
-- Add `getNonProductiveInstances()` method to fetch instances for calendar
+- Add `getessentialInstances()` method to fetch instances for calendar
 
 ### 5. Sequence Integration
 
 **File: `lib/Screens/Sequence/create_sequence_page.dart`**
 
-- Update search/filter to include non-productive templates
+- Update search/filter to include essential templates
 - Display with distinct icon/badge (e.g., "NP" badge or clock icon)
 
 **File: `lib/Helper/backend/sequence_service.dart`**
 
-- Ensure `createSequence()` handles `categoryType: 'non_productive'`
-- Update instance creation to support non-productive items in sequences
+- Ensure `createSequence()` handles `categoryType: 'essential'`
+- Update instance creation to support Essential Activities in sequences
 
 **File: `lib/Screens/Sequence/sequence_detail_page.dart`**
 
-- Display non-productive items in sequence list
+- Display Essential Activities in sequence list
 - Allow quick-tap to create instance with time log dialog
 
 ### 6. UI Components
 
-**New File: `lib/Helper/utils/non_productive_template_dialog.dart`**
+**New File: `lib/Helper/utils/essential_template_dialog.dart`**
 
-Create dialog for adding/editing non-productive templates:
+Create dialog for adding/editing essential templates:
 
 - Name field (e.g., "Sleep", "Commute")
 - Description/notes field
@@ -96,18 +96,18 @@ Create dialog for adding/editing non-productive templates:
 
 **New File: `lib/Helper/utils/time_log_dialog.dart`**
 
-Create dialog for logging time when tapping a non-productive template:
+Create dialog for logging time when tapping a essential template:
 
 - Start time picker
 - End time picker (or "Now" button)
 - Notes field
 - Quick duration buttons (15m, 30m, 1h, 2h)
 
-**New File: `lib/Screens/NonProductive/non_productive_templates_page.dart`**
+**New File: `lib/Screens/essential/essential_templates_page.dart`**
 
 Management page accessible from Sequences tab or Calendar:
 
-- List of non-productive templates
+- List of essential templates
 - Add new template button
 - Edit/delete existing templates
 - Quick-log button to create instance
@@ -117,11 +117,11 @@ Management page accessible from Sequences tab or Calendar:
 **Option A: Add to Sequences Page**
 
 - Add floating action button or tab in Sequences page
-- "Manage Non-Productive Items" option in menu
+- "Manage Essential Activities" option in menu
 
 **Option B: Add to Calendar Page**
 
-- Add FAB in calendar to create non-productive log
+- Add FAB in calendar to create essential log
 - Long-press on calendar to quick-add time block
 
 **Recommended: Both**
@@ -133,13 +133,13 @@ Management page accessible from Sequences tab or Calendar:
 
 **File: `lib/Helper/backend/backend.dart` or search utility**
 
-- Include non-productive templates in global search
-- Filter by `categoryType: 'non_productive'`
-- Display with "Non-Productive" badge in results
+- Include essential templates in global search
+- Filter by `categoryType: 'essential'`
+- Display with "essential" badge in results
 
 ## Key Technical Decisions
 
-1. **No new collections**: Use existing `ActivityRecord` (templates) and `ActivityInstanceRecord` (instances) with `categoryType: 'non_productive'`
+1. **No new collections**: Use existing `ActivityRecord` (templates) and `ActivityInstanceRecord` (instances) with `categoryType: 'essential'`
 
 2. **Time tracking**: Leverage existing `timeLogSessions` field structure:
 ```dart
@@ -158,10 +158,10 @@ Management page accessible from Sequences tab or Calendar:
 
 ## Files to Create
 
-- `lib/Helper/backend/non_productive_service.dart`
-- `lib/Helper/utils/non_productive_template_dialog.dart`
+- `lib/Helper/backend/essential_service.dart`
+- `lib/Helper/utils/essential_template_dialog.dart`
 - `lib/Helper/utils/time_log_dialog.dart`
-- `lib/Screens/NonProductive/non_productive_templates_page.dart`
+- `lib/Screens/essential/essential_templates_page.dart`
 
 ## Files to Modify
 
@@ -176,7 +176,7 @@ Management page accessible from Sequences tab or Calendar:
 
 ## Testing Checklist
 
-- [ ] Create non-productive template (e.g., "Sleep")
+- [ ] Create Essential Template (e.g., "Sleep")
 - [ ] Log time instance from calendar
 - [ ] Verify no points awarded
 - [ ] Verify excluded from daily progress %
@@ -184,4 +184,4 @@ Management page accessible from Sequences tab or Calendar:
 - [ ] Create instance from sequence
 - [ ] Verify calendar displays time blocks correctly
 - [ ] Edit/delete templates
-- [ ] Search for non-productive items in sequence builder
+- [ ] Search for Essential Activities in sequence builder

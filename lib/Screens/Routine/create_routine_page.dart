@@ -122,17 +122,17 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        // Load all activities including non-productive items
+        // Load all activities including Essential Activities
         final activities = await queryActivitiesRecordOnce(
           userId: userId,
           includeSequenceItems: true,
         );
-        // Filter out completed/skipped one-time tasks (keep recurring tasks, habits, and non-productive items)
+        // Filter out completed/skipped one-time tasks (keep recurring tasks, habits, and Essential Activities)
         final filteredActivities = activities.where((activity) {
           // Keep all habits (always recurring)
           if (activity.categoryType == 'habit') return true;
-          // Keep all non-productive items
-          if (activity.categoryType == 'non_productive') return true;
+          // Keep all Essential Activities
+          if (activity.categoryType == 'essential') return true;
           // For tasks: exclude completed/skipped one-time tasks
           if (activity.categoryType == 'task') {
             // Keep recurring tasks (regardless of status)
@@ -224,7 +224,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Delete Non-Productive Item'),
+        title: const Text('Delete essential Item'),
         content: Text(
           'Are you sure you want to permanently delete "${activity.name}"?\n\nThis action cannot be undone.',
         ),
@@ -269,8 +269,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                'Non-productive item "${activity.name}" deleted successfully'),
+            content:
+                Text('essential item "${activity.name}" deleted successfully'),
             backgroundColor: Colors.green,
           ),
         );
@@ -279,7 +279,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error deleting non-productive item: $e'),
+            content: Text('Error deleting essential item: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -431,8 +431,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
         return Colors.green;
       case 'task':
         return const Color(0xFF2F4F4F); // Dark Slate Gray (charcoal) for tasks
-      case 'non_productive':
-        return Colors.grey.shade600; // Muted color for non-productive
+      case 'essential':
+        return Colors.grey.shade600; // Muted color for essential
       default:
         return Colors.grey;
     }
@@ -448,18 +448,17 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
         return _getItemTypeColor(activity.categoryType);
       }
     }
-    // For tasks and non-productive, use type color
+    // For tasks and essential, use type color
     return _getItemTypeColor(activity.categoryType);
   }
 
   Widget _buildSimplifiedItemCard(ActivityRecord activity, bool isSelected) {
     final theme = FlutterFlowTheme.of(context);
     final stripeColor = _getStripeColor(activity);
-    final isNonProductive = activity.categoryType == 'non_productive';
+    final isessential = activity.categoryType == 'essential';
 
     return GestureDetector(
-      onLongPress:
-          isNonProductive ? () => _showDeleteConfirmation(activity) : null,
+      onLongPress: isessential ? () => _showDeleteConfirmation(activity) : null,
       onTap: () {
         if (isSelected) {
           _removeItem(activity);
@@ -483,7 +482,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               // Left stripe
-              isNonProductive
+              isessential
                   ? SizedBox(
                       width: 3,
                       child: CustomPaint(
@@ -515,7 +514,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                           ? Icons.flag
                           : activity.categoryType == 'task'
                               ? Icons.assignment
-                              : Icons.access_time,
+                              : Icons.monitor_heart,
                       color: Colors.white,
                       size: 16,
                     ),
@@ -990,9 +989,9 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                                                 _selectedItems[index];
                                             final stripeColor =
                                                 _getStripeColor(activity);
-                                            final isNonProductive =
+                                            final isessential =
                                                 activity.categoryType ==
-                                                    'non_productive';
+                                                    'essential';
                                             return Container(
                                               key: ValueKey(
                                                   activity.reference.id),
@@ -1018,7 +1017,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                                                           .stretch,
                                                   children: [
                                                     // Left stripe
-                                                    isNonProductive
+                                                    isessential
                                                         ? SizedBox(
                                                             width: 3,
                                                             child: CustomPaint(

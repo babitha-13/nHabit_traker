@@ -15,13 +15,13 @@ class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;
   final String? taskTitle;
   final bool fromSwipe;
-  final bool isNonProductive; // Indicates if this is a non-productive activity
+  final bool isessential; // Indicates if this is a essential activity
   const TimerPage({
     super.key,
     this.initialTimerLogRef,
     this.taskTitle,
     this.fromSwipe = false,
-    this.isNonProductive = false,
+    this.isessential = false,
   });
   @override
   State<TimerPage> createState() => _TimerPageState();
@@ -220,9 +220,9 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
     });
     _cancelTicker();
 
-    final shouldSaveDirectly = widget.fromSwipe || widget.isNonProductive;
+    final shouldSaveDirectly = widget.fromSwipe || widget.isessential;
 
-    // Handle swipe-started timers or explicitly non-productive sessions inline.
+    // Handle swipe-started timers or explicitly essential sessions inline.
     if (shouldSaveDirectly) {
       if (_taskInstanceRef == null) {
         if (mounted) {
@@ -235,15 +235,15 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         return;
       }
       try {
-        if (widget.isNonProductive) {
-          // For non-productive: update with pre-filled name and activity type
+        if (widget.isessential) {
+          // For essential: update with pre-filled name and activity type
           await TaskInstanceService.updateTimerTaskOnStop(
             taskInstanceRef: _taskInstanceRef!,
             duration: duration,
-            taskName: widget.taskTitle ?? 'Non-Productive Activity',
+            taskName: widget.taskTitle ?? 'essential Activity',
             categoryId: null,
             categoryName: null,
-            activityType: 'non_productive',
+            activityType: 'essential',
           );
         } else {
           // For swipe-started instances: stop time logging (with or without completion based on button pressed)
@@ -271,7 +271,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         try {
           final instance =
               await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
-          
+
           final success = await TimerStopFlow.handleTimerStop(
             context: context,
             instance: instance,
@@ -283,7 +283,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
               _resetTimer();
             },
           );
-          
+
           if (!success && mounted) {
             // Modal was cancelled, cleanup already handled by TimerStopFlow
             _resetTimer();
@@ -299,13 +299,13 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         // Fallback: calculate times manually if no instance
         DateTime startTime;
         DateTime endTime = DateTime.now();
-        
+
         if (_timerStartTime != null) {
           startTime = _timerStartTime!;
         } else {
           startTime = endTime.subtract(duration);
         }
-        
+
         _showTimeLogModal(
           startTime: startTime,
           endTime: endTime,
@@ -328,7 +328,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
       _timerStartTime = null;
       _cancelTicker();
     });
-    
+
     // Auto-open countdown picker when switching to countdown mode
     if (!value && mounted) {
       // Use addPostFrameCallback to ensure state update completes first
@@ -607,7 +607,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         ],
       );
     }
-    
+
     // For binary tasks from swipe OR timer-created instances (non-swipe): show both buttons
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -639,11 +639,12 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         await _taskInstanceRef!.update({
           'templateShowInFloatingTimer': true,
         });
-        
+
         // Load the updated instance and register with TimerManager
-        final instance = await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
+        final instance =
+            await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
         TimerManager().startInstance(instance);
-        
+
         // Show feedback message
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -653,7 +654,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
             ),
           );
         }
-        
+
         // Reset local state but keep Firestore timer active
         setState(() {
           _isRunning = false;
@@ -666,7 +667,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
           }
         });
         _cancelTicker();
-        
+
         // Allow navigation
         return true;
       } catch (e) {
@@ -679,15 +680,16 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
         return true;
       }
     }
-    
+
     // If no active timer, allow normal back navigation
     return true;
   }
 
   @override
   Widget build(BuildContext context) {
-    final displayTime =
-        _isStopwatch ? _currentStopwatchElapsed() : _currentCountdownRemaining();
+    final displayTime = _isStopwatch
+        ? _currentStopwatchElapsed()
+        : _currentCountdownRemaining();
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Scaffold(
@@ -695,77 +697,76 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
           title: Text(widget.taskTitle ?? 'Timer'),
         ),
         body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            // Prominent task name display
-            if (widget.taskTitle != null) ...[
-              Container(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
-                margin: const EdgeInsets.only(bottom: 20),
-                decoration: BoxDecoration(
-                  color: Theme.of(context).primaryColor.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                    color: Theme.of(context).primaryColor.withOpacity(0.3),
-                    width: 1,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: <Widget>[
+              // Prominent task name display
+              if (widget.taskTitle != null) ...[
+                Container(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                  margin: const EdgeInsets.only(bottom: 20),
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).primaryColor.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                      color: Theme.of(context).primaryColor.withOpacity(0.3),
+                      width: 1,
+                    ),
+                  ),
+                  child: Text(
+                    widget.taskTitle!,
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: Theme.of(context).primaryColor,
+                    ),
+                    textAlign: TextAlign.center,
                   ),
                 ),
+              ],
+              // Make displayed time clickable in countdown mode
+              GestureDetector(
+                onTap: !_isStopwatch ? _showCountdownPicker : null,
                 child: Text(
-                  widget.taskTitle!,
+                  _formatTime(displayTime),
                   style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                    color: Theme.of(context).primaryColor,
+                    fontSize: 72,
+                    color:
+                        !_isStopwatch ? Theme.of(context).primaryColor : null,
                   ),
-                  textAlign: TextAlign.center,
                 ),
+              ),
+              const SizedBox(height: 30),
+              // Show different buttons based on tracking type and context
+              _buildStopButtons(),
+              const SizedBox(height: 16),
+              // Discard button - show if timer instance exists (started but not saved)
+              // This allows user to discard even after stopping and canceling modal
+              if (_taskInstanceRef != null)
+                TextButton.icon(
+                  onPressed: _discardTimer,
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: const Text('Discard Timer'),
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.red,
+                  ),
+                ),
+              const SizedBox(height: 20),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Text('Countdown'),
+                  Switch(
+                    value: _isStopwatch,
+                    onChanged: _toggleTimerMode,
+                  ),
+                  const Text('Stopwatch'),
+                ],
               ),
             ],
-            // Make displayed time clickable in countdown mode
-            GestureDetector(
-              onTap: !_isStopwatch ? _showCountdownPicker : null,
-              child: Text(
-                _formatTime(displayTime),
-                style: TextStyle(
-                  fontSize: 72,
-                  color: !_isStopwatch
-                      ? Theme.of(context).primaryColor
-                      : null,
-                ),
-              ),
-            ),
-            const SizedBox(height: 30),
-            // Show different buttons based on tracking type and context
-            _buildStopButtons(),
-            const SizedBox(height: 16),
-            // Discard button - show if timer instance exists (started but not saved)
-            // This allows user to discard even after stopping and canceling modal
-            if (_taskInstanceRef != null)
-              TextButton.icon(
-                onPressed: _discardTimer,
-                icon: const Icon(Icons.delete_outline, size: 18),
-                label: const Text('Discard Timer'),
-                style: TextButton.styleFrom(
-                  foregroundColor: Colors.red,
-                ),
-              ),
-            const SizedBox(height: 20),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Text('Countdown'),
-                Switch(
-                  value: _isStopwatch,
-                  onChanged: _toggleTimerMode,
-                ),
-                const Text('Stopwatch'),
-              ],
-            ),
-          ],
+          ),
         ),
-      ),
       ),
     );
   }

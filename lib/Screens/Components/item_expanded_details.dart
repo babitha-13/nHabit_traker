@@ -41,8 +41,7 @@ class ItemExpandedDetails extends StatelessWidget {
         subtitle == categoryName;
   }
 
-  bool get _isNonProductive =>
-      instance.templateCategoryType == 'non_productive';
+  bool get _isessential => instance.templateCategoryType == 'essential';
 
   String? get _timeEstimateDisplay {
     final minutes = timeEstimateMinutes ?? instance.templateTimeEstimateMinutes;
@@ -135,8 +134,7 @@ class ItemExpandedDetails extends StatelessWidget {
           size: 12,
           color: theme.secondaryText.withOpacity(0.7),
         ),
-        if (reminderDisplayText != null &&
-            reminderDisplayText!.isNotEmpty) ...[
+        if (reminderDisplayText != null && reminderDisplayText!.isNotEmpty) ...[
           const SizedBox(width: 2),
           Text(
             reminderDisplayText!,
@@ -169,7 +167,7 @@ class ItemExpandedDetails extends StatelessWidget {
     if (showCategory) {
       addChip(_buildCategoryChip(theme));
     }
-    if (!_isNonProductive) {
+    if (!_isessential) {
       addChip(_buildFrequencyChip(theme));
     }
     if (timeEstimate != null) {
@@ -195,7 +193,7 @@ class ItemExpandedDetails extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            if (!_isNonProductive) ...[
+            if (!_isessential) ...[
               Icon(
                 isHabit ? Icons.flag : Icons.assignment,
                 size: 12,

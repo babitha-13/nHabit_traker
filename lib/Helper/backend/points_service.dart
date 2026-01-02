@@ -28,8 +28,8 @@ class PointsService {
   static double calculateDailyTarget(
     ActivityInstanceRecord instance,
   ) {
-    // Skip non-productive items - they don't earn points
-    if (instance.templateCategoryType == 'non_productive') {
+    // Skip Essential Activities - they don't earn points
+    if (instance.templateCategoryType == 'essential') {
       return 0.0;
     }
     final habitPriority = instance.templatePriority.toDouble();
@@ -52,9 +52,9 @@ class PointsService {
     ActivityInstanceRecord instance,
     ActivityRecord template,
   ) {
-    // Skip non-productive items - they don't earn points
-    if (instance.templateCategoryType == 'non_productive' ||
-        template.categoryType == 'non_productive') {
+    // Skip Essential Activities - they don't earn points
+    if (instance.templateCategoryType == 'essential' ||
+        template.categoryType == 'essential') {
       return 0.0;
     }
     final habitPriority = instance.templatePriority.toDouble();
@@ -119,8 +119,8 @@ class PointsService {
     ActivityInstanceRecord instance,
     String userId,
   ) async {
-    // Skip non-productive items - they don't earn points
-    if (instance.templateCategoryType == 'non_productive') {
+    // Skip Essential Activities - they don't earn points
+    if (instance.templateCategoryType == 'essential') {
       return 0.0;
     }
     final habitPriority = instance.templatePriority.toDouble();
@@ -136,7 +136,12 @@ class PointsService {
         final isTimeLikeUnit =
             BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
 
-        if (!isTimeLikeUnit && countValue > 0) {
+        // A "timer task" is one where currentValue matches the logged time (in MS)
+        final isTimerTaskValue = countValue > 0 &&
+            (countValue == instance.accumulatedTime.toDouble() ||
+                countValue == instance.totalTimeLogged.toDouble());
+
+        if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
           // Has counter: calculate proportional points (counter / target), allowing over-completion
           final target = instance.templateTarget ?? 1;
           earnedPoints = (countValue / target) * habitPriority;
@@ -162,7 +167,8 @@ class PointsService {
         return earnedPoints;
       case 'quantitative':
         // Quantitative habits: points based on progress, allowing over-completion
-        final currentValue = PointsValueHelper.currentValue(instance);
+        // Use normalized value to handle cases where timers store MS in currentValue
+        final currentValue = PointsValueHelper.normalizedCurrentValue(instance);
         final target = PointsValueHelper.targetValue(instance);
         if (target <= 0) {
           earnedPoints = 0.0;
@@ -171,7 +177,9 @@ class PointsService {
           if (instance.templateCategoryType == 'habit' &&
               instance.windowDuration > 1) {
             final lastDayValue = PointsValueHelper.lastDayValue(instance);
-            final todayContribution = currentValue - lastDayValue;
+            final normalizedLastDayValue =
+                PointsValueHelper.normalizeValue(instance, lastDayValue);
+            final todayContribution = currentValue - normalizedLastDayValue;
             // For windowed habits, calculate progress as fraction of total target
             // Each increment should contribute proportionally to the total target, allowing over-completion
             final progressFraction = todayContribution / target;
@@ -253,9 +261,9 @@ class PointsService {
   ) {
     double totalTarget = 0.0;
     for (final instance in instances) {
-      // Skip non-productive items, only process habits
+      // Skip Essential Activities, only process habits
       if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'non_productive') continue;
+          instance.templateCategoryType == 'essential') continue;
       final target = calculateDailyTarget(instance);
       totalTarget += target;
     }
@@ -270,9 +278,9 @@ class PointsService {
   ) async {
     double totalTarget = 0.0;
     for (final instance in instances) {
-      // Skip non-productive items, only process habits
+      // Skip Essential Activities, only process habits
       if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'non_productive') continue;
+          instance.templateCategoryType == 'essential') continue;
       try {
         // Fetch template data for accurate frequency calculation
         final templateRef =
@@ -295,8 +303,8 @@ class PointsService {
     double totalPoints = 0.0;
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
-      // Skip non-productive items
-      if (instance.templateCategoryType == 'non_productive') continue;
+      // Skip Essential Activities
+      if (instance.templateCategoryType == 'essential') continue;
       final points = await calculatePointsEarned(instance, userId);
       totalPoints += points;
     }
@@ -311,8 +319,8 @@ class PointsService {
   ) async {
     double totalPoints = 0.0;
     for (final instance in instances) {
-      // Skip non-productive items
-      if (instance.templateCategoryType == 'non_productive') continue;
+      // Skip Essential Activities
+      if (instance.templateCategoryType == 'essential') continue;
       final points = await calculatePointsEarned(instance, userId);
       totalPoints += points;
     }

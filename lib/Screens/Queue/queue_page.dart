@@ -573,92 +573,12 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  /// Update cumulative score optimistically without Firestore queries
-  /// Uses last known cumulative score and simplified calculations for instant updates
-  void _updateCumulativeScoreLiveOptimistic() {
-    try {
-      // Get today's progress (already updated optimistically)
-      final todayPercentage = _dailyPercentage;
-      final todayEarned = _pointsEarned;
-
-      double currentCumulativeScore = 0.0;
-      double currentDailyGain = 0.0;
-
-      // Get last known cumulative score from shared state
-      final sharedData = TodayProgressState().getCumulativeScoreData();
-      final lastKnownCumulative =
-          sharedData['cumulativeScore'] as double? ?? _cumulativeScore;
-      final lastKnownGain =
-          sharedData['dailyGain'] as double? ?? _dailyScoreGain;
-      final hasPreviousLiveScore = sharedData['hasLiveScore'] as bool? ?? false;
-
-      if (todayPercentage > 0) {
-        // Calculate simplified projected score optimistically
-        // Use basic daily score calculation without consistency bonus/penalty
-        // This provides instant feedback, full calculation happens in background
-        final dailyScore = CumulativeScoreService.calculateDailyScore(
-          todayPercentage,
-          todayEarned,
-        );
-
-        // Simplified projection: assume no bonus/penalty for instant update
-        // Full calculation with bonuses/penalties happens in background
-        currentDailyGain = dailyScore;
-
-        // Get base cumulative score (without today's previous live gain)
-        // If previous state had a live score, we need to subtract it to get the base
-        double baseCumulativeScore;
-        if (hasPreviousLiveScore && lastKnownGain > 0) {
-          // Previous cumulative includes today's gain, subtract it to get base
-          baseCumulativeScore =
-              (lastKnownCumulative - lastKnownGain).clamp(0.0, double.infinity);
-        } else {
-          // Previous cumulative is the base (no live score was added)
-          baseCumulativeScore = lastKnownCumulative;
-        }
-
-        // Now add the new daily gain to the base
-        currentCumulativeScore = (baseCumulativeScore + currentDailyGain)
-            .clamp(0.0, double.infinity);
-      } else {
-        // No progress today, use last known values
-        currentCumulativeScore = lastKnownCumulative;
-        currentDailyGain = lastKnownGain;
-      }
-
-      // Update cumulative score values immediately
-      if (mounted) {
-        setState(() {
-          _cumulativeScore = currentCumulativeScore;
-          _dailyScoreGain = currentDailyGain;
-
-          // Update today's entry in history if it exists
-          if (_cumulativeScoreHistory.isNotEmpty) {
-            final today = DateService.currentDate;
-            final lastItem = _cumulativeScoreHistory.last;
-            final lastDate = lastItem['date'] as DateTime;
-
-            if (lastDate.year == today.year &&
-                lastDate.month == today.month &&
-                lastDate.day == today.day) {
-              // Update today's entry with live values
-              _cumulativeScoreHistory.last['score'] = currentCumulativeScore;
-              _cumulativeScoreHistory.last['gain'] = currentDailyGain;
-            }
-          }
-        });
-      }
-
-      // Publish to shared state for other pages
-      TodayProgressState().updateCumulativeScore(
-        cumulativeScore: currentCumulativeScore,
-        dailyGain: currentDailyGain,
-        hasLiveScore: todayPercentage > 0,
-      );
-    } catch (e) {
-      // Error in optimistic calculation - non-critical, continue silently
-      // Full calculation will happen in background
-    }
+  /// Update cumulative score optimistically - triggers full calculation
+  /// Uses shared state as single source of truth for consistency with Progress page
+  Future<void> _updateCumulativeScoreLiveOptimistic() async {
+    // Use the same full calculation as the non-optimistic path
+    // This ensures consistency between pages
+    await _updateCumulativeScoreLive();
   }
 
   /// Update cumulative score live without reloading full history
@@ -1603,21 +1523,50 @@ class _QueuePageState extends State<QueuePage> {
                   Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        miniGraphHistory.isNotEmpty
-                            ? '${(miniGraphHistory.last['score'] as double).toStringAsFixed(0)} pts'
-                            : '0 pts',
-                        style: FlutterFlowTheme.of(context).bodySmall.override(
-                              fontFamily: 'Readex Pro',
-                              color: FlutterFlowTheme.of(context).secondaryText,
-                            ),
+                      Builder(
+                        builder: (context) {
+                          // Use shared state as single source of truth for today's score
+                          final today = DateService.currentDate;
+                          final lastHistoryDate = miniGraphHistory.isNotEmpty
+                              ? miniGraphHistory.last['date'] as DateTime
+                              : null;
+                          final isToday = lastHistoryDate != null &&
+                              lastHistoryDate.year == today.year &&
+                              lastHistoryDate.month == today.month &&
+                              lastHistoryDate.day == today.day;
+                          
+                          // For today, use shared state; for past days, use history
+                          final score = isToday && miniGraphHistory.isNotEmpty
+                              ? TodayProgressState().cumulativeScore
+                              : miniGraphHistory.isNotEmpty
+                                  ? (miniGraphHistory.last['score'] as double)
+                                  : 0.0;
+                          
+                          return Text(
+                            '${score.toStringAsFixed(0)} pts',
+                            style: FlutterFlowTheme.of(context).bodySmall.override(
+                                  fontFamily: 'Readex Pro',
+                                  color: FlutterFlowTheme.of(context).secondaryText,
+                                ),
+                          );
+                        },
                       ),
                       if (miniGraphHistory.isNotEmpty) ...[
                         const SizedBox(width: 8),
                         Builder(
                           builder: (context) {
-                            final dailyGain =
-                                miniGraphHistory.last['gain'] as double;
+                            // Use shared state as single source of truth for today's gain
+                            final today = DateService.currentDate;
+                            final lastHistoryDate = miniGraphHistory.last['date'] as DateTime;
+                            final isToday = lastHistoryDate.year == today.year &&
+                                lastHistoryDate.month == today.month &&
+                                lastHistoryDate.day == today.day;
+                            
+                            // For today, use shared state; for past days, use history
+                            final dailyGain = isToday
+                                ? TodayProgressState().dailyScoreGain
+                                : miniGraphHistory.last['gain'] as double;
+                            
                             if (dailyGain == 0) return const SizedBox.shrink();
                             return Text(
                               dailyGain >= 0
@@ -1696,8 +1645,8 @@ class _QueuePageState extends State<QueuePage> {
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
-                bottomLeft: expanded ? Radius.zero : const Radius.circular(16),
-                bottomRight: expanded ? Radius.zero : const Radius.circular(16),
+                bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
+                bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
               ),
               boxShadow: expanded ? [] : theme.neumorphicShadowsRaised,
             ),

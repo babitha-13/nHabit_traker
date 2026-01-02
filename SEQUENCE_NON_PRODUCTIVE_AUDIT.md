@@ -1,8 +1,8 @@
-# Sequence Item vs Non-Productive Item Migration Audit
+# Sequence Item vs essential Item Migration Audit
 
 ## Executive Summary
 
-The migration from "sequence items" to "non-productive items" is **incomplete**. While new items are created with `categoryType: 'non_productive'`, the codebase still contains extensive legacy handling for `'sequence_item'` type. Both types coexist in the codebase, creating confusion and potential bugs.
+The migration from "sequence items" to "Essential Activities" is **incomplete**. While new items are created with `categoryType: 'essential'`, the codebase still contains extensive legacy handling for `'sequence_item'` type. Both types coexist in the codebase, creating confusion and potential bugs.
 
 **Key Finding**: No new `'sequence_item'` types are being created, but the codebase maintains dual-type checks everywhere to support legacy data.
 
@@ -13,71 +13,71 @@ The migration from "sequence items" to "non-productive items" is **incomplete**.
 ### 1.1 Sequence Service (`lib/Helper/backend/sequence_service.dart`)
 
 **Method: `createSequenceItem()`** (Lines 227-253)
-- **Creates**: `ActivityRecord` with `categoryType: 'non_productive'`
-- **Purpose**: Legacy method name, but creates non-productive items
+- **Creates**: `ActivityRecord` with `categoryType: 'essential'`
+- **Purpose**: Legacy method name, but creates Essential Activities
 - **Called from**: `CreateSequenceItemDialog` (in-dialog creation)
-- **Note**: Despite the method name, it creates `'non_productive'` type, not `'sequence_item'`
+- **Note**: Despite the method name, it creates `'essential'` type, not `'sequence_item'`
 
 ```dart
-// Line 250: Creates as non_productive
-categoryType: 'non_productive', // Sequence items are non-productive
+// Line 250: Creates as essential
+categoryType: 'essential', // Sequence items are essential
 ```
 
 **Method: `createInstanceForSequenceItem()`** (Lines 255-347)
-- **Handles**: Both `'non_productive'` and legacy `'sequence_item'` types
-- **Behavior**: Returns `null` for non-productive items (signals UI to show time log dialog)
+- **Handles**: Both `'essential'` and legacy `'sequence_item'` types
+- **Behavior**: Returns `null` for Essential Activities (signals UI to show time log dialog)
 - **Migration check**: Line 276 checks for both types
 
-### 1.2 Non-Productive Service (`lib/Helper/backend/non_productive_service.dart`)
+### 1.2 essential Service (`lib/Helper/backend/essential_service.dart`)
 
-**Method: `createNonProductiveTemplate()`** (Lines 18-45)
-- **Creates**: `ActivityRecord` with `categoryType: 'non_productive'`
-- **Purpose**: Primary method for creating non-productive templates
+**Method: `createessentialTemplate()`** (Lines 18-45)
+- **Creates**: `ActivityRecord` with `categoryType: 'essential'`
+- **Purpose**: Primary method for creating essential templates
 - **Called from**: 
-  - `NonProductiveTemplateDialog` (standalone creation)
+  - `essentialTemplateDialog` (standalone creation)
   - `TaskInstanceService` (when creating from manual time log)
 
-**Method: `createNonProductiveInstance()`** (Lines 48-118)
-- **Creates**: `ActivityInstanceRecord` with `templateCategoryType: 'non_productive'`
-- **Purpose**: Creates instances with time logs for non-productive items
+**Method: `createessentialInstance()`** (Lines 48-118)
+- **Creates**: `ActivityInstanceRecord` with `templateCategoryType: 'essential'`
+- **Purpose**: Creates instances with time logs for Essential Activities
 
 ### 1.3 Activity Instance Service (`lib/Helper/backend/activity_instance_service.dart`)
 
 **Migration Logic** (Lines 104-107):
-- Automatically migrates `'sequence_item'` to `'non_productive'` when creating instances
+- Automatically migrates `'sequence_item'` to `'essential'` when creating instances
 - This ensures new instances never have `'sequence_item'` type
 
 ```dart
-// Migrate legacy 'sequence_item' to 'non_productive'
+// Migrate legacy 'sequence_item' to 'essential'
 templateCategoryType: template.categoryType == 'sequence_item'
-    ? 'non_productive'
+    ? 'essential'
     : template.categoryType,
 ```
 
 ### 1.4 Task Instance Service (`lib/Helper/backend/task_instance_service.dart`)
 
 **Migration Logic** (Lines 1432-1440):
-- Migrates legacy `'sequence_item'` instances to `'non_productive'` during updates
+- Migrates legacy `'sequence_item'` instances to `'essential'` during updates
 - Ensures consistency when updating existing instances
 
 ---
 
 ## 2. UI Creation Entry Points
 
-### 2.1 Non-Productive Templates Page (App Drawer Tab)
+### 2.1 essential Templates Page (App Drawer Tab)
 
-**File**: `lib/Screens/NonProductive/non_productive_templates_page.dart`
+**File**: `lib/Screens/essential/essential_templates_page.dart`
 
 **Entry Point**: FAB button (Line 319-324)
-- **Dialog**: `NonProductiveTemplateDialog`
-- **Service Call**: `NonProductiveService.createNonProductiveTemplate()`
-- **Result**: Creates `ActivityRecord` with `categoryType: 'non_productive'`
+- **Dialog**: `essentialTemplateDialog`
+- **Service Call**: `essentialService.createessentialTemplate()`
+- **Result**: Creates `ActivityRecord` with `categoryType: 'essential'`
 
 **Flow**:
 ```
-User clicks FAB → NonProductiveTemplateDialog → 
-NonProductiveService.createNonProductiveTemplate() → 
-ActivityRecord with categoryType: 'non_productive'
+User clicks FAB → essentialTemplateDialog → 
+essentialService.createessentialTemplate() → 
+ActivityRecord with categoryType: 'essential'
 ```
 
 ### 2.2 Sequences Page FAB
@@ -85,15 +85,15 @@ ActivityRecord with categoryType: 'non_productive'
 **File**: `lib/Screens/Sequence/sequence.dart`
 
 **Entry Point**: FAB button (Lines 383-395)
-- **Dialog**: `NonProductiveTemplateDialog`
-- **Service Call**: `NonProductiveService.createNonProductiveTemplate()`
-- **Result**: Creates `ActivityRecord` with `categoryType: 'non_productive'`
+- **Dialog**: `essentialTemplateDialog`
+- **Service Call**: `essentialService.createessentialTemplate()`
+- **Result**: Creates `ActivityRecord` with `categoryType: 'essential'`
 
 **Flow**:
 ```
-User clicks FAB on Sequences page → NonProductiveTemplateDialog → 
-NonProductiveService.createNonProductiveTemplate() → 
-ActivityRecord with categoryType: 'non_productive'
+User clicks FAB on Sequences page → essentialTemplateDialog → 
+essentialService.createessentialTemplate() → 
+ActivityRecord with categoryType: 'essential'
 ```
 
 ### 2.3 Create Sequence Dialog - "Add New" Option
@@ -103,15 +103,15 @@ ActivityRecord with categoryType: 'non_productive'
 **Entry Point**: "Create New" button in activity selection (Line 223-237)
 - **Dialog**: `CreateSequenceItemDialog`
 - **Service Call**: `SequenceService.createSequenceItem()`
-- **Result**: Creates `ActivityRecord` with `categoryType: 'non_productive'`
+- **Result**: Creates `ActivityRecord` with `categoryType: 'essential'`
 
-**Note**: Despite using `SequenceService.createSequenceItem()`, it creates `'non_productive'` type, not `'sequence_item'`.
+**Note**: Despite using `SequenceService.createSequenceItem()`, it creates `'essential'` type, not `'sequence_item'`.
 
 **Flow**:
 ```
 User clicks "Create New" in CreateSequencePage → 
 CreateSequenceItemDialog → SequenceService.createSequenceItem() → 
-ActivityRecord with categoryType: 'non_productive'
+ActivityRecord with categoryType: 'essential'
 ```
 
 ---
@@ -120,7 +120,7 @@ ActivityRecord with categoryType: 'non_productive'
 
 ### 3.1 Files with Dual-Type Checks
 
-The following files check for both `'sequence_item'` and `'non_productive'` types:
+The following files check for both `'sequence_item'` and `'essential'` types:
 
 #### Backend Services
 
@@ -131,10 +131,10 @@ The following files check for both `'sequence_item'` and `'non_productive'` type
 
 2. **`lib/Helper/backend/backend.dart`**
    - Lines 256-260: Filters out both types unless `includeSequenceItems: true`
-   - Comment: "sequence_item is legacy, now all are non_productive"
+   - Comment: "sequence_item is legacy, now all are essential"
 
 3. **`lib/Helper/backend/activity_instance_service.dart`**
-   - Line 105: Migrates `'sequence_item'` to `'non_productive'`
+   - Line 105: Migrates `'sequence_item'` to `'essential'`
    - Line 552: Excludes both types from normal queries
 
 4. **`lib/Helper/backend/task_instance_service.dart`**
@@ -161,7 +161,7 @@ The following files check for both `'sequence_item'` and `'non_productive'` type
    - Lines 785-786, 898-900, 1010-1011: Handles both types in calendar display
 
 4. **`lib/Screens/Components/manual_time_log_modal.dart`**
-   - Line 212: Includes legacy `'sequence_item'` as non-productive
+   - Line 212: Includes legacy `'sequence_item'` as essential
 
 #### Schema
 
@@ -172,11 +172,11 @@ The following files check for both `'sequence_item'` and `'non_productive'` type
 ### 3.2 Display Components
 
 **`lib/Helper/utils/item_component.dart`**
-- Lines 1158, 1178: Only checks for `'non_productive'` (no legacy handling)
+- Lines 1158, 1178: Only checks for `'essential'` (no legacy handling)
 - **Issue**: This could miss legacy `'sequence_item'` instances in display
 
 **`lib/Screens/Queue/queue_page.dart`**
-- Uses `ItemComponent` which only checks `'non_productive'`
+- Uses `ItemComponent` which only checks `'essential'`
 - Legacy `'sequence_item'` instances may not render correctly
 
 ---
@@ -185,8 +185,8 @@ The following files check for both `'sequence_item'` and `'non_productive'` type
 
 ### 4.1 What's Working
 
-✅ **New Creation**: All three entry points create `'non_productive'` type correctly
-✅ **Instance Migration**: New instances automatically migrate `'sequence_item'` → `'non_productive'`
+✅ **New Creation**: All three entry points create `'essential'` type correctly
+✅ **Instance Migration**: New instances automatically migrate `'sequence_item'` → `'essential'`
 ✅ **Backend Queries**: Most services handle both types correctly
 ✅ **Points System**: Correctly excludes both types from points calculations
 
@@ -195,13 +195,13 @@ The following files check for both `'sequence_item'` and `'non_productive'` type
 ❌ **Legacy Data**: Existing `'sequence_item'` templates in database remain unchanged
 ❌ **Dual-Type Checks**: Codebase has 53+ references checking for both types
 ❌ **Schema Comments**: Still reference `'sequence_item'` in documentation
-❌ **Method Names**: `createSequenceItem()` creates `'non_productive'` (confusing)
-❌ **Display Components**: `ItemComponent` only checks `'non_productive'` (may miss legacy)
+❌ **Method Names**: `createSequenceItem()` creates `'essential'` (confusing)
+❌ **Display Components**: `ItemComponent` only checks `'essential'` (may miss legacy)
 
 ### 4.3 Potential Issues
 
 ⚠️ **Display Inconsistency**: Legacy `'sequence_item'` instances may not render correctly in `ItemComponent`
-⚠️ **Code Confusion**: Method named `createSequenceItem()` creates `'non_productive'` type
+⚠️ **Code Confusion**: Method named `createSequenceItem()` creates `'essential'` type
 ⚠️ **Maintenance Burden**: Dual-type checks throughout codebase increase complexity
 ⚠️ **Data Inconsistency**: Database may contain both types, causing confusion
 
@@ -212,28 +212,28 @@ The following files check for both `'sequence_item'` and `'non_productive'` type
 ```mermaid
 flowchart TD
     A[User Creates Item] --> B{Entry Point?}
-    B -->|App Drawer Tab| C[NonProductiveTemplatesPage FAB]
+    B -->|App Drawer Tab| C[essentialTemplatesPage FAB]
     B -->|Sequences Page FAB| D[Sequences Page FAB]
     B -->|Create Sequence Dialog| E[CreateSequencePage Add New]
     
-    C --> F[NonProductiveTemplateDialog]
+    C --> F[essentialTemplateDialog]
     D --> F
     E --> G[CreateSequenceItemDialog]
     
-    F --> H[NonProductiveService.createNonProductiveTemplate]
+    F --> H[essentialService.createessentialTemplate]
     G --> I[SequenceService.createSequenceItem]
     
-    H --> J[ActivityRecord categoryType: non_productive]
+    H --> J[ActivityRecord categoryType: essential]
     I --> J
     
     J --> K[Template Stored in Database]
     
     K --> L{Instance Creation}
-    L -->|ActivityInstanceService| M[Migrate sequence_item to non_productive]
-    L -->|NonProductiveService| N[Create with non_productive]
-    L -->|SequenceService| O[Return null for non_productive]
+    L -->|ActivityInstanceService| M[Migrate sequence_item to essential]
+    L -->|essentialService| N[Create with essential]
+    L -->|SequenceService| O[Return null for essential]
     
-    M --> P[ActivityInstanceRecord templateCategoryType: non_productive]
+    M --> P[ActivityInstanceRecord templateCategoryType: essential]
     N --> P
     O --> Q[UI Shows Time Log Dialog]
     
@@ -242,7 +242,7 @@ flowchart TD
     
     R --> S{Legacy sequence_item?}
     S -->|Yes| T[Dual-Type Check Handles It]
-    S -->|No| U[Standard non_productive Handling]
+    S -->|No| U[Standard essential Handling]
     
     style J fill:#90EE90
     style P fill:#90EE90
@@ -257,36 +257,36 @@ flowchart TD
 ### 6.1 Immediate Actions (High Priority)
 
 1. **Data Migration Script**
-   - Write a Firestore migration script to update all `categoryType: 'sequence_item'` → `'non_productive'` in `ActivityRecord` collection
-   - Update all `templateCategoryType: 'sequence_item'` → `'non_productive'` in `ActivityInstanceRecord` collection
-   - Update `itemTypes` arrays in `SequenceRecord` to replace `'sequence_item'` with `'non_productive'`
+   - Write a Firestore migration script to update all `categoryType: 'sequence_item'` → `'essential'` in `ActivityRecord` collection
+   - Update all `templateCategoryType: 'sequence_item'` → `'essential'` in `ActivityInstanceRecord` collection
+   - Update `itemTypes` arrays in `SequenceRecord` to replace `'sequence_item'` with `'essential'`
 
 2. **Fix ItemComponent**
    - Update `lib/Helper/utils/item_component.dart` to check for both types:
    ```dart
-   if (widget.instance.templateCategoryType == 'non_productive' || 
+   if (widget.instance.templateCategoryType == 'essential' || 
        widget.instance.templateCategoryType == 'sequence_item') {
-     // Handle as non-productive
+     // Handle as essential
    }
    ```
 
 3. **Rename Method**
-   - Consider renaming `SequenceService.createSequenceItem()` to `createNonProductiveItem()` for clarity
-   - Or deprecate it and use `NonProductiveService.createNonProductiveTemplate()` everywhere
+   - Consider renaming `SequenceService.createSequenceItem()` to `createessentialItem()` for clarity
+   - Or deprecate it and use `essentialService.createessentialTemplate()` everywhere
 
 ### 6.2 Code Cleanup (Medium Priority)
 
 1. **Remove Dual-Type Checks**
    - After data migration, remove all `|| categoryType == 'sequence_item'` checks
    - Update all comments that reference `'sequence_item'`
-   - Simplify conditionals to only check `'non_productive'`
+   - Simplify conditionals to only check `'essential'`
 
 2. **Update Schema Comments**
    - Update `sequence_record.dart` comments to remove `'sequence_item'` references
    - Update all inline comments mentioning legacy types
 
 3. **Consolidate Creation Methods**
-   - Standardize on `NonProductiveService.createNonProductiveTemplate()` for all creation paths
+   - Standardize on `essentialService.createessentialTemplate()` for all creation paths
    - Remove or deprecate `SequenceService.createSequenceItem()`
 
 ### 6.3 Testing (Medium Priority)
@@ -305,7 +305,7 @@ flowchart TD
 
 1. **Update Documentation**
    - Remove references to `'sequence_item'` from code comments
-   - Update `Non_Productive_items.md` to reflect current state
+   - Update `essential_items.md` to reflect current state
    - Document the migration process for future reference
 
 ---
@@ -330,14 +330,14 @@ flowchart TD
 - `lib/Helper/backend/schema/sequence_record.dart` (update comments)
 
 ### Low Priority (Documentation)
-- `Non_Productive_items.md` (update documentation)
+- `essential_items.md` (update documentation)
 - Various inline comments throughout codebase
 
 ---
 
 ## 8. Summary
 
-The migration from "sequence items" to "non-productive items" is **functionally complete** for new data creation, but **structurally incomplete** due to:
+The migration from "sequence items" to "Essential Activities" is **functionally complete** for new data creation, but **structurally incomplete** due to:
 
 1. **Legacy data** still exists in databases with `'sequence_item'` type
 2. **Dual-type checks** throughout the codebase (53+ locations)
@@ -345,7 +345,7 @@ The migration from "sequence items" to "non-productive items" is **functionally 
 4. **Confusing method names** that don't match their behavior
 
 **Next Steps**: 
-1. Run data migration script to update all legacy `'sequence_item'` → `'non_productive'`
+1. Run data migration script to update all legacy `'sequence_item'` → `'essential'`
 2. Fix `ItemComponent` to handle legacy types
 3. Remove all dual-type checks after migration
 4. Rename/consolidate creation methods for clarity

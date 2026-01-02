@@ -8,7 +8,7 @@ class PieChartSegment {
   final String label;
   final double value; // Duration in minutes
   final Color color;
-  final String category; // 'habit', 'task', 'non_productive', 'unlogged'
+  final String category; // 'habit', 'task', 'essential', 'unlogged'
 
   PieChartSegment({
     required this.label,
@@ -22,18 +22,18 @@ class PieChartSegment {
 class TimeBreakdownData {
   final double habitMinutes;
   final double taskMinutes;
-  final double nonProductiveMinutes;
+  final double essentialMinutes;
   final List<PieChartSegment> segments;
 
   TimeBreakdownData({
     required this.habitMinutes,
     required this.taskMinutes,
-    required this.nonProductiveMinutes,
+    required this.essentialMinutes,
     required this.segments,
   });
 
   double get totalLoggedMinutes =>
-      habitMinutes + taskMinutes + nonProductiveMinutes;
+      habitMinutes + taskMinutes + essentialMinutes;
 }
 
 /// Custom painter for pie chart
@@ -205,7 +205,7 @@ class TimeBreakdownChartWidget extends StatelessWidget {
         ),
         const SizedBox(height: 16),
 
-        // Summary row with totals (Habits, Tasks, Non-Productive)
+        // Summary row with totals (Habits, Tasks, essential)
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -226,11 +226,11 @@ class TimeBreakdownChartWidget extends StatelessWidget {
                 const Color(0xFF1A1A1A),
                 theme,
               ),
-            if (breakdownData.nonProductiveMinutes > 0)
+            if (breakdownData.essentialMinutes > 0)
               _buildSummaryChip(
                 context,
-                'Non-Productive',
-                breakdownData.nonProductiveMinutes,
+                'essential',
+                breakdownData.essentialMinutes,
                 Colors.grey,
                 theme,
               ),

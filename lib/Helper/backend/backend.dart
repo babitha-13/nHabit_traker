@@ -206,6 +206,15 @@ Future maybeCreateUser(User user) async {
     );
     await userRecord.set(userData);
     currentUserDocument = UsersRecord.getDocumentFromData(userData, userRecord);
+
+    // Create default system categories for the new user
+    try {
+      await getOrCreateInboxCategory(userId: user.uid);
+      await getOrCreateEssentialDefaultCategory(userId: user.uid);
+    } catch (e) {
+      print('Error creating default categories for new user: $e');
+      // Non-critical error, don't fail user creation
+    }
   } catch (e) {
     rethrow;
   }
@@ -251,18 +260,18 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
     final result = await query.get();
     final activities =
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
-    // Filter out non-productive types unless explicitly requested
+    // Filter out essential types unless explicitly requested
     final filteredActivities = activities.where((activity) {
-      if (!includeSequenceItems && activity.categoryType == 'non_productive') {
+      if (!includeSequenceItems && activity.categoryType == 'essential') {
         return false;
       }
       return true;
     }).toList();
-    // Filter habits based on date boundaries (skip for non-productive items)
+    // Filter habits based on date boundaries (skip for Essential Activities)
     final today = DateService.todayStart;
     final activeHabits = filteredActivities.where((habit) {
-      // Non-productive items don't have date boundaries, always include them
-      if (habit.categoryType == 'non_productive') {
+      // Essential Activities don't have date boundaries, always include them
+      if (habit.categoryType == 'essential') {
         return true;
       }
       return isHabitActiveByDate(habit, today);
@@ -381,6 +390,28 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
     // Sort in memory
     taskCategories.sort((a, b) => a.name.compareTo(b.name));
     return taskCategories;
+  } catch (e) {
+    return []; // Return empty list on error
+  }
+}
+
+/// Query to get essential categories for a specific user
+Future<List<CategoryRecord>> queryEssentialCategoriesOnce({
+  required String userId,
+  String callerTag = 'queryEssentialCategoriesOnce',
+}) async {
+  try {
+    // Use simple query and filter in memory to avoid Firestore composite index requirements
+    final allCategories = await queryCategoriesRecordOnce(
+      userId: userId,
+      callerTag: callerTag,
+    );
+    // Filter in memory (no Firestore index needed)
+    final essentialCategories =
+        allCategories.where((c) => c.categoryType == 'essential').toList();
+    // Sort in memory
+    essentialCategories.sort((a, b) => a.name.compareTo(b.name));
+    return essentialCategories;
   } catch (e) {
     return []; // Return empty list on error
   }
@@ -682,6 +713,44 @@ Future<CategoryRecord> getOrCreateInboxCategory({String? userId}) async {
       isSystemCategory: true,
     );
     return await CategoryRecord.getDocumentOnce(inboxRef);
+  }
+}
+
+/// Get or create the "Others" default category for essential activities
+Future<CategoryRecord> getOrCreateEssentialDefaultCategory(
+    {String? userId}) async {
+  final currentUser = FirebaseAuth.instance.currentUser;
+  final uid = userId ?? currentUser?.uid ?? '';
+  if (uid.isEmpty) {
+    throw Exception('User not authenticated');
+  }
+  try {
+    // Use simple query to avoid Firestore composite index requirements
+    final allCategories = await queryEssentialCategoriesOnce(
+      userId: uid,
+      callerTag: 'backend.getOrCreateEssentialDefaultCategory',
+    );
+    // Find "Others" category in memory
+    final othersCategory = allCategories.firstWhere(
+      (c) => c.name == 'Others' && c.isSystemCategory,
+      orElse: () => allCategories.firstWhere(
+        (c) => c.name == 'Others',
+        orElse: () => throw StateError('No Others category found'),
+      ),
+    );
+    return othersCategory;
+  } catch (e) {
+    // Create "Others" category if it doesn't exist
+    final othersRef = await createCategory(
+      name: 'Others',
+      description: 'Default category for essential activities',
+      weight: 1.0,
+      color: '#808080', // Gray for essential activities
+      userId: uid,
+      categoryType: 'essential',
+      isSystemCategory: true,
+    );
+    return await CategoryRecord.getDocumentOnce(othersRef);
   }
 }
 

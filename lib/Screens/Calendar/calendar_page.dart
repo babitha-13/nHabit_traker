@@ -26,7 +26,7 @@ class CalendarEventMetadata {
   final String instanceId;
   final int sessionIndex; // Index in timeLogSessions array
   final String activityName;
-  final String activityType; // 'task', 'habit', 'non_productive'
+  final String activityType; // 'task', 'habit', 'essential'
   final String? templateId;
   final String? categoryId;
   final String? categoryName;
@@ -76,7 +76,8 @@ class CalendarEventMetadata {
 /// Custom painter for diagonal stripe pattern
 ///
 /// Minimalist design: Uses thicker lines with generous spacing to differentiate
-/// non-productive activities from tasks while maintaining a clean aesthetic.
+/// essential activities from tasks while maintaining a clean aesthetic.
+/// Custom painter for solid diagonal stripes (used for Essentials double-line pattern base)
 class _DiagonalStripePainter extends CustomPainter {
   final Color stripeColor;
   final double stripeWidth;
@@ -90,6 +91,16 @@ class _DiagonalStripePainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    // Guard against invalid sizes
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        size.width.isNaN ||
+        size.height.isNaN ||
+        size.width.isInfinite ||
+        size.height.isInfinite) {
+      return;
+    }
+
     final paint = Paint()
       ..color = stripeColor
       ..strokeWidth = stripeWidth
@@ -98,7 +109,10 @@ class _DiagonalStripePainter extends CustomPainter {
     // Draw diagonal lines at 45 degrees (from top-left to bottom-right)
     // Calculate perpendicular spacing for even stripe distribution
     final lineSpacing = spacing + stripeWidth;
+    if (lineSpacing <= 0 || lineSpacing.isNaN) return;
+
     final perpendicularSpacing = lineSpacing / math.sqrt(2);
+    if (perpendicularSpacing <= 0 || perpendicularSpacing.isNaN) return;
 
     // Calculate offset range needed to cover entire canvas
     // For line y = x + offset:
@@ -126,25 +140,34 @@ class _DiagonalStripePainter extends CustomPainter {
 
       // Check top edge intersection
       final topX = -offset;
-      if (topX >= 0 && topX <= size.width) {
+      if (topX >= 0 && topX <= size.width && !topX.isNaN && !topX.isInfinite) {
         intersections.add(Offset(topX, 0));
       }
 
       // Check bottom edge intersection
       final bottomX = size.height - offset;
-      if (bottomX >= 0 && bottomX <= size.width) {
+      if (bottomX >= 0 &&
+          bottomX <= size.width &&
+          !bottomX.isNaN &&
+          !bottomX.isInfinite) {
         intersections.add(Offset(bottomX, size.height));
       }
 
       // Check left edge intersection
       final leftY = offset;
-      if (leftY >= 0 && leftY <= size.height) {
+      if (leftY >= 0 &&
+          leftY <= size.height &&
+          !leftY.isNaN &&
+          !leftY.isInfinite) {
         intersections.add(Offset(0, leftY));
       }
 
       // Check right edge intersection
       final rightY = size.width + offset;
-      if (rightY >= 0 && rightY <= size.height) {
+      if (rightY >= 0 &&
+          rightY <= size.height &&
+          !rightY.isNaN &&
+          !rightY.isInfinite) {
         intersections.add(Offset(size.width, rightY));
       }
 
@@ -152,13 +175,284 @@ class _DiagonalStripePainter extends CustomPainter {
       if (intersections.length >= 2) {
         // Sort by x coordinate to get start and end points
         intersections.sort((a, b) => a.dx.compareTo(b.dx));
-        canvas.drawLine(intersections.first, intersections.last, paint);
+        final start = intersections.first;
+        final end = intersections.last;
+        // Validate offsets before drawing
+        if (!start.dx.isNaN &&
+            !start.dy.isNaN &&
+            !end.dx.isNaN &&
+            !end.dy.isNaN &&
+            !start.dx.isInfinite &&
+            !start.dy.isInfinite &&
+            !end.dx.isInfinite &&
+            !end.dy.isInfinite) {
+          canvas.drawLine(start, end, paint);
+        }
       }
     }
   }
 
   @override
   bool shouldRepaint(_DiagonalStripePainter oldDelegate) {
+    return oldDelegate.stripeColor != stripeColor ||
+        oldDelegate.stripeWidth != stripeWidth ||
+        oldDelegate.spacing != spacing;
+  }
+}
+
+/// Custom painter for dotted diagonal lines (used for Habits)
+class _DottedDiagonalPainter extends CustomPainter {
+  final Color stripeColor;
+  final double stripeWidth;
+  final double spacing;
+  final double dotLength;
+  final double dotGap;
+
+  _DottedDiagonalPainter({
+    this.stripeColor = const Color(0xFFBDBDBD),
+    this.stripeWidth = 3.0,
+    this.spacing = 12.0,
+    this.dotLength = 4.0,
+    this.dotGap = 4.0,
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Guard against invalid sizes
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        size.width.isNaN ||
+        size.height.isNaN ||
+        size.width.isInfinite ||
+        size.height.isInfinite) {
+      return;
+    }
+
+    final paint = Paint()
+      ..color = stripeColor
+      ..strokeWidth = stripeWidth
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+
+    // Calculate perpendicular spacing for even stripe distribution
+    final lineSpacing = spacing + stripeWidth;
+    if (lineSpacing <= 0 || lineSpacing.isNaN) return;
+
+    final perpendicularSpacing = lineSpacing / math.sqrt(2);
+    if (perpendicularSpacing <= 0 || perpendicularSpacing.isNaN) return;
+
+    final minOffset = -size.width;
+    final maxOffset = size.height;
+    final numLines =
+        ((maxOffset - minOffset) / perpendicularSpacing).ceil() + 2;
+
+    // Draw dotted diagonal lines at 45 degrees
+    for (int i = -1; i < numLines; i++) {
+      final offset = minOffset + (i * perpendicularSpacing);
+
+      // Find intersection points with canvas boundaries (same logic as solid lines)
+      final intersections = <Offset>[];
+      final topX = -offset;
+      if (topX >= 0 && topX <= size.width && !topX.isNaN && !topX.isInfinite) {
+        intersections.add(Offset(topX, 0));
+      }
+      final bottomX = size.height - offset;
+      if (bottomX >= 0 &&
+          bottomX <= size.width &&
+          !bottomX.isNaN &&
+          !bottomX.isInfinite) {
+        intersections.add(Offset(bottomX, size.height));
+      }
+      final leftY = offset;
+      if (leftY >= 0 &&
+          leftY <= size.height &&
+          !leftY.isNaN &&
+          !leftY.isInfinite) {
+        intersections.add(Offset(0, leftY));
+      }
+      final rightY = size.width + offset;
+      if (rightY >= 0 &&
+          rightY <= size.height &&
+          !rightY.isNaN &&
+          !rightY.isInfinite) {
+        intersections.add(Offset(size.width, rightY));
+      }
+
+      if (intersections.length >= 2) {
+        // Sort by x coordinate to get start and end points
+        intersections.sort((a, b) => a.dx.compareTo(b.dx));
+        final start = intersections.first;
+        final end = intersections.last;
+
+        // Validate offsets before using
+        if (start.dx.isNaN ||
+            start.dy.isNaN ||
+            end.dx.isNaN ||
+            end.dy.isNaN ||
+            start.dx.isInfinite ||
+            start.dy.isInfinite ||
+            end.dx.isInfinite ||
+            end.dy.isInfinite) {
+          continue; // Skip this line if invalid
+        }
+
+        // Calculate line length
+        final lineLength = (end - start).distance;
+        if (lineLength <= 0 || lineLength.isNaN || lineLength.isInfinite) {
+          continue; // Skip this line if invalid
+        }
+
+        final segmentLength = dotLength + dotGap;
+        if (segmentLength <= 0 || segmentLength.isNaN) {
+          continue; // Skip if invalid segment length
+        }
+
+        final numSegments = (lineLength / segmentLength).floor();
+
+        // Draw dashed segments along the line
+        for (int j = 0; j <= numSegments; j++) {
+          final t = (j * segmentLength) / lineLength;
+          final tEnd =
+              ((j * segmentLength + dotLength) / lineLength).clamp(0.0, 1.0);
+
+          final segmentStart = Offset(
+            start.dx + (end.dx - start.dx) * t,
+            start.dy + (end.dy - start.dy) * t,
+          );
+          final segmentEnd = Offset(
+            start.dx + (end.dx - start.dx) * tEnd,
+            start.dy + (end.dy - start.dy) * tEnd,
+          );
+
+          // Validate offsets before drawing
+          if (!segmentStart.dx.isNaN &&
+              !segmentStart.dy.isNaN &&
+              !segmentEnd.dx.isNaN &&
+              !segmentEnd.dy.isNaN &&
+              !segmentStart.dx.isInfinite &&
+              !segmentStart.dy.isInfinite &&
+              !segmentEnd.dx.isInfinite &&
+              !segmentEnd.dy.isInfinite) {
+            canvas.drawLine(segmentStart, segmentEnd, paint);
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DottedDiagonalPainter oldDelegate) {
+    return oldDelegate.stripeColor != stripeColor ||
+        oldDelegate.stripeWidth != stripeWidth ||
+        oldDelegate.spacing != spacing;
+  }
+}
+
+/// Custom painter for double diagonal lines (used for Essentials)
+class _DoubleDiagonalPainter extends CustomPainter {
+  final Color stripeColor;
+  final double stripeWidth;
+  final double spacing;
+  final double lineGap;
+
+  _DoubleDiagonalPainter({
+    this.stripeColor = const Color(0xFFBDBDBD),
+    this.stripeWidth = 2.5,
+    this.spacing =
+        28.0, // Increased default spacing between sets of double lines
+    this.lineGap = 5.0, // Gap between the two lines within each pair
+  });
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    // Guard against invalid sizes
+    if (size.width <= 0 ||
+        size.height <= 0 ||
+        size.width.isNaN ||
+        size.height.isNaN ||
+        size.width.isInfinite ||
+        size.height.isInfinite) {
+      return;
+    }
+
+    final paint = Paint()
+      ..color = stripeColor
+      ..strokeWidth = stripeWidth
+      ..style = PaintingStyle.stroke;
+
+    // Draw two sets of parallel diagonal lines with gap between them
+    final lineSpacing = spacing + stripeWidth;
+    if (lineSpacing <= 0 || lineSpacing.isNaN) return;
+
+    final perpendicularSpacing = lineSpacing / math.sqrt(2);
+    if (perpendicularSpacing <= 0 || perpendicularSpacing.isNaN) return;
+
+    final minOffset = -size.width;
+    final maxOffset = size.height;
+    final numLines =
+        ((maxOffset - minOffset) / perpendicularSpacing).ceil() + 2;
+
+    for (int i = -1; i < numLines; i++) {
+      final baseOffset = minOffset + (i * perpendicularSpacing);
+
+      // Draw two parallel lines with visible gap between them
+      for (int lineIndex = 0; lineIndex < 2; lineIndex++) {
+        // Offset the second line to create a visible gap
+        // For 45-degree diagonal, offset along the diagonal direction
+        final offset = baseOffset + (lineIndex * lineGap * math.sqrt(2));
+
+        final intersections = <Offset>[];
+        final topX = -offset;
+        if (topX >= 0 &&
+            topX <= size.width &&
+            !topX.isNaN &&
+            !topX.isInfinite) {
+          intersections.add(Offset(topX, 0));
+        }
+        final bottomX = size.height - offset;
+        if (bottomX >= 0 &&
+            bottomX <= size.width &&
+            !bottomX.isNaN &&
+            !bottomX.isInfinite) {
+          intersections.add(Offset(bottomX, size.height));
+        }
+        final leftY = offset;
+        if (leftY >= 0 &&
+            leftY <= size.height &&
+            !leftY.isNaN &&
+            !leftY.isInfinite) {
+          intersections.add(Offset(0, leftY));
+        }
+        final rightY = size.width + offset;
+        if (rightY >= 0 &&
+            rightY <= size.height &&
+            !rightY.isNaN &&
+            !rightY.isInfinite) {
+          intersections.add(Offset(size.width, rightY));
+        }
+
+        if (intersections.length >= 2) {
+          intersections.sort((a, b) => a.dx.compareTo(b.dx));
+          final start = intersections.first;
+          final end = intersections.last;
+          // Validate offsets before drawing
+          if (!start.dx.isNaN &&
+              !start.dy.isNaN &&
+              !end.dx.isNaN &&
+              !end.dy.isNaN &&
+              !start.dx.isInfinite &&
+              !start.dy.isInfinite &&
+              !end.dx.isInfinite &&
+              !end.dy.isInfinite) {
+            canvas.drawLine(start, end, paint);
+          }
+        }
+      }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DoubleDiagonalPainter oldDelegate) {
     return oldDelegate.stripeColor != stripeColor ||
         oldDelegate.stripeWidth != stripeWidth ||
         oldDelegate.spacing != spacing;
@@ -365,7 +659,7 @@ class _CalendarPageState extends State<CalendarPage> {
     // Track totals per type
     double habitMinutes = 0.0;
     double taskMinutes = 0.0;
-    double nonProductiveMinutes = 0.0;
+    double essentialMinutes = 0.0;
 
     // Map to store minutes per category (keyed by categoryId or categoryName)
     // For habits: Map<categoryId or categoryName, minutes>
@@ -395,8 +689,8 @@ class _CalendarPageState extends State<CalendarPage> {
         habitMinutes += minutes;
       } else if (metadata.activityType == 'task') {
         taskMinutes += minutes;
-      } else if (metadata.activityType == 'non_productive') {
-        nonProductiveMinutes += minutes;
+      } else if (metadata.activityType == 'essential') {
+        essentialMinutes += minutes;
       }
 
       // For habits and tasks, accumulate per category
@@ -436,7 +730,7 @@ class _CalendarPageState extends State<CalendarPage> {
       }
     }
 
-    // Create segments - ordered: habit categories, task categories, non-productive, unlogged
+    // Create segments - ordered: habit categories, task categories, essential, unlogged
     final segments = <PieChartSegment>[];
 
     // Add habit category segments
@@ -483,18 +777,18 @@ class _CalendarPageState extends State<CalendarPage> {
       }
     }
 
-    // Add non-productive segment (single segment)
-    if (nonProductiveMinutes > 0) {
+    // Add essential segment (single segment)
+    if (essentialMinutes > 0) {
       segments.add(PieChartSegment(
-        label: 'Non-Productive',
-        value: nonProductiveMinutes,
+        label: 'essential',
+        value: essentialMinutes,
         color: Colors.grey,
-        category: 'non_productive',
+        category: 'essential',
       ));
     }
 
     // Calculate unlogged time (24 hours = 1440 minutes)
-    final totalLogged = habitMinutes + taskMinutes + nonProductiveMinutes;
+    final totalLogged = habitMinutes + taskMinutes + essentialMinutes;
     final unloggedMinutes = (24 * 60) - totalLogged;
 
     if (unloggedMinutes > 0) {
@@ -509,7 +803,7 @@ class _CalendarPageState extends State<CalendarPage> {
     return TimeBreakdownData(
       habitMinutes: habitMinutes,
       taskMinutes: taskMinutes,
-      nonProductiveMinutes: nonProductiveMinutes,
+      essentialMinutes: essentialMinutes,
       segments: segments,
     );
   }
@@ -699,7 +993,7 @@ class _CalendarPageState extends State<CalendarPage> {
     String title = "New Entry";
     if (type == 'habit') title = "New Habit";
     if (type == 'task') title = "New Task";
-    if (type == 'non_productive') title = "Non-Productive";
+    if (type == 'essential') title = "essential";
 
     final previewEvent = CalendarEventData(
       date: _selectedDate,
@@ -870,7 +1164,7 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations[operationId] = instance.reference.id;
       }
-      
+
       // Store optimistic instance for planned section
       if (affectsPlannedSection) {
         _optimisticInstances[instance.reference.id] = instance;
@@ -882,10 +1176,10 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      
+
       // Remove from optimistic cache
       _optimisticInstances.remove(instance.reference.id);
-      
+
       // Background reconciliation: reload events to sync with backend
       if (affectsPlannedSection) {
         _loadEvents();
@@ -972,31 +1266,27 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations[operationId] = instance.reference.id;
       }
-      
+
       // Store optimistic instance for planned section
       if (affectsPlannedSection) {
         _optimisticInstances[instance.reference.id] = instance;
       }
-      
-      // Apply immediate UI patches if instance affects selected date
+
+      // Handle immediate UI patches if instance affects selected date
       if (affectsSelectedDate) {
         _applyOptimisticPlannedPatch(instance);
-        // For completed events (time logs), we still need full reload
-        // but we can optimize planned section immediately
-        if (instance.timeLogSessions.isNotEmpty) {
-          // Background reload for completed events
-          _loadEvents();
-        }
+        // For completed events (time logs) or status changes, we need full reload to ensure UI sync
+        _loadEvents();
       }
     } else {
       // Reconciled update - remove from optimistic tracking
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      
+
       // Remove from optimistic cache
       _optimisticInstances.remove(instance.reference.id);
-      
+
       // Background reconciliation: reload events to sync with backend
       if (affectsSelectedDate) {
         _loadEvents();
@@ -1185,20 +1475,18 @@ class _CalendarPageState extends State<CalendarPage> {
 
     // Create new planned event for this instance
     try {
-      // Determine category color (use fallback if categories not loaded)
+      // Determine category color (use templateCategoryColor from instance if available)
       Color categoryColor;
-      if (instance.templateCategoryType == 'habit') {
-        // Try to use cached category color, fallback to blue
-        if (instance.templateCategoryColor.isNotEmpty) {
+      if (instance.templateCategoryColor.isNotEmpty) {
+        try {
           categoryColor = _parseColor(instance.templateCategoryColor);
-        } else {
+        } catch (e) {
+          // Fallback to default if parsing fails
           categoryColor = Colors.blue;
         }
-      } else if (instance.templateCategoryType == 'non_productive') {
-        categoryColor = Colors.grey;
       } else {
-        // Tasks default to Dark Charcoal/Black
-        categoryColor = const Color(0xFF1A1A1A);
+        // Fallback if no color available
+        categoryColor = Colors.blue;
       }
 
       // Parse due time
@@ -1206,7 +1494,8 @@ class _CalendarPageState extends State<CalendarPage> {
 
       // Determine duration (fast heuristic for optimistic update)
       int? durationMinutes;
-      if (instance.templateTrackingType == 'time' && instance.templateTarget != null) {
+      if (instance.templateTrackingType == 'time' &&
+          instance.templateTarget != null) {
         // Use target minutes if available
         final target = instance.templateTarget;
         if (target is num) {
@@ -1215,7 +1504,7 @@ class _CalendarPageState extends State<CalendarPage> {
           durationMinutes = int.tryParse(target);
         }
       }
-      
+
       // Fallback to default duration if no target
       durationMinutes ??= _defaultDurationMinutes;
 
@@ -1298,565 +1587,586 @@ class _CalendarPageState extends State<CalendarPage> {
       // Get categories for color lookup
       final userId = currentUserUid;
 
-    // Get date range for filtering (start and end of selected date)
-    final selectedDateStart = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-      0,
-      0,
-      0,
-    );
-    final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
+      // Get date range for filtering (start and end of selected date)
+      final selectedDateStart = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+        0,
+        0,
+        0,
+      );
+      final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
 
-    // Batch all Firestore queries in parallel for faster loading
-    final results = await Future.wait([
-      queryHabitCategoriesOnce(
-        userId: userId,
-        callerTag: 'CalendarPage._loadEvents.habits',
-      ),
-      queryTaskCategoriesOnce(
-        userId: userId,
-        callerTag: 'CalendarPage._loadEvents.tasks',
-      ),
-      CalendarQueueService.getCompletedItems(
-        userId: userId,
-        date: _selectedDate,
-      ),
-      TaskInstanceService.getTimeLoggedTasks(
-        userId: userId,
-        startDate: selectedDateStart,
-        endDate: selectedDateEnd,
-      ),
-      TaskInstanceService.getNonProductiveInstances(
-        userId: userId,
-        startDate: selectedDateStart,
-        endDate: selectedDateEnd,
-      ),
-      CalendarQueueService.getQueueItems(
-        userId: userId,
-        date: _selectedDate,
-      ),
-      queryRoutineRecordOnce(userId: userId),
-    ]);
+      // Batch all Firestore queries in parallel for faster loading
+      final results = await Future.wait([
+        queryHabitCategoriesOnce(
+          userId: userId,
+          callerTag: 'CalendarPage._loadEvents.habits',
+        ),
+        queryTaskCategoriesOnce(
+          userId: userId,
+          callerTag: 'CalendarPage._loadEvents.tasks',
+        ),
+        CalendarQueueService.getCompletedItems(
+          userId: userId,
+          date: _selectedDate,
+        ),
+        TaskInstanceService.getTimeLoggedTasks(
+          userId: userId,
+          startDate: selectedDateStart,
+          endDate: selectedDateEnd,
+        ),
+        TaskInstanceService.getessentialInstances(
+          userId: userId,
+          startDate: selectedDateStart,
+          endDate: selectedDateEnd,
+        ),
+        CalendarQueueService.getQueueItems(
+          userId: userId,
+          date: _selectedDate,
+        ),
+        queryRoutineRecordOnce(userId: userId),
+      ]);
 
-    final habitCategories = results[0] as List<CategoryRecord>;
-    final taskCategories = results[1] as List<CategoryRecord>;
-    final allCategories = [...habitCategories, ...taskCategories];
-    final completedItems = results[2] as List<ActivityInstanceRecord>;
-    final timeLoggedTasks = results[3] as List<ActivityInstanceRecord>;
-    final nonProductiveInstances = results[4] as List<ActivityInstanceRecord>;
-    final queueItems = results[5] as Map<String, dynamic>;
-    final routines = results[6] as List<RoutineRecord>;
+      final habitCategories = results[0] as List<CategoryRecord>;
+      final taskCategories = results[1] as List<CategoryRecord>;
+      final allCategories = [...habitCategories, ...taskCategories];
+      final completedItems = results[2] as List<ActivityInstanceRecord>;
+      final timeLoggedTasks = results[3] as List<ActivityInstanceRecord>;
+      final essentialInstances = results[4] as List<ActivityInstanceRecord>;
+      final queueItems = results[5] as Map<String, dynamic>;
+      final routines = results[6] as List<RoutineRecord>;
 
-    // Debug: Track data sources
-    final selectedDateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
-    print('[Calendar] Loading events for selected date: $selectedDateStr');
-    print('  - Date range: ${DateFormat('yyyy-MM-dd HH:mm').format(selectedDateStart)} to ${DateFormat('yyyy-MM-dd HH:mm').format(selectedDateEnd)}');
-    print('  - completedItems: ${completedItems.length}');
-    print('  - timeLoggedTasks: ${timeLoggedTasks.length}');
-    print('  - nonProductiveInstances: ${nonProductiveInstances.length}');
+      // Debug: Track data sources
+      final selectedDateStr = DateFormat('yyyy-MM-dd').format(_selectedDate);
+      print('[Calendar] Loading events for selected date: $selectedDateStr');
+      print(
+          '  - Date range: ${DateFormat('yyyy-MM-dd HH:mm').format(selectedDateStart)} to ${DateFormat('yyyy-MM-dd HH:mm').format(selectedDateEnd)}');
+      print('  - completedItems: ${completedItems.length}');
+      print('  - timeLoggedTasks: ${timeLoggedTasks.length}');
+      print('  - essentialInstances: ${essentialInstances.length}');
 
-    // Combine all items into a map to handle duplicates (keyed by instance ID)
-    final allItemsMap = <String, ActivityInstanceRecord>{};
-    for (final item in completedItems) {
-      allItemsMap[item.reference.id] = item;
-    }
-    for (final item in timeLoggedTasks) {
-      allItemsMap[item.reference.id] = item;
-    }
-    for (final item in nonProductiveInstances) {
-      allItemsMap[item.reference.id] = item;
-    }
-
-    print('  - allItemsMap total: ${allItemsMap.length}');
-
-    // Separate event lists
-    final completedEvents = <CalendarEventData>[];
-    final plannedEvents = <CalendarEventData>[];
-
-    // Process all items to generate calendar events
-    // Show ALL time logged on the selected date, regardless of completion status
-    // This allows users to see partial progress (e.g., 10 min of 1 hour goal)
-    for (final item in allItemsMap.values) {
-      Color categoryColor;
-      if (item.templateCategoryType == 'habit') {
-        CategoryRecord? category;
-        try {
-          category = allCategories.firstWhere(
-            (c) => c.reference.id == item.templateCategoryId,
-          );
-        } catch (e) {
-          try {
-            category = allCategories.firstWhere(
-              (c) => c.name == item.templateCategoryName,
-            );
-          } catch (e2) {
-            // Use default if category not found
-          }
-        }
-        categoryColor =
-            category != null ? _parseColor(category.color) : Colors.blue;
-      } else if (item.templateCategoryType == 'non_productive') {
-        categoryColor = Colors.grey;
-      } else {
-        // Tasks default to Dark Charcoal/Black
-        categoryColor = const Color(0xFF1A1A1A);
+      // Combine all items into a map to handle duplicates (keyed by instance ID)
+      final allItemsMap = <String, ActivityInstanceRecord>{};
+      for (final item in completedItems) {
+        allItemsMap[item.reference.id] = item;
+      }
+      for (final item in timeLoggedTasks) {
+        allItemsMap[item.reference.id] = item;
+      }
+      for (final item in essentialInstances) {
+        allItemsMap[item.reference.id] = item;
       }
 
-      // A. Time Tracked Events - has timeLogSessions
-      // Show ALL sessions on the selected date, regardless of completion status
-      // This includes time logged from:
-      // - Manual time log modal
-      // - Timer page
-      // - Play button on duration tasks
-      // - Right swipe to record time on task cards
-      if (item.timeLogSessions.isNotEmpty) {
-        // Filter sessions that fall on the selected date
-        final sessionsOnDate = item.timeLogSessions.where((session) {
-          final sessionStart = session['startTime'] as DateTime;
-          final sessionDate = DateTime(
-            sessionStart.year,
-            sessionStart.month,
-            sessionStart.day,
-          );
-          final selectedDateOnly = DateTime(
-            _selectedDate.year,
-            _selectedDate.month,
-            _selectedDate.day,
-          );
-          return sessionDate.isAtSameMomentAs(selectedDateOnly);
-        }).toList();
+      print('  - allItemsMap total: ${allItemsMap.length}');
 
-        print(
-            '  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date ($selectedDateStr)');
+      // Separate event lists
+      final completedEvents = <CalendarEventData>[];
+      final plannedEvents = <CalendarEventData>[];
 
-        // If we have sessions for this date, show them
-        if (sessionsOnDate.isNotEmpty) {
-          // Create a calendar event for each session
-          // We need to find the original session index in the full timeLogSessions array
-          for (int i = 0; i < sessionsOnDate.length; i++) {
-            final session = sessionsOnDate[i];
-            final sessionStart = session['startTime'] as DateTime;
-            final sessionEnd = session['endTime'] as DateTime?;
-            if (sessionEnd == null) {
-              print('    - Session $i: Skipped (no endTime)');
-              continue;
-            }
-
-            // Find the original index in the full timeLogSessions array
-            int originalSessionIndex = -1;
-            for (int j = 0; j < item.timeLogSessions.length; j++) {
-              final fullSession = item.timeLogSessions[j];
-              final fullSessionStart = fullSession['startTime'] as DateTime;
-              if (fullSessionStart.isAtSameMomentAs(sessionStart)) {
-                originalSessionIndex = j;
-                break;
-              }
-            }
-
-            var actualSessionEnd = sessionEnd;
-            if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
-              actualSessionEnd = sessionStart.add(const Duration(minutes: 1));
-            }
-
-            // Validate that times are on the selected date to prevent calendar_view validation errors
-            // If event crosses midnight, clamp times to the selected date
-            final selectedDateStart = DateTime(
-              _selectedDate.year,
-              _selectedDate.month,
-              _selectedDate.day,
-              0,
-              0,
-              0,
+      // Process all items to generate calendar events
+      // Show ALL time logged on the selected date, regardless of completion status
+      // This allows users to see partial progress (e.g., 10 min of 1 hour goal)
+      for (final item in allItemsMap.values) {
+        Color categoryColor;
+        // Try to use category color from instance first
+        if (item.templateCategoryColor.isNotEmpty) {
+          try {
+            categoryColor = _parseColor(item.templateCategoryColor);
+          } catch (e) {
+            // If parsing fails, fall through to category lookup
+            categoryColor = Colors.blue;
+          }
+        } else {
+          // Look up category color from allCategories
+          CategoryRecord? category;
+          try {
+            category = allCategories.firstWhere(
+              (c) => c.reference.id == item.templateCategoryId,
             );
-            final selectedDateEnd =
-                selectedDateStart.add(const Duration(days: 1));
-
-            var validStartTime = sessionStart;
-            var validEndTime = actualSessionEnd;
-
-            // Clamp start time to selected date
-            if (validStartTime.isBefore(selectedDateStart)) {
-              validStartTime = selectedDateStart;
-            } else if (validStartTime.isAfter(selectedDateEnd) ||
-                validStartTime.isAtSameMomentAs(selectedDateEnd)) {
-              // Skip events that start after the selected date
-              continue;
+          } catch (e) {
+            try {
+              category = allCategories.firstWhere(
+                (c) => c.name == item.templateCategoryName,
+              );
+            } catch (e2) {
+              // Category not found, use fallback
             }
+          }
+          if (category != null) {
+            categoryColor = _parseColor(category.color);
+          } else {
+            // Fallback color if category not found
+            categoryColor = Colors.blue;
+          }
+        }
 
-            // Clamp end time to selected date (but ensure it's after start time)
-            if (validEndTime.isAfter(selectedDateEnd)) {
-              validEndTime =
-                  selectedDateEnd.subtract(const Duration(seconds: 1));
-            }
-
-            // Ensure end time is after start time
-            if (validEndTime.isBefore(validStartTime) ||
-                validEndTime.isAtSameMomentAs(validStartTime)) {
-              validEndTime = validStartTime.add(const Duration(minutes: 1));
-            }
-
-            // Ensure both times are on the same date as selectedDate
-            final startDateOnly = DateTime(
-              validStartTime.year,
-              validStartTime.month,
-              validStartTime.day,
+        // A. Time Tracked Events - has timeLogSessions
+        // Show ALL sessions on the selected date, regardless of completion status
+        // This includes time logged from:
+        // - Manual time log modal
+        // - Timer page
+        // - Play button on duration tasks
+        // - Right swipe to record time on task cards
+        if (item.timeLogSessions.isNotEmpty) {
+          // Filter sessions that fall on the selected date
+          final sessionsOnDate = item.timeLogSessions.where((session) {
+            final sessionStart = session['startTime'] as DateTime;
+            final sessionDate = DateTime(
+              sessionStart.year,
+              sessionStart.month,
+              sessionStart.day,
             );
             final selectedDateOnly = DateTime(
               _selectedDate.year,
               _selectedDate.month,
               _selectedDate.day,
             );
+            return sessionDate.isAtSameMomentAs(selectedDateOnly);
+          }).toList();
 
-            // Only add event if start time is on the selected date
-            if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-              // Use checkmark for completed items, no checkmark for incomplete
-              final prefix = item.status == 'completed' ? '✓ ' : '';
+          print(
+              '  - Item ${item.templateName}: ${item.timeLogSessions.length} total sessions, ${sessionsOnDate.length} on selected date ($selectedDateStr)');
 
-              print(
-                  '    - Creating event: ${item.templateName} from ${validStartTime} to ${validEndTime}');
-
-              // Look up category color from loaded categories (same logic as calendar event color)
-              String? categoryColorHex;
-              if (item.templateCategoryType == 'habit' ||
-                  item.templateCategoryType == 'task') {
-                CategoryRecord? category;
-                try {
-                  category = allCategories.firstWhere(
-                    (c) => c.reference.id == item.templateCategoryId,
-                  );
-                } catch (e) {
-                  try {
-                    category = allCategories.firstWhere(
-                      (c) => c.name == item.templateCategoryName,
-                    );
-                  } catch (e2) {
-                    // Category not found, will use fallback
-                  }
-                }
-                if (category != null) {
-                  categoryColorHex = category.color;
-                } else if (item.templateCategoryColor.isNotEmpty) {
-                  // Fallback to instance's cached color if category not found
-                  categoryColorHex = item.templateCategoryColor;
-                }
-              } else if (item.templateCategoryType == 'non_productive') {
-                // Non-productive uses grey
-                categoryColorHex = '#808080'; // Grey hex
+          // If we have sessions for this date, show them
+          if (sessionsOnDate.isNotEmpty) {
+            // Create a calendar event for each session
+            // We need to find the original session index in the full timeLogSessions array
+            for (int i = 0; i < sessionsOnDate.length; i++) {
+              final session = sessionsOnDate[i];
+              final sessionStart = session['startTime'] as DateTime;
+              final sessionEnd = session['endTime'] as DateTime?;
+              if (sessionEnd == null) {
+                print('    - Session $i: Skipped (no endTime)');
+                continue;
               }
 
-              // Create metadata for editing
-              final categoryType = item.templateCategoryType;
-              final metadata = CalendarEventMetadata(
-                instanceId: item.reference.id,
-                sessionIndex:
-                    originalSessionIndex >= 0 ? originalSessionIndex : i,
-                activityName: item.templateName,
-                activityType: categoryType,
-                templateId: item.templateId,
-                categoryId: item.templateCategoryId.isNotEmpty
-                    ? item.templateCategoryId
-                    : null,
-                categoryName: item.templateCategoryName.isNotEmpty
-                    ? item.templateCategoryName
-                    : null,
-                categoryColorHex: categoryColorHex,
+              // Find the original index in the full timeLogSessions array
+              int originalSessionIndex = -1;
+              for (int j = 0; j < item.timeLogSessions.length; j++) {
+                final fullSession = item.timeLogSessions[j];
+                final fullSessionStart = fullSession['startTime'] as DateTime;
+                if (fullSessionStart.isAtSameMomentAs(sessionStart)) {
+                  originalSessionIndex = j;
+                  break;
+                }
+              }
+
+              var actualSessionEnd = sessionEnd;
+              if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
+                actualSessionEnd = sessionStart.add(const Duration(minutes: 1));
+              }
+
+              // Validate that times are on the selected date to prevent calendar_view validation errors
+              // If event crosses midnight, clamp times to the selected date
+              final selectedDateStart = DateTime(
+                _selectedDate.year,
+                _selectedDate.month,
+                _selectedDate.day,
+                0,
+                0,
+                0,
+              );
+              final selectedDateEnd =
+                  selectedDateStart.add(const Duration(days: 1));
+
+              var validStartTime = sessionStart;
+              var validEndTime = actualSessionEnd;
+
+              // Clamp start time to selected date
+              if (validStartTime.isBefore(selectedDateStart)) {
+                validStartTime = selectedDateStart;
+              } else if (validStartTime.isAfter(selectedDateEnd) ||
+                  validStartTime.isAtSameMomentAs(selectedDateEnd)) {
+                // Skip events that start after the selected date
+                continue;
+              }
+
+              // Clamp end time to selected date (but ensure it's after start time)
+              if (validEndTime.isAfter(selectedDateEnd)) {
+                validEndTime =
+                    selectedDateEnd.subtract(const Duration(seconds: 1));
+              }
+
+              // Ensure end time is after start time
+              if (validEndTime.isBefore(validStartTime) ||
+                  validEndTime.isAtSameMomentAs(validStartTime)) {
+                validEndTime = validStartTime.add(const Duration(minutes: 1));
+              }
+
+              // Ensure both times are on the same date as selectedDate
+              final startDateOnly = DateTime(
+                validStartTime.year,
+                validStartTime.month,
+                validStartTime.day,
+              );
+              final selectedDateOnly = DateTime(
+                _selectedDate.year,
+                _selectedDate.month,
+                _selectedDate.day,
               );
 
-              completedEvents.add(CalendarEventData(
-                date: _selectedDate,
-                startTime: validStartTime,
-                endTime: validEndTime,
-                title: '$prefix${item.templateName}',
-                color:
-                    categoryColor, // Removed _muteColor for better visibility
-                description:
-                    'Session: ${_formatDuration(validEndTime.difference(validStartTime))}',
-                event: metadata.toMap(), // Store metadata for editing
-              ));
+              // Only add event if start time is on the selected date
+              if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+                // Use checkmark for completed items, no checkmark for incomplete
+                final prefix = item.status == 'completed' ? '✓ ' : '';
+
+                print(
+                    '    - Creating event: ${item.templateName} from ${validStartTime} to ${validEndTime}');
+
+                // Look up category color from loaded categories (same logic as calendar event color)
+                String? categoryColorHex;
+                if (item.templateCategoryType == 'habit' ||
+                    item.templateCategoryType == 'task') {
+                  CategoryRecord? category;
+                  try {
+                    category = allCategories.firstWhere(
+                      (c) => c.reference.id == item.templateCategoryId,
+                    );
+                  } catch (e) {
+                    try {
+                      category = allCategories.firstWhere(
+                        (c) => c.name == item.templateCategoryName,
+                      );
+                    } catch (e2) {
+                      // Category not found, will use fallback
+                    }
+                  }
+                  if (category != null) {
+                    categoryColorHex = category.color;
+                  } else if (item.templateCategoryColor.isNotEmpty) {
+                    // Fallback to instance's cached color if category not found
+                    categoryColorHex = item.templateCategoryColor;
+                  }
+                } else if (item.templateCategoryType == 'essential') {
+                  // essential uses grey
+                  categoryColorHex = '#808080'; // Grey hex
+                }
+
+                // Create metadata for editing
+                final categoryType = item.templateCategoryType;
+                final metadata = CalendarEventMetadata(
+                  instanceId: item.reference.id,
+                  sessionIndex:
+                      originalSessionIndex >= 0 ? originalSessionIndex : i,
+                  activityName: item.templateName,
+                  activityType: categoryType,
+                  templateId: item.templateId,
+                  categoryId: item.templateCategoryId.isNotEmpty
+                      ? item.templateCategoryId
+                      : null,
+                  categoryName: item.templateCategoryName.isNotEmpty
+                      ? item.templateCategoryName
+                      : null,
+                  categoryColorHex: categoryColorHex,
+                );
+
+                completedEvents.add(CalendarEventData(
+                  date: _selectedDate,
+                  startTime: validStartTime,
+                  endTime: validEndTime,
+                  title: '$prefix${item.templateName}',
+                  color:
+                      categoryColor, // Removed _muteColor for better visibility
+                  description:
+                      'Session: ${_formatDuration(validEndTime.difference(validStartTime))}',
+                  event: metadata.toMap(), // Store metadata for editing
+                ));
+              }
+            }
+          }
+        }
+        // Note: We no longer handle legacy timer events or binary completions separately
+        // All time logging should use timeLogSessions for consistency
+      }
+
+      // Sort all completed events by end time (descending) for backward cascading
+      // This ensures items completed at the same time cascade backwards from completion time
+      completedEvents.sort((a, b) {
+        if (a.endTime == null || b.endTime == null) return 0;
+        // Sort descending by end time, then by start time if end times are equal
+        final endCompare = b.endTime!.compareTo(a.endTime!);
+        if (endCompare != 0) return endCompare;
+        if (a.startTime == null || b.startTime == null) return 0;
+        return b.startTime!.compareTo(a.startTime!);
+      });
+
+      // Apply backward cascading logic to prevent overlaps
+      // Events cascade backwards from their completion time
+      DateTime? earliestStartTime; // Track the earliest start time we've seen
+      final cascadedEvents = <CalendarEventData>[];
+      for (final event in completedEvents) {
+        if (event.startTime == null || event.endTime == null) continue;
+
+        DateTime startTime = event.startTime!;
+        DateTime endTime = event.endTime!;
+        final duration = endTime.difference(startTime);
+
+        // If this event's end time is after the earliest start time we've seen,
+        // shift it backwards (earlier) so it ends where the previous one starts
+        if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
+          endTime = earliestStartTime;
+          startTime = endTime.subtract(duration);
+        }
+
+        // Update earliest start time (most backward/earliest time we've seen)
+        if (earliestStartTime == null ||
+            startTime.isBefore(earliestStartTime)) {
+          earliestStartTime = startTime;
+        }
+
+        // Ensure date matches selected date (cascading might shift times but date should remain)
+        cascadedEvents.add(CalendarEventData(
+          date: _selectedDate,
+          startTime: startTime,
+          endTime: endTime,
+          title: event.title,
+          color: event.color,
+          description: event.description,
+          event: event.event, // Preserve metadata during cascading
+        ));
+      }
+
+      // Assign sorted completed events
+      _sortedCompletedEvents = cascadedEvents;
+      // Note: cascadedEvents are processed in reverse order (end time desc).
+      // For label collision, we want them sorted by START time ascending.
+      _sortedCompletedEvents
+          .sort((a, b) => a.startTime!.compareTo(b.startTime!));
+
+      // Debug: Track event creation
+      print('[Calendar] Event processing for $selectedDateStr:');
+      print('  - completedEvents created: ${completedEvents.length}');
+      print('  - cascadedEvents: ${cascadedEvents.length}');
+      print('  - _sortedCompletedEvents: ${_sortedCompletedEvents.length}');
+
+      // Planned items were already fetched in the batch query above
+      final plannedItems =
+          List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
+
+      // Merge optimistic instances that should appear in planned section
+      final selectedDateOnly = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
+      for (final optimisticInstance in _optimisticInstances.values) {
+        // Check if optimistic instance should appear in planned section
+        if (optimisticInstance.dueDate != null &&
+            optimisticInstance.dueTime != null &&
+            optimisticInstance.dueTime!.isNotEmpty) {
+          final dueDateOnly = DateTime(
+            optimisticInstance.dueDate!.year,
+            optimisticInstance.dueDate!.month,
+            optimisticInstance.dueDate!.day,
+          );
+          if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+            // Add to planned items if not already present (by instance ID)
+            final exists = plannedItems.any(
+                (item) => item.reference.id == optimisticInstance.reference.id);
+            if (!exists) {
+              plannedItems.add(optimisticInstance);
             }
           }
         }
       }
-      // Note: We no longer handle legacy timer events or binary completions separately
-      // All time logging should use timeLogSessions for consistency
-    }
 
-    // Sort all completed events by end time (descending) for backward cascading
-    // This ensures items completed at the same time cascade backwards from completion time
-    completedEvents.sort((a, b) {
-      if (a.endTime == null || b.endTime == null) return 0;
-      // Sort descending by end time, then by start time if end times are equal
-      final endCompare = b.endTime!.compareTo(a.endTime!);
-      if (endCompare != 0) return endCompare;
-      if (a.startTime == null || b.startTime == null) return 0;
-      return b.startTime!.compareTo(a.startTime!);
-    });
+      // Process planned items
+      // Filter to only include items with a dueTime (only items with due times should appear in planned section)
+      final plannedItemsWithTime = plannedItems
+          .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
+          .toList();
 
-    // Apply backward cascading logic to prevent overlaps
-    // Events cascade backwards from their completion time
-    DateTime? earliestStartTime; // Track the earliest start time we've seen
-    final cascadedEvents = <CalendarEventData>[];
-    for (final event in completedEvents) {
-      if (event.startTime == null || event.endTime == null) continue;
+      print('[Calendar] Planned items for $selectedDateStr:');
+      print('  - Total planned items: ${plannedItems.length}');
+      print('  - Planned items with time: ${plannedItemsWithTime.length}');
 
-      DateTime startTime = event.startTime!;
-      DateTime endTime = event.endTime!;
-      final duration = endTime.difference(startTime);
+      // Items already scheduled at explicit times (exclude from routine-duration computation)
+      final explicitlyScheduledTemplateIds = <String>{
+        ...plannedItemsWithTime.map((i) => i.templateId).whereType<String>(),
+      };
 
-      // If this event's end time is after the earliest start time we've seen,
-      // shift it backwards (earlier) so it ends where the previous one starts
-      if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
-        endTime = earliestStartTime;
-        startTime = endTime.subtract(duration);
-      }
+      // Resolve planned duration per instance based on:
+      // time-target -> target minutes
+      // else -> activity estimate (if enabled+present) -> global default (if enabled) -> none
+      final plannedDurationByInstanceId = userId.isEmpty
+          ? <String, int?>{}
+          : await PlannedDurationResolver.resolveDurationMinutesForInstances(
+              userId: userId,
+              instances: plannedItemsWithTime,
+            );
 
-      // Update earliest start time (most backward/earliest time we've seen)
-      if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
-        earliestStartTime = startTime;
-      }
-
-      // Ensure date matches selected date (cascading might shift times but date should remain)
-      cascadedEvents.add(CalendarEventData(
-        date: _selectedDate,
-        startTime: startTime,
-        endTime: endTime,
-        title: event.title,
-        color: event.color,
-        description: event.description,
-        event: event.event, // Preserve metadata during cascading
-      ));
-    }
-
-    // Assign sorted completed events
-    _sortedCompletedEvents = cascadedEvents;
-    // Note: cascadedEvents are processed in reverse order (end time desc).
-    // For label collision, we want them sorted by START time ascending.
-    _sortedCompletedEvents.sort((a, b) => a.startTime!.compareTo(b.startTime!));
-
-    // Debug: Track event creation
-    print('[Calendar] Event processing for $selectedDateStr:');
-    print('  - completedEvents created: ${completedEvents.length}');
-    print('  - cascadedEvents: ${cascadedEvents.length}');
-    print('  - _sortedCompletedEvents: ${_sortedCompletedEvents.length}');
-
-    // Planned items were already fetched in the batch query above
-    final plannedItems =
-        List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
-
-    // Merge optimistic instances that should appear in planned section
-    final selectedDateOnly = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-    );
-    for (final optimisticInstance in _optimisticInstances.values) {
-      // Check if optimistic instance should appear in planned section
-      if (optimisticInstance.dueDate != null &&
-          optimisticInstance.dueTime != null &&
-          optimisticInstance.dueTime!.isNotEmpty) {
-        final dueDateOnly = DateTime(
-          optimisticInstance.dueDate!.year,
-          optimisticInstance.dueDate!.month,
-          optimisticInstance.dueDate!.day,
-        );
-        if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-          // Add to planned items if not already present (by instance ID)
-          final exists = plannedItems.any(
-              (item) => item.reference.id == optimisticInstance.reference.id);
-          if (!exists) {
-            plannedItems.add(optimisticInstance);
+      for (final item in plannedItemsWithTime) {
+        Color categoryColor;
+        // Try to use category color from instance first
+        if (item.templateCategoryColor.isNotEmpty) {
+          try {
+            categoryColor = _parseColor(item.templateCategoryColor);
+          } catch (e) {
+            // If parsing fails, fall through to category lookup
+            categoryColor = Colors.blue;
           }
-        }
-      }
-    }
-
-    // Process planned items
-    // Filter to only include items with a dueTime (only items with due times should appear in planned section)
-    final plannedItemsWithTime = plannedItems
-        .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
-        .toList();
-    
-    print('[Calendar] Planned items for $selectedDateStr:');
-    print('  - Total planned items: ${plannedItems.length}');
-    print('  - Planned items with time: ${plannedItemsWithTime.length}');
-
-    // Items already scheduled at explicit times (exclude from routine-duration computation)
-    final explicitlyScheduledTemplateIds = <String>{
-      ...plannedItemsWithTime.map((i) => i.templateId).whereType<String>(),
-    };
-
-    // Resolve planned duration per instance based on:
-    // time-target -> target minutes
-    // else -> activity estimate (if enabled+present) -> global default (if enabled) -> none
-    final plannedDurationByInstanceId = userId.isEmpty
-        ? <String, int?>{}
-        : await PlannedDurationResolver.resolveDurationMinutesForInstances(
-            userId: userId,
-            instances: plannedItemsWithTime,
-          );
-
-    for (final item in plannedItemsWithTime) {
-      Color categoryColor;
-      if (item.templateCategoryType == 'habit') {
-        CategoryRecord? category;
-        try {
-          category = allCategories.firstWhere(
-            (c) => c.reference.id == item.templateCategoryId,
-          );
-        } catch (e) {
+        } else {
+          // Look up category color from allCategories
+          CategoryRecord? category;
           try {
             category = allCategories.firstWhere(
-              (c) => c.name == item.templateCategoryName,
+              (c) => c.reference.id == item.templateCategoryId,
             );
-          } catch (e2) {
-            // Use default if category not found
+          } catch (e) {
+            try {
+              category = allCategories.firstWhere(
+                (c) => c.name == item.templateCategoryName,
+              );
+            } catch (e2) {
+              // Category not found, use fallback
+            }
+          }
+          if (category != null) {
+            categoryColor = _parseColor(category.color);
+          } else {
+            // Fallback color if category not found
+            categoryColor = Colors.blue;
           }
         }
-        categoryColor =
-            category != null ? _parseColor(category.color) : Colors.blue;
-      } else if (item.templateCategoryType == 'non_productive') {
-        categoryColor = Colors.grey;
-      } else {
-        // Tasks default to Dark Charcoal/Black
-        categoryColor = const Color(0xFF1A1A1A);
-      }
 
-      // Parse due time - no need for else block since we filtered out items without dueTime
-      DateTime startTime = _parseDueTime(item.dueTime!, _selectedDate);
+        // Parse due time - no need for else block since we filtered out items without dueTime
+        DateTime startTime = _parseDueTime(item.dueTime!, _selectedDate);
 
-      final instanceId = item.reference.id;
-      final durationMinutes = plannedDurationByInstanceId[instanceId];
-
-      final metadata = CalendarEventMetadata(
-        instanceId: instanceId,
-        sessionIndex: -1,
-        activityName: item.templateName,
-        activityType: item.templateCategoryType,
-        templateId: item.templateId,
-        categoryId:
-            item.templateCategoryId.isNotEmpty ? item.templateCategoryId : null,
-        categoryName: item.templateCategoryName.isNotEmpty
-            ? item.templateCategoryName
-            : null,
-        categoryColorHex: item.templateCategoryColor.isNotEmpty
-            ? item.templateCategoryColor
-            : null,
-      );
-
-      // If duration is null, render as a due-time marker line (very thin tile).
-      final isDueMarker = durationMinutes == null || durationMinutes <= 0;
-      final endTime = isDueMarker
-          ? startTime.add(const Duration(minutes: 1))
-          : startTime.add(Duration(minutes: durationMinutes));
-
-      plannedEvents.add(CalendarEventData(
-        date: _selectedDate,
-        startTime: startTime,
-        endTime: endTime,
-        title: item.templateName,
-        color: categoryColor,
-        description: isDueMarker
-            ? null
-            : _formatDuration(Duration(minutes: durationMinutes)),
-        event: {
-          ...metadata.toMap(),
-          'isDueMarker': isDueMarker,
-        },
-      ));
-    }
-
-    // Add routines and standalone non-productive items with due time as planned events.
-    // Excludes items already scheduled explicitly in the planned list.
-    if (userId.isNotEmpty) {
-      final routinePlanned =
-          await RoutinePlannedCalendarService.getPlannedRoutineEvents(
-        userId: userId,
-        date: _selectedDate,
-        routines: routines,
-        excludedTemplateIds: explicitlyScheduledTemplateIds,
-      );
-
-      for (final r in routinePlanned) {
-        final startTime = _parseDueTime(r.dueTime, _selectedDate);
-        final isDueMarker =
-            r.durationMinutes == null || r.durationMinutes! <= 0;
-        final endTime = isDueMarker
-            ? startTime.add(const Duration(minutes: 1))
-            : startTime.add(Duration(minutes: r.durationMinutes!));
+        final instanceId = item.reference.id;
+        final durationMinutes = plannedDurationByInstanceId[instanceId];
 
         final metadata = CalendarEventMetadata(
-          instanceId: r.routineId != null
-              ? 'routine:${r.routineId}'
-              : 'activity:${r.activityId}',
+          instanceId: instanceId,
           sessionIndex: -1,
-          activityName: r.name,
-          activityType: r.routineId != null ? 'routine' : 'non_productive',
-          templateId: r.activityId,
-          categoryId: null,
-          categoryName: null,
-          categoryColorHex: null,
+          activityName: item.templateName,
+          activityType: item.templateCategoryType,
+          templateId: item.templateId,
+          categoryId: item.templateCategoryId.isNotEmpty
+              ? item.templateCategoryId
+              : null,
+          categoryName: item.templateCategoryName.isNotEmpty
+              ? item.templateCategoryName
+              : null,
+          categoryColorHex: item.templateCategoryColor.isNotEmpty
+              ? item.templateCategoryColor
+              : null,
         );
+
+        // If duration is null, render as a due-time marker line (very thin tile).
+        final isDueMarker = durationMinutes == null || durationMinutes <= 0;
+        final endTime = isDueMarker
+            ? startTime.add(const Duration(minutes: 1))
+            : startTime.add(Duration(minutes: durationMinutes));
 
         plannedEvents.add(CalendarEventData(
           date: _selectedDate,
           startTime: startTime,
           endTime: endTime,
-          title: r.routineId != null ? 'Routine: ${r.name}' : r.name,
-          color: r.routineId != null ? Colors.deepPurple : Colors.blueGrey,
+          title: item.templateName,
+          color: categoryColor,
           description: isDueMarker
               ? null
-              : _formatDuration(Duration(minutes: r.durationMinutes!)),
+              : _formatDuration(Duration(minutes: durationMinutes)),
           event: {
             ...metadata.toMap(),
-            if (r.routineId != null) 'routineId': r.routineId,
-            if (r.activityId != null) 'activityId': r.activityId,
             'isDueMarker': isDueMarker,
           },
         ));
       }
-    }
 
-    // Sort planned events by start time and assign
-    plannedEvents.sort((a, b) {
-      if (a.startTime == null || b.startTime == null) return 0;
-      return a.startTime!.compareTo(b.startTime!);
-    });
-    _sortedPlannedEvents = plannedEvents;
-    
-    print('[Calendar] Planned events for $selectedDateStr: ${plannedEvents.length}');
+      // Add routines and standalone Essential Activities with due time as planned events.
+      // Excludes items already scheduled explicitly in the planned list.
+      if (userId.isNotEmpty) {
+        final routinePlanned =
+            await RoutinePlannedCalendarService.getPlannedRoutineEvents(
+          userId: userId,
+          date: _selectedDate,
+          routines: routines,
+          excludedTemplateIds: explicitlyScheduledTemplateIds,
+        );
 
-    // Detect overlaps in the planned schedule (for prominent conflict highlighting)
-    final overlapInfo = _computePlannedOverlaps(plannedEvents);
-    _plannedOverlapPairCount = overlapInfo.pairCount;
-    _plannedOverlappedEventIds
-      ..clear()
-      ..addAll(overlapInfo.overlappedIds);
-    _plannedOverlapGroups = overlapInfo.groups;
+        for (final r in routinePlanned) {
+          final startTime = _parseDueTime(r.dueTime, _selectedDate);
+          final isDueMarker =
+              r.durationMinutes == null || r.durationMinutes! <= 0;
+          final endTime = isDueMarker
+              ? startTime.add(const Duration(minutes: 1))
+              : startTime.add(Duration(minutes: r.durationMinutes!));
 
-    // Add legacy/timer events if any (optional, maybe filter by date?)
-    // For now, skipping legacy complex timer logic for past dates to keep it simple,
-    // or we can add them if they match date.
-    // The original code loaded them all. We should filter.
-    // Simplifying for now to focus on the requested feature.
+          final metadata = CalendarEventMetadata(
+            instanceId: r.routineId != null
+                ? 'routine:${r.routineId}'
+                : 'activity:${r.activityId}',
+            sessionIndex: -1,
+            activityName: r.name,
+            activityType: r.routineId != null ? 'routine' : 'essential',
+            templateId: r.activityId,
+            categoryId: null,
+            categoryName: null,
+            categoryColorHex: null,
+          );
 
-    // Clear and update controllers all at once to prevent flicker
-    // Old events stay visible until new ones are ready
-    _completedEventController.removeWhere((e) => true);
-    _plannedEventController.removeWhere((e) => true);
-    _completedEventController.addAll(cascadedEvents);
-    _plannedEventController.addAll(plannedEvents);
+          plannedEvents.add(CalendarEventData(
+            date: _selectedDate,
+            startTime: startTime,
+            endTime: endTime,
+            title: r.routineId != null ? 'Routine: ${r.name}' : r.name,
+            color: r.routineId != null ? Colors.deepPurple : Colors.blueGrey,
+            description: isDueMarker
+                ? null
+                : _formatDuration(Duration(minutes: r.durationMinutes!)),
+            event: {
+              ...metadata.toMap(),
+              if (r.routineId != null) 'routineId': r.routineId,
+              if (r.activityId != null) 'activityId': r.activityId,
+              'isDueMarker': isDueMarker,
+            },
+          ));
+        }
+      }
 
-    // Debug: Track controller updates
-    print('[Calendar] Controller updates:');
-    print(
-        '  - _completedEventController events: ${_completedEventController.events.length}');
-    print(
-        '  - _plannedEventController events: ${_plannedEventController.events.length}');
+      // Sort planned events by start time and assign
+      plannedEvents.sort((a, b) {
+        if (a.startTime == null || b.startTime == null) return 0;
+        return a.startTime!.compareTo(b.startTime!);
+      });
+      _sortedPlannedEvents = plannedEvents;
 
-    // Force rebuild to show new events
-    if (mounted) setState(() {});
+      print(
+          '[Calendar] Planned events for $selectedDateStr: ${plannedEvents.length}');
+
+      // Detect overlaps in the planned schedule (for prominent conflict highlighting)
+      final overlapInfo = _computePlannedOverlaps(plannedEvents);
+      _plannedOverlapPairCount = overlapInfo.pairCount;
+      _plannedOverlappedEventIds
+        ..clear()
+        ..addAll(overlapInfo.overlappedIds);
+      _plannedOverlapGroups = overlapInfo.groups;
+
+      // Add legacy/timer events if any (optional, maybe filter by date?)
+      // For now, skipping legacy complex timer logic for past dates to keep it simple,
+      // or we can add them if they match date.
+      // The original code loaded them all. We should filter.
+      // Simplifying for now to focus on the requested feature.
+
+      // Clear and update controllers all at once to prevent flicker
+      // Old events stay visible until new ones are ready
+      _completedEventController.removeWhere((e) => true);
+      _plannedEventController.removeWhere((e) => true);
+      _completedEventController.addAll(cascadedEvents);
+      _plannedEventController.addAll(plannedEvents);
+
+      // Debug: Track controller updates
+      print('[Calendar] Controller updates:');
+      print(
+          '  - _completedEventController events: ${_completedEventController.events.length}');
+      print(
+          '  - _plannedEventController events: ${_plannedEventController.events.length}');
+
+      // Force rebuild to show new events
+      if (mounted) setState(() {});
     } finally {
       // Always reset loading state
       if (mounted) {
@@ -2269,7 +2579,7 @@ class _CalendarPageState extends State<CalendarPage> {
     final labelOffset = _calculateLabelOffset(event, eventList, isCompleted);
 
     final duration = event.endTime!.difference(event.startTime!);
-    final isNonProductive = event.title.startsWith('NP:');
+    final isessential = event.title.startsWith('NP:');
     final rawEvent = event.event;
     final isDueMarker = rawEvent is Map && (rawEvent['isDueMarker'] == true);
     final isThinLine = duration.inSeconds < 60 && (isCompleted || isDueMarker);
@@ -2294,13 +2604,13 @@ class _CalendarPageState extends State<CalendarPage> {
       event,
       actualTimeBoxHeight,
       isCompleted,
-      isNonProductive,
+      isessential,
       isConflict: isConflict,
     );
 
     final label = labelFitsInside
-        ? _buildInlineLabel(event, isCompleted, isNonProductive)
-        : _buildFloatingLabel(event, isCompleted, isNonProductive);
+        ? _buildInlineLabel(event, isCompleted, isessential)
+        : _buildFloatingLabel(event, isCompleted, isessential);
 
     // Handler for long-press on time box only
     void handleLongPress() {
@@ -2368,60 +2678,52 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Widget _buildTimeBox(CalendarEventData event, double height, bool isCompleted,
-      bool isNonProductive,
+      bool isessential,
       {required bool isConflict}) {
-    // Detect non-productive tasks: check parameter OR grey color
-    final isNonProd = isNonProductive || event.color == Colors.grey;
+    // Get activity type from metadata
+    final metadata = CalendarEventMetadata.fromMap(event.event);
+    final activityType = metadata?.activityType ?? 'task';
 
-    // For non-productive tasks, use minimalist diagonal stripe pattern
-    if (isNonProd) {
-      // Light base color for non-productive tasks
-      final baseColor = Colors.grey.shade100;
-      final stripeColor = Colors.grey.shade300; // Slightly lighter for subtlety
-      final borderColor = Colors.grey.shade400; // Softer border
-
-      return Container(
-        constraints: const BoxConstraints(
-          minHeight: 1.0,
-          minWidth: 0,
-        ),
-        decoration: BoxDecoration(
-          color: baseColor,
-          borderRadius: BorderRadius.circular(4.0),
-          border: Border.all(
-            color: borderColor,
-            width: 1.0, // Thinner border for minimalism
-          ),
-        ),
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(4.0),
-          child: SizedBox.expand(
-            child: CustomPaint(
-              painter: _DiagonalStripePainter(
-                stripeColor: stripeColor,
-                stripeWidth: 3.5, // Thicker lines (was 2.0)
-                spacing:
-                    16.0, // Much more spacing (was 6.0) for minimalist look
-              ),
-            ),
-          ),
-        ),
-      );
-    }
-
-    // For regular tasks and habits, use solid color
-    // For completed items, make them solid and distinct (0.6 opacity)
-    // For planned items, keep them lighter (0.3 opacity)
+    // Determine base color and pattern based on activity type
     Color boxColor;
-    if (isCompleted) {
-      boxColor = event.color.withOpacity(0.6); // Solid color for completed
+    Color borderColor = event.color;
+    CustomPainter? patternPainter;
+
+    if (activityType == 'essential') {
+      // Essentials: Double diagonal lines pattern
+      // Use base color with transparency
+      boxColor = event.color.withOpacity(isCompleted ? 0.5 : 0.25);
+      borderColor = event.color.withOpacity(0.6);
+      patternPainter = _DoubleDiagonalPainter(
+        stripeColor: event.color.withOpacity(0.4),
+        stripeWidth: 2.5,
+        spacing: 28.0, // Increased spacing between each set of double lines
+        lineGap: 5.0, // Gap between the two lines within each pair
+      );
+    } else if (activityType == 'habit') {
+      // Habits: Dotted diagonal lines pattern
+      // Use base color with transparency
+      boxColor = event.color.withOpacity(isCompleted ? 0.5 : 0.25);
+      borderColor = event.color;
+      patternPainter = _DottedDiagonalPainter(
+        stripeColor: event.color.withOpacity(0.6),
+        stripeWidth: 3.0,
+        spacing: 12.0,
+        dotLength: 4.0,
+        dotGap: 4.0,
+      );
     } else {
-      // Planned items: increased opacity for better visibility and contrast with text
-      boxColor = event.color.withOpacity(0.3);
+      // Tasks: Solid color (no pattern)
+      if (isCompleted) {
+        boxColor = event.color.withOpacity(0.6); // Solid color for completed
+      } else {
+        // Planned items: increased opacity for better visibility and contrast with text
+        boxColor = event.color.withOpacity(0.3);
+      }
+      borderColor = event.color;
     }
 
     final conflictBorderColor = Colors.red.shade700;
-    final baseBorderColor = event.color;
 
     return Stack(
       fit: StackFit.expand,
@@ -2435,7 +2737,7 @@ class _CalendarPageState extends State<CalendarPage> {
             color: boxColor,
             borderRadius: BorderRadius.circular(4.0),
             border: Border.all(
-              color: isConflict ? conflictBorderColor : baseBorderColor,
+              color: isConflict ? conflictBorderColor : borderColor,
               width: isConflict ? 2.0 : 1.0,
             ),
             boxShadow: isConflict
@@ -2448,6 +2750,16 @@ class _CalendarPageState extends State<CalendarPage> {
                   ]
                 : null,
           ),
+          child: patternPainter != null
+              ? ClipRRect(
+                  borderRadius: BorderRadius.circular(4.0),
+                  child: SizedBox.expand(
+                    child: CustomPaint(
+                      painter: patternPainter,
+                    ),
+                  ),
+                )
+              : null,
         ),
         if (isConflict)
           ClipRRect(
@@ -2467,14 +2779,14 @@ class _CalendarPageState extends State<CalendarPage> {
   Widget _buildInlineLabel(
     CalendarEventData event,
     bool isCompleted,
-    bool isNonProductive,
+    bool isessential,
   ) {
     // Determine text color based on background luminance
     // Completed events are muted (opacity 0.4), but planned are solid/transparent blocks
     // We base it on the "perceived" background color or the event color itself
 
     Color textColor;
-    if (isNonProductive || event.color == Colors.grey) {
+    if (isessential || event.color == Colors.grey) {
       textColor = Colors.black87;
     } else if (event.color == const Color(0xFF1A1A1A)) {
       // Task color
@@ -2523,11 +2835,11 @@ class _CalendarPageState extends State<CalendarPage> {
   Widget _buildFloatingLabel(
     CalendarEventData event,
     bool isCompleted,
-    bool isNonProductive,
+    bool isessential,
   ) {
     final labelColor = event.color.withOpacity(0.9);
     Color textColor;
-    if (isNonProductive || event.color == Colors.grey) {
+    if (isessential || event.color == Colors.grey) {
       textColor = Colors.black87;
     } else if (event.color == const Color(0xFF1A1A1A)) {
       // Task color
@@ -2777,6 +3089,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                   if (!_showPlanned) {
                                     setState(() {
                                       _showPlanned = true;
+                                      // Force DayView rebuild when switching tabs
+                                      _dayViewKey = GlobalKey<DayViewState>();
                                     });
                                     _saveTabState(true);
                                   }
@@ -2820,6 +3134,8 @@ class _CalendarPageState extends State<CalendarPage> {
                                   if (_showPlanned) {
                                     setState(() {
                                       _showPlanned = false;
+                                      // Force DayView rebuild when switching tabs
+                                      _dayViewKey = GlobalKey<DayViewState>();
                                     });
                                     _saveTabState(false);
                                   }
@@ -2903,8 +3219,8 @@ class _CalendarPageState extends State<CalendarPage> {
                               // DayView is wrapped in a keyed widget to force rebuild when date changes
                               // The GlobalKey is recreated in _changeDate() to ensure proper date updates
                               DayView(
-                                // Use unique key to force rebuild when switching views or dates OR zooming
-                                // Key is recreated in _changeDate() to ensure DayView reflects selected date
+                                // Use unique key to force rebuild when switching views or dates
+                                // Key is recreated in _changeDate() and toggle to ensure DayView reflects selected date/view
                                 key: _dayViewKey,
                                 scrollOffset: _initialScrollOffset,
                                 controller: _showPlanned
@@ -2914,9 +3230,48 @@ class _CalendarPageState extends State<CalendarPage> {
                                 initialDay: _selectedDate,
                                 heightPerMinute: _calculateHeightPerMinute(),
                                 backgroundColor: Colors.white,
-                                timeLineWidth: 50,
+                                showVerticalLine:
+                                    true, // Ensure vertical line is visible
+                                timeLineWidth:
+                                    65.0, // Increased for better visibility
+                                // Ensure standard hourly steps for timeline
                                 hourIndicatorSettings: HourIndicatorSettings(
                                   color: Colors.grey.shade300,
+                                ),
+                                timeLineBuilder: (date) {
+                                  // Build time labels for the Y-axis
+                                  // This builder is called for each time slot in the day
+                                  final hour = date.hour;
+                                  final minute = date.minute;
+
+                                  // Show labels for each hour (at minute 0)
+                                  if (minute != 0)
+                                    return const SizedBox.shrink();
+
+                                  // Show hour labels (e.g., "12 AM", "1 AM", etc.)
+                                  final hour12 =
+                                      hour == 0 || hour == 12 ? 12 : hour % 12;
+                                  final period = hour < 12 ? 'AM' : 'PM';
+                                  return Container(
+                                    width: double.infinity,
+                                    padding: const EdgeInsets.only(right: 8.0),
+                                    alignment: Alignment.centerRight,
+                                    child: Text(
+                                      '$hour12 $period',
+                                      style: TextStyle(
+                                        fontSize: 12,
+                                        color: Colors.grey.shade700,
+                                        fontWeight: FontWeight.w500,
+                                      ),
+                                      textAlign: TextAlign.right,
+                                    ),
+                                  );
+                                },
+                                liveTimeIndicatorSettings:
+                                    LiveTimeIndicatorSettings(
+                                  color: Colors.red,
+                                  height: 2.0,
+                                  offset: 5,
                                 ),
                                 eventTileBuilder: (date, events, a, b, c) {
                                   return _buildEventTile(
@@ -2927,93 +3282,96 @@ class _CalendarPageState extends State<CalendarPage> {
                                       .shrink(); // Hide default header
                                 },
                                 onDateLongPress: (date) {
-                              // Calculate precise time from touch position details
-                              // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
-                              // use _lastTapDownPosition + scrollOffset to get pixels from top.
-                              if (_lastTapDownPosition != null) {
-                                // tapY is relative to the Listener widget, which wraps the DayView
-                                // The Listener is at the top of the Expanded widget (below the header)
-                                // So tapY is already relative to the DayView's content area
-                                final double tapY = _lastTapDownPosition!.dy;
+                                  // Calculate precise time from touch position details
+                                  // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
+                                  // use _lastTapDownPosition + scrollOffset to get pixels from top.
+                                  if (_lastTapDownPosition != null) {
+                                    // tapY is relative to the Listener widget, which wraps the DayView
+                                    // The Listener is at the top of the Expanded widget (below the header)
+                                    // So tapY is already relative to the DayView's content area
+                                    final double tapY =
+                                        _lastTapDownPosition!.dy;
 
-                                // Get the actual scroll position from DayView if possible
-                                // Otherwise use the tracked _currentScrollOffset
-                                double scrollOffset = _currentScrollOffset;
+                                    // Get the actual scroll position from DayView if possible
+                                    // Otherwise use the tracked _currentScrollOffset
+                                    double scrollOffset = _currentScrollOffset;
 
-                                // Try to get scroll position directly from DayView state
-                                try {
-                                  final dayViewState = _dayViewKey.currentState;
-                                  if (dayViewState != null) {
-                                    // Access scrollController if available
-                                    final dynamic state = dayViewState;
-                                    if (state.scrollController != null) {
-                                      scrollOffset = state
-                                          .scrollController.position.pixels;
+                                    // Try to get scroll position directly from DayView state
+                                    try {
+                                      final dayViewState =
+                                          _dayViewKey.currentState;
+                                      if (dayViewState != null) {
+                                        // Access scrollController if available
+                                        final dynamic state = dayViewState;
+                                        if (state.scrollController != null) {
+                                          scrollOffset = state
+                                              .scrollController.position.pixels;
+                                        }
+                                      }
+                                    } catch (e) {
+                                      // Fallback to tracked offset
                                     }
+
+                                    // Calculate total pixels from top of timeline (midnight)
+                                    // tapY is the position in the visible viewport
+                                    // scrollOffset is how far we've scrolled from the top
+                                    final double totalPixels =
+                                        tapY + scrollOffset;
+                                    final double totalMinutes = totalPixels /
+                                        _calculateHeightPerMinute();
+
+                                    // Convert total minutes to HH:MM on the selected date
+                                    final int totalMinutesInt =
+                                        totalMinutes.toInt();
+                                    final int hours = totalMinutesInt ~/ 60;
+                                    final int minutes = totalMinutesInt % 60;
+
+                                    // Round minutes to nearest 5
+                                    final int remainder = minutes % 5;
+                                    final int roundedMinute = remainder >= 2.5
+                                        ? minutes + (5 - remainder)
+                                        : minutes - remainder;
+
+                                    final startTime = DateTime(
+                                      _selectedDate.year,
+                                      _selectedDate.month,
+                                      _selectedDate.day,
+                                      hours,
+                                      0, // Start from 0 minutes and add rounded minutes
+                                    ).add(Duration(minutes: roundedMinute));
+
+                                    final endTime = startTime.add(Duration(
+                                        minutes: _defaultDurationMinutes));
+
+                                    _showManualEntryDialog(
+                                      startTime: startTime,
+                                      endTime: endTime,
+                                    );
+                                  } else {
+                                    // Fallback to old logic if no tap position (unlikely)
+                                    final minute = date.minute;
+                                    final remainder = minute % 5;
+                                    final roundedMinute = remainder >= 2.5
+                                        ? minute + (5 - remainder)
+                                        : minute - remainder;
+
+                                    final startTime = DateTime(
+                                      date.year,
+                                      date.month,
+                                      date.day,
+                                      date.hour,
+                                      roundedMinute,
+                                    );
+                                    final endTime = startTime.add(Duration(
+                                        minutes: _defaultDurationMinutes));
+
+                                    _showManualEntryDialog(
+                                      startTime: startTime,
+                                      endTime: endTime,
+                                    );
                                   }
-                                } catch (e) {
-                                  // Fallback to tracked offset
-                                }
-
-                                // Calculate total pixels from top of timeline (midnight)
-                                // tapY is the position in the visible viewport
-                                // scrollOffset is how far we've scrolled from the top
-                                final double totalPixels = tapY + scrollOffset;
-                                final double totalMinutes =
-                                    totalPixels / _calculateHeightPerMinute();
-
-                                // Convert total minutes to HH:MM on the selected date
-                                final int totalMinutesInt =
-                                    totalMinutes.toInt();
-                                final int hours = totalMinutesInt ~/ 60;
-                                final int minutes = totalMinutesInt % 60;
-
-                                // Round minutes to nearest 5
-                                final int remainder = minutes % 5;
-                                final int roundedMinute = remainder >= 2.5
-                                    ? minutes + (5 - remainder)
-                                    : minutes - remainder;
-
-                                final startTime = DateTime(
-                                  _selectedDate.year,
-                                  _selectedDate.month,
-                                  _selectedDate.day,
-                                  hours,
-                                  0, // Start from 0 minutes and add rounded minutes
-                                ).add(Duration(minutes: roundedMinute));
-
-                                final endTime = startTime.add(
-                                    Duration(minutes: _defaultDurationMinutes));
-
-                                _showManualEntryDialog(
-                                  startTime: startTime,
-                                  endTime: endTime,
-                                );
-                              } else {
-                                // Fallback to old logic if no tap position (unlikely)
-                                final minute = date.minute;
-                                final remainder = minute % 5;
-                                final roundedMinute = remainder >= 2.5
-                                    ? minute + (5 - remainder)
-                                    : minute - remainder;
-
-                                final startTime = DateTime(
-                                  date.year,
-                                  date.month,
-                                  date.day,
-                                  date.hour,
-                                  roundedMinute,
-                                );
-                                final endTime = startTime.add(
-                                    Duration(minutes: _defaultDurationMinutes));
-
-                                _showManualEntryDialog(
-                                  startTime: startTime,
-                                  endTime: endTime,
-                                );
-                              }
-                            },
-                          ),
+                                },
+                              ),
                               // Loading overlay
                               if (_isLoadingEvents)
                                 Positioned.fill(

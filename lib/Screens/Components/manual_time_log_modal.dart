@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
@@ -46,8 +47,10 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
   final FocusNode _activityFocusNode = FocusNode();
   final GlobalKey _textFieldKey = GlobalKey();
 
-  // 'task', 'habit', 'non_productive'
+  // 'task', 'habit', 'essential'
   String _selectedType = 'task';
+  List<CategoryRecord> _allCategories = [];
+  CategoryRecord? _selectedCategory;
 
   late DateTime _startTime;
   late DateTime _endTime;
@@ -135,6 +138,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     }
     _loadDefaultDuration();
     _loadActivities();
+    _loadCategories();
 
     // If editing, prefill the form
     if (widget.editMetadata != null) {
@@ -143,6 +147,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       // Find and select the template if it exists
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await _loadActivities(); // Ensure activities are loaded
+        await _loadCategories(); // Ensure categories are loaded
         if (mounted && widget.editMetadata!.templateId != null) {
           final template = _allActivities.firstWhereOrNull(
             (a) => a.reference.id == widget.editMetadata!.templateId,
@@ -150,6 +155,12 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
           if (template != null) {
             setState(() {
               _selectedTemplate = template;
+              // Set category from template
+              _selectedCategory = _allCategories.firstWhereOrNull(
+                (c) =>
+                    c.reference.id == template.categoryId ||
+                    c.name == template.categoryName,
+              );
             });
           }
         }
@@ -217,9 +228,47 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     }
   }
 
+  Future<void> _loadCategories() async {
+    final uid = currentUserUid;
+    final categories = await queryCategoriesRecordOnce(
+      userId: uid,
+      callerTag: 'ManualTimeLogModal',
+    );
+    if (mounted) {
+      setState(() {
+        _allCategories = categories;
+        _updateDefaultCategory();
+      });
+    }
+  }
+
+  void _updateDefaultCategory() {
+    if (_selectedTemplate != null) {
+      _selectedCategory = _allCategories.firstWhereOrNull((c) =>
+          c.reference.id == _selectedTemplate?.categoryId ||
+          c.name == _selectedTemplate?.categoryName);
+      return;
+    }
+
+    if (_selectedType == 'task') {
+      _selectedCategory = _allCategories.firstWhereOrNull(
+          (c) => c.name == 'Inbox' && c.categoryType == 'task');
+    } else if (_selectedType == 'essential') {
+      _selectedCategory = _allCategories.firstWhereOrNull((c) =>
+          (c.name == 'Others' || c.name == 'Other') &&
+          c.categoryType == 'essential');
+
+      // Fallback if "Others" not found for essential
+      _selectedCategory ??= _allCategories.firstWhereOrNull((c) =>
+          c.name == 'essential' ||
+          c.name == 'Essential' ||
+          c.categoryType == 'essential');
+    }
+  }
+
   Future<void> _loadActivities() async {
     final uid = currentUserUid;
-    // Include sequence items to ensure non-productive tasks are fetched
+    // Include sequence items to ensure Essential Activities are fetched
     final activities = await queryActivitiesRecordOnce(
       userId: uid,
       includeSequenceItems: true,
@@ -243,8 +292,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
           typeMatch = activity.categoryType == 'habit';
         } else if (_selectedType == 'task') {
           typeMatch = activity.categoryType == 'task';
-        } else if (_selectedType == 'non_productive') {
-          typeMatch = activity.categoryType == 'non_productive';
+        } else if (_selectedType == 'essential') {
+          typeMatch = activity.categoryType == 'essential';
         }
 
         if (!typeMatch) return false;
@@ -321,6 +370,21 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                         _activityController.text = item.name;
                         _showSuggestions = false;
 
+                        // Auto-select category from template
+                        _selectedCategory = _allCategories.firstWhereOrNull(
+                          (c) =>
+                              c.reference.id == item.categoryId ||
+                              c.name == item.categoryName,
+                        );
+
+                        // Update duration from template estimate if not from timer
+                        if (widget.initialEndTime == null &&
+                            item.timeEstimateMinutes != null &&
+                            item.timeEstimateMinutes! > 0) {
+                          _endTime = _startTime.add(
+                              Duration(minutes: item.timeEstimateMinutes!));
+                        }
+
                         // Initialize completion controls based on tracking type
                         // If from timer and binary task, auto-mark as complete
                         if (widget.fromTimer && item.trackingType == 'binary') {
@@ -357,6 +421,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       _selectedType = type;
       _selectedTemplate = null;
       _activityController.clear();
+      _updateDefaultCategory();
       _removeOverlay();
       _onSearchChanged();
       _updatePreview();
@@ -369,7 +434,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     Color? previewColor;
     if (_selectedType == 'habit') {
       previewColor = Colors.orange;
-    } else if (_selectedType == 'non_productive') {
+    } else if (_selectedType == 'essential') {
       previewColor = Colors.grey;
     } else {
       previewColor =
@@ -387,7 +452,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
   bool _shouldMarkCompleteOnSave() {
     bool shouldComplete = widget.markCompleteOnSave;
     if (_selectedTemplate != null &&
-        _selectedTemplate!.trackingType == 'binary' &&
+        _selectedTemplate?.trackingType == 'binary' &&
         _markAsComplete) {
       shouldComplete = true;
     }
@@ -574,13 +639,16 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       } else {
         // Create new entry
         final shouldMarkComplete = _shouldMarkCompleteOnSave();
+
         await TaskInstanceService.logManualTimeEntry(
           taskName: _selectedTemplate?.name ?? name,
           startTime: _startTime,
           endTime: _endTime,
-          activityType: _selectedType, // 'task', 'habit', 'non_productive'
+          activityType: _selectedType, // 'task', 'habit', 'essential'
           templateId: templateId,
           markComplete: shouldMarkComplete,
+          categoryId: _selectedCategory?.reference.id,
+          categoryName: _selectedCategory?.name,
         );
       }
 
@@ -636,7 +704,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       // For non-timer types (binary, quantitative), show dialog with options
       bool shouldUncomplete = false;
       if (instance.status == 'completed' &&
-          instance.templateTrackingType != 'time') {
+          instance.templateTrackingType != 'time' &&
+          instance.templateCategoryType != 'essential') {
         // Show dialog asking user what to do
         final userChoice = await showDialog<String>(
           context: context,
@@ -835,8 +904,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                             const SizedBox(width: 8),
                             _buildTypeChip('Habit', 'habit', theme),
                             const SizedBox(width: 8),
-                            _buildTypeChip(
-                                'Non-Productive', 'non_productive', theme),
+                            _buildTypeChip('essential', 'essential', theme),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -880,8 +948,10 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                                       icon: const Icon(Icons.clear, size: 16),
                                       onPressed: () {
                                         _activityController.clear();
-                                        setState(
-                                            () => _selectedTemplate = null);
+                                        setState(() {
+                                          _selectedTemplate = null;
+                                          _updateDefaultCategory();
+                                        });
                                         _removeOverlay();
                                       },
                                     )
@@ -889,6 +959,11 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                             ),
                           ),
                         ),
+
+                        const SizedBox(height: 10),
+
+                        // Category Dropdown
+                        _buildCategoryDropdown(theme),
 
                         const SizedBox(height: 10),
 
@@ -1032,7 +1107,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     Color color;
     if (value == 'habit') {
       color = Colors.orange;
-    } else if (value == 'non_productive') {
+    } else if (value == 'essential') {
       color = Colors.grey;
     } else {
       color = theme.primary; // Task
@@ -1061,6 +1136,74 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
               ),
             ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildCategoryDropdown(FlutterFlowTheme theme) {
+    // If habit is selected, we usually don't allow changing category for existing ones
+    final isLocked = _selectedTemplate != null;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      decoration: BoxDecoration(
+        color: isLocked ? Colors.grey[100] : theme.tertiary.withOpacity(0.1),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButtonFormField<CategoryRecord>(
+          value: _selectedCategory,
+          decoration: const InputDecoration(
+            border: InputBorder.none,
+            isDense: true,
+            icon: Icon(Icons.category, size: 20, color: Colors.grey),
+          ),
+          hint: Text('Select Category', style: theme.bodySmall),
+          isExpanded: true,
+          style: theme.bodyMedium,
+          disabledHint: _selectedCategory != null
+              ? Text(_selectedCategory!.name, style: theme.bodyMedium)
+              : null,
+          items: isLocked
+              ? null
+              : _allCategories.map((category) {
+                  Color categoryColor;
+                  try {
+                    categoryColor = Color(
+                        int.parse(category.color.replaceFirst('#', '0xFF')));
+                  } catch (e) {
+                    categoryColor = theme.primary;
+                  }
+                  return DropdownMenuItem<CategoryRecord>(
+                    value: category,
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 12,
+                          height: 12,
+                          decoration: BoxDecoration(
+                            color: categoryColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(category.name),
+                      ],
+                    ),
+                  );
+                }).toList(),
+          onChanged: isLocked
+              ? null
+              : (value) {
+                  setState(() {
+                    _selectedCategory = value;
+                  });
+                },
         ),
       ),
     );
@@ -1200,7 +1343,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       return const SizedBox.shrink();
     }
 
-    // Non-productive or unknown: No controls
+    // essential or unknown: No controls
     return const SizedBox.shrink();
   }
 }

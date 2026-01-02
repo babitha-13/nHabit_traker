@@ -32,7 +32,8 @@ class _ManualTimeEntryDialogState extends State<ManualTimeEntryDialog> {
   void initState() {
     super.initState();
     final now = DateTime.now();
-    _startTime = DateTime(widget.selectedDate.year, widget.selectedDate.month, widget.selectedDate.day, now.hour, now.minute);
+    _startTime = DateTime(widget.selectedDate.year, widget.selectedDate.month,
+        widget.selectedDate.day, now.hour, now.minute);
     _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
     _loadDefaultDuration();
   }
@@ -42,11 +43,13 @@ class _ManualTimeEntryDialogState extends State<ManualTimeEntryDialog> {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
         final enableDefaultEstimates =
-            await TimeLoggingPreferencesService.getEnableDefaultEstimates(userId);
+            await TimeLoggingPreferencesService.getEnableDefaultEstimates(
+                userId);
         int durationMinutes = 10; // Default fallback
         if (enableDefaultEstimates) {
-          durationMinutes = await TimeLoggingPreferencesService
-              .getDefaultDurationMinutes(userId);
+          durationMinutes =
+              await TimeLoggingPreferencesService.getDefaultDurationMinutes(
+                  userId);
         }
         if (mounted) {
           setState(() {
@@ -55,7 +58,8 @@ class _ManualTimeEntryDialogState extends State<ManualTimeEntryDialog> {
             // Update end time if it was set to the old default
             if (_endTime.isBefore(_startTime) ||
                 _endTime.isAtSameMomentAs(_startTime)) {
-              _endTime = _startTime.add(Duration(minutes: _defaultDurationMinutes));
+              _endTime =
+                  _startTime.add(Duration(minutes: _defaultDurationMinutes));
             }
           });
         }
@@ -129,7 +133,7 @@ class _ManualTimeEntryDialogState extends State<ManualTimeEntryDialog> {
         taskName: _nameController.text,
         startTime: _startTime,
         endTime: _endTime,
-        activityType: _isProductive ? 'task' : 'non_productive',
+        activityType: _isProductive ? 'task' : 'essential',
       );
       widget.onSave();
       Navigator.of(context).pop();
@@ -168,7 +172,7 @@ class _ManualTimeEntryDialogState extends State<ManualTimeEntryDialog> {
               ),
               const SizedBox(height: 16),
               SwitchListTile(
-                title: Text(_isProductive ? 'Productive Task' : 'Non-Productive'),
+                title: Text(_isProductive ? 'Productive Task' : 'essential'),
                 value: _isProductive,
                 onChanged: (value) {
                   setState(() {

@@ -488,8 +488,8 @@ class _HabitsPageState extends State<HabitsPage> {
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
-          bottomLeft: expanded ? Radius.zero : const Radius.circular(16),
-          bottomRight: expanded ? Radius.zero : const Radius.circular(16),
+          bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
+          bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
         ),
         boxShadow: expanded
             ? []

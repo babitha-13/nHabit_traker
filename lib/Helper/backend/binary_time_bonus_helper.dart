@@ -32,7 +32,13 @@ class BinaryTimeBonusHelper {
     required double countValue,
     required bool isTimeLikeUnit,
   }) {
-    if (!isTimeLikeUnit && countValue > 0) {
+    // A "timer task" is one where currentValue matches the logged time (in MS).
+    // In these cases, countValue is duration, not a "times completed" counter.
+    final isTimerTaskValue = countValue > 0 &&
+        (countValue == instance.accumulatedTime.toDouble() ||
+            countValue == instance.totalTimeLogged.toDouble());
+
+    if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
       return true;
     }
     return instance.status == 'completed';

@@ -4,10 +4,12 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
-/// Service to manage non-productive items (sleep, travel, rest, etc.)
+/// Service to manage Essential Activities (sleep, travel, rest, etc.)
 /// These items track time but don't earn points
-class NonProductiveService {
+class essentialService {
   /// Get current user ID
   static String get _currentUserId {
     final user = FirebaseAuth.instance.currentUser;
@@ -15,10 +17,11 @@ class NonProductiveService {
     return user.uid;
   }
 
-  /// Create a reusable non-productive template (e.g., "Sleep", "Travel")
-  static Future<DocumentReference> createNonProductiveTemplate({
+  /// Create a reusable essential template (e.g., "Sleep", "Travel")
+  static Future<DocumentReference> createessentialTemplate({
     required String name,
     String? description,
+    String? categoryId,
     String? categoryName,
     String? trackingType,
     dynamic target,
@@ -33,10 +36,25 @@ class NonProductiveService {
   }) async {
     final uid = userId ?? _currentUserId;
     final now = DateTime.now();
+    // If categoryId is not provided, get or create default "Others" category
+    String finalCategoryId = categoryId ?? '';
+    String finalCategoryName = categoryName ?? 'Others';
+    if (finalCategoryId.isEmpty) {
+      try {
+        final defaultCategory =
+            await getOrCreateEssentialDefaultCategory(userId: uid);
+        finalCategoryId = defaultCategory.reference.id;
+        finalCategoryName = defaultCategory.name;
+      } catch (e) {
+        // If default category creation fails, continue with empty categoryId
+        // The template will still be created but without a category
+      }
+    }
     final templateData = createActivityRecordData(
       name: name,
-      categoryName: categoryName ?? 'Non-Productive',
-      categoryType: 'non_productive',
+      categoryId: finalCategoryId.isNotEmpty ? finalCategoryId : null,
+      categoryName: finalCategoryName,
+      categoryType: 'essential',
       description: description,
       trackingType: trackingType ?? 'binary', // Default to binary tracking
       target: target,
@@ -57,8 +75,8 @@ class NonProductiveService {
     return await ActivityRecord.collectionForUser(uid).add(templateData);
   }
 
-  /// Create a non-productive instance with time log on demand
-  static Future<DocumentReference> createNonProductiveInstance({
+  /// Create a essential instance with time log on demand
+  static Future<DocumentReference> createessentialInstance({
     required String templateId,
     required DateTime startTime,
     required DateTime endTime,
@@ -73,8 +91,8 @@ class NonProductiveService {
       throw Exception('Template not found');
     }
     final template = ActivityRecord.fromSnapshot(templateDoc);
-    if (template.categoryType != 'non_productive') {
-      throw Exception('Template is not a non-productive item');
+    if (template.categoryType != 'essential') {
+      throw Exception('Template is not a essential item');
     }
     // Calculate duration
     final duration = endTime.difference(startTime);
@@ -103,7 +121,7 @@ class NonProductiveService {
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       status:
-          'completed', // Non-productive items are marked complete when logged
+          'completed', // Essential Activities are marked complete when logged
       completedAt: endTime,
       createdTime: DateTime.now(),
       lastUpdated: DateTime.now(),
@@ -113,7 +131,7 @@ class NonProductiveService {
       templateName: template.name,
       templateCategoryId: template.categoryId,
       templateCategoryName: template.categoryName,
-      templateCategoryType: 'non_productive',
+      templateCategoryType: 'essential',
       templatePriority: template.priority,
       templateTrackingType: template.trackingType,
       templateDescription: template.description,
@@ -126,18 +144,32 @@ class NonProductiveService {
       habitsOrder: habitsOrder,
       tasksOrder: tasksOrder,
     );
-    return await ActivityInstanceRecord.collectionForUser(uid)
+    
+    // Create instance and get reference
+    final instanceRef = await ActivityInstanceRecord.collectionForUser(uid)
         .add(instanceData);
+    
+    // Fetch the created instance and broadcast optimistic update
+    final createdInstance = await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+    
+    // Broadcast optimistic instance creation for immediate calendar update
+    final operationId = 'essential_create_${DateTime.now().millisecondsSinceEpoch}';
+    InstanceEvents.broadcastInstanceCreatedOptimistic(createdInstance, operationId);
+    
+    // Also broadcast as updated since it's completed with time logs
+    InstanceEvents.broadcastInstanceUpdatedOptimistic(createdInstance, operationId);
+    
+    return instanceRef;
   }
 
-  /// Get all non-productive templates for the user
-  static Future<List<ActivityRecord>> getNonProductiveTemplates({
+  /// Get all essential templates for the user
+  static Future<List<ActivityRecord>> getessentialTemplates({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
       final query = ActivityRecord.collectionForUser(uid)
-          .where('categoryType', isEqualTo: 'non_productive')
+          .where('categoryType', isEqualTo: 'essential')
           .where('isActive', isEqualTo: true);
       final result = await query.get();
       return result.docs
@@ -165,9 +197,9 @@ class NonProductiveService {
         throw Exception('Instance not found');
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      // Validate it's a non-productive instance
-      if (instance.templateCategoryType != 'non_productive') {
-        throw Exception('Instance is not a non-productive item');
+      // Validate it's a essential instance
+      if (instance.templateCategoryType != 'essential') {
+        throw Exception('Instance is not a essential item');
       }
       // Calculate duration
       final duration = endTime.difference(startTime);
@@ -199,8 +231,8 @@ class NonProductiveService {
     }
   }
 
-  /// Delete a non-productive template
-  static Future<void> deleteNonProductiveTemplate({
+  /// Delete a essential template
+  static Future<void> deleteessentialTemplate({
     required String templateId,
     String? userId,
   }) async {
@@ -212,8 +244,8 @@ class NonProductiveService {
         throw Exception('Template not found');
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
-      if (template.categoryType != 'non_productive') {
-        throw Exception('Template is not a non-productive item');
+      if (template.categoryType != 'essential') {
+        throw Exception('Template is not a essential item');
       }
       // Soft delete: mark as inactive
       await templateRef.update({
@@ -235,11 +267,12 @@ class NonProductiveService {
     }
   }
 
-  /// Update a non-productive template
-  static Future<void> updateNonProductiveTemplate({
+  /// Update a essential template
+  static Future<void> updateessentialTemplate({
     required String templateId,
     String? name,
     String? description,
+    String? categoryId,
     String? categoryName,
     String? trackingType,
     dynamic target,
@@ -260,14 +293,15 @@ class NonProductiveService {
         throw Exception('Template not found');
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
-      if (template.categoryType != 'non_productive') {
-        throw Exception('Template is not a non-productive item');
+      if (template.categoryType != 'essential') {
+        throw Exception('Template is not a essential item');
       }
       final updateData = <String, dynamic>{
         'lastUpdated': DateTime.now(),
       };
       if (name != null) updateData['name'] = name;
       if (description != null) updateData['description'] = description;
+      if (categoryId != null) updateData['categoryId'] = categoryId;
       if (categoryName != null) updateData['categoryName'] = categoryName;
       if (trackingType != null) updateData['trackingType'] = trackingType;
       if (target != null) updateData['target'] = target;
@@ -285,7 +319,8 @@ class NonProductiveService {
         updateData['isRecurring'] = frequencyType.isNotEmpty;
       }
       if (everyXValue != null) updateData['everyXValue'] = everyXValue;
-      if (everyXPeriodType != null) updateData['everyXPeriodType'] = everyXPeriodType;
+      if (everyXPeriodType != null)
+        updateData['everyXPeriodType'] = everyXPeriodType;
       if (specificDays != null) updateData['specificDays'] = specificDays;
 
       await templateRef.update(updateData);
@@ -293,27 +328,36 @@ class NonProductiveService {
       // Cascade updates to instances
       final instanceUpdates = <String, dynamic>{};
       if (name != null) instanceUpdates['templateName'] = name;
-      if (description != null) instanceUpdates['templateDescription'] = description;
-      if (categoryName != null) instanceUpdates['templateCategoryName'] = categoryName;
-      if (trackingType != null) instanceUpdates['templateTrackingType'] = trackingType;
+      if (description != null)
+        instanceUpdates['templateDescription'] = description;
+      if (categoryId != null)
+        instanceUpdates['templateCategoryId'] = categoryId;
+      if (categoryName != null)
+        instanceUpdates['templateCategoryName'] = categoryName;
+      if (trackingType != null)
+        instanceUpdates['templateTrackingType'] = trackingType;
       if (target != null) instanceUpdates['templateTarget'] = target;
       if (unit != null) instanceUpdates['templateUnit'] = unit;
       if (updateData.containsKey('timeEstimateMinutes')) {
-        instanceUpdates['templateTimeEstimateMinutes'] = updateData['timeEstimateMinutes'];
+        instanceUpdates['templateTimeEstimateMinutes'] =
+            updateData['timeEstimateMinutes'];
       }
       if (dueTime != null) instanceUpdates['templateDueTime'] = dueTime;
       if (frequencyType != null) {
         instanceUpdates['templateFrequencyType'] = frequencyType;
         instanceUpdates['templateIsRecurring'] = frequencyType.isNotEmpty;
       }
-      if (everyXValue != null) instanceUpdates['templateEveryXValue'] = everyXValue;
-      if (everyXPeriodType != null) instanceUpdates['templateEveryXPeriodType'] = everyXPeriodType;
+      if (everyXValue != null)
+        instanceUpdates['templateEveryXValue'] = everyXValue;
+      if (everyXPeriodType != null)
+        instanceUpdates['templateEveryXPeriodType'] = everyXPeriodType;
 
       if (instanceUpdates.isNotEmpty) {
         await ActivityInstanceService.updateActivityInstancesCascade(
           templateId: templateId,
           updates: instanceUpdates,
-          updateHistorical: false, // Non-productive usually doesn't need historical updates
+          updateHistorical:
+              false, // essential usually doesn't need historical updates
         );
       }
     } catch (e) {

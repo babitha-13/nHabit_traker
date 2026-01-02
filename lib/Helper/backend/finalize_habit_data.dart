@@ -1,9 +1,20 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
+
 /// Finalizes habit data for the current user
 /// This function can be used to clean up old habit records,
 /// update completion status, or perform other maintenance tasks
 Future<void> finalizeActivityData(String userId) async {
   try {
+    // Ensure default system categories exist
+    try {
+      await getOrCreateInboxCategory(userId: userId);
+      await getOrCreateEssentialDefaultCategory(userId: userId);
+    } catch (e) {
+      // Non-critical, but log it
+      print('Error ensuring default categories in finalizeActivityData: $e');
+    }
+
     // Get current date
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);

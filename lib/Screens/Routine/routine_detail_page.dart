@@ -95,7 +95,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
             continue;
           }
 
-          // Auto-create instances for habits, tasks, and non-productive items
+          // Auto-create instances for habits, tasks, and Essential Activities
           if (itemType == 'habit' || itemType == 'task') {
             try {
               final newInstance =
@@ -110,11 +110,10 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               // Silently fail for individual instance creation - item will show as missing
               // This prevents one failed instance from breaking the entire routine load
             }
-          } else if (itemType == 'non_productive') {
-            // Create pending instance for non-productive items so they can use ItemComponent
+          } else if (itemType == 'essential') {
+            // Create pending instance for Essential Activities so they can use ItemComponent
             try {
-              final newInstance =
-                  await _createPendingNonProductiveInstance(itemId);
+              final newInstance = await _createPendingessentialInstance(itemId);
               if (newInstance != null) {
                 instances[itemId] = newInstance;
               }
@@ -167,8 +166,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       return;
     }
     final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
-      (mapEntry) =>
-          mapEntry.value.reference.id == updatedInstance.reference.id,
+      (mapEntry) => mapEntry.value.reference.id == updatedInstance.reference.id,
     );
     if (entry == null) {
       return;
@@ -184,8 +182,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       return;
     }
     final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
-      (mapEntry) =>
-          mapEntry.value.reference.id == deletedInstance.reference.id,
+      (mapEntry) => mapEntry.value.reference.id == deletedInstance.reference.id,
     );
     if (entry == null) {
       return;
@@ -312,7 +309,8 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       adjustedNewIndex -= 1;
     }
 
-    final currentOrder = List<String>.from(_routineWithInstances!.routine.itemOrder);
+    final currentOrder =
+        List<String>.from(_routineWithInstances!.routine.itemOrder);
     if (oldIndex < 0 ||
         oldIndex >= currentOrder.length ||
         adjustedNewIndex < 0 ||
@@ -349,9 +347,9 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     }
   }
 
-  /// Create a pending instance for a non-productive item (for display with ItemComponent)
+  /// Create a pending instance for a essential item (for display with ItemComponent)
   /// Reuses existing instance for today if available, otherwise creates new one
-  Future<ActivityInstanceRecord?> _createPendingNonProductiveInstance(
+  Future<ActivityInstanceRecord?> _createPendingessentialInstance(
       String itemId) async {
     try {
       // First, check if there's already an instance for today
@@ -392,22 +390,22 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       }
       return null;
     } catch (e) {
-      print('RoutineDetailPage: Error creating non-productive instance: $e');
+      print('RoutineDetailPage: Error creating essential instance: $e');
       return null;
     }
   }
 
   Future<void> _resetRoutineItems() async {
-    // Check if there are any non-productive items to reset
+    // Check if there are any Essential Activities to reset
     final hasRoutineItems = _routineWithInstances?.routine.itemTypes
-            .any((type) => type == 'non_productive') ??
+            .any((type) => type == 'essential') ??
         false;
 
     if (!hasRoutineItems) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('No non-productive items to reset'),
+            content: Text('No Essential Activities to reset'),
             backgroundColor: Colors.orange,
           ),
         );
@@ -419,9 +417,9 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
-        title: const Text('Reset Non-Productive Items'),
+        title: const Text('Reset Essential Activities'),
         content: const Text(
-            'This will create fresh instances for all completed non-productive items. '
+            'This will create fresh instances for all completed Essential Activities. '
             'Habits and tasks will not be affected.\n\n'
             'Continue?'),
         actions: [
@@ -444,7 +442,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-            content: Text('Resetting non-productive items...'),
+            content: Text('Resetting Essential Activities...'),
             duration: Duration(seconds: 1),
           ),
         );
@@ -465,7 +463,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'Reset $resetCount non-productive item${resetCount != 1 ? 's' : ''}'),
+                'Reset $resetCount essential item${resetCount != 1 ? 's' : ''}'),
             backgroundColor: Colors.green,
           ),
         );
@@ -474,7 +472,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error resetting non-productive items: $e'),
+            content: Text('Error resetting Essential Activities: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -526,7 +524,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           IconButton(
             onPressed: _resetRoutineItems,
             icon: const Icon(Icons.refresh_outlined),
-            tooltip: 'Reset Non-Productive Items',
+            tooltip: 'Reset Essential Activities',
             color: theme.secondaryText,
             iconSize: 20,
           ),
@@ -570,7 +568,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       );
     }
 
-    // Use ItemComponent for all items with instances (habits, tasks, and non-productive)
+    // Use ItemComponent for all items with instances (habits, tasks, and essential)
     // Use actual category color if available, fallback to category lookup
     final categoryColor = instance.templateCategoryColor.isNotEmpty
         ? instance.templateCategoryColor
@@ -601,6 +599,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showTypeIcon: true,
       showRecurringIcon: true,
       showCompleted: true,
+      treatAsBinary: true,
     );
   }
 
@@ -677,20 +676,26 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                       ),
                     // Items in Order (reorderable)
                     SliverReorderableList(
-                      itemCount: _routineWithInstances!.routine.itemOrder.length,
+                      itemCount:
+                          _routineWithInstances!.routine.itemOrder.length,
                       onReorder: _onReorderItems,
                       itemBuilder: (context, index) {
                         final itemId =
                             _routineWithInstances!.routine.itemOrder[index];
-                        final instance = _routineWithInstances!.instances[itemId];
-                        final itemType = _routineWithInstances!.routine.itemTypes
-                                    .isNotEmpty &&
-                                index < _routineWithInstances!.routine.itemTypes.length
+                        final instance =
+                            _routineWithInstances!.instances[itemId];
+                        final itemType = _routineWithInstances!
+                                    .routine.itemTypes.isNotEmpty &&
+                                index <
+                                    _routineWithInstances!
+                                        .routine.itemTypes.length
                             ? _routineWithInstances!.routine.itemTypes[index]
                             : 'habit';
-                        final itemName = _routineWithInstances!.routine.itemNames
-                                    .isNotEmpty &&
-                                index < _routineWithInstances!.routine.itemNames.length
+                        final itemName = _routineWithInstances!
+                                    .routine.itemNames.isNotEmpty &&
+                                index <
+                                    _routineWithInstances!
+                                        .routine.itemNames.length
                             ? _routineWithInstances!.routine.itemNames[index]
                             : 'Unknown Item';
 

@@ -45,6 +45,10 @@ class ItemComponent extends StatefulWidget {
   final String? subtitle;
   final bool showExpandedCategoryName;
   final DateTime? progressReferenceTime;
+  final bool showQuickLogOnLeft; // NEW: Flag to show + on left
+  final VoidCallback? onQuickLog; // NEW: Callback for + on left
+  final bool
+      treatAsBinary; // NEW: Forces checklist behavior regardless of tracking type
   const ItemComponent(
       {Key? key,
       required this.instance,
@@ -65,7 +69,10 @@ class ItemComponent extends StatefulWidget {
       this.subtitle,
       this.page,
       this.showExpandedCategoryName = false,
-      this.progressReferenceTime})
+      this.progressReferenceTime,
+      this.showQuickLogOnLeft = false,
+      this.onQuickLog,
+      this.treatAsBinary = false})
       : super(key: key);
   @override
   State<ItemComponent> createState() => _ItemComponentState();
@@ -142,9 +149,8 @@ class _ItemComponentState extends State<ItemComponent>
         _stopTimer();
       }
     }
-    final estimateChanged =
-        widget.instance.templateTimeEstimateMinutes !=
-            oldWidget.instance.templateTimeEstimateMinutes;
+    final estimateChanged = widget.instance.templateTimeEstimateMinutes !=
+        oldWidget.instance.templateTimeEstimateMinutes;
     final instanceChanged =
         widget.instance.reference.id != oldWidget.instance.reference.id;
     if (estimateChanged || instanceChanged) {
@@ -494,7 +500,7 @@ class _ItemComponentState extends State<ItemComponent>
                           if (_getEnhancedSubtitle(
                                       includeProgress: _shouldShowProgress)
                                   .isNotEmpty &&
-                              !_isNonProductive) ...[
+                              !_isessential) ...[
                             const SizedBox(height: 2),
                             Text(
                               _getEnhancedSubtitle(
@@ -515,7 +521,7 @@ class _ItemComponentState extends State<ItemComponent>
                                   ),
                             ),
                           ],
-                          if (_isExpanded && !_isNonProductive) ...[
+                          if (_isExpanded && !_isessential) ...[
                             const SizedBox(height: 4),
                             ItemExpandedDetails(
                               instance: widget.instance,
@@ -528,14 +534,14 @@ class _ItemComponentState extends State<ItemComponent>
                               reminderDisplayText: _reminderDisplayText,
                               showCategoryOnExpansion:
                                   widget.showExpandedCategoryName,
-                            timeEstimateMinutes:
-                                _resolvedTimeEstimateMinutes,
+                              timeEstimateMinutes: _resolvedTimeEstimateMinutes,
                               onEdit: _editActivity,
                             ),
                           ],
                           // Progress bar inside the text container for proper vertical centering
                           if (widget.instance.templateTrackingType !=
-                              'binary') ...[
+                                  'binary' &&
+                              !widget.treatAsBinary) ...[
                             const SizedBox(height: 4),
                             Container(
                               height: 3,
@@ -589,7 +595,7 @@ class _ItemComponentState extends State<ItemComponent>
                   constraints: const BoxConstraints(minHeight: 50),
                   child: Padding(
                     padding: EdgeInsets.only(
-                      bottom: _isExpanded && !_isNonProductive ? 6.0 : 0.0,
+                      bottom: _isExpanded && !_isessential ? 6.0 : 0.0,
                     ),
                     child: Center(
                       child: Row(
@@ -617,7 +623,7 @@ class _ItemComponentState extends State<ItemComponent>
                             ),
                             const SizedBox(width: 5),
                           ],
-                          if (!_isNonProductive) ...[
+                          if (!_isessential) ...[
                             Builder(
                               builder: (btnCtx) => GestureDetector(
                                 onTap: () {
@@ -629,7 +635,7 @@ class _ItemComponentState extends State<ItemComponent>
                             ),
                             const SizedBox(width: 5),
                           ],
-                          if (!_isNonProductive) ...[
+                          if (!_isessential) ...[
                             Builder(
                               builder: (btnCtx) => GestureDetector(
                                 onTap: () {
@@ -645,7 +651,7 @@ class _ItemComponentState extends State<ItemComponent>
                   ),
                 ),
                 // Priority stars - centered horizontally relative to icons above
-                if (_isExpanded && !_isNonProductive) ...[
+                if (_isExpanded && !_isessential) ...[
                   Center(
                     child: _buildHabitPriorityStars(),
                   ),
@@ -682,7 +688,8 @@ class _ItemComponentState extends State<ItemComponent>
 
   Future<void> _updateTemplatePriority(int newPriority) async {
     final previousInstance = widget.instance;
-    final optimisticInstance = InstanceEvents.createOptimisticPropertyUpdateInstance(
+    final optimisticInstance =
+        InstanceEvents.createOptimisticPropertyUpdateInstance(
       previousInstance,
       {'templatePriority': newPriority},
     );
@@ -1317,15 +1324,7 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Color get _leftStripeColor {
-    // Use grey for non-productive items
-    if (widget.instance.templateCategoryType == 'non_productive') {
-      return const Color(0xFF9E9E9E); // Medium grey for non-productive items
-    }
-    // Always use dark charcoal color for tasks
-    if (widget.instance.templateCategoryType == 'task') {
-      return const Color(0xFF2F4F4F); // Dark Slate Gray (charcoal) for tasks
-    }
-    // For habits, use category color
+    // Use category color for all types (Tasks, Habits, Essentials)
     final hex = widget.categoryColorHex;
     if (hex != null && hex.isNotEmpty) {
       try {
@@ -1334,22 +1333,42 @@ class _ItemComponentState extends State<ItemComponent>
         // Silently ignore color parsing errors - fallback to default color
       }
     }
-    return Colors.black;
+    // Fallback to default colors if category color not provided
+    if (widget.instance.templateCategoryType == 'essential') {
+      return const Color(0xFF9E9E9E); // Medium grey fallback
+    }
+    if (widget.instance.templateCategoryType == 'task') {
+      return const Color(0xFF2F4F4F); // Dark Slate Gray fallback
+    }
+    return Colors.black; // Default fallback for habits
   }
 
-  bool get _isNonProductive {
-    return widget.instance.templateCategoryType == 'non_productive';
+  bool get _isessential {
+    return widget.instance.templateCategoryType == 'essential';
   }
 
   Widget _buildLeftStripe() {
-    if (_isNonProductive) {
-      // Dotted stripe for non-productive items
-      // ConstrainedBox wrapper provides height constraints
-      return LayoutBuilder(
-        builder: (context, constraints) {
-          final height = constraints.maxHeight.isFinite
-              ? constraints.maxHeight
-              : constraints.minHeight;
+    final categoryType = widget.instance.templateCategoryType;
+
+    // ConstrainedBox wrapper provides height constraints
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final height = constraints.maxHeight.isFinite
+            ? constraints.maxHeight
+            : constraints.minHeight;
+
+        if (categoryType == 'essential') {
+          // Double line for Essentials
+          return SizedBox(
+            width: 5, // Slightly wider to accommodate double lines
+            height: height,
+            child: CustomPaint(
+              size: Size(5, height),
+              painter: _DoubleLinePainter(color: _leftStripeColor),
+            ),
+          );
+        } else if (categoryType == 'habit') {
+          // Dotted line for Habits
           return SizedBox(
             width: 3,
             height: height,
@@ -1358,18 +1377,18 @@ class _ItemComponentState extends State<ItemComponent>
               painter: _DottedLinePainter(color: _leftStripeColor),
             ),
           );
-        },
-      );
-    } else {
-      // Solid stripe for productive items - expands to fill ConstrainedBox height
-      return Container(
-        width: 3,
-        decoration: BoxDecoration(
-          color: _leftStripeColor,
-          borderRadius: BorderRadius.circular(2),
-        ),
-      );
-    }
+        } else {
+          // Solid line for Tasks (default) - expands to fill ConstrainedBox height
+          return Container(
+            width: 4,
+            decoration: BoxDecoration(
+              color: _leftStripeColor,
+              borderRadius: BorderRadius.circular(2),
+            ),
+          );
+        }
+      },
+    );
   }
 
   String _getProgressDisplayText() {
@@ -1470,7 +1489,7 @@ class _ItemComponentState extends State<ItemComponent>
 
     // If instance has dueDate, we should add time even if date pattern isn't detected
     // This handles cases where subtitle format might be different
-    if (widget.instance.dueDate == null || _isNonProductive) {
+    if (widget.instance.dueDate == null || _isessential) {
       return subtitle; // No due date, can't add time
     }
 
@@ -1754,8 +1773,30 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Widget _buildLeftControlsCompact() {
-    // TODO: Phase 3 - Re-implement completion logic for each type
-    switch (widget.instance.templateTrackingType) {
+    if (widget.showQuickLogOnLeft) {
+      return Material(
+        color: Colors.transparent,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(20),
+          onTap: widget.onQuickLog,
+          child: Container(
+            width: 48,
+            height: 48,
+            alignment: Alignment.center,
+            child: Icon(
+              Icons.add_circle_outline,
+              size: 24,
+              color: FlutterFlowTheme.of(context).primary,
+            ),
+          ),
+        ),
+      );
+    }
+    // If treatAsBinary is enabled, use binary controls regardless of actual tracking type
+    final effectiveTrackingType =
+        widget.treatAsBinary ? 'binary' : widget.instance.templateTrackingType;
+
+    switch (effectiveTrackingType) {
       case 'binary':
         return Material(
           color: Colors.transparent,
@@ -2159,25 +2200,52 @@ class _ItemComponentState extends State<ItemComponent>
       if (completed) {
         // Play completion sound
         SoundHelper().playCompletionSound();
-        // NEW: For binary habits, set currentValue to 1 (counter)
-        // This makes it consistent with the counter-based approach
+
+        // If treating as binary, set currentValue/accumulatedTime
+        dynamic targetValue = 1;
+        int? targetAccumulatedTime;
+        if (widget.instance.templateTrackingType == 'quantitative') {
+          if (widget.treatAsBinary) {
+            // NEW: A tick in the routine is equivalent to a single increment
+            final current = _currentProgressLocal();
+            targetValue = current + 1;
+          } else {
+            // Full target for other views
+            targetValue = widget.instance.templateTarget ?? 1;
+          }
+        } else if (widget.instance.templateTrackingType == 'time') {
+          // target is in minutes, accumulatedTime is in milliseconds
+          final targetMinutes = widget.instance.templateTarget ?? 1;
+          targetAccumulatedTime = (targetMinutes * 60000).toInt();
+          targetValue = targetAccumulatedTime;
+        }
+
         // Service methods will broadcast optimistically
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
-          currentValue: 1,
+          currentValue: targetValue,
           referenceTime: widget.progressReferenceTime,
         );
         await ActivityInstanceService.completeInstance(
           instanceId: widget.instance.reference.id,
+          finalAccumulatedTime: targetAccumulatedTime,
         );
       } else {
         // Play completion sound for uncompletion too
         SoundHelper().playCompletionSound();
-        // NEW: Reset counter to 0 when uncompleting
+
+        // If treating as binary and qty, decrement by 1 to undo the routine step
+        dynamic undoValue = 0;
+        if (widget.treatAsBinary &&
+            widget.instance.templateTrackingType == 'quantitative') {
+          final current = _currentProgressLocal();
+          undoValue = (current - 1).clamp(0, double.infinity);
+        }
+
         // Service methods will broadcast optimistically
         await ActivityInstanceService.updateInstanceProgress(
           instanceId: widget.instance.reference.id,
-          currentValue: 0,
+          currentValue: undoValue,
           referenceTime: widget.progressReferenceTime,
         );
         await ActivityInstanceService.uncompleteInstance(
@@ -2724,20 +2792,35 @@ class _ItemComponentState extends State<ItemComponent>
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
               .doc(updatedInstance.reference.id);
-      await instanceRef.update({
+
+      // Only set currentValue to MS for time-based tracking.
+      // For all non-time tasks, currentValue should NOT store time data.
+      final Map<String, dynamic> updateData = {
         'timeLogSessions': existingSessions,
         'totalTimeLogged': totalTime,
         'accumulatedTime': newAccumulatedTime,
-        'currentValue': newAccumulatedTime,
         'lastUpdated': DateTime.now(),
-      });
+      };
+
+      if (updatedInstance.templateTrackingType == 'time') {
+        updateData['currentValue'] = newAccumulatedTime;
+      } else if (updatedInstance.templateTrackingType == 'binary') {
+        // For binary habits, ensure it's marked as 1 when completing
+        updateData['currentValue'] = 1;
+      }
+      // For quantitative, we leave currentValue as is (user's count)
+
+      await instanceRef.update(updateData);
 
       // Step 6: Complete with the determined accumulated time
       // completeInstance will broadcast optimistically
       await ActivityInstanceService.completeInstance(
         instanceId: widget.instance.reference.id,
-        finalValue:
-            newAccumulatedTime, // Ensure currentValue matches accumulatedTime
+        finalValue: updatedInstance.templateTrackingType == 'time'
+            ? newAccumulatedTime
+            : (updatedInstance.templateTrackingType == 'binary'
+                ? 1
+                : updatedInstance.currentValue),
         finalAccumulatedTime: newAccumulatedTime,
       );
       if (mounted) {
@@ -2884,13 +2967,20 @@ class _ItemComponentState extends State<ItemComponent>
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
               .doc(widget.instance.reference.id);
-      await instanceRef.update({
+
+      final Map<String, dynamic> updateData = {
         'accumulatedTime': customTimeMs,
-        'currentValue': customTimeMs,
-        'totalTimeLogged':
-            customTimeMs, // Update totalTimeLogged for session-based tasks
+        'totalTimeLogged': customTimeMs,
         'lastUpdated': DateTime.now(),
-      });
+      };
+
+      // Only set currentValue to MS for time-based tracking.
+      // For all non-time tasks, currentValue should NOT store time data.
+      if (updatedInstance.templateTrackingType == 'time') {
+        updateData['currentValue'] = customTimeMs;
+      }
+
+      await instanceRef.update(updateData);
 
       // Step 5: Check if target is met and optionally complete
       final target = updatedInstance.templateTarget ?? 0;
@@ -2900,7 +2990,11 @@ class _ItemComponentState extends State<ItemComponent>
       if (shouldComplete && updatedInstance.status != 'completed') {
         await ActivityInstanceService.completeInstance(
           instanceId: widget.instance.reference.id,
-          finalValue: customTimeMs,
+          finalValue: updatedInstance.templateTrackingType == 'time'
+              ? customTimeMs
+              : (updatedInstance.templateTrackingType == 'binary'
+                  ? 1
+                  : updatedInstance.currentValue),
           finalAccumulatedTime: customTimeMs,
         );
       } else if (!shouldComplete &&
@@ -3098,7 +3192,7 @@ class _ItemComponentState extends State<ItemComponent>
   }
 }
 
-/// Custom painter for creating a dotted vertical line
+/// Custom painter for creating a dotted vertical line (for Habits)
 class _DottedLinePainter extends CustomPainter {
   final Color color;
 
@@ -3108,11 +3202,11 @@ class _DottedLinePainter extends CustomPainter {
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 3.0
+      ..strokeWidth = 4.0
       ..strokeCap = StrokeCap.round;
 
-    const double dashHeight = 4.0;
-    const double dashSpace = 3.0;
+    const double dashHeight = 3.5; // Slightly shorter dashes
+    const double dashSpace = 5.5; // Increased spacing for more visible gaps
     double startY = 0;
     while (startY < size.height) {
       canvas.drawLine(
@@ -3122,6 +3216,41 @@ class _DottedLinePainter extends CustomPainter {
       );
       startY += dashHeight + dashSpace;
     }
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Custom painter for creating a double vertical line (for Essentials)
+class _DoubleLinePainter extends CustomPainter {
+  final Color color;
+
+  _DoubleLinePainter({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = color
+      ..strokeWidth = 2.0
+      ..strokeCap = StrokeCap.round;
+
+    const double lineSpacing = 1.5; // Space between the two lines
+    const double leftLineX = 0.5; // Left line position
+    const double rightLineX =
+        leftLineX + lineSpacing + 2.0; // Right line position
+
+    // Draw two parallel vertical lines
+    canvas.drawLine(
+      Offset(leftLineX, 0),
+      Offset(leftLineX, size.height),
+      paint,
+    );
+    canvas.drawLine(
+      Offset(rightLineX, 0),
+      Offset(rightLineX, size.height),
+      paint,
+    );
   }
 
   @override

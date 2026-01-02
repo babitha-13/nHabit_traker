@@ -63,8 +63,15 @@ class _CreateCategoryState extends State<CreateCategory> {
     final theme = FlutterFlowTheme.of(context);
     final isEdit = widget.category != null;
 
+    final categoryTypeLabel = widget.categoryType == 'essential'
+        ? 'Essential '
+        : (widget.categoryType == 'task'
+            ? 'Task '
+            : (widget.categoryType == 'habit' ? 'Habit ' : ''));
     return PolishedDialog(
-      title: isEdit ? 'Edit Category' : 'Create New Category',
+      title: isEdit
+          ? 'Edit ${categoryTypeLabel}Category'
+          : 'Create New ${categoryTypeLabel}Category',
       content: AbsorbPointer(
         absorbing: _isValidating,
         child: Stack(

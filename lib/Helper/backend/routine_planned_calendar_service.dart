@@ -19,7 +19,7 @@ class PlannedCalendarEvent {
   });
 }
 
-/// Business logic for showing routines and non-productive activities on the Planned calendar.
+/// Business logic for showing routines and essential activities on the Planned calendar.
 ///
 /// - Only items with a dueTime are eligible.
 /// - Items occur on a date based on their frequency fields (or daily if unset).
@@ -94,9 +94,9 @@ class RoutinePlannedCalendarService {
             ))
         .toList();
 
-    // 2. Fetch non-productive activities with schedules
+    // 2. Fetch essential activities with schedules
     final npActivities = await ActivityRecord.collectionForUser(userId)
-        .where('categoryType', isEqualTo: 'non_productive')
+        .where('categoryType', isEqualTo: 'essential')
         .where('isActive', isEqualTo: true)
         .get();
 
@@ -187,13 +187,12 @@ class RoutinePlannedCalendarService {
 
     // Add Standalone Activities to output
     // Only if they aren't already part of an eligible routine for today
-    final routineItemIdsToday = eligibleRoutines
-        .expand((r) => r.itemIds)
-        .toSet();
+    final routineItemIdsToday =
+        eligibleRoutines.expand((r) => r.itemIds).toSet();
 
     for (final activity in eligibleActivities) {
       if (routineItemIdsToday.contains(activity.reference.id)) continue;
-      
+
       final minutes = durationForTemplate(activity);
       out.add(
         PlannedCalendarEvent(

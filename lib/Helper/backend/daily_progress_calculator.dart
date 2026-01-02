@@ -21,11 +21,11 @@ class DailyProgressCalculator {
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     // Build instances within window for the target date (status-agnostic)
     // This set is used for target calculations and counts
-    // Exclude non-productive types
+    // Exclude essential types
     final inWindowHabits = allInstances
         .where((inst) =>
             inst.templateCategoryType == 'habit' &&
-            inst.templateCategoryType != 'non_productive' &&
+            inst.templateCategoryType != 'essential' &&
             _isWithinWindow(inst, normalizedDate))
         .toList();
     // For UI/display list: pending + completed-on-date (unchanged behavior)
@@ -70,10 +70,10 @@ class DailyProgressCalculator {
     final displayTasks = [...pendingTasks, ...completedTasksOnDate];
     // For task target calculation: include all tasks that should be counted for this date
     // This includes pending tasks due on/before the date AND completed tasks completed on the date
-    // Exclude non-productive items
+    // Exclude Essential Activities
     final allTasksForMath = taskInstances.where((task) {
-      // Skip non-productive items
-      if (task.templateCategoryType == 'non_productive') return false;
+      // Skip Essential Activities
+      if (task.templateCategoryType == 'essential') return false;
       // Include if completed on the target date
       if (task.status == 'completed' && task.completedAt != null) {
         final completedDate = DateTime(
@@ -107,7 +107,8 @@ class DailyProgressCalculator {
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
     final taskEarnedPoints =
-        await PointsService.calculatePointsFromActivityInstances(allTasksForMath, userId);
+        await PointsService.calculatePointsFromActivityInstances(
+            allTasksForMath, userId);
     // Combine habit and task points
     final totalTargetPoints = habitTargetPoints + taskTargetPoints;
     final totalEarnedPoints = habitEarnedPoints + taskEarnedPoints;
@@ -236,18 +237,17 @@ class DailyProgressCalculator {
     List<ActivityInstanceRecord> taskInstances = const [],
   }) async {
     final today = DateService.currentDate;
-    final normalizedDate =
-        DateTime(today.year, today.month, today.day);
-    
+    final normalizedDate = DateTime(today.year, today.month, today.day);
+
     // Build instances within window for today (status-agnostic)
-    // Exclude non-productive types
+    // Exclude essential types
     final inWindowHabits = allInstances
         .where((inst) =>
             inst.templateCategoryType == 'habit' &&
-            inst.templateCategoryType != 'non_productive' &&
+            inst.templateCategoryType != 'essential' &&
             _isWithinWindow(inst, normalizedDate))
         .toList();
-    
+
     // For earned math: include
     // - completed instances only if completed today
     // - non-completed instances (pending/snoozed/etc.) to allow differential points
@@ -257,15 +257,15 @@ class DailyProgressCalculator {
       }
       return true; // include non-completed for differential contribution
     }).toList();
-    
+
     // Instances used for target/percentage math
     final allForMath = inWindowHabits;
-    
+
     // ==================== TASK FILTERING ====================
     // Filter tasks by completion date logic for today
     final allTasksForMath = taskInstances.where((task) {
-      // Skip non-productive items
-      if (task.templateCategoryType == 'non_productive') return false;
+      // Skip Essential Activities
+      if (task.templateCategoryType == 'essential') return false;
       // Include if completed today
       if (task.status == 'completed' && task.completedAt != null) {
         final completedDate = DateTime(
@@ -288,19 +288,20 @@ class DailyProgressCalculator {
         PointsService.calculateTotalDailyTarget(allForMath);
     final habitEarnedPoints =
         await PointsService.calculateTotalPointsEarned(earnedSet, userId);
-    
+
     // Calculate task points using unified PointsService method
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
     final taskEarnedPoints =
-        await PointsService.calculatePointsFromActivityInstances(allTasksForMath, userId);
-    
+        await PointsService.calculatePointsFromActivityInstances(
+            allTasksForMath, userId);
+
     // Combine habit and task points
     final totalTargetPoints = habitTargetPoints + taskTargetPoints;
     final totalEarnedPoints = habitEarnedPoints + taskEarnedPoints;
     final percentage = PointsService.calculateDailyPerformancePercent(
         totalEarnedPoints, totalTargetPoints);
-    
+
     return {
       'target': totalTargetPoints,
       'earned': totalEarnedPoints,

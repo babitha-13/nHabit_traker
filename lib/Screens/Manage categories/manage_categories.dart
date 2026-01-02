@@ -188,6 +188,8 @@ class _ManageCategoriesState extends State<ManageCategories> {
         _categories.where((cat) => cat.categoryType == 'habit').toList();
     final taskCategories =
         _categories.where((cat) => cat.categoryType == 'task').toList();
+    final essentialCategories =
+        _categories.where((cat) => cat.categoryType == 'essential').toList();
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -208,11 +210,21 @@ class _ManageCategoriesState extends State<ManageCategories> {
                 .map((category) => _buildCategoryItem(category, 'task')),
             const SizedBox(height: 16),
           ],
-          // Show message if only one type exists
-          if (habitCategories.isEmpty && taskCategories.isNotEmpty)
+          // Essential Categories Section
+          if (essentialCategories.isNotEmpty) ...[
+            _buildSectionHeader(
+                'Essential Categories', Icons.monitor_heart, essentialCategories.length),
+            ...essentialCategories
+                .map((category) => _buildCategoryItem(category, 'essential')),
+            const SizedBox(height: 16),
+          ],
+          // Show message if only one or two types exist
+          if (habitCategories.isEmpty && taskCategories.isNotEmpty && essentialCategories.isNotEmpty)
             _buildEmptyTypeMessage('habit'),
-          if (taskCategories.isEmpty && habitCategories.isNotEmpty)
+          if (taskCategories.isEmpty && habitCategories.isNotEmpty && essentialCategories.isNotEmpty)
             _buildEmptyTypeMessage('task'),
+          if (essentialCategories.isEmpty && habitCategories.isNotEmpty && taskCategories.isNotEmpty)
+            _buildEmptyTypeMessage('essential'),
         ],
       ),
     );
@@ -286,7 +298,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
             shape: BoxShape.circle,
           ),
           child: Icon(
-            type == 'habit' ? Icons.repeat : Icons.task_alt,
+            type == 'habit' ? Icons.repeat : (type == 'task' ? Icons.task_alt : Icons.monitor_heart),
             color: Colors.white,
             size: 20,
           ),
@@ -304,13 +316,13 @@ class _ManageCategoriesState extends State<ManageCategories> {
               decoration: BoxDecoration(
                 color: type == 'habit'
                     ? Colors.green.withOpacity(0.2)
-                    : Colors.blue.withOpacity(0.2),
+                    : (type == 'task' ? Colors.blue.withOpacity(0.2) : Colors.grey.withOpacity(0.2)),
                 borderRadius: BorderRadius.circular(8),
               ),
               child: Text(
                 type.toUpperCase(),
                 style: TextStyle(
-                  color: type == 'habit' ? Colors.green[700] : Colors.blue[700],
+                  color: type == 'habit' ? Colors.green[700] : (type == 'task' ? Colors.blue[700] : Colors.grey[700]),
                   fontSize: 10,
                   fontWeight: FontWeight.bold,
                 ),
@@ -367,14 +379,14 @@ class _ManageCategoriesState extends State<ManageCategories> {
       child: Row(
         children: [
           Icon(
-            missingType == 'habit' ? Icons.repeat : Icons.task_alt,
+            missingType == 'habit' ? Icons.repeat : (missingType == 'task' ? Icons.task_alt : Icons.monitor_heart),
             color: FlutterFlowTheme.of(context).secondaryText,
             size: 20,
           ),
           const SizedBox(width: 12),
           Expanded(
             child: Text(
-              'No ${missingType} categories yet. Create one to organize your ${missingType}s!',
+              'No ${missingType} categories yet. Create one to organize your ${missingType}${missingType == 'essential' ? ' activities' : 's'}!',
               style: FlutterFlowTheme.of(context).bodyMedium.override(
                     color: FlutterFlowTheme.of(context).secondaryText,
                     fontStyle: FontStyle.italic,
@@ -411,12 +423,42 @@ class _ManageCategoriesState extends State<ManageCategories> {
   }
 
   Future<void> _showAddCategoryDialog() async {
-    final didCreate = await showDialog<bool>(
+    // Show dialog to select category type
+    final categoryType = await showDialog<String>(
       context: context,
-      builder: (context) => const CreateCategory(),
+      builder: (context) => AlertDialog(
+        title: const Text('Select Category Type'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.repeat, color: Colors.green),
+              title: const Text('Habit Category'),
+              onTap: () => Navigator.of(context).pop('habit'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.task_alt, color: Colors.blue),
+              title: const Text('Task Category'),
+              onTap: () => Navigator.of(context).pop('task'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.monitor_heart, color: Colors.grey),
+              title: const Text('Essential Category'),
+              onTap: () => Navigator.of(context).pop('essential'),
+            ),
+          ],
+        ),
+      ),
     );
-    if (didCreate == true) {
-      await _loadCategories(showLoading: false);
+    
+    if (categoryType != null) {
+      final didCreate = await showDialog<bool>(
+        context: context,
+        builder: (context) => CreateCategory(categoryType: categoryType),
+      );
+      if (didCreate == true) {
+        await _loadCategories(showLoading: false);
+      }
     }
   }
 }

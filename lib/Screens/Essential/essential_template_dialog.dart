@@ -1,18 +1,21 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
+import 'package:habit_tracker/Helper/backend/essential_service.dart';
 import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 
-class NonProductiveTemplateDialog extends StatefulWidget {
+class essentialTemplateDialog extends StatefulWidget {
   final ActivityRecord? existingTemplate;
   final Function(ActivityRecord)? onTemplateCreated;
   final Function(ActivityRecord)? onTemplateUpdated;
 
-  const NonProductiveTemplateDialog({
+  const essentialTemplateDialog({
     Key? key,
     this.existingTemplate,
     this.onTemplateCreated,
@@ -20,25 +23,24 @@ class NonProductiveTemplateDialog extends StatefulWidget {
   }) : super(key: key);
 
   @override
-  _NonProductiveTemplateDialogState createState() =>
-      _NonProductiveTemplateDialogState();
+  _essentialTemplateDialogState createState() =>
+      _essentialTemplateDialogState();
 }
 
-class _NonProductiveTemplateDialogState
-    extends State<NonProductiveTemplateDialog> {
+class _essentialTemplateDialogState extends State<essentialTemplateDialog> {
   final _formKey = GlobalKey<FormState>();
   final _nameController = TextEditingController();
   final _descriptionController = TextEditingController();
-  final _unitController = TextEditingController();
-  String _selectedTrackingType = 'binary';
-  dynamic _targetValue;
   bool _isSaving = false;
-  final List<String> _trackingTypes = ['binary', 'quantitative', 'time'];
   int? _timeEstimateMinutes;
   int? _defaultTimeEstimateMinutes;
   TimeOfDay? _selectedDueTime;
   bool _frequencyEnabled = false;
   FrequencyConfig? _frequencyConfig;
+  List<CategoryRecord> _categories = [];
+  String? _selectedCategoryId;
+  bool _isLoadingCategories = false;
+  static const String _createNewCategoryValue = '__create_new__';
 
   @override
   void initState() {
@@ -46,9 +48,9 @@ class _NonProductiveTemplateDialogState
     if (widget.existingTemplate != null) {
       _nameController.text = widget.existingTemplate!.name;
       _descriptionController.text = widget.existingTemplate!.description;
-      _selectedTrackingType = widget.existingTemplate!.trackingType;
-      _targetValue = widget.existingTemplate!.target;
-      _unitController.text = widget.existingTemplate!.unit;
+      _selectedCategoryId = widget.existingTemplate!.categoryId.isNotEmpty
+          ? widget.existingTemplate!.categoryId
+          : null;
       if (widget.existingTemplate!.hasTimeEstimateMinutes()) {
         _timeEstimateMinutes = widget.existingTemplate!.timeEstimateMinutes;
       }
@@ -57,14 +59,63 @@ class _NonProductiveTemplateDialogState
             TimeUtils.stringToTimeOfDay(widget.existingTemplate!.dueTime);
       }
       _initializeFrequencyFromTemplate(widget.existingTemplate!);
-      _updateTargetValue();
     } else {
-      _selectedTrackingType = 'binary';
-      _targetValue = null; // No target for binary/to-do tracking
       _frequencyEnabled = false;
       _frequencyConfig = _defaultFrequencyConfig();
     }
     _loadDefaultTimeEstimate();
+    _loadCategories();
+  }
+
+  Future<void> _loadCategories() async {
+    setState(() {
+      _isLoadingCategories = true;
+    });
+    try {
+      var categories = await queryEssentialCategoriesOnce(
+        userId: currentUserUid,
+        callerTag: 'essentialTemplateDialog._loadCategories',
+      );
+
+      // If no categories exist, ensure default "Others" category is created
+      if (categories.isEmpty) {
+        try {
+          final defaultCategory = await getOrCreateEssentialDefaultCategory(
+            userId: currentUserUid,
+          );
+          categories = [defaultCategory];
+        } catch (e) {
+          // If default category creation fails, continue with empty list
+          print('Error creating default essential category: $e');
+        }
+      }
+
+      if (mounted) {
+        setState(() {
+          _categories = categories;
+          _isLoadingCategories = false;
+          // If no category is selected and we have categories, select the first one
+          // Or if editing and categoryId is empty, try to get default
+          if (_selectedCategoryId == null && categories.isNotEmpty) {
+            // Try to find "Others" category first, otherwise use first category
+            try {
+              final othersCategory = categories.firstWhere(
+                (c) => c.name == 'Others',
+              );
+              _selectedCategoryId = othersCategory.reference.id;
+            } catch (e) {
+              _selectedCategoryId = categories.first.reference.id;
+            }
+          }
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _isLoadingCategories = false;
+        });
+      }
+    }
   }
 
   Future<void> _loadDefaultTimeEstimate() async {
@@ -76,39 +127,19 @@ class _NonProductiveTemplateDialogState
       if (!mounted) return;
       setState(() => _defaultTimeEstimateMinutes = minutes);
     } catch (e) {
-      print('NonProductiveTemplateDialog: Failed to load default time: $e');
+      print('essentialTemplateDialog: Failed to load default time: $e');
     }
   }
 
   /// Check if the current template is a time-target template
   bool _isTimeTarget() {
-    if (_selectedTrackingType != 'time') return false;
-    final targetValue = _targetValue is int ? _targetValue as int : 0;
-    return targetValue > 0;
-  }
-
-  void _updateTargetValue() {
-    setState(() {
-      switch (_selectedTrackingType) {
-        case 'binary':
-          _targetValue = null;
-          break;
-        case 'quantitative':
-          _targetValue = _targetValue ?? 1; // Keep existing or default to 1
-          break;
-        case 'time':
-          _targetValue =
-              _targetValue ?? 5; // Keep existing or default to 5 minutes
-          break;
-      }
-    });
+    return false; // Forced binary
   }
 
   @override
   void dispose() {
     _nameController.dispose();
     _descriptionController.dispose();
-    _unitController.dispose();
     super.dispose();
   }
 
@@ -131,19 +162,34 @@ class _NonProductiveTemplateDialogState
           : null;
       final freqPayload = _frequencyPayloadForBackend(
           isUpdate: widget.existingTemplate != null);
+      // Get category name from selected category
+      String? categoryName;
+      if (_selectedCategoryId != null) {
+        try {
+          final selectedCategory = _categories.firstWhere(
+            (c) => c.reference.id == _selectedCategoryId,
+          );
+          categoryName = selectedCategory.name;
+        } catch (e) {
+          // Category not found, use default
+          categoryName = 'Others';
+        }
+      } else {
+        categoryName = 'Others';
+      }
       if (widget.existingTemplate != null) {
         // Update existing template
-        await NonProductiveService.updateNonProductiveTemplate(
+        await essentialService.updateessentialTemplate(
           templateId: widget.existingTemplate!.reference.id,
           name: _nameController.text.trim(),
           description: _descriptionController.text.trim().isEmpty
               ? null
               : _descriptionController.text.trim(),
-          trackingType: _selectedTrackingType,
-          target: _targetValue,
-          unit: _unitController.text.trim().isEmpty
-              ? null
-              : _unitController.text.trim(),
+          categoryId: _selectedCategoryId,
+          categoryName: categoryName,
+          trackingType: 'binary',
+          target: null,
+          unit: null,
           userId: currentUserUid,
           timeEstimateMinutes: _timeEstimateMinutes != null
               ? _timeEstimateMinutes!.clamp(1, 600)
@@ -164,17 +210,16 @@ class _NonProductiveTemplateDialogState
         }
       } else {
         // Create new template
-        final templateRef =
-            await NonProductiveService.createNonProductiveTemplate(
+        final templateRef = await essentialService.createessentialTemplate(
           name: _nameController.text.trim(),
           description: _descriptionController.text.trim().isEmpty
               ? null
               : _descriptionController.text.trim(),
-          trackingType: _selectedTrackingType,
-          target: _targetValue,
-          unit: _unitController.text.trim().isEmpty
-              ? null
-              : _unitController.text.trim(),
+          categoryId: _selectedCategoryId,
+          categoryName: categoryName,
+          trackingType: 'binary',
+          target: null,
+          unit: null,
           userId: currentUserUid,
           timeEstimateMinutes: _timeEstimateMinutes != null
               ? _timeEstimateMinutes!.clamp(1, 600)
@@ -229,8 +274,8 @@ class _NonProductiveTemplateDialogState
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
     final title = widget.existingTemplate != null
-        ? 'Edit Non-Productive Template'
-        : 'Create Non-Productive Template';
+        ? 'Edit essential Template'
+        : 'Create Essential Template';
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -277,20 +322,15 @@ class _NonProductiveTemplateDialogState
                       maxLines: 1),
                   const SizedBox(height: 12),
                   Text(
-                    'Tracking Type',
+                    'Category',
                     style: theme.bodySmall.override(
                       color: theme.secondaryText,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                   const SizedBox(height: 6),
-                  _buildTrackingTypeDropdown(theme),
+                  _buildCategoryDropdown(theme),
                   const SizedBox(height: 12),
-                  if (_selectedTrackingType == 'quantitative') ...[
-                    _buildQuantitativeFields(theme),
-                  ] else if (_selectedTrackingType == 'time') ...[
-                    _buildTimeFields(theme),
-                  ],
                   // Show time estimate field if both switches are enabled and not time-target
                   if (!_isTimeTarget()) ...[
                     const SizedBox(height: 12),
@@ -301,31 +341,6 @@ class _NonProductiveTemplateDialogState
                   const SizedBox(height: 12),
                   _buildFrequencyField(theme),
                   const SizedBox(height: 16),
-                  Container(
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: theme.accent4.withOpacity(0.3),
-                      borderRadius: BorderRadius.circular(8),
-                      border: Border.all(color: theme.accent4),
-                    ),
-                    child: Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Icon(Icons.info_outline,
-                            size: 16, color: theme.secondaryText),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            'Non-productive items track time but do not earn points.',
-                            style: theme.bodySmall.override(
-                              color: theme.secondaryText,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 20),
                   _buildActionButtons(theme),
                 ],
               ),
@@ -367,16 +382,24 @@ class _NonProductiveTemplateDialogState
     );
   }
 
-  Widget _buildTrackingTypeDropdown(FlutterFlowTheme theme) {
+  Widget _buildCategoryDropdown(FlutterFlowTheme theme) {
+    // Use a key to force rebuild when categories or selected category changes
+    final dropdownKey = ValueKey(
+        'category_dropdown_${_categories.length}_$_selectedCategoryId');
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
         color: theme.tertiary.withOpacity(0.3),
         borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: theme.surfaceBorderColor, width: 1),
+        border: Border.all(
+          color: theme.surfaceBorderColor,
+          width: 1,
+        ),
       ),
       child: DropdownButtonFormField<String>(
-        value: _selectedTrackingType,
+        key: dropdownKey,
+        value: _selectedCategoryId,
         decoration: const InputDecoration(
           border: InputBorder.none,
           isDense: true,
@@ -386,153 +409,62 @@ class _NonProductiveTemplateDialogState
         icon: Icon(Icons.keyboard_arrow_down, color: theme.secondaryText),
         dropdownColor: theme.secondaryBackground,
         style: theme.bodySmall,
-        items: _trackingTypes.map((String type) {
-          String displayName;
-          switch (type) {
-            case 'binary':
-              displayName = 'To Do';
-              break;
-            case 'quantitative':
-              displayName = 'Quantity';
-              break;
-            case 'time':
-              displayName = 'Timer';
-              break;
-            default:
-              displayName = type;
-          }
-          return DropdownMenuItem<String>(
-            value: type,
-            child: Text(displayName, style: theme.bodySmall),
-          );
-        }).toList(),
-        onChanged: (String? newValue) {
-          if (newValue != null) {
-            setState(() {
-              _selectedTrackingType = newValue;
-            });
-            _updateTargetValue();
-          }
-        },
-      ),
-    );
-  }
-
-  Widget _buildQuantitativeFields(FlutterFlowTheme theme) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.accent2,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.surfaceBorderColor),
-      ),
-      child: Row(
-        children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Target',
-                    style: theme.bodySmall.override(
-                        color: theme.primary, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: theme.secondaryBackground,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.surfaceBorderColor),
-                  ),
-                  child: TextFormField(
-                    initialValue: _targetValue?.toString() ?? '1',
-                    keyboardType: TextInputType.number,
-                    style: theme.bodyMedium,
-                    decoration: const InputDecoration(
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                    onChanged: (value) {
-                      _targetValue = int.tryParse(value) ?? 1;
-                    },
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Unit',
-                    style: theme.bodySmall.override(
-                        color: theme.primary, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 4),
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: theme.secondaryBackground,
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: theme.surfaceBorderColor),
-                  ),
-                  child: TextFormField(
-                    controller: _unitController,
-                    style: theme.bodyMedium,
-                    decoration: const InputDecoration(
-                      hintText: 'e.g. pages',
-                      border: InputBorder.none,
-                      isDense: true,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTimeFields(FlutterFlowTheme theme) {
-    return Container(
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: theme.accent2,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: theme.surfaceBorderColor),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text('Target Duration (minutes)',
-              style: theme.bodySmall
-                  .override(color: theme.primary, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 4),
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-            decoration: BoxDecoration(
-              color: theme.secondaryBackground,
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: theme.surfaceBorderColor),
-            ),
-            child: TextFormField(
-              initialValue: _targetValue?.toString() ?? '5',
-              keyboardType: TextInputType.number,
-              style: theme.bodyMedium,
-              decoration: const InputDecoration(
-                border: InputBorder.none,
-                isDense: true,
+        hint: Text('Select Category',
+            style: TextStyle(color: theme.secondaryText)),
+        items: [
+          ..._categories.map(
+            (c) => DropdownMenuItem(
+              value: c.reference.id,
+              child: Text(
+                c.name,
+                style: theme.bodySmall,
               ),
-              onChanged: (value) {
-                _targetValue = int.tryParse(value) ?? 5;
-              },
+            ),
+          ),
+          const DropdownMenuItem(
+            value: _createNewCategoryValue,
+            child: Row(
+              children: [
+                Icon(Icons.add, size: 16),
+                SizedBox(width: 8),
+                Text(
+                  'Create New Category...',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ],
             ),
           ),
         ],
+        onChanged: _isLoadingCategories
+            ? null
+            : (v) {
+                if (v == _createNewCategoryValue) {
+                  _showCreateCategoryDialog();
+                } else if (mounted && v != null) {
+                  setState(() => _selectedCategoryId = v);
+                }
+              },
+        menuMaxHeight: 260,
+        borderRadius: BorderRadius.circular(12),
       ),
     );
+  }
+
+  Future<void> _showCreateCategoryDialog() async {
+    final newCategoryId = await showDialog<String>(
+      context: context,
+      builder: (context) => CreateCategory(categoryType: 'essential'),
+    );
+    if (newCategoryId != null) {
+      // Reload categories to include the new one
+      await _loadCategories();
+      // Select the newly created category
+      if (mounted) {
+        setState(() {
+          _selectedCategoryId = newCategoryId;
+        });
+      }
+    }
   }
 
   Widget _buildTimeEstimateField(FlutterFlowTheme theme) {

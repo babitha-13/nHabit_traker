@@ -1304,8 +1304,8 @@ class _TaskPageState extends State<TaskPage> {
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
-          bottomLeft: isExpanded ? Radius.zero : const Radius.circular(16),
-          bottomRight: isExpanded ? Radius.zero : const Radius.circular(16),
+          bottomLeft: isExpanded ? const Radius.circular(12) : const Radius.circular(16),
+          bottomRight: isExpanded ? const Radius.circular(12) : const Radius.circular(16),
         ),
         boxShadow: isExpanded ? [] : theme.neumorphicShadowsRaised,
       ),
@@ -1988,6 +1988,7 @@ class _TaskPageState extends State<TaskPage> {
       key: Key(instance.reference.id),
       instance: instance,
       categories: _categories,
+      categoryColorHex: _getCategoryColor(instance),
       onRefresh: _loadData,
       onInstanceUpdated: _updateInstanceInLocalState,
       onInstanceDeleted: _removeInstanceFromLocalState,
@@ -1996,6 +1997,16 @@ class _TaskPageState extends State<TaskPage> {
       showCompleted: bucketKey == 'Recent Completions' ? true : null,
       showExpandedCategoryName: widget.categoryName == null,
     );
+  }
+
+  String _getCategoryColor(ActivityInstanceRecord instance) {
+    try {
+      final category = _categories
+          .firstWhere((c) => c.name == instance.templateCategoryName);
+      return category.color;
+    } catch (e) {
+      return '#000000';
+    }
   }
 
   Widget _buildShowOlderButtons(FlutterFlowTheme theme) {

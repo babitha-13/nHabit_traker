@@ -219,7 +219,7 @@ class RoutineService {
       if (!routine.isActive) return null;
 
       // Query ALL instances for the specific items in this routine
-      // This works for habits, tasks, and non-productive items (no category type restriction)
+      // This works for habits, tasks, and Essential Activities (no category type restriction)
       // Handle Firestore's 10-item limit for whereIn by batching if needed
       final allInstances = <ActivityInstanceRecord>[];
       final itemIds = routine.itemIds;
@@ -255,22 +255,21 @@ class RoutineService {
       final today = DateService.todayStart;
       for (int i = 0; i < routine.itemIds.length; i++) {
         final itemId = routine.itemIds[i];
-        final itemType = i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
+        final itemType =
+            i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
         final instances = instancesMap[itemId] ?? [];
-        
+
         if (instances.isNotEmpty) {
           List<ActivityInstanceRecord> todayInstancesForTemplate;
-          
-          // For non-productive items, filter by belongsToDate for today
-          if (itemType == 'non_productive') {
+
+          // For Essential Activities, filter by belongsToDate for today
+          if (itemType == 'essential') {
             todayInstancesForTemplate = instances
-                .where((inst) => 
+                .where((inst) =>
                     inst.belongsToDate != null &&
-                    DateTime(
-                      inst.belongsToDate!.year,
-                      inst.belongsToDate!.month,
-                      inst.belongsToDate!.day
-                    ).isAtSameMomentAs(today))
+                    DateTime(inst.belongsToDate!.year,
+                            inst.belongsToDate!.month, inst.belongsToDate!.day)
+                        .isAtSameMomentAs(today))
                 .toList();
           } else {
             // For habits and tasks, use existing logic
@@ -303,7 +302,7 @@ class RoutineService {
   }
 
   /// Create an instance for a routine item on-the-fly
-  /// Returns null for non-productive items (UI should show time log dialog instead)
+  /// Returns null for Essential Activities (UI should show time log dialog instead)
   static Future<ActivityInstanceRecord?> createInstanceForRoutineItem({
     required String itemId,
     String? userId,
@@ -319,8 +318,8 @@ class RoutineService {
       }
       final template = ActivityRecord.fromSnapshot(activityDoc);
 
-      // For non-productive items, return null - UI should show time log dialog
-      if (template.categoryType == 'non_productive') {
+      // For Essential Activities, return null - UI should show time log dialog
+      if (template.categoryType == 'essential') {
         return null; // Signal to UI to show time log dialog
       }
 
@@ -345,7 +344,7 @@ class RoutineService {
     }
   }
 
-  /// Reset all completed non-productive (routine item) instances in a routine
+  /// Reset all completed essential (routine item) instances in a routine
   /// Uncompletes existing instances while preserving time logs
   /// Leaves habits and tasks untouched
   static Future<int> resetRoutineItems({
@@ -361,13 +360,13 @@ class RoutineService {
     int resetCount = 0;
 
     try {
-      // Iterate through items and reset only non-productive items that are completed
+      // Iterate through items and reset only Essential Activities that are completed
       for (int i = 0; i < itemIds.length; i++) {
         final itemId = itemIds[i];
         final itemType = i < itemTypes.length ? itemTypes[i] : 'habit';
 
-        // Only process non-productive items
-        if (itemType != 'non_productive') continue;
+        // Only process Essential Activities
+        if (itemType != 'essential') continue;
 
         final instance = currentInstances[itemId];
 

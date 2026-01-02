@@ -84,6 +84,8 @@ class InstanceEvents {
     dynamic finalValue,
     int? finalAccumulatedTime,
     DateTime? completedAt,
+    List<Map<String, dynamic>>? timeLogSessions,
+    int? totalTimeLogged,
   }) {
     final updatedData = Map<String, dynamic>.from(original.snapshotData);
     final now = completedAt ?? DateTime.now();
@@ -98,6 +100,14 @@ class InstanceEvents {
     }
     if (finalAccumulatedTime != null) {
       updatedData['accumulatedTime'] = finalAccumulatedTime;
+    }
+    
+    // Include time log sessions if provided (for calendar rendering)
+    if (timeLogSessions != null) {
+      updatedData['timeLogSessions'] = timeLogSessions;
+    }
+    if (totalTimeLogged != null) {
+      updatedData['totalTimeLogged'] = totalTimeLogged;
     }
     
     // Clear skipped status if present

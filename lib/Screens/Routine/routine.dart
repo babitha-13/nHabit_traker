@@ -15,8 +15,6 @@ import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
 import 'package:habit_tracker/Screens/Routine/dialogs/routine_reminder_settings_dialog.dart';
 import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
-import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
-import 'package:habit_tracker/Screens/NonProductive/non_productive_template_dialog.dart';
 
 class Routines extends StatefulWidget {
   const Routines({super.key});
@@ -107,12 +105,12 @@ class _RoutinesState extends State<Routines> {
   Future<void> _deleteRoutine(RoutineRecord routine) async {
     final routineName = routine.name;
     final routineId = routine.reference.id;
-    
+
     // OPTIMISTIC UPDATE: Remove from local list immediately
     setState(() {
       _routines.removeWhere((r) => r.reference.id == routineId);
     });
-    
+
     try {
       await deleteRoutine(routineId, userId: currentUserUid);
       // Background reconciliation: reload to ensure sync
@@ -219,29 +217,6 @@ class _RoutinesState extends State<Routines> {
     }).toList();
   }
 
-  void _navigateToNonProductiveTemplates() {
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const NonProductiveTemplatesPage(),
-      ),
-    );
-  }
-
-  Future<void> _showCreateNonProductiveDialog() async {
-    final result = await showDialog<ActivityRecord>(
-      context: context,
-      builder: (context) => NonProductiveTemplateDialog(
-        onTemplateCreated: (template) {
-          Navigator.of(context).pop(template);
-        },
-      ),
-    );
-    // Optionally reload data if needed
-    if (result != null) {
-      await _loadData();
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -285,26 +260,6 @@ class _RoutinesState extends State<Routines> {
                                 ),
                               ),
                             ],
-                          ),
-                        ),
-                      // Create New Routine button at the top
-                      if (_filteredRoutines.isNotEmpty)
-                        Padding(
-                          padding: const EdgeInsets.all(16.0),
-                          child: SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton.icon(
-                              onPressed: _navigateToCreateRoutine,
-                              icon: const Icon(Icons.add),
-                              label: const Text('Create New Routine'),
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor:
-                                    FlutterFlowTheme.of(context).primary,
-                                foregroundColor: Colors.white,
-                                padding:
-                                    const EdgeInsets.symmetric(vertical: 12),
-                              ),
-                            ),
                           ),
                         ),
                       // Routines list
@@ -378,40 +333,23 @@ class _RoutinesState extends State<Routines> {
                                     },
                                   ),
                       ),
-                      // Non-Productive Tasks Button at the bottom
-                      // Add horizontal padding to avoid overlapping with FABs
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(80, 16, 80, 16),
-                        child: ElevatedButton.icon(
-                          onPressed: _navigateToNonProductiveTemplates,
-                          icon: const Icon(Icons.access_time),
-                          label: const Text('Non Productive Tasks'),
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor:
-                                FlutterFlowTheme.of(context).primary,
-                            foregroundColor: Colors.white,
-                            padding: const EdgeInsets.symmetric(
-                                vertical: 12, horizontal: 16),
-                          ),
-                        ),
-                      ),
                     ],
                   ),
             // Search FAB at bottom-left
             const SearchFAB(heroTag: 'search_fab_routines'),
-            // Existing FAB at bottom-right
+            // FAB at bottom-right for creating new routine
             Positioned(
               right: 16,
               bottom: 16,
               child: FloatingActionButton(
-                heroTag:
-                    null, // Disable Hero animation to avoid conflicts during navigation
-                onPressed: _showCreateNonProductiveDialog,
+                heroTag: 'fab_create_routine',
+                onPressed: _navigateToCreateRoutine,
                 backgroundColor: FlutterFlowTheme.of(context).primary,
                 child: const Icon(
                   Icons.add,
                   color: Colors.white,
                 ),
+                tooltip: 'Create New Routine',
               ),
             ),
           ],
@@ -584,9 +522,10 @@ class _RoutinesState extends State<Routines> {
 
     final newDueTime = TimeUtils.timeOfDayToString(picked);
     final routineId = routine.reference.id;
-    
+
     // OPTIMISTIC UPDATE: Patch routine's dueTime immediately
-    final routineIndex = _routines.indexWhere((r) => r.reference.id == routineId);
+    final routineIndex =
+        _routines.indexWhere((r) => r.reference.id == routineId);
     if (routineIndex != -1) {
       final updatedRoutine = RoutineRecord.getDocumentFromData(
         {
@@ -640,23 +579,26 @@ class _RoutinesState extends State<Routines> {
     if (result == null) return;
 
     final routineId = routine.reference.id;
-    
+
     // OPTIMISTIC UPDATE: Patch routine's reminder fields immediately
-    final routineIndex = _routines.indexWhere((r) => r.reference.id == routineId);
+    final routineIndex =
+        _routines.indexWhere((r) => r.reference.id == routineId);
     if (routineIndex != -1) {
-      final updatedData = Map<String, dynamic>.from(_routines[routineIndex].snapshotData);
+      final updatedData =
+          Map<String, dynamic>.from(_routines[routineIndex].snapshotData);
       updatedData['reminders'] = ReminderConfigList.toMapList(result.reminders);
       updatedData['reminderFrequencyType'] = result.frequencyType ?? '';
-      updatedData['everyXValue'] = result.frequencyType == 'every_x' ? result.everyXValue : 1;
-      updatedData['everyXPeriodType'] = result.frequencyType == 'every_x' 
-          ? (result.everyXPeriodType ?? '') 
+      updatedData['everyXValue'] =
+          result.frequencyType == 'every_x' ? result.everyXValue : 1;
+      updatedData['everyXPeriodType'] = result.frequencyType == 'every_x'
+          ? (result.everyXPeriodType ?? '')
           : '';
       updatedData['specificDays'] = result.frequencyType == 'specific_days'
           ? result.specificDays
           : const [];
       updatedData['remindersEnabled'] = result.remindersEnabled;
       updatedData['lastUpdated'] = DateTime.now();
-      
+
       final updatedRoutine = RoutineRecord.getDocumentFromData(
         updatedData,
         _routines[routineIndex].reference,

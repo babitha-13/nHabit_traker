@@ -20,7 +20,7 @@ import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
 import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/main.dart';
-import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
+import 'package:habit_tracker/Screens/Essential/essential_templates_page.dart';
 import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
@@ -84,6 +84,17 @@ class _ProgressPageState extends State<ProgressPage> {
         });
         // Recalculate projected score when today's progress updates
         _updateProjectedScore();
+      }
+    });
+    // Listen for cumulative score updates from Queue page (shared state as source of truth)
+    NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
+      if (mounted) {
+        setState(() {
+          // Update local state from shared state to trigger UI rebuild
+          final data = TodayProgressState().getCumulativeScoreData();
+          _projectedCumulativeScore = data['cumulativeScore'] as double? ?? _projectedCumulativeScore;
+          _projectedDailyGain = data['dailyGain'] as double? ?? _projectedDailyGain;
+        });
       }
     });
     // Load initial today's progress
@@ -1184,9 +1195,10 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   Widget _buildCumulativeScoreCard() {
-    // Always use projection for the today's gain display to ensure it's calculated/fresh
-    final displayScore = _projectedCumulativeScore;
-    final displayGain = _projectedDailyGain;
+    // Use shared state as single source of truth for consistency with Queue page
+    final sharedData = TodayProgressState().getCumulativeScoreData();
+    final displayScore = sharedData['cumulativeScore'] as double? ?? _projectedCumulativeScore;
+    final displayGain = sharedData['dailyGain'] as double? ?? _projectedDailyGain;
 
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;
@@ -2153,15 +2165,15 @@ class _ProgressPageState extends State<ProgressPage> {
                           },
                         ),
                         _DrawerItem(
-                          icon: Icons.access_time,
-                          label: 'Non-Productive Items',
+                          icon: Icons.monitor_heart,
+                          label: 'Essential Activities',
                           onTap: () {
                             Navigator.pop(context);
                             Navigator.push(
                               context,
                               MaterialPageRoute(
                                 builder: (context) =>
-                                    const NonProductiveTemplatesPage(),
+                                    const essentialTemplatesPage(),
                               ),
                             );
                           },

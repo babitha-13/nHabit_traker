@@ -7,7 +7,7 @@ import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
-import 'package:habit_tracker/Screens/NonProductive/non_productive_templates_page.dart';
+import 'package:habit_tracker/Screens/Essential/essential_templates_page.dart';
 import 'package:habit_tracker/Screens/Routine/routine.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
@@ -54,22 +54,25 @@ class _HomeState extends State<Home> {
     "Tasks": 0,
     "Habits": 1,
     "Queue": 2,
-    "Routines": 3,
-    "Calendar": 4,
+    "Essential": 3,
+    "Routines": 4,
+    "Calendar": 5,
   };
   // Prevent race conditions in morning catch-up check
   static bool _isCheckingCatchUp = false;
   @override
   void initState() {
-    NotificationCenter.addObserver(this, 'navigateBottomTab', _onNavigateBottomTab);
+    NotificationCenter.addObserver(
+        this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
     // Initialize all pages once - they will be cached in IndexedStack
     _pages = [
       const TaskTab(), // index 0
       const HabitsPage(showCompleted: true), // index 1
       const QueuePage(), // index 2
-      const Routines(), // index 3
-      const CalendarPage(), // index 4
+      const essentialTemplatesPage(), // index 3
+      const Routines(), // index 4
+      const CalendarPage(), // index 5
     ];
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -295,17 +298,11 @@ class _HomeState extends State<Home> {
                                 },
                               ),
                               _DrawerItem(
-                                icon: Icons.access_time,
-                                label: 'Non-Productive Items',
+                                icon: Icons.monitor_heart,
+                                label: 'Essential Activities',
                                 onTap: () {
                                   Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const NonProductiveTemplatesPage(),
-                                    ),
-                                  );
+                                  loadPage("Essential");
                                 },
                               ),
                               _DrawerItem(
@@ -425,6 +422,7 @@ class _HomeState extends State<Home> {
                   "Tasks",
                   "Habits",
                   "Queue",
+                  "Essential",
                   "Routines",
                   "Calendar"
                 ];
@@ -450,6 +448,10 @@ class _HomeState extends State<Home> {
                 BottomNavigationBarItem(
                   icon: const Icon(Icons.queue),
                   label: 'Queue',
+                ),
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.monitor_heart),
+                  label: 'Essential',
                 ),
                 BottomNavigationBarItem(
                   icon: const Icon(Icons.playlist_play),
@@ -576,13 +578,14 @@ class _HomeState extends State<Home> {
       if (userId == null || userId.isEmpty) {
         return;
       }
-      
+
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-      
+
       // Check if we've already processed today
       final prefs = await SharedPreferences.getInstance();
-      final lastProcessedDateString = prefs.getString('last_end_of_day_processed');
+      final lastProcessedDateString =
+          prefs.getString('last_end_of_day_processed');
       DateTime? lastProcessedDate;
       if (lastProcessedDateString != null) {
         lastProcessedDate = DateTime.parse(lastProcessedDateString);
@@ -591,10 +594,11 @@ class _HomeState extends State<Home> {
           lastProcessedDate.month,
           lastProcessedDate.day,
         );
-        
+
         // If we've already processed today, just check if dialog should show
         if (lastProcessedDateOnly.isAtSameMomentAs(today)) {
-          final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+          final shouldShow =
+              await MorningCatchUpService.shouldShowDialog(userId);
           if (shouldShow && mounted) {
             showDialog(
               context: context,
@@ -605,29 +609,32 @@ class _HomeState extends State<Home> {
           return;
         }
       }
-      
+
       // It's a new day (or first time) - simplified flow:
       // 1. Do minimal setup: auto-skip expired items before yesterday, ensure instances exist
       // 2. Check if there are pending items from yesterday (pure check)
       // 3. If yes: show dialog (dialog will handle finalization after user confirms)
       // 4. If no: process end-of-day activities immediately (finalize scoring/records)
-      
+
       // Step 1: Minimal setup (auto-skip expired, ensure instances)
       await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
       await DayEndProcessor.ensurePendingInstancesExist(userId);
-      
+
       // Step 2: Check for pending items from yesterday (pure check)
-      final hasPendingItems = await MorningCatchUpService.hasPendingItemsFromYesterday(userId);
-      
+      final hasPendingItems =
+          await MorningCatchUpService.hasPendingItemsFromYesterday(userId);
+
       if (hasPendingItems) {
         // There are pending items - show dialog first
         // Dialog will handle finalization after user confirms item status
         // Update lastDayValue only (defer finalization to dialog)
-        await DayEndProcessor.updateLastDayValuesOnly(userId, DateService.yesterdayStart);
-        
+        await DayEndProcessor.updateLastDayValuesOnly(
+            userId, DateService.yesterdayStart);
+
         // Mark as processed to prevent re-running on same day
-        await prefs.setString('last_end_of_day_processed', today.toIso8601String());
-        
+        await prefs.setString(
+            'last_end_of_day_processed', today.toIso8601String());
+
         if (mounted) {
           showDialog(
             context: context,
@@ -644,9 +651,10 @@ class _HomeState extends State<Home> {
           closeInstances: false,
           ensureInstances: false, // Already ensured above
         );
-        
+
         // Mark as processed for today
-        await prefs.setString('last_end_of_day_processed', today.toIso8601String());
+        await prefs.setString(
+            'last_end_of_day_processed', today.toIso8601String());
       }
     } catch (e) {
       // Error checking morning catch-up

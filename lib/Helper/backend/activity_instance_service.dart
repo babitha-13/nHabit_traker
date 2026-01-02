@@ -132,7 +132,7 @@ class ActivityInstanceService {
       // Set habit-specific fields
       dayState: template.categoryType == 'habit' ? 'open' : null,
       belongsToDate: template.categoryType == 'habit' ||
-              template.categoryType == 'non_productive'
+              template.categoryType == 'essential'
           ? normalizedDate
           : null,
       windowEndDate: windowEndDate,
@@ -589,12 +589,12 @@ class ActivityInstanceService {
         statusCounts[inst.status] = (statusCounts[inst.status] ?? 0) + 1;
       }
       // Separate tasks and habits for different filtering logic
-      // Exclude non-productive types from normal queries
+      // Exclude essentials from normal queries
       // Also filter out inactive instances to match tasks page behavior
       final taskInstances = allInstances
           .where((inst) =>
               inst.templateCategoryType == 'task' &&
-              inst.templateCategoryType != 'non_productive' &&
+              inst.templateCategoryType != 'essential' &&
               inst.isActive) // Filter inactive instances
           .toList();
       final habitInstances = allInstances
@@ -897,7 +897,8 @@ class ActivityInstanceService {
 
     if (simultaneous.isEmpty) {
       // No other items, just stack backwards from completion time
-      final startTime = completionTime.subtract(Duration(milliseconds: durationMs));
+      final startTime =
+          completionTime.subtract(Duration(milliseconds: durationMs));
       return StackedSessionTimes(
         startTime: startTime,
         endTime: completionTime,
@@ -1043,10 +1044,31 @@ class ActivityInstanceService {
         completionTime,
         effectiveEstimateMinutes: effectiveEstimateMinutes,
       );
+      final resolvedFinalValue = finalValue ?? instance.currentValue;
+      // Heuristic to prevent "points explosion": if not time tracking, but value looks like MS,
+      // don't store it in currentValue. This ensures points stay consistent.
+      dynamic currentValueToStore = resolvedFinalValue;
+      if (instance.templateTrackingType != 'time' &&
+          resolvedFinalValue is num) {
+        final double val = resolvedFinalValue.toDouble();
+        final double accTime =
+            (finalAccumulatedTime ?? instance.accumulatedTime).toDouble();
+        if (val > 1000 && val == accTime) {
+          // This is duration, not progress.
+          if (instance.templateCategoryType == 'essential') {
+            currentValueToStore = 1; // Essentials are binary
+          } else if (instance.templateTrackingType == 'binary') {
+            currentValueToStore = 1;
+          } else {
+            currentValueToStore = instance.currentValue;
+          }
+        }
+      }
+
       final updateData = <String, dynamic>{
         'status': 'completed',
         'completedAt': completionTime,
-        'currentValue': finalValue ?? instance.currentValue,
+        'currentValue': currentValueToStore,
         'accumulatedTime': finalAccumulatedTime ?? instance.accumulatedTime,
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
@@ -1057,8 +1079,9 @@ class ActivityInstanceService {
         final int recordedDuration =
             finalAccumulatedTime ?? instance.accumulatedTime;
         final int totalLogged = instance.totalTimeLogged;
-        final int candidateDuration =
-            recordedDuration > 0 ? recordedDuration : (totalLogged > 0 ? totalLogged : 0);
+        final int candidateDuration = recordedDuration > 0
+            ? recordedDuration
+            : (totalLogged > 0 ? totalLogged : 0);
         if (candidateDuration > 0) {
           forcedDurationMs = candidateDuration;
         } else if (durationMs > 0) {
@@ -1119,19 +1142,25 @@ class ActivityInstanceService {
       }
 
       // ==================== OPTIMISTIC BROADCAST ====================
-      // 1. Create optimistic instance
+      // 1. Extract time log sessions and total time for optimistic instance
+      final optimisticTimeLogSessions = updateData['timeLogSessions'] as List<Map<String, dynamic>>?;
+      final optimisticTotalTimeLogged = updateData['totalTimeLogged'] as int?;
+      
+      // 2. Create optimistic instance with time log sessions included
       final optimisticInstance =
           InstanceEvents.createOptimisticCompletedInstance(
         instance,
-        finalValue: finalValue ?? instance.currentValue,
+        finalValue: currentValueToStore,
         finalAccumulatedTime: finalAccumulatedTime ?? instance.accumulatedTime,
         completedAt: completionTime,
+        timeLogSessions: optimisticTimeLogSessions,
+        totalTimeLogged: optimisticTotalTimeLogged,
       );
 
-      // 2. Generate operation ID
+      // 3. Generate operation ID
       final operationId = OptimisticOperationTracker.generateOperationId();
 
-      // 3. Track operation
+      // 4. Track operation
       OptimisticOperationTracker.trackOperation(
         operationId,
         instanceId: instanceId,
@@ -1140,17 +1169,17 @@ class ActivityInstanceService {
         originalInstance: instance,
       );
 
-      // 4. Broadcast optimistically (IMMEDIATE)
+      // 5. Broadcast optimistically (IMMEDIATE)
       InstanceEvents.broadcastInstanceUpdatedOptimistic(
           optimisticInstance, operationId);
 
-      // 5. Perform backend update
+      // 6. Perform backend update
       try {
         await instanceRef.update(updateData);
         final updatedInstance =
             await getUpdatedInstance(instanceId: instanceId, userId: uid);
 
-        // 6. Reconcile with actual data
+        // 7. Reconcile with actual data
         OptimisticOperationTracker.reconcileOperation(
             operationId, updatedInstance);
 
@@ -1208,7 +1237,7 @@ class ActivityInstanceService {
           print('Error canceling reminder for completed instance: $e');
         }
       } catch (e) {
-        // 7. Rollback on error
+        // 8. Rollback on error
         OptimisticOperationTracker.rollbackOperation(operationId);
         rethrow;
       }
@@ -1410,7 +1439,8 @@ class ActivityInstanceService {
             userId: uid,
             trackingType: latestInstance.templateTrackingType,
             target: latestInstance.templateTarget,
-            hasExplicitSessions: false, // Always allow estimate-based blocks for quantitative increments
+            hasExplicitSessions:
+                false, // Always allow estimate-based blocks for quantitative increments
             template: template,
           );
 
@@ -1420,11 +1450,12 @@ class ActivityInstanceService {
                 ? (latestInstance.templateTarget as num).toDouble()
                 : 1.0;
             if (targetQty > 0) {
-              final perUnitMinutes = (effectiveEstimateMinutes / targetQty).clamp(1.0, 600.0);
+              final perUnitMinutes =
+                  (effectiveEstimateMinutes / targetQty).clamp(1.0, 600.0);
               final perUnitMs = (perUnitMinutes * 60000).toInt();
 
-              final existingSessions =
-                  List<Map<String, dynamic>>.from(latestInstance.timeLogSessions);
+              final existingSessions = List<Map<String, dynamic>>.from(
+                  latestInstance.timeLogSessions);
 
               // Create one time block per increment
               final newSessions = <Map<String, dynamic>>[];
@@ -1449,7 +1480,8 @@ class ActivityInstanceService {
                   sessionEndTime = stackedTimes.endTime;
                 } else {
                   // Subsequent blocks: stack directly before the previous block
-                  sessionStartTime = currentEndTime.subtract(Duration(milliseconds: perUnitMs));
+                  sessionStartTime = currentEndTime
+                      .subtract(Duration(milliseconds: perUnitMs));
                   sessionEndTime = currentEndTime;
                 }
 
@@ -1460,7 +1492,8 @@ class ActivityInstanceService {
                 };
 
                 newSessions.add(newSession);
-                currentEndTime = sessionStartTime; // Next block ends where this one starts
+                currentEndTime =
+                    sessionStartTime; // Next block ends where this one starts
               }
 
               // Add all new sessions to existing sessions
@@ -1842,7 +1875,8 @@ class ActivityInstanceService {
           'timeLogSessions': existingSessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime, // Keep legacy field updated
-          'currentValue': newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
+          'currentValue':
+              newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
         };
         // For windowed habits, update lastDayValue to track differential progress
         if (instance.templateCategoryType == 'habit' &&

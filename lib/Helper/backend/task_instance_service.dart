@@ -8,7 +8,7 @@ import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart'
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
-import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
+import 'package:habit_tracker/Helper/backend/essential_service.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/time_validation_helper.dart';
@@ -146,12 +146,29 @@ class TaskInstanceService {
       // For tasks, proceed with task completion logic
       final now = DateTime.now();
 
+      // Resolve finalValue to prevent time storage in non-time tasks
+      dynamic currentValueToStore = finalValue;
+      if (instance.templateTrackingType != 'time' && finalValue is num) {
+        final double val = finalValue.toDouble();
+        final double accTime =
+            (finalAccumulatedTime ?? instance.accumulatedTime).toDouble();
+        if (val > 1000 && val == accTime) {
+          if (instance.templateCategoryType == 'essential') {
+            currentValueToStore = 1;
+          } else if (instance.templateTrackingType == 'binary') {
+            currentValueToStore = 1;
+          } else {
+            currentValueToStore = instance.currentValue;
+          }
+        }
+      }
+
       // ==================== OPTIMISTIC BROADCAST ====================
       // 1. Create optimistic instance
       final optimisticInstance =
           InstanceEvents.createOptimisticCompletedInstance(
         instance,
-        finalValue: finalValue,
+        finalValue: currentValueToStore,
         finalAccumulatedTime: finalAccumulatedTime ?? instance.accumulatedTime,
         completedAt: now,
       );
@@ -177,7 +194,7 @@ class TaskInstanceService {
         await instanceRef.update({
           'status': 'completed',
           'completedAt': now,
-          'currentValue': finalValue,
+          'currentValue': currentValueToStore,
           'accumulatedTime': finalAccumulatedTime ?? instance.accumulatedTime,
           'notes': notes ?? instance.notes,
           'lastUpdated': now,
@@ -828,12 +845,12 @@ class TaskInstanceService {
     required String taskName,
     String? categoryId,
     String? categoryName,
-    String? activityType, // 'task' or 'non_productive'
+    String? activityType, // 'task' or 'essential'
     String? userId,
   }) async {
     try {
       final uid = userId ?? _currentUserId;
-      final isNonProductive = activityType == 'non_productive';
+      final isessential = activityType == 'essential';
 
       // Get current instance to check for existing sessions
       final currentInstance =
@@ -853,10 +870,10 @@ class TaskInstanceService {
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
 
-      // Handle non-productive vs productive differently
-      if (isNonProductive) {
-        // For non-productive: find or create template, then update instance
-        final templates = await NonProductiveService.getNonProductiveTemplates(
+      // Handle essential vs productive differently
+      if (isessential) {
+        // For essential: find or create template, then update instance
+        final templates = await essentialService.getessentialTemplates(
           userId: uid,
         );
         ActivityRecord? matchingTemplate;
@@ -870,7 +887,7 @@ class TaskInstanceService {
         // Create template if it doesn't exist
         DocumentReference templateRef;
         if (matchingTemplate == null) {
-          templateRef = await NonProductiveService.createNonProductiveTemplate(
+          templateRef = await essentialService.createessentialTemplate(
             name: taskName,
             trackingType: 'binary',
             userId: uid,
@@ -879,7 +896,7 @@ class TaskInstanceService {
           templateRef = matchingTemplate.reference;
         }
 
-        // Update instance with non-productive data
+        // Update instance with essential data
         final updateData = <String, dynamic>{
           'status': 'completed',
           'completedAt': DateTime.now(),
@@ -887,13 +904,13 @@ class TaskInstanceService {
           'timeLogSessions': existingSessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime,
-          'currentValue': totalTime,
+          'currentValue':
+              matchingTemplate?.trackingType == 'time' ? totalTime : 1,
           'templateId': templateRef.id,
           'templateName': taskName,
-          'templateCategoryType': 'non_productive',
-          'templateCategoryName': 'Non-Productive',
-          'templateTrackingType':
-              matchingTemplate?.trackingType ?? 'binary',
+          'templateCategoryType': 'essential',
+          'templateCategoryName': 'essential',
+          'templateTrackingType': matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': DateTime.now(),
         };
@@ -916,7 +933,7 @@ class TaskInstanceService {
           'timeLogSessions': existingSessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime,
-          'currentValue': totalTime,
+          'currentValue': 1, // Productive timer tasks are binary (1 = complete)
           'templateTarget':
               totalTime / 60000.0, // Convert milliseconds to minutes
           'templateName': taskName,
@@ -967,12 +984,12 @@ class TaskInstanceService {
     required String taskName,
     String? categoryId,
     String? categoryName,
-    String? activityType, // 'task' or 'non_productive'
+    String? activityType, // 'task' or 'essential'
     String? userId,
   }) async {
     try {
       final uid = userId ?? _currentUserId;
-      final isNonProductive = activityType == 'non_productive';
+      final isessential = activityType == 'essential';
 
       // Get current instance to check for existing sessions
       final currentInstance =
@@ -992,10 +1009,10 @@ class TaskInstanceService {
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
 
-      // Handle non-productive vs productive differently
-      if (isNonProductive) {
-        // For non-productive: find or create template, then update instance
-        final templates = await NonProductiveService.getNonProductiveTemplates(
+      // Handle essential vs productive differently
+      if (isessential) {
+        // For essential: find or create template, then update instance
+        final templates = await essentialService.getessentialTemplates(
           userId: uid,
         );
         ActivityRecord? matchingTemplate;
@@ -1009,7 +1026,7 @@ class TaskInstanceService {
         // Create template if it doesn't exist
         DocumentReference templateRef;
         if (matchingTemplate == null) {
-          templateRef = await NonProductiveService.createNonProductiveTemplate(
+          templateRef = await essentialService.createessentialTemplate(
             name: taskName,
             trackingType: 'binary',
             userId: uid,
@@ -1018,7 +1035,7 @@ class TaskInstanceService {
           templateRef = matchingTemplate.reference;
         }
 
-        // Update instance with non-productive data (status remains pending)
+        // Update instance with essential data (status remains pending)
         final updateData = <String, dynamic>{
           'status': 'pending',
           'isTimerActive': false,
@@ -1029,10 +1046,9 @@ class TaskInstanceService {
           'currentValue': totalTime,
           'templateId': templateRef.id,
           'templateName': taskName,
-          'templateCategoryType': 'non_productive',
-          'templateCategoryName': 'Non-Productive',
-          'templateTrackingType':
-              matchingTemplate?.trackingType ?? 'binary',
+          'templateCategoryType': 'essential',
+          'templateCategoryName': 'essential',
+          'templateTrackingType': matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': DateTime.now(),
         };
@@ -1332,26 +1348,24 @@ class TaskInstanceService {
           .toList();
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
-        final normalizedStartDate = startDate != null 
-            ? _normalizeToStartOfDay(startDate) 
-            : null;
-        final normalizedEndDate = endDate != null 
-            ? _normalizeToStartOfDay(endDate) 
-            : null;
-        
+        final normalizedStartDate =
+            startDate != null ? _normalizeToStartOfDay(startDate) : null;
+        final normalizedEndDate =
+            endDate != null ? _normalizeToStartOfDay(endDate) : null;
+
         return tasks.where((task) {
           final sessions = task.timeLogSessions;
           return sessions.any((session) {
             final sessionStart = session['startTime'] as DateTime;
             final normalizedSessionStart = _normalizeToStartOfDay(sessionStart);
-            
+
             // Exclude sessions before startDate
-            if (normalizedStartDate != null && 
+            if (normalizedStartDate != null &&
                 normalizedSessionStart.isBefore(normalizedStartDate)) {
               return false;
             }
             // Exclude sessions at or after endDate (endDate is exclusive)
-            if (normalizedEndDate != null && 
+            if (normalizedEndDate != null &&
                 !normalizedSessionStart.isBefore(normalizedEndDate)) {
               return false;
             }
@@ -1365,8 +1379,8 @@ class TaskInstanceService {
     }
   }
 
-  /// Get all non-productive instances with time logs for calendar display
-  static Future<List<ActivityInstanceRecord>> getNonProductiveInstances({
+  /// Get all essential instances with time logs for calendar display
+  static Future<List<ActivityInstanceRecord>> getessentialInstances({
     String? userId,
     DateTime? startDate,
     DateTime? endDate,
@@ -1374,7 +1388,7 @@ class TaskInstanceService {
     final uid = userId ?? _currentUserId;
     try {
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'non_productive')
+          .where('templateCategoryType', isEqualTo: 'essential')
           .where('totalTimeLogged', isGreaterThan: 0);
       final result = await query.get();
       final instances = result.docs
@@ -1384,26 +1398,24 @@ class TaskInstanceService {
           .toList();
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
-        final normalizedStartDate = startDate != null 
-            ? _normalizeToStartOfDay(startDate) 
-            : null;
-        final normalizedEndDate = endDate != null 
-            ? _normalizeToStartOfDay(endDate) 
-            : null;
-        
+        final normalizedStartDate =
+            startDate != null ? _normalizeToStartOfDay(startDate) : null;
+        final normalizedEndDate =
+            endDate != null ? _normalizeToStartOfDay(endDate) : null;
+
         return instances.where((instance) {
           final sessions = instance.timeLogSessions;
           return sessions.any((session) {
             final sessionStart = session['startTime'] as DateTime;
             final normalizedSessionStart = _normalizeToStartOfDay(sessionStart);
-            
+
             // Exclude sessions before startDate
-            if (normalizedStartDate != null && 
+            if (normalizedStartDate != null &&
                 normalizedSessionStart.isBefore(normalizedStartDate)) {
               return false;
             }
             // Exclude sessions at or after endDate (endDate is exclusive)
-            if (normalizedEndDate != null && 
+            if (normalizedEndDate != null &&
                 !normalizedSessionStart.isBefore(normalizedEndDate)) {
               return false;
             }
@@ -1421,7 +1433,7 @@ class TaskInstanceService {
     required String taskName,
     required DateTime startTime,
     required DateTime endTime,
-    required String activityType, // 'task', 'habit', or 'non_productive'
+    required String activityType, // 'task', 'habit', or 'essential'
     String? categoryId,
     String? categoryName,
     String? templateId, // Optional: if selecting an existing activity
@@ -1600,14 +1612,15 @@ class TaskInstanceService {
             'timeLogSessions': currentSessions,
             'totalTimeLogged': newTotalLogged,
             'accumulatedTime': newTotalLogged,
-            'currentValue': newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
+            'currentValue':
+                newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
             'lastUpdated': DateTime.now(),
           };
 
-          // Fix: Ensure templateCategoryType is correct for non-productive items
-          if (activityType == 'non_productive') {
-            updateData['templateCategoryType'] = 'non_productive';
-            updateData['templateCategoryName'] = 'Non-Productive';
+          // Fix: Ensure templateCategoryType is correct for Essential Activities
+          if (activityType == 'essential') {
+            updateData['templateCategoryType'] = 'essential';
+            updateData['templateCategoryName'] = 'essential';
           }
 
           // Use the correct collection reference based on where we found the instance
@@ -1681,7 +1694,8 @@ class TaskInstanceService {
           final sessions = [newSession];
           // Only set currentValue to totalTime for time-based tracking
           // For quantitative/binary, the instance was just created with default currentValue (0 or null)
-          final newCurrentValue = template.trackingType == 'time' ? totalTime : null;
+          final newCurrentValue =
+              template.trackingType == 'time' ? totalTime : null;
           final updateData = <String, dynamic>{
             'timeLogSessions': sessions,
             'totalTimeLogged': totalTime,
@@ -1694,7 +1708,7 @@ class TaskInstanceService {
           await instanceRef.update(updateData);
 
           // Only auto-complete tasks if:
-          // 1. It's a task (not habit/non-productive)
+          // 1. It's a task (not habit/essential)
           // 2. Template has time tracking
           // 3. Template has a target set (> 0)
           // 4. Logged time meets or exceeds the target
@@ -1729,13 +1743,13 @@ class TaskInstanceService {
       );
       final now = DateTime.now();
 
-      final isNonProductive = activityType == 'non_productive';
+      final isessential = activityType == 'essential';
       final timeLogSessions = [newSession];
 
-      if (isNonProductive) {
-        // Find or create a template for the non-productive activity.
+      if (isessential) {
+        // Find or create a template for the essential activity.
         final templates =
-            await NonProductiveService.getNonProductiveTemplates(userId: uid);
+            await essentialService.getessentialTemplates(userId: uid);
         ActivityRecord? matchingTemplate;
         try {
           matchingTemplate = templates.firstWhere(
@@ -1747,7 +1761,7 @@ class TaskInstanceService {
 
         DocumentReference templateRef;
         if (matchingTemplate == null) {
-          templateRef = await NonProductiveService.createNonProductiveTemplate(
+          templateRef = await essentialService.createessentialTemplate(
             name: taskName,
             trackingType: 'binary',
             userId: uid,
@@ -1756,7 +1770,7 @@ class TaskInstanceService {
           templateRef = matchingTemplate.reference;
         }
 
-        // Update the instance with non-productive data
+        // Update the instance with essential data
         final updateData = <String, dynamic>{
           'status': markComplete ? 'completed' : 'pending',
           'completedAt': markComplete ? endTime : FieldValue.delete(),
@@ -1767,10 +1781,9 @@ class TaskInstanceService {
           'currentValue': totalTime,
           'templateId': templateRef.id,
           'templateName': taskName,
-          'templateCategoryType': 'non_productive',
-          'templateCategoryName': 'Non-Productive',
-          'templateTrackingType':
-              matchingTemplate?.trackingType ?? 'binary',
+          'templateCategoryType': 'essential',
+          'templateCategoryName': 'essential',
+          'templateTrackingType': matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': now,
         };
@@ -1790,7 +1803,8 @@ class TaskInstanceService {
           'timeLogSessions': timeLogSessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime,
-          'currentValue': totalTime,
+          'currentValue':
+              markComplete ? 1 : 0, // Binary one-offs: 1 if complete
           'templateTarget': totalTime / 60000.0, // Minutes
           'templateName': taskName,
           'templateCategoryType': 'task',
@@ -1913,7 +1927,8 @@ class TaskInstanceService {
           'timeLogSessions': sessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime,
-          'currentValue': newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
+          'currentValue':
+              newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
           'lastUpdated': DateTime.now(),
         });
 
@@ -2075,9 +2090,8 @@ class TaskInstanceService {
             instance.templateTarget != null) {
           final target = instance.templateTarget;
           if (target is num && target > 0) {
-            final currentQty = (newCurrentValue is num)
-                ? newCurrentValue.toDouble()
-                : 0.0;
+            final currentQty =
+                (newCurrentValue is num) ? newCurrentValue.toDouble() : 0.0;
             if (currentQty < target.toDouble()) {
               // Auto-uncomplete for quantitative types when quantity falls below target
               await ActivityInstanceService.uncompleteInstance(

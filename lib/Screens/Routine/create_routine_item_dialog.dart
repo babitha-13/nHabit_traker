@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/non_productive_service.dart';
+import 'package:habit_tracker/Helper/backend/essential_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -54,8 +54,7 @@ class _CreateRoutineItemDialogState extends State<CreateRoutineItemDialog> {
       _isCreating = true;
     });
     try {
-      final templateRef =
-          await NonProductiveService.createNonProductiveTemplate(
+      final templateRef = await essentialService.createessentialTemplate(
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim().isEmpty
             ? null
@@ -77,7 +76,7 @@ class _CreateRoutineItemDialogState extends State<CreateRoutineItemDialog> {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
               content: Text(
-                  'Non-productive item "${activity.name}" created successfully!'),
+                  'essential item "${activity.name}" created successfully!'),
               backgroundColor: Colors.green,
             ),
           );
@@ -87,7 +86,7 @@ class _CreateRoutineItemDialogState extends State<CreateRoutineItemDialog> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Error creating non-productive item: $e'),
+            content: Text('Error creating essential item: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -104,7 +103,7 @@ class _CreateRoutineItemDialogState extends State<CreateRoutineItemDialog> {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: const Text('Create Non-Productive Item'),
+      title: const Text('Create essential Item'),
       content: SingleChildScrollView(
         child: Form(
           key: _formKey,
@@ -210,7 +209,7 @@ class _CreateRoutineItemDialogState extends State<CreateRoutineItemDialog> {
               ],
               const SizedBox(height: 16),
               Text(
-                'Note: This item is non-productive and will only appear in sequences. It tracks time but does not earn points.',
+                'Note: This item is essential and will only appear in sequences. It tracks time but does not earn points.',
                 style: FlutterFlowTheme.of(context).bodySmall.override(
                       color: FlutterFlowTheme.of(context).secondaryText,
                     ),
