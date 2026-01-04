@@ -303,6 +303,11 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isCompleted {
+    // In weekly view, items are shown as quantities (not binary completions),
+    // so we don't treat them as "completed" for display purposes
+    if (widget.page == 'weekly') {
+      return false;
+    }
     return _binaryCompletionOverride ?? _isBackendCompleted;
   }
 

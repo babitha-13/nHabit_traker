@@ -33,6 +33,7 @@ import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/global_floating_timer.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
@@ -470,6 +471,12 @@ class _HomeState extends State<Home> {
   }
 
   Future<bool> _onWillPop() async {
+    // Priority: If search is open, close it first
+    if (SearchStateManager().isSearchOpen) {
+      NotificationCenter.post('closeSearch', null);
+      return false;
+    }
+
     if (title == "Queue") {
       final timeGap = DateTime.now().difference(preBackPress);
       final cantExit = timeGap >= const Duration(seconds: 2);

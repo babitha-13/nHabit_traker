@@ -18,6 +18,7 @@ import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/planned_duration_resolver.dart';
 import 'package:habit_tracker/Helper/backend/routine_planned_calendar_service.dart';
+import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -497,6 +498,7 @@ class _CalendarPageState extends State<CalendarPage> {
   // Scroll tracking
   double _currentScrollOffset = 0.0;
   double _initialScrollOffset = 0.0;
+  double _calendarViewportHeight = 0.0;
 
   // State for view control
   DateTime _selectedDate = DateTime.now();
@@ -570,6 +572,20 @@ class _CalendarPageState extends State<CalendarPage> {
         _loadEvents();
       }
     });
+    NotificationCenter.addObserver(this, 'routineUpdated', (param) {
+      if (mounted) {
+        _loadEvents();
+      }
+    });
+    NotificationCenter.addObserver(
+      this,
+      ActivityTemplateEvents.templateUpdated,
+      (param) {
+        if (mounted) {
+          _loadEvents();
+        }
+      },
+    );
     NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
       _handleRollback(param);
     });
@@ -672,6 +688,11 @@ class _CalendarPageState extends State<CalendarPage> {
     final taskCategoryColorMap =
         <String, String>{}; // Store color hex per category
 
+    // For essentials: Map<activityName, minutes>
+    final essentialActivityTimeMap = <String, double>{};
+    final essentialActivityColorMap =
+        <String, String>{}; // Store color hex per activity
+
     // Process all events with time logs
     for (final event in _sortedCompletedEvents) {
       if (event.startTime == null || event.endTime == null) continue;
@@ -713,7 +734,7 @@ class _CalendarPageState extends State<CalendarPage> {
             habitCategoryColorMap[categoryKey] = colorHex;
           } else if (!habitCategoryColorMap.containsKey(categoryKey)) {
             // Only use default if no color has been set yet
-            habitCategoryColorMap[categoryKey] = '#FF9800'; // Orange default
+            habitCategoryColorMap[categoryKey] = '#C57B57'; // Copper default
           }
         } else {
           taskCategoryTimeMap[categoryKey] =
@@ -727,26 +748,44 @@ class _CalendarPageState extends State<CalendarPage> {
                 '#1A1A1A'; // Dark charcoal default
           }
         }
+      } else if (metadata.activityType == 'essential') {
+        // For essentials, break down by activity name (template name)
+        final activityKey = metadata.activityName.isNotEmpty
+            ? metadata.activityName
+            : 'Unnamed Essential';
+
+        essentialActivityTimeMap[activityKey] =
+            (essentialActivityTimeMap[activityKey] ?? 0.0) + minutes;
+
+        // Get color hex from metadata if available, otherwise use grey
+        String? colorHex = metadata.categoryColorHex;
+        if (colorHex != null && colorHex.isNotEmpty) {
+          essentialActivityColorMap[activityKey] = colorHex;
+        } else if (!essentialActivityColorMap.containsKey(activityKey)) {
+          // Use grey as default for essentials
+          essentialActivityColorMap[activityKey] = '#9E9E9E'; // Grey default
+        }
       }
     }
 
-    // Create segments - ordered: habit categories, task categories, essential, unlogged
-    final segments = <PieChartSegment>[];
+    // Create subcategories map for hierarchical structure
+    final subcategories = <String, List<PieChartSegment>>{};
 
-    // Add habit category segments
+    // Build habit subcategories
+    final habitSubcategories = <PieChartSegment>[];
     final habitCategoryKeys = habitCategoryTimeMap.keys.toList()
       ..sort(); // Sort for consistent ordering
     for (final categoryKey in habitCategoryKeys) {
       final minutes = habitCategoryTimeMap[categoryKey]!;
       if (minutes > 0) {
-        final colorHex = habitCategoryColorMap[categoryKey] ?? '#FF9800';
+        final colorHex = habitCategoryColorMap[categoryKey] ?? '#C57B57';
         Color categoryColor;
         try {
           categoryColor = fromCssColor(colorHex);
         } catch (e) {
-          categoryColor = Colors.orange; // Fallback
+          categoryColor = const Color(0xFFC57B57); // Copper fallback
         }
-        segments.add(PieChartSegment(
+        habitSubcategories.add(PieChartSegment(
           label: categoryKey,
           value: minutes,
           color: categoryColor,
@@ -754,8 +793,12 @@ class _CalendarPageState extends State<CalendarPage> {
         ));
       }
     }
+    if (habitSubcategories.isNotEmpty) {
+      subcategories['habit'] = habitSubcategories;
+    }
 
-    // Add task category segments
+    // Build task subcategories
+    final taskSubcategories = <PieChartSegment>[];
     final taskCategoryKeys = taskCategoryTimeMap.keys.toList()
       ..sort(); // Sort for consistent ordering
     for (final categoryKey in taskCategoryKeys) {
@@ -768,7 +811,7 @@ class _CalendarPageState extends State<CalendarPage> {
         } catch (e) {
           categoryColor = const Color(0xFF1A1A1A); // Fallback
         }
-        segments.add(PieChartSegment(
+        taskSubcategories.add(PieChartSegment(
           label: categoryKey,
           value: minutes,
           color: categoryColor,
@@ -776,16 +819,43 @@ class _CalendarPageState extends State<CalendarPage> {
         ));
       }
     }
-
-    // Add essential segment (single segment)
-    if (essentialMinutes > 0) {
-      segments.add(PieChartSegment(
-        label: 'essential',
-        value: essentialMinutes,
-        color: Colors.grey,
-        category: 'essential',
-      ));
+    if (taskSubcategories.isNotEmpty) {
+      subcategories['task'] = taskSubcategories;
     }
+
+    // Build essential subcategories (by activity name)
+    final essentialSubcategories = <PieChartSegment>[];
+    final essentialActivityKeys = essentialActivityTimeMap.keys.toList()
+      ..sort(); // Sort for consistent ordering
+    for (final activityKey in essentialActivityKeys) {
+      final minutes = essentialActivityTimeMap[activityKey]!;
+      if (minutes > 0) {
+        final colorHex = essentialActivityColorMap[activityKey] ?? '#9E9E9E';
+        Color activityColor;
+        try {
+          activityColor = fromCssColor(colorHex);
+        } catch (e) {
+          activityColor = Colors.grey; // Fallback
+        }
+        essentialSubcategories.add(PieChartSegment(
+          label: activityKey,
+          value: minutes,
+          color: activityColor,
+          category: 'essential',
+        ));
+      }
+    }
+    if (essentialSubcategories.isNotEmpty) {
+      subcategories['essential'] = essentialSubcategories;
+    } else {
+      subcategories['essential'] = [];
+    }
+
+    // Create legacy segments for backward compatibility (all subcategories)
+    final segments = <PieChartSegment>[];
+    segments.addAll(habitSubcategories);
+    segments.addAll(taskSubcategories);
+    segments.addAll(essentialSubcategories);
 
     // Calculate unlogged time (24 hours = 1440 minutes)
     final totalLogged = habitMinutes + taskMinutes + essentialMinutes;
@@ -805,6 +875,7 @@ class _CalendarPageState extends State<CalendarPage> {
       taskMinutes: taskMinutes,
       essentialMinutes: essentialMinutes,
       segments: segments,
+      subcategories: subcategories,
     );
   }
 
@@ -2691,11 +2762,11 @@ class _CalendarPageState extends State<CalendarPage> {
 
     if (activityType == 'essential') {
       // Essentials: Double diagonal lines pattern
-      // Use base color with transparency
-      boxColor = event.color.withOpacity(isCompleted ? 0.5 : 0.25);
-      borderColor = event.color.withOpacity(0.6);
+      // Use base color with increased transparency (less prominent, not main focus)
+      boxColor = event.color.withOpacity(isCompleted ? 0.25 : 0.12);
+      borderColor = event.color.withOpacity(0.3);
       patternPainter = _DoubleDiagonalPainter(
-        stripeColor: event.color.withOpacity(0.4),
+        stripeColor: event.color.withOpacity(0.2),
         stripeWidth: 2.5,
         spacing: 28.0, // Increased spacing between each set of double lines
         lineGap: 5.0, // Gap between the two lines within each pair
@@ -2785,9 +2856,14 @@ class _CalendarPageState extends State<CalendarPage> {
     // Completed events are muted (opacity 0.4), but planned are solid/transparent blocks
     // We base it on the "perceived" background color or the event color itself
 
+    // Check if this is an essential by activityType (more reliable than title prefix)
+    final metadata = CalendarEventMetadata.fromMap(event.event);
+    final activityType = metadata?.activityType ?? 'task';
+    final isEssentialActivity = activityType == 'essential';
+
     Color textColor;
-    if (isessential || event.color == Colors.grey) {
-      textColor = Colors.black87;
+    if (isEssentialActivity || event.color == Colors.grey) {
+      textColor = Colors.black;
     } else if (event.color == const Color(0xFF1A1A1A)) {
       // Task color
       textColor = Colors.white;
@@ -2810,7 +2886,10 @@ class _CalendarPageState extends State<CalendarPage> {
           Text(
             event.title.isNotEmpty ? event.title : ' ',
             style: TextStyle(
-              color: textColor,
+              // For completed essentials, use fully opaque black text for better readability
+              color: isEssentialActivity
+                  ? (isCompleted ? Colors.black87 : textColor.withOpacity(0.7))
+                  : textColor,
               fontSize: 12,
               fontWeight: FontWeight.bold,
             ),
@@ -2821,7 +2900,10 @@ class _CalendarPageState extends State<CalendarPage> {
             Text(
               event.description!,
               style: TextStyle(
-                color: textColor.withOpacity(0.8),
+                // For completed essentials, use fully opaque black text for better readability
+                color: isEssentialActivity && isCompleted
+                    ? Colors.black87
+                    : textColor.withOpacity(0.8),
                 fontSize: 10,
               ),
               overflow: TextOverflow.ellipsis,
@@ -2837,10 +2919,18 @@ class _CalendarPageState extends State<CalendarPage> {
     bool isCompleted,
     bool isessential,
   ) {
-    final labelColor = event.color.withOpacity(0.9);
+    // Check if this is an essential by activityType (more reliable than title prefix)
+    final metadata = CalendarEventMetadata.fromMap(event.event);
+    final activityType = metadata?.activityType ?? 'task';
+    final isEssentialActivity = activityType == 'essential';
+
+    // Make essential labels more transparent (less prominent)
+    final labelColor = isEssentialActivity
+        ? event.color.withOpacity(0.5)
+        : event.color.withOpacity(0.9);
     Color textColor;
-    if (isessential || event.color == Colors.grey) {
-      textColor = Colors.black87;
+    if (isEssentialActivity || event.color == Colors.grey) {
+      textColor = Colors.black;
     } else if (event.color == const Color(0xFF1A1A1A)) {
       // Task color
       textColor = Colors.white;
@@ -2877,7 +2967,9 @@ class _CalendarPageState extends State<CalendarPage> {
         child: Text(
           event.title.isNotEmpty ? event.title : ' ',
           style: TextStyle(
-            color: textColor,
+            // For completed essentials, use fully opaque black text for better readability
+            color:
+                isEssentialActivity && isCompleted ? Colors.black87 : textColor,
             fontSize: 11,
             fontWeight: FontWeight.w700,
             shadows: isCompleted
@@ -2906,6 +2998,48 @@ class _CalendarPageState extends State<CalendarPage> {
 
   double _calculateHeightPerMinute() {
     return _baseHeightPerMinute * _verticalZoom;
+  }
+
+  double _calculateMaxScrollExtent(double zoom) {
+    final heightPerMinute = _baseHeightPerMinute * zoom;
+    final totalHeight = heightPerMinute * 24 * 60;
+    final viewport = _calendarViewportHeight > 0
+        ? _calendarViewportHeight
+        : totalHeight; // Fallback before layout
+    return math.max(0.0, totalHeight - viewport);
+  }
+
+  double _clampScrollOffsetForZoom(double desiredOffset, double zoom) {
+    final maxScrollExtent = _calculateMaxScrollExtent(zoom);
+    if (desiredOffset.isNaN || desiredOffset.isInfinite) {
+      return _currentScrollOffset.clamp(0.0, maxScrollExtent);
+    }
+    return desiredOffset.clamp(0.0, maxScrollExtent);
+  }
+
+  void _syncDayViewScroll(double offset) {
+    final state = _dayViewKey.currentState;
+    if (state == null) return;
+    final dynamic dayViewState = state;
+    try {
+      final ScrollController? controller = dayViewState.scrollController;
+      if (controller != null && controller.hasClients) {
+        controller.jumpTo(offset);
+        return;
+      }
+    } catch (_) {
+      // scrollController might not be exposed; fall through to animateTo.
+    }
+
+    try {
+      dayViewState.animateTo(
+        offset,
+        duration: const Duration(milliseconds: 1),
+        curve: Curves.linear,
+      );
+    } catch (_) {
+      // DayView implementation may not support animateTo.
+    }
   }
 
   void _zoomIn() {
@@ -2948,40 +3082,42 @@ class _CalendarPageState extends State<CalendarPage> {
     });
   }
 
-  // Handle zoom gesture start - capture initial values
   void _onScaleStart(ScaleStartDetails details) {
     _initialZoomOnGestureStart = _verticalZoom;
     _initialScaleOnGestureStart = 1.0; // Scale starts at 1.0
   }
 
-  // Handle vertical pinch gestures - use relative scale change
   void _onScaleUpdate(ScaleUpdateDetails details) {
     if (_initialZoomOnGestureStart == null ||
         _initialScaleOnGestureStart == null) {
       return; // Gesture not properly initialized
     }
 
-    // Calculate relative scale change from gesture start
     final scaleChange = details.scale / _initialScaleOnGestureStart!;
-
-    // Apply scale change to initial zoom (not current zoom)
-    final oldHeight = _calculateHeightPerMinute();
-    final newZoom = _initialZoomOnGestureStart! * scaleChange;
-    final clampedZoom = newZoom.clamp(_minVerticalZoom, _maxVerticalZoom);
-
-    if ((clampedZoom - _verticalZoom).abs() < 0.001) return;
-
-    // Calculate new offset
+    final proposedZoom = _initialZoomOnGestureStart! * scaleChange;
+    final clampedZoom = proposedZoom.clamp(_minVerticalZoom, _maxVerticalZoom);
+    final oldHeight = _baseHeightPerMinute * _verticalZoom;
     final newHeight = _baseHeightPerMinute * clampedZoom;
-    final ratio = newHeight / oldHeight;
-    _initialScrollOffset = _currentScrollOffset * ratio;
+    final focalDy = details.localFocalPoint.dy;
+    final totalPixelsBefore =
+        (_currentScrollOffset + focalDy).clamp(0.0, double.infinity);
+    final focalMinutes = oldHeight > 0 ? totalPixelsBefore / oldHeight : 0.0;
+    final desiredOffset = (focalMinutes * newHeight) - focalDy;
+    final clampedOffset = _clampScrollOffsetForZoom(desiredOffset, clampedZoom);
+
+    final zoomChanged = (clampedZoom - _verticalZoom).abs() >= 0.001;
+    final offsetChanged = (clampedOffset - _currentScrollOffset).abs() >=
+        0.5; // avoid noisy rebuilds
+    if (!zoomChanged && !offsetChanged) return;
 
     setState(() {
       _verticalZoom = clampedZoom;
+      _initialScrollOffset = clampedOffset;
+      _currentScrollOffset = clampedOffset;
     });
+    _syncDayViewScroll(clampedOffset);
   }
 
-  // Handle zoom gesture end - reset tracking
   void _onScaleEnd(ScaleEndDetails details) {
     _initialZoomOnGestureStart = null;
     _initialScaleOnGestureStart = null;
@@ -3003,6 +3139,17 @@ class _CalendarPageState extends State<CalendarPage> {
         title: const Text('Calendar View'),
         actions: [
           IconButton(
+            icon: _isLoadingEvents
+                ? const SizedBox(
+                    width: 20,
+                    height: 20,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
+            onPressed: _isLoadingEvents ? null : _loadEvents,
+            tooltip: 'Refresh Events',
+          ),
+          IconButton(
             icon: const Icon(Icons.zoom_out),
             onPressed: _zoomOut,
             tooltip: 'Zoom Out',
@@ -3013,7 +3160,7 @@ class _CalendarPageState extends State<CalendarPage> {
             tooltip: 'Zoom In',
           ),
           IconButton(
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.restart_alt),
             onPressed: _resetZoom,
             tooltip: 'Reset Zoom',
           ),
@@ -3186,207 +3333,258 @@ class _CalendarPageState extends State<CalendarPage> {
 
                 // Calendar Body
                 Expanded(
-                  child: GestureDetector(
-                    onScaleStart: _onScaleStart,
-                    onScaleUpdate: _onScaleUpdate,
-                    onScaleEnd: _onScaleEnd,
-                    child: NotificationListener<ScrollNotification>(
-                      onNotification: (notification) {
-                        if (notification is ScrollUpdateNotification &&
-                            notification.metrics.axis == Axis.vertical) {
-                          _currentScrollOffset = notification.metrics.pixels;
-                        }
-                        return false;
-                      },
-                      child: GestureDetector(
-                        // Block horizontal drag gestures to prevent date navigation via swipe
-                        onHorizontalDragStart: (details) {
-                          // Absorb the gesture - do nothing
-                        },
-                        onHorizontalDragUpdate: (details) {
-                          // Absorb the gesture - do nothing
-                        },
-                        onHorizontalDragEnd: (details) {
-                          // Absorb the gesture - do nothing
-                        },
-                        child: Listener(
-                          onPointerDown: (event) {
-                            // Capture the local position of the tap within the viewport
-                            _lastTapDownPosition = event.localPosition;
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      _calendarViewportHeight = constraints.maxHeight;
+                      return GestureDetector(
+                        behavior: HitTestBehavior.translucent,
+                        onScaleStart: _onScaleStart,
+                        onScaleUpdate: _onScaleUpdate,
+                        onScaleEnd: _onScaleEnd,
+                        child: NotificationListener<ScrollNotification>(
+                          onNotification: (notification) {
+                            // Block horizontal scroll notifications to prevent swipe navigation
+                            if (notification is ScrollUpdateNotification) {
+                              if (notification.metrics.axis ==
+                                  Axis.horizontal) {
+                                // Absorb horizontal scroll notifications - prevent swipe navigation
+                                return true;
+                              } else if (notification.metrics.axis ==
+                                  Axis.vertical) {
+                                _currentScrollOffset =
+                                    notification.metrics.pixels;
+                              }
+                            }
+                            return false;
                           },
-                          child: Stack(
-                            children: [
-                              // DayView is wrapped in a keyed widget to force rebuild when date changes
-                              // The GlobalKey is recreated in _changeDate() to ensure proper date updates
-                              DayView(
-                                // Use unique key to force rebuild when switching views or dates
-                                // Key is recreated in _changeDate() and toggle to ensure DayView reflects selected date/view
-                                key: _dayViewKey,
-                                scrollOffset: _initialScrollOffset,
-                                controller: _showPlanned
-                                    ? _plannedEventController
-                                    : _completedEventController,
-                                // initialDay sets the date - this should update when _selectedDate changes
-                                initialDay: _selectedDate,
-                                heightPerMinute: _calculateHeightPerMinute(),
-                                backgroundColor: Colors.white,
-                                showVerticalLine:
-                                    true, // Ensure vertical line is visible
-                                timeLineWidth:
-                                    65.0, // Increased for better visibility
-                                // Ensure standard hourly steps for timeline
-                                hourIndicatorSettings: HourIndicatorSettings(
-                                  color: Colors.grey.shade300,
-                                ),
-                                timeLineBuilder: (date) {
-                                  // Build time labels for the Y-axis
-                                  // This builder is called for each time slot in the day
-                                  final hour = date.hour;
-                                  final minute = date.minute;
-
-                                  // Show labels for each hour (at minute 0)
-                                  if (minute != 0)
-                                    return const SizedBox.shrink();
-
-                                  // Show hour labels (e.g., "12 AM", "1 AM", etc.)
-                                  final hour12 =
-                                      hour == 0 || hour == 12 ? 12 : hour % 12;
-                                  final period = hour < 12 ? 'AM' : 'PM';
-                                  return Container(
-                                    width: double.infinity,
-                                    padding: const EdgeInsets.only(right: 8.0),
-                                    alignment: Alignment.centerRight,
-                                    child: Text(
-                                      '$hour12 $period',
-                                      style: TextStyle(
-                                        fontSize: 12,
-                                        color: Colors.grey.shade700,
-                                        fontWeight: FontWeight.w500,
-                                      ),
-                                      textAlign: TextAlign.right,
-                                    ),
-                                  );
-                                },
-                                liveTimeIndicatorSettings:
-                                    LiveTimeIndicatorSettings(
-                                  color: Colors.red,
-                                  height: 2.0,
-                                  offset: 5,
-                                ),
-                                eventTileBuilder: (date, events, a, b, c) {
-                                  return _buildEventTile(
-                                      events.first, !_showPlanned);
-                                },
-                                dayTitleBuilder: (date) {
-                                  return const SizedBox
-                                      .shrink(); // Hide default header
-                                },
-                                onDateLongPress: (date) {
-                                  // Calculate precise time from touch position details
-                                  // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
-                                  // use _lastTapDownPosition + scrollOffset to get pixels from top.
-                                  if (_lastTapDownPosition != null) {
-                                    // tapY is relative to the Listener widget, which wraps the DayView
-                                    // The Listener is at the top of the Expanded widget (below the header)
-                                    // So tapY is already relative to the DayView's content area
-                                    final double tapY =
-                                        _lastTapDownPosition!.dy;
-
-                                    // Get the actual scroll position from DayView if possible
-                                    // Otherwise use the tracked _currentScrollOffset
-                                    double scrollOffset = _currentScrollOffset;
-
-                                    // Try to get scroll position directly from DayView state
-                                    try {
-                                      final dayViewState =
-                                          _dayViewKey.currentState;
-                                      if (dayViewState != null) {
-                                        // Access scrollController if available
-                                        final dynamic state = dayViewState;
-                                        if (state.scrollController != null) {
-                                          scrollOffset = state
-                                              .scrollController.position.pixels;
-                                        }
-                                      }
-                                    } catch (e) {
-                                      // Fallback to tracked offset
-                                    }
-
-                                    // Calculate total pixels from top of timeline (midnight)
-                                    // tapY is the position in the visible viewport
-                                    // scrollOffset is how far we've scrolled from the top
-                                    final double totalPixels =
-                                        tapY + scrollOffset;
-                                    final double totalMinutes = totalPixels /
-                                        _calculateHeightPerMinute();
-
-                                    // Convert total minutes to HH:MM on the selected date
-                                    final int totalMinutesInt =
-                                        totalMinutes.toInt();
-                                    final int hours = totalMinutesInt ~/ 60;
-                                    final int minutes = totalMinutesInt % 60;
-
-                                    // Round minutes to nearest 5
-                                    final int remainder = minutes % 5;
-                                    final int roundedMinute = remainder >= 2.5
-                                        ? minutes + (5 - remainder)
-                                        : minutes - remainder;
-
-                                    final startTime = DateTime(
-                                      _selectedDate.year,
-                                      _selectedDate.month,
-                                      _selectedDate.day,
-                                      hours,
-                                      0, // Start from 0 minutes and add rounded minutes
-                                    ).add(Duration(minutes: roundedMinute));
-
-                                    final endTime = startTime.add(Duration(
-                                        minutes: _defaultDurationMinutes));
-
-                                    _showManualEntryDialog(
-                                      startTime: startTime,
-                                      endTime: endTime,
-                                    );
-                                  } else {
-                                    // Fallback to old logic if no tap position (unlikely)
-                                    final minute = date.minute;
-                                    final remainder = minute % 5;
-                                    final roundedMinute = remainder >= 2.5
-                                        ? minute + (5 - remainder)
-                                        : minute - remainder;
-
-                                    final startTime = DateTime(
-                                      date.year,
-                                      date.month,
-                                      date.day,
-                                      date.hour,
-                                      roundedMinute,
-                                    );
-                                    final endTime = startTime.add(Duration(
-                                        minutes: _defaultDurationMinutes));
-
-                                    _showManualEntryDialog(
-                                      startTime: startTime,
-                                      endTime: endTime,
-                                    );
-                                  }
-                                },
+                          child: GestureDetector(
+                            // Block horizontal drag gestures to prevent date navigation via swipe
+                            behavior: HitTestBehavior.opaque,
+                            onHorizontalDragStart: (details) {
+                              // Absorb the gesture - prevent swipe navigation
+                            },
+                            onHorizontalDragUpdate: (details) {
+                              // Absorb the gesture - prevent swipe navigation
+                            },
+                            onHorizontalDragEnd: (details) {
+                              // Absorb the gesture - prevent swipe navigation
+                            },
+                            child: ScrollConfiguration(
+                              // Disable horizontal scrolling to prevent swipe navigation
+                              behavior:
+                                  ScrollConfiguration.of(context).copyWith(
+                                scrollbars: false,
                               ),
-                              // Loading overlay
-                              if (_isLoadingEvents)
-                                Positioned.fill(
-                                  child: Container(
-                                    color: Colors.white.withOpacity(0.7),
-                                    child: const Center(
-                                      child: CircularProgressIndicator(),
+                              child: Listener(
+                                onPointerDown: (event) {
+                                  // Capture the local position of the tap within the viewport
+                                  _lastTapDownPosition = event.localPosition;
+                                },
+                                child: Stack(
+                                  children: [
+                                    // DayView is wrapped in a keyed widget to force rebuild when date changes
+                                    // The GlobalKey is recreated in _changeDate() to ensure proper date updates
+                                    // Additional GestureDetector to block horizontal swipe gestures
+                                    GestureDetector(
+                                      behavior: HitTestBehavior.opaque,
+                                      onHorizontalDragStart: (_) {},
+                                      onHorizontalDragUpdate: (_) {},
+                                      onHorizontalDragEnd: (_) {},
+                                      child: DayView(
+                                        // Use unique key to force rebuild when switching views or dates
+                                        // Key is recreated in _changeDate() and toggle to ensure DayView reflects selected date/view
+                                        key: _dayViewKey,
+                                        scrollOffset: _initialScrollOffset,
+                                        controller: _showPlanned
+                                            ? _plannedEventController
+                                            : _completedEventController,
+                                        // initialDay sets the date - this should update when _selectedDate changes
+                                        initialDay: _selectedDate,
+                                        heightPerMinute:
+                                            _calculateHeightPerMinute(),
+                                        backgroundColor: Colors.white,
+                                        showVerticalLine:
+                                            true, // Ensure vertical line is visible
+                                        timeLineWidth:
+                                            65.0, // Increased for better visibility
+                                        // Ensure standard hourly steps for timeline
+                                        hourIndicatorSettings:
+                                            HourIndicatorSettings(
+                                          color: Colors.grey.shade300,
+                                        ),
+                                        timeLineBuilder: (date) {
+                                          // Build time labels for the Y-axis
+                                          // This builder is called for each time slot in the day
+                                          final hour = date.hour;
+                                          final minute = date.minute;
+
+                                          // Show labels for each hour (at minute 0)
+                                          if (minute != 0) {
+                                            return const SizedBox.shrink();
+                                          }
+
+                                          // Show hour labels (e.g., "12 AM", "1 AM", etc.)
+                                          final hour12 = hour == 0 || hour == 12
+                                              ? 12
+                                              : hour % 12;
+                                          final period =
+                                              hour < 12 ? 'AM' : 'PM';
+                                          return Container(
+                                            width: double.infinity,
+                                            padding: const EdgeInsets.only(
+                                                right: 8.0, top: 0.0),
+                                            alignment: Alignment.topRight,
+                                            child: Text(
+                                              '$hour12 $period',
+                                              style: TextStyle(
+                                                fontSize: 12,
+                                                color: Colors.grey.shade700,
+                                                fontWeight: FontWeight.w500,
+                                              ),
+                                              textAlign: TextAlign.right,
+                                            ),
+                                          );
+                                        },
+                                        liveTimeIndicatorSettings:
+                                            LiveTimeIndicatorSettings(
+                                          color: Colors.red,
+                                          height: 2.0,
+                                          offset: 5,
+                                        ),
+                                        eventTileBuilder:
+                                            (date, events, a, b, c) {
+                                          return _buildEventTile(
+                                              events.first, !_showPlanned);
+                                        },
+                                        dayTitleBuilder: (date) {
+                                          return const SizedBox
+                                              .shrink(); // Hide default header
+                                        },
+                                        onDateLongPress: (date) {
+                                          // Calculate precise time from touch position details
+                                          // The 'date' argument from onDateLongPress is imprecise (snaps to hour).
+                                          // use _lastTapDownPosition + scrollOffset to get pixels from top.
+                                          if (_lastTapDownPosition != null) {
+                                            // tapY is relative to the Listener widget, which wraps the DayView
+                                            // The Listener is at the top of the Expanded widget (below the header)
+                                            // So tapY is already relative to the DayView's content area
+                                            final double tapY =
+                                                _lastTapDownPosition!.dy;
+
+                                            // Get the actual scroll position from DayView if possible
+                                            // Otherwise use the tracked _currentScrollOffset
+                                            double scrollOffset =
+                                                _currentScrollOffset;
+
+                                            // Try to get scroll position directly from DayView state
+                                            try {
+                                              final dayViewState =
+                                                  _dayViewKey.currentState;
+                                              if (dayViewState != null) {
+                                                // Access scrollController if available
+                                                final dynamic state =
+                                                    dayViewState;
+                                                if (state.scrollController !=
+                                                    null) {
+                                                  scrollOffset = state
+                                                      .scrollController
+                                                      .position
+                                                      .pixels;
+                                                }
+                                              }
+                                            } catch (e) {
+                                              // Fallback to tracked offset
+                                            }
+
+                                            // Calculate total pixels from top of timeline (midnight)
+                                            // tapY is the position in the visible viewport
+                                            // scrollOffset is how far we've scrolled from the top
+                                            final double totalPixels =
+                                                tapY + scrollOffset;
+                                            final double totalMinutes =
+                                                totalPixels /
+                                                    _calculateHeightPerMinute();
+
+                                            // Convert total minutes to HH:MM on the selected date
+                                            final int totalMinutesInt =
+                                                totalMinutes.toInt();
+                                            final int hours =
+                                                totalMinutesInt ~/ 60;
+                                            final int minutes =
+                                                totalMinutesInt % 60;
+
+                                            // Round minutes to nearest 5
+                                            final int remainder = minutes % 5;
+                                            final int roundedMinute =
+                                                remainder >= 2.5
+                                                    ? minutes + (5 - remainder)
+                                                    : minutes - remainder;
+
+                                            final startTime = DateTime(
+                                              _selectedDate.year,
+                                              _selectedDate.month,
+                                              _selectedDate.day,
+                                              hours,
+                                              0, // Start from 0 minutes and add rounded minutes
+                                            ).add(Duration(
+                                                minutes: roundedMinute));
+
+                                            final endTime = startTime.add(
+                                                Duration(
+                                                    minutes:
+                                                        _defaultDurationMinutes));
+
+                                            _showManualEntryDialog(
+                                              startTime: startTime,
+                                              endTime: endTime,
+                                            );
+                                          } else {
+                                            // Fallback to old logic if no tap position (unlikely)
+                                            final minute = date.minute;
+                                            final remainder = minute % 5;
+                                            final roundedMinute =
+                                                remainder >= 2.5
+                                                    ? minute + (5 - remainder)
+                                                    : minute - remainder;
+
+                                            final startTime = DateTime(
+                                              date.year,
+                                              date.month,
+                                              date.day,
+                                              date.hour,
+                                              roundedMinute,
+                                            );
+                                            final endTime = startTime.add(
+                                                Duration(
+                                                    minutes:
+                                                        _defaultDurationMinutes));
+
+                                            _showManualEntryDialog(
+                                              startTime: startTime,
+                                              endTime: endTime,
+                                            );
+                                          }
+                                        },
+                                      ),
                                     ),
-                                  ),
+                                    // Loading overlay
+                                    if (_isLoadingEvents)
+                                      Positioned.fill(
+                                        child: Container(
+                                          color: Colors.white.withOpacity(0.7),
+                                          child: const Center(
+                                            child: CircularProgressIndicator(),
+                                          ),
+                                        ),
+                                      ),
+                                  ],
                                 ),
-                            ],
+                              ),
+                            ),
                           ),
                         ),
-                      ),
-                    ),
+                      );
+                    },
                   ),
                 ),
               ],

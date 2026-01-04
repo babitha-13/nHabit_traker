@@ -576,14 +576,16 @@ class _ProgressPageState extends State<ProgressPage> {
         if (lastDate.year == today.year &&
             lastDate.month == today.month &&
             lastDate.day == today.day) {
-          // Update today's entry with live values if we have a valid score
-          if (_hasProjection && _projectedCumulativeScore > 0) {
+          // Always use projected score for today if available (matches Queue page behavior)
+          // This ensures the graph shows today's live progress, even if score is 0 or negative
+          if (_hasProjection) {
             history[history.length - 1] = {
               'date': lastDate,
               'score': _projectedCumulativeScore,
               'gain': _projectedDailyGain,
             };
           } else if (_cumulativeScore > 0) {
+            // Fallback to snapshot score only if projection not available
             history[history.length - 1] = {
               'date': lastDate,
               'score': _cumulativeScore,
@@ -613,14 +615,16 @@ class _ProgressPageState extends State<ProgressPage> {
     if (lastDate.year == today.year &&
         lastDate.month == today.month &&
         lastDate.day == today.day) {
-      // Update today's entry with current values
-      if (_hasProjection && _projectedCumulativeScore > 0) {
+      // Always use projected score for today if available (matches Queue page behavior)
+      // This ensures the graph shows today's live progress, even if score is 0 or negative
+      if (_hasProjection) {
         _cumulativeScoreHistory[_cumulativeScoreHistory.length - 1] = {
           'date': lastDate,
           'score': _projectedCumulativeScore,
           'gain': _projectedDailyGain,
         };
       } else if (_cumulativeScore > 0) {
+        // Fallback to snapshot score only if projection not available
         _cumulativeScoreHistory[_cumulativeScoreHistory.length - 1] = {
           'date': lastDate,
           'score': _cumulativeScore,
@@ -1198,7 +1202,21 @@ class _ProgressPageState extends State<ProgressPage> {
     // Use shared state as single source of truth for consistency with Queue page
     final sharedData = TodayProgressState().getCumulativeScoreData();
     final displayScore = sharedData['cumulativeScore'] as double? ?? _projectedCumulativeScore;
-    final displayGain = sharedData['dailyGain'] as double? ?? _projectedDailyGain;
+    
+    // Calculate daily gain consistently: today's score (from graph) - yesterday's score (from graph history)
+    // This ensures both pages show the same value and matches the graph trend exactly
+    final todayScore = _cumulativeScoreHistory.isNotEmpty
+        ? (_cumulativeScoreHistory.last['score'] as double)
+        : displayScore;
+    double displayGain = 0.0;
+    if (_cumulativeScoreHistory.length >= 2) {
+      // Use yesterday's score from history to match the graph
+      final yesterdayScore = _cumulativeScoreHistory[_cumulativeScoreHistory.length - 2]['score'] as double;
+      displayGain = todayScore - yesterdayScore;
+    } else if (_cumulativeScoreHistory.length == 1) {
+      // Only one day in history, can't calculate difference - use fallback
+      displayGain = sharedData['dailyGain'] as double? ?? _projectedDailyGain;
+    }
 
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;

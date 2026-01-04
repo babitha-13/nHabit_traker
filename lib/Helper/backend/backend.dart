@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -620,9 +621,9 @@ Future<DocumentReference> createActivity({
     rethrow;
   }
   // Create initial activity instance
+  // Optimize: Create ActivityRecord from data we already have instead of fetching
   try {
-    final activity = await ActivityRecord.getDocumentOnce(habitRef)
-        .timeout(const Duration(seconds: 10));
+    final activity = ActivityRecord.getDocumentFromData(habitData, habitRef);
     // Create instance (already broadcasts optimistically and reconciles)
     await ActivityInstanceService.createActivityInstance(
       templateId: habitRef.id,
@@ -633,11 +634,21 @@ Future<DocumentReference> createActivity({
       dueTime: dueTime,
       template: activity,
       userId: uid,
+      skipOrderLookup: categoryType == 'task', // Skip order lookup for tasks to speed up quick add
     ).timeout(const Duration(seconds: 10));
   } catch (e) {
     // Surface instance creation errors so UI can display them
     rethrow;
   }
+  ActivityTemplateEvents.broadcastTemplateUpdated(
+    templateId: habitRef.id,
+    context: {
+      'action': 'created',
+      'categoryType': categoryType,
+      'hasDueTime': dueTime != null && dueTime.isNotEmpty,
+      if (timeEstimateMinutes != null) 'timeEstimateMinutes': timeEstimateMinutes,
+    },
+  );
   return habitRef;
 }
 

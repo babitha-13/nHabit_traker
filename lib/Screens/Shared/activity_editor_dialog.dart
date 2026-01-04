@@ -15,6 +15,7 @@ import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
+import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:intl/intl.dart';
 
@@ -667,31 +668,48 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     }
 
     await docRef.update(updateData);
+    ActivityTemplateEvents.broadcastTemplateUpdated(
+      templateId: docRef.id,
+      context: {
+        'updatedFields': updateData.keys.toList(),
+        if (updateData.containsKey('timeEstimateMinutes'))
+          'timeEstimateMinutes': updateData['timeEstimateMinutes'],
+      },
+    );
 
     // Check for category change for history update option
+    // Only show dialog for habits - tasks always use current & future only
+    // One-time tasks also don't need the dialog (only one instance)
     bool updateHistorical = false;
     if (widget.activity!.categoryId != _selectedCategoryId) {
-      // Assuming context is still valid
-      final userChoice = await showDialog<bool>(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Update Category'),
-          content: const Text(
-              'You changed the category. Do you want to apply this change to past history as well?'),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context, false),
-              child: const Text('Current & Future Only'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, true),
-              child: const Text('Include History (1 Year)'),
-            ),
-          ],
-        ),
-      );
-      // If user dismisses dialog (null), default to false (Current only)
-      updateHistorical = userChoice ?? false;
+      // For tasks (including one-time tasks), always use current & future only
+      // For habits, show dialog to ask about historical instances
+      if (widget.isHabit) {
+        // Show dialog only for habits
+        final userChoice = await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Update Category'),
+            content: const Text(
+                'You changed the category. Do you want to apply this change to past history as well?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Current & Future Only'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Include History (1 Year)'),
+              ),
+            ],
+          ),
+        );
+        // If user dismisses dialog (null), default to false (Current only)
+        updateHistorical = userChoice ?? false;
+      } else {
+        // For tasks, always use current & future only (no historical tracking)
+        updateHistorical = false;
+      }
     }
 
     // Update instances (Batch)

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/global_route_observer.dart';
+import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 
@@ -102,6 +103,17 @@ class _SearchFABState extends State<SearchFAB> with RouteAware {
     super.didChangeDependencies();
     _subscribeToRouteObserver();
     _checkAndCloseIfRouteInactive();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    NotificationCenter.addObserver(this, 'closeSearch', (_) {
+      if (_isSearchOpen && mounted) {
+        _closeBottomSheet();
+        _handleBottomSheetClosed();
+      }
+    });
   }
 
   void _subscribeToRouteObserver() {

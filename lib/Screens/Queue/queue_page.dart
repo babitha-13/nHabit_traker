@@ -74,8 +74,13 @@ class _QueuePageState extends State<QueuePage> {
   double _cumulativeScore = 0.0;
   double _dailyScoreGain = 0.0;
   List<Map<String, dynamic>> _cumulativeScoreHistory = [];
-  bool _isLoadingCumulativeScore = false; // Guard against recursive loads
-  bool _pendingCumulativeScoreReload = false;
+  bool _isLoadingHistory = false;
+  bool _pendingHistoryReload = false;
+  bool _historyLoaded = false;
+  bool _isUpdatingLiveScore = false;
+  bool _pendingLiveScoreUpdate = false;
+  double? _pendingHistoryScore;
+  double? _pendingHistoryGain;
   // Removed legacy Recent Completions expansion state; now uses standard sections
   // Search functionality
   String _searchQuery = '';
@@ -109,7 +114,7 @@ class _QueuePageState extends State<QueuePage> {
         // Defer cumulative score loading until after initial render for faster initial load
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            _loadCumulativeScore();
+            _loadCumulativeScoreHistory();
           }
         });
         // Handle auto-expand request from widget constructor
@@ -124,22 +129,21 @@ class _QueuePageState extends State<QueuePage> {
     });
     // Listen for cumulative score updates from Progress page
     NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
-      if (mounted && !_isLoadingCumulativeScore) {
-        setState(() {
-          final data = TodayProgressState().getCumulativeScoreData();
-          _cumulativeScore = data['cumulativeScore'] as double;
-          _dailyScoreGain = data['dailyGain'] as double;
-        });
-      }
+      if (!mounted) return;
+      final data = TodayProgressState().getCumulativeScoreData();
+      final updatedScore =
+          (data['cumulativeScore'] as double?) ?? _cumulativeScore;
+      final updatedGain = (data['dailyGain'] as double?) ?? _dailyScoreGain;
+      setState(() {
+        _cumulativeScore = updatedScore;
+        _dailyScoreGain = updatedGain;
+      });
+      _queueHistoryOverlay(updatedScore, updatedGain);
     });
     // Listen for today's progress updates to recalculate cumulative score
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
       if (!mounted) return;
-      if (_isLoadingCumulativeScore) {
-        _pendingCumulativeScoreReload = true;
-        return;
-      }
-      _loadCumulativeScore();
+      _refreshLiveCumulativeScore();
     });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
@@ -584,7 +588,12 @@ class _QueuePageState extends State<QueuePage> {
   /// Update cumulative score live without reloading full history
   /// This provides instant updates similar to daily progress chart
   Future<void> _updateCumulativeScoreLive() async {
-    if (_isLoadingCumulativeScore) return;
+    if (_isUpdatingLiveScore) {
+      _pendingLiveScoreUpdate = true;
+      return;
+    }
+
+    _isUpdatingLiveScore = true;
 
     try {
       final userId = currentUserUid;
@@ -611,23 +620,10 @@ class _QueuePageState extends State<QueuePage> {
         setState(() {
           _cumulativeScore = currentCumulativeScore;
           _dailyScoreGain = currentDailyGain;
-
-          // Update today's entry in history if it exists
-          if (_cumulativeScoreHistory.isNotEmpty) {
-            final today = DateService.currentDate;
-            final lastItem = _cumulativeScoreHistory.last;
-            final lastDate = lastItem['date'] as DateTime;
-
-            if (lastDate.year == today.year &&
-                lastDate.month == today.month &&
-                lastDate.day == today.day) {
-              // Update today's entry with live values
-              _cumulativeScoreHistory.last['score'] = currentCumulativeScore;
-              _cumulativeScoreHistory.last['gain'] = currentDailyGain;
-            }
-          }
         });
       }
+
+      _queueHistoryOverlay(currentCumulativeScore, currentDailyGain);
 
       // Publish to shared state for other pages
       TodayProgressState().updateCumulativeScore(
@@ -637,18 +633,54 @@ class _QueuePageState extends State<QueuePage> {
       );
     } catch (e) {
       // Error updating cumulative score live - non-critical, continue silently
+    } finally {
+      _isUpdatingLiveScore = false;
+      if (_pendingLiveScoreUpdate) {
+        _pendingLiveScoreUpdate = false;
+        Future.microtask(_refreshLiveCumulativeScore);
+      }
     }
   }
 
-  Future<void> _loadCumulativeScore() async {
-    // Prevent recursive calls
-    if (_isLoadingCumulativeScore) return;
+  Future<void> _refreshLiveCumulativeScore() async {
+    try {
+      final data = TodayProgressState().getCumulativeScoreData();
+      final hasLiveScore = data['hasLiveScore'] as bool? ?? false;
+
+      if (!hasLiveScore) {
+        await _updateCumulativeScoreLive();
+        return;
+      }
+
+      final score = (data['cumulativeScore'] as double?) ?? _cumulativeScore;
+      final gain = (data['dailyGain'] as double?) ?? _dailyScoreGain;
+
+      if (mounted) {
+        setState(() {
+          _cumulativeScore = score;
+          _dailyScoreGain = gain;
+        });
+      }
+
+      _queueHistoryOverlay(score, gain);
+    } catch (e) {
+      // Non-critical; best-effort live refresh
+    }
+  }
+
+  Future<void> _loadCumulativeScoreHistory({bool forceReload = false}) async {
+    if (_isLoadingHistory) {
+      if (forceReload) {
+        _pendingHistoryReload = true;
+      }
+      return;
+    }
 
     try {
-      _isLoadingCumulativeScore = true;
+      _isLoadingHistory = true;
       final userId = currentUserUid;
       if (userId.isEmpty) {
-        _isLoadingCumulativeScore = false;
+        _isLoadingHistory = false;
         return;
       }
 
@@ -814,22 +846,32 @@ class _QueuePageState extends State<QueuePage> {
 
       if (!isNewHistoryValid && wasOldHistoryValid) {
         // Warning: New cumulative score history is empty/zero. Ignoring update to preserve data.
-        _isLoadingCumulativeScore = false;
+        _isLoadingHistory = false;
         return;
       }
 
       if (mounted) {
         setState(() {
           _cumulativeScoreHistory = history;
+          _historyLoaded = true;
         });
+      } else {
+        _historyLoaded = true;
+        _cumulativeScoreHistory = history;
       }
+
+      final overlayScore = _pendingHistoryScore ?? _cumulativeScore;
+      final overlayGain = _pendingHistoryGain ?? _dailyScoreGain;
+      _queueHistoryOverlay(overlayScore, overlayGain);
+      _pendingHistoryScore = null;
+      _pendingHistoryGain = null;
     } catch (e) {
       // Error loading cumulative score
     } finally {
-      _isLoadingCumulativeScore = false;
-      if (_pendingCumulativeScoreReload) {
-        _pendingCumulativeScoreReload = false;
-        Future.microtask(_loadCumulativeScore);
+      _isLoadingHistory = false;
+      if (_pendingHistoryReload) {
+        _pendingHistoryReload = false;
+        Future.microtask(_loadCumulativeScoreHistory);
       }
     }
   }
@@ -838,6 +880,62 @@ class _QueuePageState extends State<QueuePage> {
   List<Map<String, dynamic>> _getMiniGraphHistory() {
     if (_cumulativeScoreHistory.isEmpty) return [];
     return List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
+  }
+
+  bool _applyLiveScoreToHistory(double score, double gain) {
+    final todayStart = DateService.todayStart;
+
+    if (_cumulativeScoreHistory.isEmpty) {
+      _cumulativeScoreHistory = [
+        {
+          'date': todayStart,
+          'score': score,
+          'gain': gain,
+        },
+      ];
+      return true;
+    }
+
+    final lastIndex = _cumulativeScoreHistory.length - 1;
+    final lastEntry = _cumulativeScoreHistory[lastIndex];
+    final lastDate = lastEntry['date'] as DateTime;
+
+    final updatedHistory =
+        List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
+
+    if (_isSameDay(lastDate, todayStart)) {
+      updatedHistory[lastIndex] = {
+        'date': lastDate,
+        'score': score,
+        'gain': gain,
+      };
+    } else if (lastDate.isBefore(todayStart)) {
+      updatedHistory.add({
+        'date': todayStart,
+        'score': score,
+        'gain': gain,
+      });
+      if (updatedHistory.length > 31) {
+        updatedHistory.removeAt(0);
+      }
+    } else {
+      return false;
+    }
+
+    _cumulativeScoreHistory = updatedHistory;
+    return true;
+  }
+
+  void _queueHistoryOverlay(double score, double gain) {
+    if (_historyLoaded) {
+      final changed = _applyLiveScoreToHistory(score, gain);
+      if (changed && mounted) {
+        setState(() {});
+      }
+    } else {
+      _pendingHistoryScore = score;
+      _pendingHistoryGain = gain;
+    }
   }
 
   Widget _buildCumulativeScoreMiniGraph(List<Map<String, dynamic>> history) {
@@ -1312,6 +1410,10 @@ class _QueuePageState extends State<QueuePage> {
     return DateService.todayStart;
   }
 
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
@@ -1423,7 +1525,7 @@ class _QueuePageState extends State<QueuePage> {
                   child: TabBarView(
                     children: [
                       _buildDailyTabContent(),
-                      const WeeklyView(),
+                      WeeklyView(searchQuery: _searchQuery),
                     ],
                   ),
                 ),
@@ -1525,22 +1627,11 @@ class _QueuePageState extends State<QueuePage> {
                     children: [
                       Builder(
                         builder: (context) {
-                          // Use shared state as single source of truth for today's score
-                          final today = DateService.currentDate;
-                          final lastHistoryDate = miniGraphHistory.isNotEmpty
-                              ? miniGraphHistory.last['date'] as DateTime
-                              : null;
-                          final isToday = lastHistoryDate != null &&
-                              lastHistoryDate.year == today.year &&
-                              lastHistoryDate.month == today.month &&
-                              lastHistoryDate.day == today.day;
-                          
-                          // For today, use shared state; for past days, use history
-                          final score = isToday && miniGraphHistory.isNotEmpty
-                              ? TodayProgressState().cumulativeScore
-                              : miniGraphHistory.isNotEmpty
-                                  ? (miniGraphHistory.last['score'] as double)
-                                  : 0.0;
+                          // Use the same value as the graph for consistency
+                          // The graph's last point is always the projected score for today
+                          final score = miniGraphHistory.isNotEmpty
+                              ? (miniGraphHistory.last['score'] as double)
+                              : TodayProgressState().cumulativeScore;
                           
                           return Text(
                             '${score.toStringAsFixed(0)} pts',
@@ -1555,17 +1646,21 @@ class _QueuePageState extends State<QueuePage> {
                         const SizedBox(width: 8),
                         Builder(
                           builder: (context) {
-                            // Use shared state as single source of truth for today's gain
-                            final today = DateService.currentDate;
-                            final lastHistoryDate = miniGraphHistory.last['date'] as DateTime;
-                            final isToday = lastHistoryDate.year == today.year &&
-                                lastHistoryDate.month == today.month &&
-                                lastHistoryDate.day == today.day;
+                            // Calculate daily gain consistently: today's score (from shared state) - yesterday's score (from graph history)
+                            // This ensures both pages show the same value
+                            final todayScore = miniGraphHistory.isNotEmpty
+                                ? (miniGraphHistory.last['score'] as double)
+                                : TodayProgressState().cumulativeScore;
                             
-                            // For today, use shared state; for past days, use history
-                            final dailyGain = isToday
-                                ? TodayProgressState().dailyScoreGain
-                                : miniGraphHistory.last['gain'] as double;
+                            double dailyGain = 0.0;
+                            if (miniGraphHistory.length >= 2) {
+                              // Use yesterday's score from history to match the graph
+                              final yesterdayScore = miniGraphHistory[miniGraphHistory.length - 2]['score'] as double;
+                              dailyGain = todayScore - yesterdayScore;
+                            } else if (miniGraphHistory.length == 1) {
+                              // Only one day in history, can't calculate difference - use fallback
+                              dailyGain = (miniGraphHistory.last['gain'] as double?) ?? 0.0;
+                            }
                             
                             if (dailyGain == 0) return const SizedBox.shrink();
                             return Text(
@@ -1725,7 +1820,6 @@ class _QueuePageState extends State<QueuePage> {
                 child: AnimatedContainer(
                   key: highlightKey,
                   duration: const Duration(milliseconds: 250),
-                  margin: const EdgeInsets.symmetric(vertical: 4),
                   decoration: isHighlighted
                       ? BoxDecoration(
                           borderRadius: BorderRadius.circular(20),
@@ -1790,9 +1884,10 @@ class _QueuePageState extends State<QueuePage> {
     return RefreshIndicator(
       onRefresh: () async {
         await _loadData();
-        // Also reload cumulative score after data refresh
+        // Reload 30-day history only once per manual refresh
         if (mounted) {
-          await _loadCumulativeScore();
+          await _loadCumulativeScoreHistory(forceReload: true);
+          await _refreshLiveCumulativeScore();
         }
       },
       child: CustomScrollView(
@@ -2311,8 +2406,17 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
   @override
   void didUpdateWidget(covariant CumulativeScoreGraph oldWidget) {
     super.didUpdateWidget(oldWidget);
+    // Check if history length changed
     if (widget.history.length != oldWidget.history.length) {
       _jumpToLatestPoint();
+    } else if (widget.history.isNotEmpty && oldWidget.history.isNotEmpty) {
+      // Check if the last item's score changed (for live updates)
+      final lastScore = widget.history.last['score'] as double;
+      final oldLastScore = oldWidget.history.last['score'] as double;
+      if (lastScore != oldLastScore) {
+        // Data changed, trigger repaint by calling setState
+        setState(() {});
+      }
     }
   }
 
@@ -2379,6 +2483,11 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                     SizedBox(
                       height: graphHeight,
                       child: CustomPaint(
+                        key: ValueKey(
+                          widget.history.isNotEmpty
+                              ? widget.history.last['score'] as double
+                              : 0.0,
+                        ),
                         painter: CumulativeScoreLinePainter(
                           data: widget.history,
                           minScore: minScore,

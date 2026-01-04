@@ -16,7 +16,11 @@ import 'package:collection/collection.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 class WeeklyView extends StatefulWidget {
-  const WeeklyView({super.key});
+  final String searchQuery;
+  const WeeklyView({
+    super.key,
+    this.searchQuery = '',
+  });
   @override
   State<WeeklyView> createState() => _WeeklyViewState();
 }
@@ -34,6 +38,23 @@ class _WeeklyViewState extends State<WeeklyView> {
   List<Map<String, dynamic>> _habits = [];
   DateTime? _weekStart;
   DateTime? _weekEnd;
+
+  List<Map<String, dynamic>> get _filteredTasks {
+    if (widget.searchQuery.isEmpty) return _tasks;
+    return _tasks.where((task) {
+      final name = (task['templateName'] as String?)?.toLowerCase() ?? '';
+      return name.contains(widget.searchQuery.toLowerCase());
+    }).toList();
+  }
+
+  List<Map<String, dynamic>> get _filteredHabits {
+    if (widget.searchQuery.isEmpty) return _habits;
+    return _habits.where((habit) {
+      final name = (habit['templateName'] as String?)?.toLowerCase() ?? '';
+      return name.contains(widget.searchQuery.toLowerCase());
+    }).toList();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +98,28 @@ class _WeeklyViewState extends State<WeeklyView> {
         _handleInstanceDeleted(param);
       }
     });
+  }
+  @override
+  void didUpdateWidget(covariant WeeklyView oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.searchQuery != oldWidget.searchQuery) {
+      // No need to reload data, but we might want to ensure expanded sections
+      // are updated if we want to auto-expand search results
+      if (widget.searchQuery.isNotEmpty) {
+        setState(() {
+          if (_tasks.any((t) => (t['templateName'] as String)
+              .toLowerCase()
+              .contains(widget.searchQuery.toLowerCase()))) {
+            _expandedSections.add('Tasks');
+          }
+          if (_habits.any((h) => (h['templateName'] as String)
+              .toLowerCase()
+              .contains(widget.searchQuery.toLowerCase()))) {
+            _expandedSections.add('Habits');
+          }
+        });
+      }
+    }
   }
   @override
   void dispose() {
@@ -158,6 +201,8 @@ class _WeeklyViewState extends State<WeeklyView> {
     final weekRangeText = _weekStart != null && _weekEnd != null
         ? '${DateFormat.MMMd().format(_weekStart!)} - ${DateFormat.MMMd().format(_weekEnd!)}'
         : '';
+    final filteredTasks = _filteredTasks;
+    final filteredHabits = _filteredHabits;
     final slivers = <Widget>[
       // Week range header
       SliverToBoxAdapter(
@@ -187,21 +232,21 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     ];
     // Add Tasks section
-    if (_tasks.isNotEmpty) {
-      slivers.add(_buildSectionHeader('Tasks', _tasks.length, 'Tasks'));
+    if (filteredTasks.isNotEmpty) {
+      slivers.add(_buildSectionHeader('Tasks', filteredTasks.length, 'Tasks'));
       if (_expandedSections.contains('Tasks')) {
-        slivers.add(_buildTasksList());
+        slivers.add(_buildTasksList(filteredTasks));
       }
     }
     // Add Habits section
-    if (_habits.isNotEmpty) {
-      slivers.add(_buildSectionHeader('Habits', _habits.length, 'Habits'));
+    if (filteredHabits.isNotEmpty) {
+      slivers.add(_buildSectionHeader('Habits', filteredHabits.length, 'Habits'));
       if (_expandedSections.contains('Habits')) {
-        slivers.add(_buildHabitsList());
+        slivers.add(_buildHabitsList(filteredHabits));
       }
     }
     // Show empty state if no items
-    if (_tasks.isEmpty && _habits.isEmpty) {
+    if (filteredTasks.isEmpty && filteredHabits.isEmpty) {
       slivers.add(
         SliverToBoxAdapter(
           child: Center(
@@ -323,11 +368,11 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
-  Widget _buildTasksList() {
+  Widget _buildTasksList(List<Map<String, dynamic>> tasks) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
-          final task = _tasks[index];
+          final task = tasks[index];
           final isOverdue = task['isOverdue'] as bool;
           final nextDueSubtitle = task['nextDueSubtitle'] as String;
           final currentInstance =
@@ -432,18 +477,19 @@ class _WeeklyViewState extends State<WeeklyView> {
               showTypeIcon: true,
               showRecurringIcon: true,
               showCompleted: true, // Show completed items in weekly view
+              page: 'weekly',
             ),
           );
         },
-        childCount: _tasks.length,
+        childCount: tasks.length,
       ),
     );
   }
-  Widget _buildHabitsList() {
+  Widget _buildHabitsList(List<Map<String, dynamic>> habits) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
         (context, index) {
-          final habit = _habits[index];
+          final habit = habits[index];
           final currentInstance =
               habit['currentInstance'] as ActivityInstanceRecord?;
           final displayTrackingType = habit['displayTrackingType'] as String;
@@ -501,9 +547,10 @@ class _WeeklyViewState extends State<WeeklyView> {
             showTypeIcon: false,
             showRecurringIcon: false,
             showCompleted: true, // Show completed items in weekly view
+            page: 'weekly',
           );
         },
-        childCount: _habits.length,
+        childCount: habits.length,
       ),
     );
   }

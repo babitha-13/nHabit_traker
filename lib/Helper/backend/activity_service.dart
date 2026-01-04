@@ -2,6 +2,7 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 class ActivityService {
   static Future<void> copyActivity(ActivityRecord activity) async {
     await createActivity(
@@ -22,6 +23,13 @@ class ActivityService {
   static Future<void> updateDueDate(
       DocumentReference activityRef, DateTime newDate) async {
     await activityRef.update({'dueDate': newDate});
+    ActivityTemplateEvents.broadcastTemplateUpdated(
+      templateId: activityRef.id,
+      context: {
+        'action': 'dueDateUpdated',
+        'dueDate': newDate,
+      },
+    );
   }
   static Future<void> skipUntil(
       DocumentReference activityRef, DateTime newDate) async {

@@ -42,6 +42,7 @@ class ActivityInstanceService {
     String? dueTime,
     required ActivityRecord template,
     String? userId,
+    bool skipOrderLookup = false, // Skip order lookup for faster task creation
   }) async {
     final uid = userId ?? _currentUserId;
     final now = DateService.currentDate;
@@ -56,7 +57,7 @@ class ActivityInstanceService {
         ? DateTime(
             initialDueDate.year, initialDueDate.month, initialDueDate.day)
         : DateService.todayStart;
-    // Calculate window fields for habits
+    // Calculate window fields for habits only (skip for tasks to speed up)
     DateTime? windowEndDate;
     int? windowDuration;
     if (template.categoryType == 'habit') {
@@ -73,6 +74,8 @@ class ActivityInstanceService {
       windowEndDate = normalizedDate.add(Duration(days: windowDuration - 1));
     }
     // Fetch category color for the instance
+    // Note: For quick add tasks, we could pass this from UI, but for now we still fetch it
+    // as it's needed for the instance. This is a small cost compared to order lookups.
     String? categoryColor;
     try {
       if (template.categoryId.isNotEmpty) {
@@ -88,18 +91,25 @@ class ActivityInstanceService {
       // If category fetch fails, continue without color
     }
     // Inherit order from previous instance of the same template
+    // Skip for tasks to speed up quick add - order will be set on next load if needed
     int? queueOrder;
     int? habitsOrder;
     int? tasksOrder;
-    try {
-      queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-          templateId, 'queue', uid);
-      habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-          templateId, 'habits', uid);
-      tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-          templateId, 'tasks', uid);
-    } catch (e) {
-      // If order lookup fails, continue with null values (will use default sorting)
+    if (!skipOrderLookup) {
+      try {
+        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            templateId, 'queue', uid);
+        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            templateId, 'habits', uid);
+        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            templateId, 'tasks', uid);
+      } catch (e) {
+        // If order lookup fails, continue with null values (will use default sorting)
+      }
+    } else if (template.categoryType == 'task') {
+      // For quick-add tasks, set a very negative order value so they appear at the top
+      // This ensures newly created tasks are always visible immediately
+      tasksOrder = -999999;
     }
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,

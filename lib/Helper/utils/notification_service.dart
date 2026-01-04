@@ -347,22 +347,59 @@ class NotificationService {
 
   /// Handle alarm ringing notification tap
   static void _handleAlarmRingingTap(String payload) {
-    final context = navigatorKey.currentContext;
-    if (context != null) {
-      final parts = payload.substring('ALARM_RINGING:'.length).split('|');
-      final title = parts.isNotEmpty ? parts[0] : 'Alarm';
-      final body = parts.length > 1 ? parts[1] : null;
-      final originalPayload = parts.length > 2 ? parts[2] : null;
+    // Extract title and body from payload
+    final parts = payload.substring('ALARM_RINGING:'.length).split('|');
+    final title = parts.isNotEmpty ? parts[0] : 'Alarm';
+    final body = parts.length > 1 ? parts[1] : null;
+    // Extract instanceId from payload (parts[2])
+    // AlarmRingingPage can handle either instanceId directly or full ALARM_RINGING format
+    final instanceId = parts.length > 2 ? parts[2] : null;
 
+    // Helper function to show alarm page
+    void showAlarmPage() {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+      
       Navigator.of(context).push(
         MaterialPageRoute(
           builder: (context) => AlarmRingingPage(
             title: title,
             body: body,
-            payload: originalPayload,
+            payload: instanceId, // Pass instanceId directly
           ),
+          fullscreenDialog: true, // Show as full-screen modal
         ),
       );
+    }
+
+    // Get current context
+    final context = navigatorKey.currentContext;
+    
+    if (context != null) {
+      // Clear navigation stack and navigate to home first
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+      
+      // Wait for home to load, then show alarm page
+      Future.delayed(const Duration(milliseconds: 400), () {
+        showAlarmPage();
+      });
+    } else {
+      // If context is null (app just starting), wait and retry
+      Future.delayed(const Duration(milliseconds: 800), () {
+        final delayedContext = navigatorKey.currentContext;
+        if (delayedContext != null) {
+          Navigator.of(delayedContext).pushNamedAndRemoveUntil(
+            home,
+            (route) => false,
+          );
+          Future.delayed(const Duration(milliseconds: 400), () {
+            showAlarmPage();
+          });
+        }
+      });
     }
   }
 

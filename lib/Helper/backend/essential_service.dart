@@ -5,6 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
 /// Service to manage Essential Activities (sleep, travel, rest, etc.)
@@ -72,7 +73,19 @@ class essentialService {
       everyXPeriodType: everyXPeriodType,
       specificDays: specificDays,
     );
-    return await ActivityRecord.collectionForUser(uid).add(templateData);
+    final docRef =
+        await ActivityRecord.collectionForUser(uid).add(templateData);
+    ActivityTemplateEvents.broadcastTemplateUpdated(
+      templateId: docRef.id,
+      context: {
+        'action': 'created',
+        'categoryType': 'essential',
+        'hasDueTime': dueTime != null && dueTime.isNotEmpty,
+        if (timeEstimateMinutes != null)
+          'timeEstimateMinutes': timeEstimateMinutes,
+      },
+    );
+    return docRef;
   }
 
   /// Create a essential instance with time log on demand
@@ -360,6 +373,16 @@ class essentialService {
               false, // essential usually doesn't need historical updates
         );
       }
+      ActivityTemplateEvents.broadcastTemplateUpdated(
+        templateId: templateId,
+        context: {
+          'action': 'updated',
+          'categoryType': 'essential',
+          if (updateData.containsKey('dueTime')) 'hasDueTime': true,
+          if (updateData.containsKey('timeEstimateMinutes'))
+            'timeEstimateMinutes': updateData['timeEstimateMinutes'],
+        },
+      );
     } catch (e) {
       rethrow;
     }

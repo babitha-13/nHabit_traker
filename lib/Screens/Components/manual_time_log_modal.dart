@@ -629,13 +629,81 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
 
       // Check if we're editing an existing entry
       if (widget.editMetadata != null) {
-        // Update existing session
+        // Update existing session time
         await TaskInstanceService.updateTimeLogSession(
           instanceId: widget.editMetadata!.instanceId,
           sessionIndex: widget.editMetadata!.sessionIndex,
           startTime: _startTime,
           endTime: _endTime,
         );
+        
+        // Check if name or type has changed and update instance metadata
+        // Use template name if template is selected, otherwise use typed name
+        final finalName = _selectedTemplate?.name ?? name;
+        final hasNameChanged = finalName != widget.editMetadata!.activityName;
+        final hasTypeChanged = _selectedType != widget.editMetadata!.activityType;
+        
+        if (hasNameChanged || hasTypeChanged || templateId != null || _selectedCategory != null) {
+          // Update instance metadata
+          final instanceRef = ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(widget.editMetadata!.instanceId);
+          
+          final updateData = <String, dynamic>{
+            'lastUpdated': DateTime.now(),
+          };
+          
+          // Update name if changed (use template name if available, otherwise typed name)
+          if (hasNameChanged) {
+            updateData['templateName'] = finalName;
+          }
+          
+          // Update type if changed
+          if (hasTypeChanged) {
+            updateData['templateCategoryType'] = _selectedType;
+          }
+          
+          // Update template ID if a template is selected
+          if (templateId != null) {
+            updateData['templateId'] = templateId;
+          }
+          
+          // Update category if changed
+          if (_selectedCategory != null) {
+            updateData['templateCategoryId'] = _selectedCategory!.reference.id;
+            updateData['templateCategoryName'] = _selectedCategory!.name;
+            if (_selectedCategory!.color.isNotEmpty) {
+              updateData['templateCategoryColor'] = _selectedCategory!.color;
+            }
+          }
+          
+          // Also update the template if it exists
+          if (templateId != null) {
+            final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+                .doc(templateId);
+            final templateUpdateData = <String, dynamic>{
+              'lastUpdated': DateTime.now(),
+            };
+            
+            if (hasNameChanged) {
+              templateUpdateData['name'] = finalName;
+            }
+            
+            if (_selectedCategory != null) {
+              templateUpdateData['categoryId'] = _selectedCategory!.reference.id;
+              templateUpdateData['categoryName'] = _selectedCategory!.name;
+            }
+            
+            try {
+              await templateRef.update(templateUpdateData);
+            } catch (e) {
+              // Template might not exist, continue with instance update
+              print('Warning: Could not update template: $e');
+            }
+          }
+          
+          // Update the instance
+          await instanceRef.update(updateData);
+        }
       } else {
         // Create new entry
         final shouldMarkComplete = _shouldMarkCompleteOnSave();
@@ -859,39 +927,46 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     final isEditMode = widget.editMetadata != null;
     final bottomSafeArea = MediaQuery.of(context).padding.bottom;
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
-    final bottomBuffer = bottomSafeArea + 24;
-    final containerBottomPadding = keyboardInset + bottomBuffer;
+    final hasKeyboard = keyboardInset > 0;
+    
+    // When keyboard is shown, we want the container to be pushed up by keyboardInset.
+    // When keyboard is not shown, we want it to respect the bottom safe area.
+    final containerBottomPadding = hasKeyboard ? keyboardInset : bottomSafeArea;
+    
+    // This padding is inside the scrollable area or at the bottom of the content.
+    final contentBottomPadding = hasKeyboard ? 8.0 : 12.0;
 
     return WillPopScope(
       onWillPop: _onWillPop,
       child: SafeArea(
         top: false,
-        minimum: const EdgeInsets.only(bottom: 12),
+        bottom: false,
         child: Container(
           padding: EdgeInsets.only(
             bottom: containerBottomPadding,
           ),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.black.withOpacity(0.1),
-                blurRadius: 10,
-                offset: const Offset(0, -2),
-              ),
-            ],
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius:
+                  const BorderRadius.vertical(top: Radius.circular(20)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.1),
+                  blurRadius: 10,
+                  offset: const Offset(0, -2),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Divider(color: Colors.grey[200], height: 1),
               ),
               Flexible(
                 child: SingleChildScrollView(
-                  padding: EdgeInsets.only(bottom: bottomBuffer),
+                  padding: EdgeInsets.only(bottom: contentBottomPadding),
                   child: Padding(
                     padding: const EdgeInsets.all(16.0),
                     child: Column(
@@ -1089,7 +1164,6 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
                             ],
                           ],
                         ),
-                        const SizedBox(height: 4), // Bottom padding
                       ],
                     ),
                   ),
@@ -1145,6 +1219,14 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     // If habit is selected, we usually don't allow changing category for existing ones
     final isLocked = _selectedTemplate != null;
 
+    final filteredCategories = isLocked
+        ? <CategoryRecord>[]
+        : _allCategories
+            .where((category) => category.categoryType == _selectedType)
+            .toList();
+    final dropdownCategories =
+        filteredCategories.isNotEmpty ? filteredCategories : _allCategories;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
@@ -1171,7 +1253,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
               : null,
           items: isLocked
               ? null
-              : _allCategories.map((category) {
+              : dropdownCategories.map((category) {
                   Color categoryColor;
                   try {
                     categoryColor = Color(

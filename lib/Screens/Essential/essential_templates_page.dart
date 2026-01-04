@@ -292,17 +292,14 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
   }
 
   Future<void> _showCreateDialog() async {
-    await showDialog<ActivityRecord>(
+    final result = await showDialog<ActivityRecord>(
       context: context,
       builder: (context) => essentialTemplateDialog(
-        onTemplateCreated: (template) {
-          // Don't pop here - let the dialog handle navigation
-          // Just refresh the list when dialog closes
-        },
+        // Callback removed - dialog now returns result directly
       ),
     );
-    // Refresh templates after dialog closes (whether template was created or not)
-    if (mounted) {
+    // Refresh templates after dialog closes if template was created
+    if (result != null && mounted) {
       await _loadTemplates();
     }
   }
@@ -412,12 +409,10 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
       context: context,
       builder: (context) => essentialTemplateDialog(
         existingTemplate: template,
-        onTemplateUpdated: (template) {
-          Navigator.of(context).pop(template);
-        },
+        // Callback removed - dialog now returns result directly
       ),
     );
-    if (result != null) {
+    if (result != null && mounted) {
       await _loadTemplates();
     }
   }

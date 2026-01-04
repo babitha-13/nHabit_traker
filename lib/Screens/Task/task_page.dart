@@ -2136,8 +2136,8 @@ class _TaskPageState extends State<TaskPage> {
       // Invalidate cache when instance is removed
       _cachedBucketedItems = null;
     });
-    // Background refresh to sync with server
-    _loadDataSilently();
+    // No need to reload - optimistic update already removed it from UI
+    // The actual deletion happens in the background and will sync automatically
   }
 
   Future<void> _loadDataSilently() async {

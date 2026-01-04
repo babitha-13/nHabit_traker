@@ -7,7 +7,6 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/backend/category_color_util.dart';
 import 'package:habit_tracker/Screens/Routine/create_routine_item_dialog.dart';
-import 'package:habit_tracker/Screens/Routine/widgets/routine_reminder_section.dart';
 import 'package:habit_tracker/Helper/utils/reminder_config.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/routine_service.dart';
@@ -744,33 +743,6 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                           ],
                         ),
                       ),
-                      // Reminder Section (only during create; edit is done via quick chips on the routine card)
-                      if (widget.existingRoutine == null)
-                        RoutineReminderSection(
-                          dueTime: _startTime,
-                          onDueTimeChanged: (newDueTime) {
-                            setState(() {
-                              _startTime = newDueTime;
-                            });
-                          },
-                          reminders: _reminders,
-                          frequencyType: _reminderFrequencyType,
-                          everyXValue: _everyXValue,
-                          everyXPeriodType: _everyXPeriodType,
-                          specificDays: _specificDays,
-                          remindersEnabled: _remindersEnabled,
-                          onConfigChanged: (config) {
-                            setState(() {
-                              _startTime = config.startTime;
-                              _reminders = config.reminders;
-                              _reminderFrequencyType = config.frequencyType;
-                              _everyXValue = config.everyXValue;
-                              _everyXPeriodType = config.everyXPeriodType;
-                              _specificDays = config.specificDays;
-                              _remindersEnabled = config.remindersEnabled;
-                            });
-                          },
-                        ),
                       // Search and Add Items
                       Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),

@@ -189,7 +189,7 @@ class ItemExpandedDetails extends StatelessWidget {
       onTap: onEdit,
       borderRadius: BorderRadius.circular(4),
       child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 2),
+        padding: const EdgeInsets.symmetric(vertical: 0, horizontal: 0),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [

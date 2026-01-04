@@ -68,5 +68,27 @@ class CumulativeScoreLinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
+  bool shouldRepaint(covariant CumulativeScoreLinePainter oldDelegate) {
+    // Always repaint if data length changed
+    if (data.length != oldDelegate.data.length) return true;
+    
+    // Check if any score values changed
+    if (data.isNotEmpty && oldDelegate.data.isNotEmpty) {
+      for (int i = 0; i < data.length; i++) {
+        final currentScore = data[i]['score'] as double;
+        final oldScore = oldDelegate.data[i]['score'] as double;
+        if (currentScore != oldScore) return true;
+      }
+    }
+    
+    // Check if min/max/range changed (affects scaling)
+    if (minScore != oldDelegate.minScore ||
+        maxScore != oldDelegate.maxScore ||
+        scoreRange != oldDelegate.scoreRange ||
+        color != oldDelegate.color) {
+      return true;
+    }
+    
+    return false;
+  }
 }

@@ -9,6 +9,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
+import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 
 class essentialTemplateDialog extends StatefulWidget {
   final ActivityRecord? existingTemplate;
@@ -202,11 +203,30 @@ class _essentialTemplateDialogState extends State<essentialTemplateDialog> {
         );
         // Fetch updated template
         final updatedDoc = await widget.existingTemplate!.reference.get();
+        ActivityRecord? updated;
         if (updatedDoc.exists && mounted) {
-          final updated = ActivityRecord.fromSnapshot(updatedDoc);
-          if (widget.onTemplateUpdated != null) {
-            widget.onTemplateUpdated!(updated);
-          }
+          updated = ActivityRecord.fromSnapshot(updatedDoc);
+        }
+        ActivityTemplateEvents.broadcastTemplateUpdated(
+          templateId: widget.existingTemplate!.reference.id,
+          context: {
+            'action': 'updated',
+            'source': 'essentialTemplateDialog',
+            'timeEstimateMinutes': _timeEstimateMinutes,
+          },
+        );
+        // Show success message before popping
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Template updated successfully!'),
+              backgroundColor: Colors.green,
+            ),
+          );
+        }
+        // Pop with result - don't call callback to avoid double-pop
+        if (mounted) {
+          Navigator.of(context).pop(updated);
         }
       } else {
         // Create new template
@@ -231,25 +251,31 @@ class _essentialTemplateDialogState extends State<essentialTemplateDialog> {
           specificDays: freqPayload.specificDays,
         );
         // Fetch created template
+        ActivityRecord? created;
         final createdDoc = await templateRef.get();
         if (createdDoc.exists) {
-          final created = ActivityRecord.fromSnapshot(createdDoc);
-          if (widget.onTemplateCreated != null) {
-            widget.onTemplateCreated!(created);
-          }
+          created = ActivityRecord.fromSnapshot(createdDoc);
         }
-      }
-      if (mounted) {
-        Navigator.of(context).pop();
+        ActivityTemplateEvents.broadcastTemplateUpdated(
+          templateId: templateRef.id,
+          context: {
+            'action': 'created',
+            'source': 'essentialTemplateDialog',
+            'timeEstimateMinutes': _timeEstimateMinutes,
+          },
+        );
+        // Show success message before popping
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(widget.existingTemplate != null
-                  ? 'Template updated successfully!'
-                  : 'Template created successfully!'),
+            const SnackBar(
+              content: Text('Template created successfully!'),
               backgroundColor: Colors.green,
             ),
           );
+        }
+        // Pop with result - don't call callback to avoid double-pop
+        if (mounted) {
+          Navigator.of(context).pop(created);
         }
       }
     } catch (e) {
