@@ -10,6 +10,12 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:from_css_color/from_css_color.dart';
+import 'package:habit_tracker/Screens/Calendar/Background%20UI/diagonal_stripe_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Background%20UI/dotted_diagonal_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Background%20UI/double_diagonal_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Calender%20models/planned_overlap_group.dart';
+import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
+import 'package:habit_tracker/Screens/Calendar/Calender%20models/planned_overlap_info.dart';
 import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
 import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
@@ -22,467 +28,7 @@ import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-/// Metadata stored with calendar events for editing
-class CalendarEventMetadata {
-  final String instanceId;
-  final int sessionIndex; // Index in timeLogSessions array
-  final String activityName;
-  final String activityType; // 'task', 'habit', 'essential'
-  final String? templateId;
-  final String? categoryId;
-  final String? categoryName;
-  final String? categoryColorHex;
 
-  CalendarEventMetadata({
-    required this.instanceId,
-    required this.sessionIndex,
-    required this.activityName,
-    required this.activityType,
-    this.templateId,
-    this.categoryId,
-    this.categoryName,
-    this.categoryColorHex,
-  });
-
-  Map<String, dynamic> toMap() {
-    return {
-      'instanceId': instanceId,
-      'sessionIndex': sessionIndex,
-      'activityName': activityName,
-      'activityType': activityType,
-      'templateId': templateId,
-      'categoryId': categoryId,
-      'categoryName': categoryName,
-      'categoryColorHex': categoryColorHex,
-    };
-  }
-
-  static CalendarEventMetadata? fromMap(dynamic data) {
-    if (data is Map<String, dynamic>) {
-      return CalendarEventMetadata(
-        instanceId: data['instanceId'] as String,
-        sessionIndex: data['sessionIndex'] as int,
-        activityName: data['activityName'] as String,
-        activityType: data['activityType'] as String,
-        templateId: data['templateId'] as String?,
-        categoryId: data['categoryId'] as String?,
-        categoryName: data['categoryName'] as String?,
-        categoryColorHex: data['categoryColorHex'] as String?,
-      );
-    }
-    return null;
-  }
-}
-
-/// Custom painter for diagonal stripe pattern
-///
-/// Minimalist design: Uses thicker lines with generous spacing to differentiate
-/// essential activities from tasks while maintaining a clean aesthetic.
-/// Custom painter for solid diagonal stripes (used for Essentials double-line pattern base)
-class _DiagonalStripePainter extends CustomPainter {
-  final Color stripeColor;
-  final double stripeWidth;
-  final double spacing;
-
-  _DiagonalStripePainter({
-    this.stripeColor = const Color(0xFFBDBDBD),
-    this.stripeWidth = 3.5, // Thicker for better visibility with spacing
-    this.spacing = 16.0, // Generous spacing for minimalist look
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Guard against invalid sizes
-    if (size.width <= 0 ||
-        size.height <= 0 ||
-        size.width.isNaN ||
-        size.height.isNaN ||
-        size.width.isInfinite ||
-        size.height.isInfinite) {
-      return;
-    }
-
-    final paint = Paint()
-      ..color = stripeColor
-      ..strokeWidth = stripeWidth
-      ..style = PaintingStyle.stroke;
-
-    // Draw diagonal lines at 45 degrees (from top-left to bottom-right)
-    // Calculate perpendicular spacing for even stripe distribution
-    final lineSpacing = spacing + stripeWidth;
-    if (lineSpacing <= 0 || lineSpacing.isNaN) return;
-
-    final perpendicularSpacing = lineSpacing / math.sqrt(2);
-    if (perpendicularSpacing <= 0 || perpendicularSpacing.isNaN) return;
-
-    // Calculate offset range needed to cover entire canvas
-    // For line y = x + offset:
-    // - To cover from left edge: offset ranges from 0 to height
-    // - To cover from top edge: offset ranges from -width to 0
-    final minOffset = -size.width;
-    final maxOffset = size.height;
-
-    // Generate lines at regular intervals within the offset range
-    final numLines =
-        ((maxOffset - minOffset) / perpendicularSpacing).ceil() + 2;
-
-    // Draw lines with equation: y = x + offset
-    for (int i = -1; i < numLines; i++) {
-      final offset = minOffset + (i * perpendicularSpacing);
-
-      // Find all possible intersection points with canvas boundaries
-      // For line y = x + offset:
-      // - Top edge (y=0): x = -offset, point = (-offset, 0)
-      // - Bottom edge (y=height): x = height - offset, point = (height - offset, height)
-      // - Left edge (x=0): y = offset, point = (0, offset)
-      // - Right edge (x=width): y = width + offset, point = (width, width + offset)
-
-      final intersections = <Offset>[];
-
-      // Check top edge intersection
-      final topX = -offset;
-      if (topX >= 0 && topX <= size.width && !topX.isNaN && !topX.isInfinite) {
-        intersections.add(Offset(topX, 0));
-      }
-
-      // Check bottom edge intersection
-      final bottomX = size.height - offset;
-      if (bottomX >= 0 &&
-          bottomX <= size.width &&
-          !bottomX.isNaN &&
-          !bottomX.isInfinite) {
-        intersections.add(Offset(bottomX, size.height));
-      }
-
-      // Check left edge intersection
-      final leftY = offset;
-      if (leftY >= 0 &&
-          leftY <= size.height &&
-          !leftY.isNaN &&
-          !leftY.isInfinite) {
-        intersections.add(Offset(0, leftY));
-      }
-
-      // Check right edge intersection
-      final rightY = size.width + offset;
-      if (rightY >= 0 &&
-          rightY <= size.height &&
-          !rightY.isNaN &&
-          !rightY.isInfinite) {
-        intersections.add(Offset(size.width, rightY));
-      }
-
-      // Draw line between the two valid intersection points
-      if (intersections.length >= 2) {
-        // Sort by x coordinate to get start and end points
-        intersections.sort((a, b) => a.dx.compareTo(b.dx));
-        final start = intersections.first;
-        final end = intersections.last;
-        // Validate offsets before drawing
-        if (!start.dx.isNaN &&
-            !start.dy.isNaN &&
-            !end.dx.isNaN &&
-            !end.dy.isNaN &&
-            !start.dx.isInfinite &&
-            !start.dy.isInfinite &&
-            !end.dx.isInfinite &&
-            !end.dy.isInfinite) {
-          canvas.drawLine(start, end, paint);
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DiagonalStripePainter oldDelegate) {
-    return oldDelegate.stripeColor != stripeColor ||
-        oldDelegate.stripeWidth != stripeWidth ||
-        oldDelegate.spacing != spacing;
-  }
-}
-
-/// Custom painter for dotted diagonal lines (used for Habits)
-class _DottedDiagonalPainter extends CustomPainter {
-  final Color stripeColor;
-  final double stripeWidth;
-  final double spacing;
-  final double dotLength;
-  final double dotGap;
-
-  _DottedDiagonalPainter({
-    this.stripeColor = const Color(0xFFBDBDBD),
-    this.stripeWidth = 3.0,
-    this.spacing = 12.0,
-    this.dotLength = 4.0,
-    this.dotGap = 4.0,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Guard against invalid sizes
-    if (size.width <= 0 ||
-        size.height <= 0 ||
-        size.width.isNaN ||
-        size.height.isNaN ||
-        size.width.isInfinite ||
-        size.height.isInfinite) {
-      return;
-    }
-
-    final paint = Paint()
-      ..color = stripeColor
-      ..strokeWidth = stripeWidth
-      ..strokeCap = StrokeCap.round
-      ..style = PaintingStyle.stroke;
-
-    // Calculate perpendicular spacing for even stripe distribution
-    final lineSpacing = spacing + stripeWidth;
-    if (lineSpacing <= 0 || lineSpacing.isNaN) return;
-
-    final perpendicularSpacing = lineSpacing / math.sqrt(2);
-    if (perpendicularSpacing <= 0 || perpendicularSpacing.isNaN) return;
-
-    final minOffset = -size.width;
-    final maxOffset = size.height;
-    final numLines =
-        ((maxOffset - minOffset) / perpendicularSpacing).ceil() + 2;
-
-    // Draw dotted diagonal lines at 45 degrees
-    for (int i = -1; i < numLines; i++) {
-      final offset = minOffset + (i * perpendicularSpacing);
-
-      // Find intersection points with canvas boundaries (same logic as solid lines)
-      final intersections = <Offset>[];
-      final topX = -offset;
-      if (topX >= 0 && topX <= size.width && !topX.isNaN && !topX.isInfinite) {
-        intersections.add(Offset(topX, 0));
-      }
-      final bottomX = size.height - offset;
-      if (bottomX >= 0 &&
-          bottomX <= size.width &&
-          !bottomX.isNaN &&
-          !bottomX.isInfinite) {
-        intersections.add(Offset(bottomX, size.height));
-      }
-      final leftY = offset;
-      if (leftY >= 0 &&
-          leftY <= size.height &&
-          !leftY.isNaN &&
-          !leftY.isInfinite) {
-        intersections.add(Offset(0, leftY));
-      }
-      final rightY = size.width + offset;
-      if (rightY >= 0 &&
-          rightY <= size.height &&
-          !rightY.isNaN &&
-          !rightY.isInfinite) {
-        intersections.add(Offset(size.width, rightY));
-      }
-
-      if (intersections.length >= 2) {
-        // Sort by x coordinate to get start and end points
-        intersections.sort((a, b) => a.dx.compareTo(b.dx));
-        final start = intersections.first;
-        final end = intersections.last;
-
-        // Validate offsets before using
-        if (start.dx.isNaN ||
-            start.dy.isNaN ||
-            end.dx.isNaN ||
-            end.dy.isNaN ||
-            start.dx.isInfinite ||
-            start.dy.isInfinite ||
-            end.dx.isInfinite ||
-            end.dy.isInfinite) {
-          continue; // Skip this line if invalid
-        }
-
-        // Calculate line length
-        final lineLength = (end - start).distance;
-        if (lineLength <= 0 || lineLength.isNaN || lineLength.isInfinite) {
-          continue; // Skip this line if invalid
-        }
-
-        final segmentLength = dotLength + dotGap;
-        if (segmentLength <= 0 || segmentLength.isNaN) {
-          continue; // Skip if invalid segment length
-        }
-
-        final numSegments = (lineLength / segmentLength).floor();
-
-        // Draw dashed segments along the line
-        for (int j = 0; j <= numSegments; j++) {
-          final t = (j * segmentLength) / lineLength;
-          final tEnd =
-              ((j * segmentLength + dotLength) / lineLength).clamp(0.0, 1.0);
-
-          final segmentStart = Offset(
-            start.dx + (end.dx - start.dx) * t,
-            start.dy + (end.dy - start.dy) * t,
-          );
-          final segmentEnd = Offset(
-            start.dx + (end.dx - start.dx) * tEnd,
-            start.dy + (end.dy - start.dy) * tEnd,
-          );
-
-          // Validate offsets before drawing
-          if (!segmentStart.dx.isNaN &&
-              !segmentStart.dy.isNaN &&
-              !segmentEnd.dx.isNaN &&
-              !segmentEnd.dy.isNaN &&
-              !segmentStart.dx.isInfinite &&
-              !segmentStart.dy.isInfinite &&
-              !segmentEnd.dx.isInfinite &&
-              !segmentEnd.dy.isInfinite) {
-            canvas.drawLine(segmentStart, segmentEnd, paint);
-          }
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DottedDiagonalPainter oldDelegate) {
-    return oldDelegate.stripeColor != stripeColor ||
-        oldDelegate.stripeWidth != stripeWidth ||
-        oldDelegate.spacing != spacing;
-  }
-}
-
-/// Custom painter for double diagonal lines (used for Essentials)
-class _DoubleDiagonalPainter extends CustomPainter {
-  final Color stripeColor;
-  final double stripeWidth;
-  final double spacing;
-  final double lineGap;
-
-  _DoubleDiagonalPainter({
-    this.stripeColor = const Color(0xFFBDBDBD),
-    this.stripeWidth = 2.5,
-    this.spacing =
-        28.0, // Increased default spacing between sets of double lines
-    this.lineGap = 5.0, // Gap between the two lines within each pair
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    // Guard against invalid sizes
-    if (size.width <= 0 ||
-        size.height <= 0 ||
-        size.width.isNaN ||
-        size.height.isNaN ||
-        size.width.isInfinite ||
-        size.height.isInfinite) {
-      return;
-    }
-
-    final paint = Paint()
-      ..color = stripeColor
-      ..strokeWidth = stripeWidth
-      ..style = PaintingStyle.stroke;
-
-    // Draw two sets of parallel diagonal lines with gap between them
-    final lineSpacing = spacing + stripeWidth;
-    if (lineSpacing <= 0 || lineSpacing.isNaN) return;
-
-    final perpendicularSpacing = lineSpacing / math.sqrt(2);
-    if (perpendicularSpacing <= 0 || perpendicularSpacing.isNaN) return;
-
-    final minOffset = -size.width;
-    final maxOffset = size.height;
-    final numLines =
-        ((maxOffset - minOffset) / perpendicularSpacing).ceil() + 2;
-
-    for (int i = -1; i < numLines; i++) {
-      final baseOffset = minOffset + (i * perpendicularSpacing);
-
-      // Draw two parallel lines with visible gap between them
-      for (int lineIndex = 0; lineIndex < 2; lineIndex++) {
-        // Offset the second line to create a visible gap
-        // For 45-degree diagonal, offset along the diagonal direction
-        final offset = baseOffset + (lineIndex * lineGap * math.sqrt(2));
-
-        final intersections = <Offset>[];
-        final topX = -offset;
-        if (topX >= 0 &&
-            topX <= size.width &&
-            !topX.isNaN &&
-            !topX.isInfinite) {
-          intersections.add(Offset(topX, 0));
-        }
-        final bottomX = size.height - offset;
-        if (bottomX >= 0 &&
-            bottomX <= size.width &&
-            !bottomX.isNaN &&
-            !bottomX.isInfinite) {
-          intersections.add(Offset(bottomX, size.height));
-        }
-        final leftY = offset;
-        if (leftY >= 0 &&
-            leftY <= size.height &&
-            !leftY.isNaN &&
-            !leftY.isInfinite) {
-          intersections.add(Offset(0, leftY));
-        }
-        final rightY = size.width + offset;
-        if (rightY >= 0 &&
-            rightY <= size.height &&
-            !rightY.isNaN &&
-            !rightY.isInfinite) {
-          intersections.add(Offset(size.width, rightY));
-        }
-
-        if (intersections.length >= 2) {
-          intersections.sort((a, b) => a.dx.compareTo(b.dx));
-          final start = intersections.first;
-          final end = intersections.last;
-          // Validate offsets before drawing
-          if (!start.dx.isNaN &&
-              !start.dy.isNaN &&
-              !end.dx.isNaN &&
-              !end.dy.isNaN &&
-              !start.dx.isInfinite &&
-              !start.dy.isInfinite &&
-              !end.dx.isInfinite &&
-              !end.dy.isInfinite) {
-            canvas.drawLine(start, end, paint);
-          }
-        }
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DoubleDiagonalPainter oldDelegate) {
-    return oldDelegate.stripeColor != stripeColor ||
-        oldDelegate.stripeWidth != stripeWidth ||
-        oldDelegate.spacing != spacing;
-  }
-}
-
-class _PlannedOverlapGroup {
-  final DateTime start;
-  final DateTime end;
-  final List<CalendarEventData> events;
-
-  const _PlannedOverlapGroup({
-    required this.start,
-    required this.end,
-    required this.events,
-  });
-}
-
-class _PlannedOverlapInfo {
-  final int pairCount;
-  final Set<String> overlappedIds;
-  final List<_PlannedOverlapGroup> groups;
-
-  const _PlannedOverlapInfo({
-    required this.pairCount,
-    required this.overlappedIds,
-    required this.groups,
-  });
-}
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -521,7 +67,7 @@ class _CalendarPageState extends State<CalendarPage> {
   // Planned schedule overlap detection (prominent conflict UI)
   int _plannedOverlapPairCount = 0;
   final Set<String> _plannedOverlappedEventIds = {};
-  List<_PlannedOverlapGroup> _plannedOverlapGroups = const [];
+  List<PlannedOverlapGroup> _plannedOverlapGroups = const [];
 
   // Key to access DayView state for scrolling
   GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
@@ -2280,7 +1826,7 @@ class _CalendarPageState extends State<CalendarPage> {
     return '${event.title}_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
   }
 
-  _PlannedOverlapInfo _computePlannedOverlaps(List<CalendarEventData> planned) {
+  PlannedOverlapInfo _computePlannedOverlaps(List<CalendarEventData> planned) {
     final events = planned
         .where((e) => e.startTime != null && e.endTime != null)
         .toList()
@@ -2288,7 +1834,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
     int overlapPairs = 0;
     final overlappedIds = <String>{};
-    final groups = <_PlannedOverlapGroup>[];
+    final groups = <PlannedOverlapGroup>[];
 
     // Active list for accurate pair counting
     final active = <CalendarEventData>[];
@@ -2308,7 +1854,7 @@ class _CalendarPageState extends State<CalendarPage> {
       final start = currentGroupStart!;
       final end = currentGroupEnd!;
       groups.add(
-        _PlannedOverlapGroup(
+        PlannedOverlapGroup(
           start: start,
           end: end,
           events: List.of(currentGroup),
@@ -2362,7 +1908,7 @@ class _CalendarPageState extends State<CalendarPage> {
     }
     finalizeGroupIfNeeded();
 
-    return _PlannedOverlapInfo(
+    return PlannedOverlapInfo(
       pairCount: overlapPairs,
       overlappedIds: overlappedIds,
       groups: groups,
@@ -2765,7 +2311,7 @@ class _CalendarPageState extends State<CalendarPage> {
       // Use base color with increased transparency (less prominent, not main focus)
       boxColor = event.color.withOpacity(isCompleted ? 0.25 : 0.12);
       borderColor = event.color.withOpacity(0.3);
-      patternPainter = _DoubleDiagonalPainter(
+      patternPainter = DoubleDiagonalPainter(
         stripeColor: event.color.withOpacity(0.2),
         stripeWidth: 2.5,
         spacing: 28.0, // Increased spacing between each set of double lines
@@ -2776,7 +2322,7 @@ class _CalendarPageState extends State<CalendarPage> {
       // Use base color with transparency
       boxColor = event.color.withOpacity(isCompleted ? 0.5 : 0.25);
       borderColor = event.color;
-      patternPainter = _DottedDiagonalPainter(
+      patternPainter = DottedDiagonalPainter(
         stripeColor: event.color.withOpacity(0.6),
         stripeWidth: 3.0,
         spacing: 12.0,
@@ -2836,7 +2382,7 @@ class _CalendarPageState extends State<CalendarPage> {
           ClipRRect(
             borderRadius: BorderRadius.circular(4.0),
             child: CustomPaint(
-              painter: _DiagonalStripePainter(
+              painter: DiagonalStripePainter(
                 stripeColor: Colors.red.withOpacity(0.18),
                 stripeWidth: 3.0,
                 spacing: 7.0,

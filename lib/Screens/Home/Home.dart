@@ -316,21 +316,17 @@ class _HomeState extends State<Home> {
           );
         }
       } else {
-        // No pending items - process end-of-day activities immediately
-        // This will finalize scoring and create daily progress records
+
         await DayEndProcessor.processDayEnd(
           userId: userId,
           targetDate: DateService.yesterdayStart,
           closeInstances: false,
           ensureInstances: false, // Already ensured above
         );
-
-        // Mark as processed for today
         await prefs.setString(
             'last_end_of_day_processed', today.toIso8601String());
       }
     } catch (e) {
-      // Error checking morning catch-up
     } finally {
       _isCheckingCatchUp = false;
     }
