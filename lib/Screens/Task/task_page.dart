@@ -451,21 +451,7 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   bool _isTaskCompleted(HabitRecord task) {
-    if (!task.isActive) return false;
-    switch (task.trackingType) {
-      case 'binary':
-        return task.status == 'complete';
-      case 'quantitative':
-        final currentValue = task.currentValue ?? 0;
-        final target = task.target ?? 0;
-        return target > 0 && currentValue >= target;
-      case 'time':
-        final currentMinutes = (task.accumulatedTime) ~/ 60000;
-        final targetMinutes = task.target ?? 0;
-        return targetMinutes > 0 && currentMinutes >= targetMinutes;
-      default:
-        return task.status == 'complete';
-    }
+    return task.status == 'complete';
   }
 
   List<Widget> _buildSections() {

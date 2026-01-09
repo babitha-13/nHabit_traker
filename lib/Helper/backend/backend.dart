@@ -565,6 +565,38 @@ Future<void> updateTask({
   if (timerStartTime != null) updateData['timerStartTime'] = timerStartTime;
   if (accumulatedTime != null) updateData['accumulatedTime'] = accumulatedTime;
 
+  if ((currentValue != null || accumulatedTime != null) && status != 'incomplete') {
+    try {
+      final taskDoc = await taskRef.get();
+      if (taskDoc.exists) {
+        final task = TaskRecord.fromSnapshot(taskDoc);
+        if (task.status != 'complete' && task.target != null) {
+          bool shouldComplete = false;
+
+          if (task.trackingType == 'binary' && currentValue == true) {
+            shouldComplete = true;
+          } else if (task.trackingType == 'quantitative') {
+            final progress = (currentValue ?? task.currentValue) ?? 0;
+            final target = task.target ?? 0;
+            shouldComplete = progress >= target;
+          } else if (task.trackingType == 'time') {
+            final totalMs = accumulatedTime ?? task.accumulatedTime;
+            final targetMs = (task.target ?? 0) * 60000;
+            shouldComplete = totalMs >= targetMs;
+          }
+
+          if (shouldComplete) {
+            updateData['status'] = 'complete';
+            updateData['completedTime'] = DateTime.now();
+          }
+        }
+      }
+    } catch (e) {
+      // Ignore errors
+    }
+  }
+
+
   await taskRef.update(updateData);
 }
 

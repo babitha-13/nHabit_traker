@@ -165,22 +165,33 @@ class HabitTrackingUtil {
 
   /// Update habit progress
   static Future<void> updateProgress(
-    HabitRecord habit,
-    dynamic newProgress,
-  ) async {
+      HabitRecord habit,
+      dynamic newProgress,
+      ) async {
     try {
-      print(
-          'Updating progress for habit: ${habit.name}, trackingType: ${habit.trackingType}, oldValue: ${habit.currentValue}, newValue: $newProgress');
-
       final updates = <String, dynamic>{
         'currentValue': newProgress,
         'lastUpdated': DateTime.now(),
       };
+      if (habit.status != 'complete' && habit.target != null) {
+        bool shouldComplete = false;
 
+        if (habit.trackingType == 'binary' && newProgress == true) {
+          shouldComplete = true;
+        } else if (habit.trackingType == 'quantitative') {
+          final target = habit.target ?? 0;
+          shouldComplete = newProgress >= target;
+        } else if (habit.trackingType == 'time') {
+          final targetMs = (habit.target ?? 0) * 60000;
+          shouldComplete = habit.accumulatedTime >= targetMs;
+        }
+        if (shouldComplete) {
+          updates['status'] = 'complete';
+          updates['completedTime'] = DateTime.now();
+        }
+      }
       await habit.reference.update(updates);
-      print('Successfully updated progress for habit: ${habit.name}');
     } catch (e) {
-      print('Error updating progress for habit ${habit.name}: $e');
       rethrow;
     }
   }
@@ -235,38 +246,33 @@ class HabitTrackingUtil {
     }
   }
 
-  /// Pause timer for duration tracking
   static Future<void> pauseTimer(HabitRecord habit) async {
     try {
-      print(
-          'Pausing timer for habit: ${habit.name}, isActive: ${habit.isTimerActive}');
-
       if (!habit.isTimerActive) {
-        print('Timer already paused for habit: ${habit.name}');
         return;
       }
-
       final now = DateTime.now();
       DateTime startTime = habit.timerStartTime ?? now;
-
-      // Handle case where timer was running for too long (over 24 hours)
       final elapsed = now.difference(startTime).inMilliseconds;
-      final maxDuration = 24 * 60 * 60 * 1000; // 24 hours in milliseconds
+      final maxDuration = 24 * 60 * 60 * 1000;
       final actualElapsed = elapsed > maxDuration ? maxDuration : elapsed;
-
       final newAccumulated = habit.accumulatedTime + actualElapsed;
-
       final updates = <String, dynamic>{
         'isTimerActive': false,
         'timerStartTime': null,
         'accumulatedTime': newAccumulated,
-        'currentValue': newAccumulated ~/ 60000, // Convert to minutes
+        'currentValue': newAccumulated ~/ 60000,
         'showInFloatingTimer': true,
         'lastUpdated': DateTime.now(),
       };
-
+      if (habit.trackingType == 'time' && habit.status != 'complete' && habit.target != null) {
+        final targetMs = (habit.target ?? 0) * 60000;
+        if (newAccumulated >= targetMs) {
+          updates['status'] = 'complete';
+          updates['completedTime'] = DateTime.now();
+        }
+      }
       await habit.reference.update(updates);
-      // Also persist a session for analytics
       final sessionStart = habit.timerStartTime ?? now;
       final sessionEnd = now;
       try {
@@ -278,30 +284,19 @@ class HabitTrackingUtil {
           userId: FirebaseAuth.instance.currentUser?.uid ?? '',
         );
       } catch (e) {
-        // Non-fatal
-        print('Failed to create work session: $e');
       }
-      print(
-          'Timer paused successfully for habit: ${habit.name}, accumulated: ${newAccumulated}ms');
     } catch (e) {
-      print('Error pausing timer for habit ${habit.name}: $e');
       rethrow;
     }
   }
-
-  /// Stop timer for duration tracking (same as pause but more explicit)
   static Future<void> stopTimer(HabitRecord habit) async {
     try {
-      print('Stopping timer for habit: ${habit.name}');
       await pauseTimer(habit);
-      // After a stop, hide from floating timer by default
       await habit.reference.update({
         'showInFloatingTimer': false,
         'lastUpdated': DateTime.now(),
       });
-      print('Timer stopped successfully for habit: ${habit.name}');
     } catch (e) {
-      print('Error stopping timer for habit ${habit.name}: $e');
       rethrow;
     }
   }
@@ -485,8 +480,7 @@ class HabitTrackingUtil {
         'currentValue': true,
         'lastUpdated': DateTime.now(),
       });
-      print(
-          'Habit ${habit.name} reached target $targetMinutes min, auto-stopped & marked completed.');
+      print('Habit ${habit.name} reached target $targetMinutes min, auto-stopped & marked completed.');
     }
   }
 

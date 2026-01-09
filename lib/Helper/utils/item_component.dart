@@ -151,7 +151,7 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isCompleted {
-    return HabitTrackingUtil.isCompletedToday(widget.habit);
+    return widget.habit.status == 'complete';
   }
 
   Color get _impactLevelColor {
