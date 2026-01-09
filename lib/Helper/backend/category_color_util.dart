@@ -1,17 +1,19 @@
 class CategoryColorUtil {
-  // Enhanced palette with more variety - darker, distinct colors
+  // Unified metallic color palette for all category types (Tasks, Habits, Essentials)
+  // Dark, sophisticated tones that complement the Slate + Copper theme
   static const List<String> palette = <String>[
-    '#8B4513', // Saddle Brown (dark brown)
-    '#035929', // Dark Green
-    '#0c4b80', // Dark Blue
-    '#8B0000', // Dark Red (maroon)
-    '#4B0082', // Indigo (dark purple)
-    '#6f2e00', // Dark Brown
-    '#2F4F4F', // Dark Slate Gray (charcoal)
-    '#590059', // Dark Magenta (purple)
-    '#6f5922', // Dark grey Brown
+    '#C57B57', // Copper (primary accent color, matches theme)
+    '#2F4F4F', // Dark Slate Grey (charcoal)
+    '#4B0082', // Deep Metallic Purple
+    '#006400', // Dark Green
+    '#8B4513', // Saddle Brown (metallic bronze)
+    '#4682B4', // Steel Blue
+    '#800020', // Burgundy
+    '#DAA520', // Goldenrod
+    '#008080', // Teal
+    '#556B2F', // Dark Olive Green
+    '#708090', // Slate Grey
   ];
-
   // Deterministic mapping from category name to a color in the palette
   static String hexForName(String name) {
     if (name.trim().isEmpty) {

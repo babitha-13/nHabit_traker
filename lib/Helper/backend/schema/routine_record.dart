@@ -1,0 +1,272 @@
+import 'dart:async';
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:collection/collection.dart';
+import 'package:flutter/foundation.dart';
+import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
+import 'package:habit_tracker/Helper/backend/schema/util/schema_util.dart';
+import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+
+class RoutineRecord extends FirestoreRecord {
+  RoutineRecord._(
+    super.reference,
+    super.data,
+  ) {
+    _initializeFields();
+  }
+  // "uid" field.
+  String? _uid;
+  String get uid => _uid ?? '';
+  bool hasUid() => _uid != null;
+  // "name" field.
+  String? _name;
+  String get name => _name ?? '';
+  bool hasName() => _name != null;
+  // "description" field.
+  String? _description;
+  String get description => _description ?? '';
+  bool hasDescription() => _description != null;
+  // "itemIds" field - references to activities (habits, tasks, Essential Activities).
+  List<String>? _itemIds;
+  List<String> get itemIds => _itemIds ?? [];
+  bool hasItemIds() => _itemIds != null;
+  // "itemNames" field - cached names for display.
+  List<String>? _itemNames;
+  List<String> get itemNames => _itemNames ?? [];
+  bool hasItemNames() => _itemNames != null;
+  // "itemOrder" field - ordered list of activity IDs.
+  List<String>? _itemOrder;
+  List<String> get itemOrder => _itemOrder ?? [];
+  bool hasItemOrder() => _itemOrder != null;
+  // "itemTypes" field - cached types ('habit', 'task', 'essential').
+  List<String>? _itemTypes;
+  List<String> get itemTypes => _itemTypes ?? [];
+  bool hasItemTypes() => _itemTypes != null;
+  // Legacy fields for backward compatibility
+  List<String>? _habitIds;
+  List<String> get habitIds => _habitIds ?? [];
+  bool hasHabitIds() => _habitIds != null;
+  List<String>? _habitNames;
+  List<String> get habitNames => _habitNames ?? [];
+  bool hasHabitNames() => _habitNames != null;
+  // "isActive" field.
+  bool? _isActive;
+  bool get isActive => _isActive ?? true;
+  bool hasIsActive() => _isActive != null;
+  // "createdTime" field.
+  DateTime? _createdTime;
+  DateTime? get createdTime => _createdTime;
+  bool hasCreatedTime() => _createdTime != null;
+  // "lastUpdated" field.
+  DateTime? _lastUpdated;
+  DateTime? get lastUpdated => _lastUpdated;
+  bool hasLastUpdated() => _lastUpdated != null;
+  // "userId" field.
+  String? _userId;
+  String get userId => _userId ?? '';
+  bool hasUserId() => _userId != null;
+  // "listOrder" field - order of routine in the list.
+  int? _listOrder;
+  int get listOrder => _listOrder ?? 0;
+  bool hasListOrder() => _listOrder != null;
+  // "dueTime" field - routine start time (stored as "HH:mm" in 24-hour format).
+  String? _dueTime;
+  String? get dueTime => _dueTime;
+  bool hasDueTime() => _dueTime != null;
+  // "reminders" field for reminder configurations (list of maps).
+  List<Map<String, dynamic>>? _reminders;
+  List<Map<String, dynamic>> get reminders => _reminders ?? [];
+  bool hasReminders() => _reminders != null && _reminders!.isNotEmpty;
+  // "reminderFrequencyType" field - recurrence type for reminders: "every_x" or "specific_days".
+  String? _reminderFrequencyType;
+  String get reminderFrequencyType => _reminderFrequencyType ?? '';
+  bool hasReminderFrequencyType() => _reminderFrequencyType != null;
+  // "everyXValue" field - for "every X period" frequency.
+  int? _everyXValue;
+  int get everyXValue => _everyXValue ?? 1;
+  bool hasEveryXValue() => _everyXValue != null;
+  // "everyXPeriodType" field - period type for "every X": "day", "week", or "month".
+  String? _everyXPeriodType;
+  String get everyXPeriodType => _everyXPeriodType ?? '';
+  bool hasEveryXPeriodType() => _everyXPeriodType != null;
+  // "specificDays" field for weekly scheduling (list of day indices: 1=Monday, 7=Sunday).
+  List<int>? _specificDays;
+  List<int> get specificDays => _specificDays ?? const [];
+  bool hasSpecificDays() => _specificDays != null;
+  // "remindersEnabled" field - whether reminders are enabled.
+  bool? _remindersEnabled;
+  bool get remindersEnabled => _remindersEnabled ?? false;
+  bool hasRemindersEnabled() => _remindersEnabled != null;
+  void _initializeFields() {
+    _uid = snapshotData['uid'] as String?;
+    _name = snapshotData['name'] as String?;
+    _description = snapshotData['description'] as String?;
+    _itemIds = getDataList(snapshotData['itemIds']);
+    _itemNames = getDataList(snapshotData['itemNames']);
+    _itemOrder = getDataList(snapshotData['itemOrder']);
+    _itemTypes = getDataList(snapshotData['itemTypes']);
+    // Legacy fields for backward compatibility
+    _habitIds = getDataList(snapshotData['habitIds']);
+    _habitNames = getDataList(snapshotData['habitNames']);
+    _isActive = snapshotData['isActive'] as bool?;
+    _createdTime = snapshotData['createdTime'] as DateTime?;
+    _lastUpdated = snapshotData['lastUpdated'] as DateTime?;
+    _userId = snapshotData['userId'] as String?;
+    _listOrder = snapshotData['listOrder'] as int?;
+    _dueTime = snapshotData['dueTime'] as String?;
+    // Handle reminders - convert List<dynamic> to List<Map<String, dynamic>>
+    final remindersData = snapshotData['reminders'];
+    if (remindersData != null && remindersData is List) {
+      _reminders = remindersData
+          .map((item) => item is Map ? Map<String, dynamic>.from(item) : null)
+          .where((item) => item != null)
+          .cast<Map<String, dynamic>>()
+          .toList();
+    } else {
+      _reminders = null;
+    }
+    _reminderFrequencyType = snapshotData['reminderFrequencyType'] as String?;
+    _everyXValue = snapshotData['everyXValue'] as int?;
+    _everyXPeriodType = snapshotData['everyXPeriodType'] as String?;
+    _specificDays = (snapshotData['specificDays'] as List?)?.cast<int>();
+    _remindersEnabled = snapshotData['remindersEnabled'] as bool?;
+  }
+
+  static CollectionReference get collection =>
+      FirebaseFirestore.instance.collection('sequences');
+  static CollectionReference collectionForUser(String userId) =>
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('sequences');
+  static Stream<RoutineRecord> getDocument(DocumentReference ref) =>
+      ref.snapshots().map((s) => RoutineRecord.fromSnapshot(s));
+  static Future<RoutineRecord> getDocumentOnce(DocumentReference ref) =>
+      ref.get().then((s) => RoutineRecord.fromSnapshot(s));
+  static RoutineRecord fromSnapshot(DocumentSnapshot snapshot) =>
+      RoutineRecord._(
+        snapshot.reference,
+        mapFromFirestore(snapshot.data() as Map<String, dynamic>),
+      );
+  static RoutineRecord getDocumentFromData(
+    Map<String, dynamic> data,
+    DocumentReference reference,
+  ) =>
+      RoutineRecord._(reference, mapFromFirestore(data));
+  @override
+  String toString() =>
+      'RoutineRecord(reference: ${reference.path}, data: $snapshotData)';
+  @override
+  int get hashCode => reference.path.hashCode;
+  @override
+  bool operator ==(other) =>
+      other is RoutineRecord &&
+      reference.path.hashCode == other.reference.path.hashCode;
+}
+
+Map<String, dynamic> createRoutineRecordData({
+  String? uid,
+  String? name,
+  String? description,
+  List<String>? itemIds,
+  List<String>? itemNames,
+  List<String>? itemOrder,
+  List<String>? itemTypes,
+  // Legacy fields for backward compatibility
+  List<String>? habitIds,
+  List<String>? habitNames,
+  bool? isActive,
+  DateTime? createdTime,
+  DateTime? lastUpdated,
+  String? userId,
+  int? listOrder,
+  String? dueTime,
+  List<Map<String, dynamic>>? reminders,
+  String? reminderFrequencyType,
+  int? everyXValue,
+  String? everyXPeriodType,
+  List<int>? specificDays,
+  bool? remindersEnabled,
+}) {
+  final firestoreData = mapToFirestore(
+    <String, dynamic>{
+      'uid': uid,
+      'name': name,
+      'description': description,
+      'itemIds': itemIds,
+      'itemNames': itemNames,
+      'itemOrder': itemOrder,
+      'itemTypes': itemTypes,
+      // Legacy fields for backward compatibility
+      'habitIds': habitIds,
+      'habitNames': habitNames,
+      'isActive': isActive,
+      'createdTime': createdTime,
+      'lastUpdated': lastUpdated,
+      'userId': userId,
+      'listOrder': listOrder,
+      'dueTime': dueTime,
+      'reminders': reminders,
+      'reminderFrequencyType': reminderFrequencyType,
+      'everyXValue': everyXValue,
+      'everyXPeriodType': everyXPeriodType,
+      'specificDays': specificDays,
+      'remindersEnabled': remindersEnabled,
+    }.withoutNulls,
+  );
+  return firestoreData;
+}
+
+class RoutineRecordDocumentEquality implements Equality<RoutineRecord> {
+  const RoutineRecordDocumentEquality();
+  @override
+  bool equals(RoutineRecord? e1, RoutineRecord? e2) {
+    return e1?.uid == e2?.uid &&
+        e1?.name == e2?.name &&
+        e1?.description == e2?.description &&
+        listEquals(e1?.itemIds, e2?.itemIds) &&
+        listEquals(e1?.itemNames, e2?.itemNames) &&
+        listEquals(e1?.itemOrder, e2?.itemOrder) &&
+        listEquals(e1?.itemTypes, e2?.itemTypes) &&
+        listEquals(e1?.habitIds, e2?.habitIds) &&
+        listEquals(e1?.habitNames, e2?.habitNames) &&
+        e1?.isActive == e2?.isActive &&
+        e1?.createdTime == e2?.createdTime &&
+        e1?.lastUpdated == e2?.lastUpdated &&
+        e1?.userId == e2?.userId &&
+        e1?.listOrder == e2?.listOrder &&
+        e1?.dueTime == e2?.dueTime &&
+        listEquals(e1?.reminders, e2?.reminders) &&
+        e1?.reminderFrequencyType == e2?.reminderFrequencyType &&
+        e1?.everyXValue == e2?.everyXValue &&
+        e1?.everyXPeriodType == e2?.everyXPeriodType &&
+        listEquals(e1?.specificDays, e2?.specificDays) &&
+        e1?.remindersEnabled == e2?.remindersEnabled;
+  }
+
+  @override
+  int hash(RoutineRecord? e) => const ListEquality().hash([
+        e?.uid,
+        e?.name,
+        e?.description,
+        e?.itemIds,
+        e?.itemNames,
+        e?.itemOrder,
+        e?.itemTypes,
+        e?.habitIds,
+        e?.habitNames,
+        e?.isActive,
+        e?.createdTime,
+        e?.lastUpdated,
+        e?.userId,
+        e?.listOrder,
+        e?.dueTime,
+        e?.reminders,
+        e?.reminderFrequencyType,
+        e?.everyXValue,
+        e?.everyXPeriodType,
+        e?.specificDays,
+        e?.remindersEnabled,
+      ]);
+  @override
+  bool isValidKey(Object? o) => o is RoutineRecord;
+}

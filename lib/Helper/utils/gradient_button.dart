@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 class GradientButton extends StatelessWidget {
   final String text;
   final VoidCallback onPressed;
@@ -11,7 +10,6 @@ class GradientButton extends StatelessWidget {
   final TextStyle? textStyle;
   final EdgeInsetsGeometry? padding;
   final Widget? icon;
-
   const GradientButton({
     super.key,
     required this.text,
@@ -23,7 +21,6 @@ class GradientButton extends StatelessWidget {
     this.padding,
     this.icon,
   });
-
   @override
   Widget build(BuildContext context) {
     return Semantics(

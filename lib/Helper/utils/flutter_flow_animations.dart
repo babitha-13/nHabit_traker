@@ -1,11 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
-
 enum AnimationTrigger {
   onPageLoad,
   onActionTrigger,
 }
-
 class AnimationInfo {
   AnimationInfo({
     required this.trigger,
@@ -20,28 +18,23 @@ class AnimationInfo {
   final bool loop;
   final bool reverse;
   late AnimationController controller;
-
   List<Effect>? _effects;
   List<Effect> get effects => _effects ??= effectsBuilder!();
-
   void maybeUpdateEffects(List<Effect>? updatedEffects) {
     if (updatedEffects != null) {
       _effects = updatedEffects;
     }
   }
 }
-
 void createAnimation(AnimationInfo animation, TickerProvider vsync) {
   final newController = AnimationController(vsync: vsync);
   animation.controller = newController;
 }
-
 void setupAnimations(Iterable<AnimationInfo> animations, TickerProvider vsync) {
   for (var animation in animations) {
     createAnimation(animation, vsync);
   }
 }
-
 extension AnimatedWidgetExtension on Widget {
   Widget animateOnPageLoad(
     AnimationInfo animationInfo, {
@@ -59,7 +52,6 @@ extension AnimatedWidgetExtension on Widget {
           : null,
     );
   }
-
   Widget animateOnActionTrigger(
     AnimationInfo animationInfo, {
     List<Effect>? effects,
@@ -75,7 +67,6 @@ extension AnimatedWidgetExtension on Widget {
         : this;
   }
 }
-
 class TiltEffect extends Effect<Offset> {
   const TiltEffect({
     super.delay,
@@ -87,7 +78,6 @@ class TiltEffect extends Effect<Offset> {
           begin: begin ?? const Offset(0.0, 0.0),
           end: end ?? const Offset(0.0, 0.0),
         );
-
   @override
   Widget build(
     BuildContext context,

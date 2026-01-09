@@ -21,7 +21,7 @@
 **✅ Correct Pattern:**
 ```dart
 // UI calls business logic, doesn't implement it
-await HabitService.createHabit(data);  // ✅ Good
+await HabitService.createActivity(data);  // ✅ Good
 ```
 
 **Tags to Use:**
@@ -111,16 +111,16 @@ Look for:
 **Good Example** (Separated Concerns):
 ```dart
 // UI Layer - only presentation
-class CreateHabitPage extends StatefulWidget {
+class createActivityPage extends StatefulWidget {
   Future<void> _saveHabit() async {
-    await Backend.createHabit(habitData);  // Call business logic
+    await Backend.createActivity(habitData);  // Call business logic
     Navigator.pop(context);  // Handle UI response
   }
 }
 
 // Business Logic Layer - pure logic
 class Backend {
-  static Future<void> createHabit(HabitData data) async {
+  static Future<void> createActivity(HabitData data) async {
     ValidationHelper.validateHabit(data);  // #VALIDATE
     await DatabaseHelper.saveHabit(data);  // Database operation
   }
@@ -130,7 +130,7 @@ class Backend {
 **Bad Example** (Mixed Concerns - Avoid):
 ```dart
 // DON'T DO THIS - everything mixed
-class CreateHabitPage extends StatefulWidget {
+class createActivityPage extends StatefulWidget {
   Future<void> _saveHabit() async {
     // UI and validation mixed
     if (_nameController.text.isEmpty) {
@@ -138,7 +138,7 @@ class CreateHabitPage extends StatefulWidget {
       return;
     }
     // Database logic in UI
-    await HabitRecord.collectionForUser(userId).add(data);
+    await ActivityRecord.collectionForUser(userId).add(data);
     context.goNamed('HabitsListPg');  // Navigation
   }
 }

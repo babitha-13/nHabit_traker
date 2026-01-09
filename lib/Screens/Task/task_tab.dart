@@ -3,13 +3,11 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/custom_tab_decorator.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
-  final bool showCompleted;
-
-  const TaskTab({super.key, required this.showCompleted});
-
+  const TaskTab({super.key});
   @override
   State<TaskTab> createState() => _TaskTabState();
 }
@@ -17,43 +15,99 @@ class TaskTab extends StatefulWidget {
 class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   late TabController _tabController;
   List<CategoryRecord> _categories = [];
-  List<String> _tabNames = ["Inbox"];
-  late bool _showCompleted;
-
+  List<String> _tabNames = ["All"];
+  static bool _hasEnsuredInbox = false;
   @override
   void initState() {
     super.initState();
-    _showCompleted = widget.showCompleted;
     _tabController = TabController(length: _tabNames.length, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _loadCategories();
   }
 
+  void _onTabChanged() {
+    setState(() {
+      // Trigger rebuild to update tab styling
+    });
+  }
+
   Future<void> _loadCategories() async {
-    final fetched = await queryTaskCategoriesOnce(userId: currentUserUid);
-    final inboxExists = fetched.any((c) => c.name.toLowerCase() == 'inbox');
-    if (!inboxExists) {
+    if (!mounted) return;
+    final fetched = await queryTaskCategoriesOnce(
+      userId: currentUserUid,
+      callerTag: 'TaskTab._loadCategories.initial',
+    );
+    if (!mounted) return;
+
+    await _ensureInboxCategory(fetched);
+    if (!mounted) return;
+
+    final updatedFetched = await queryTaskCategoriesOnce(
+      userId: currentUserUid,
+      callerTag: 'TaskTab._loadCategories.updated',
+    );
+    if (!mounted) return;
+
+    final List<String> newTabNames = ['All'];
+    if (updatedFetched.isNotEmpty) {
+      CategoryRecord? inboxCategory;
+      for (final category in updatedFetched) {
+        if (category.name.toLowerCase() == 'inbox') {
+          inboxCategory = category;
+          break;
+        }
+      }
+      final inboxName = inboxCategory?.name ?? 'Inbox';
+      final otherCategories = updatedFetched
+          .where((c) => c.name.toLowerCase() != 'inbox')
+          .toList();
+      newTabNames
+        ..add(inboxName)
+        ..addAll(otherCategories.map((c) => c.name));
+    }
+    if (mounted) {
+      setState(() {
+        _categories = updatedFetched;
+        _tabNames = newTabNames;
+        _tabController.removeListener(_onTabChanged);
+        _tabController.dispose();
+        _tabController = TabController(length: _tabNames.length, vsync: this);
+        _tabController.addListener(_onTabChanged);
+      });
+    }
+  }
+
+  Future<void> _ensureInboxCategory(List<CategoryRecord> categories) async {
+    if (_hasEnsuredInbox) return;
+    final userId = currentUserUid;
+    if (userId.isEmpty) return;
+    final inboxExists = categories.any(
+      (c) => c.name.toLowerCase() == 'inbox' && c.isSystemCategory,
+    );
+    if (inboxExists) {
+      _hasEnsuredInbox = true;
+      return;
+    }
+    try {
       await createCategory(
         name: 'Inbox',
         description: 'Inbox task category',
         weight: 1.0,
+        color: '#2F4F4F', // Dark Slate Gray (charcoal) for tasks
         categoryType: 'task',
+        userId: userId,
+        isSystemCategory: true,
       );
+      _hasEnsuredInbox = true;
+    } catch (e) {
+      // Ignore duplicate creation errors; another instance likely created it.
+      debugPrint('TaskTab: Unable to ensure Inbox category: $e');
     }
-
-    final updatedFetched = await queryTaskCategoriesOnce(userId: currentUserUid);
-    final otherCategories = updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
-
-    setState(() {
-      _categories = updatedFetched;
-      _tabNames = ["Inbox", ...otherCategories.map((c) => c.name)];
-      _tabController.dispose();
-      _tabController = TabController(length: _tabNames.length, vsync: this);
-    });
   }
-
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
   }
@@ -65,7 +119,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       body: Column(
         children: [
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
+            // Add breathing room so the first tab isn't glued to the edge
+            padding: const EdgeInsets.symmetric(horizontal: 12),
             color: Colors.white,
             child: Row(
               children: [
@@ -73,12 +128,25 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                   child: _tabNames.isEmpty
                       ? const SizedBox()
                       : TabBar(
-                    indicatorColor: Colors.black,
-                    controller: _tabController,
-                    isScrollable: true,
-                    tabs:
-                    _tabNames.map((name) => Tab(text: name)).toList(),
-                  ),
+                          indicator: const BoxDecoration(),
+                          indicatorColor: Colors.transparent,
+                          controller: _tabController,
+                          isScrollable: true,
+                          labelPadding:
+                              const EdgeInsets.symmetric(horizontal: 8),
+                          padding: EdgeInsets.zero,
+                          tabAlignment: TabAlignment.start,
+                          tabs: _tabNames.asMap().entries.map((entry) {
+                            final index = entry.key;
+                            final name = entry.value;
+                            return Tab(
+                              child: CustomTabDecorator(
+                                isActive: _tabController.index == index,
+                                child: Text(name),
+                              ),
+                            );
+                          }).toList(),
+                        ),
                 ),
                 IconButton(
                   icon: const Icon(Icons.add, color: Colors.black),
@@ -91,28 +159,15 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
             ),
           ),
           Expanded(
-            child: _categories.isEmpty
-                ? const Center(child: CircularProgressIndicator())
-                : TabBarView(
-              controller: _tabController,
-              children: _tabNames.map((name) {
-                if (name.toLowerCase() == "inbox") {
-                  final inboxCategory = _categories.firstWhere(
-                        (c) => c.name.toLowerCase() == 'inbox',
-                  );
-                  return TaskPage(categoryId: inboxCategory.reference.id, showCompleted: _showCompleted);
-                }
-                final category = _categories.firstWhere(
-                      (c) => c.name == name,
-                );
-                if (category == null) {
-                  return const Center(child: Text("No category found"));
-                }
-                return TaskPage(categoryId: category.reference.id, showCompleted: _showCompleted);
-              }).toList(),
-            )
-
-          )
+              child: _categories.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : TabBarView(
+                      controller: _tabController,
+                      children: _tabNames.map((name) {
+                        final categoryName = name == 'All' ? null : name;
+                        return TaskPage(categoryName: categoryName);
+                      }).toList(),
+                    ))
         ],
       ),
     );
@@ -173,9 +228,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                         return;
                       }
                     }
-
                     final exists = _categories.any(
-                          (c) => c.name.toLowerCase() == newName.toLowerCase(),
+                      (c) => c.name.toLowerCase() == newName.toLowerCase(),
                     );
                     if (exists || newName.toLowerCase() == "inbox") {
                       if (context.mounted) {
@@ -192,9 +246,9 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                       name: newName,
                       description: null,
                       weight: 1,
+                      color: '#2F4F4F', // Dark Slate Gray (charcoal) for tasks
                       categoryType: 'task',
                     );
-
                     if (context.mounted) Navigator.pop(context);
                   },
                   style: ElevatedButton.styleFrom(

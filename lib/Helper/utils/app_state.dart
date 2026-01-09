@@ -1,21 +1,16 @@
 // lib/app_state.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-
 class FFAppState extends ChangeNotifier {
   static FFAppState _instance = FFAppState._internal();
-
   factory FFAppState() {
     return _instance;
   }
-
   FFAppState._internal();
   static FFAppState get instance => _instance;
-
   static void reset() {
     _instance = FFAppState._internal();
   }
-
   Future initializePersistedState() async {
     prefs = await SharedPreferences.getInstance();
     _safeInit(() {
@@ -40,15 +35,16 @@ class FFAppState extends ChangeNotifier {
       _showCompletedHabits =
           prefs.getBool('ff_showCompletedHabits') ?? _showCompletedHabits;
     });
+    _safeInit(() {
+      _timeBonusEnabled =
+          prefs.getBool('ff_timeBonusEnabled') ?? _timeBonusEnabled;
+    });
   }
-
   void update(VoidCallback callback) {
     callback();
     notifyListeners();
   }
-
   late SharedPreferences prefs;
-
   // New flag to track if the user has completed the initial habit setup.
   bool _hasCompletedInitialSetup = false;
   bool get hasCompletedInitialSetup => _hasCompletedInitialSetup;
@@ -56,7 +52,6 @@ class FFAppState extends ChangeNotifier {
     _hasCompletedInitialSetup = value;
     prefs.setBool('ff_hasCompletedInitialSetup', value);
   }
-
   /// For identifying the date on which the app is open, for displaying the days
   /// on the calendar.
   DateTime? _todaysDate;
@@ -69,7 +64,6 @@ class FFAppState extends ChangeNotifier {
       prefs.remove('ff_todaysDate');
     }
   }
-
   // User's selected habit categories
   List<String> _selectedCategories = [
     'Health',
@@ -82,19 +76,16 @@ class FFAppState extends ChangeNotifier {
     _selectedCategories = value;
     prefs.setStringList('ff_selectedCategories', value);
   }
-
   void addCategory(String category) {
     if (!_selectedCategories.contains(category)) {
       _selectedCategories.add(category);
       prefs.setStringList('ff_selectedCategories', _selectedCategories);
     }
   }
-
   void removeCategory(String category) {
     _selectedCategories.remove(category);
     prefs.setStringList('ff_selectedCategories', _selectedCategories);
   }
-
   // Default impact level for new habits
   String _defaultImpactLevel = 'Medium';
   String get defaultImpactLevel => _defaultImpactLevel;
@@ -102,7 +93,6 @@ class FFAppState extends ChangeNotifier {
     _defaultImpactLevel = value;
     prefs.setString('ff_defaultImpactLevel', value);
   }
-
   // Whether to show completed habits in the list
   bool _showCompletedHabits = true;
   bool get showCompletedHabits => _showCompletedHabits;
@@ -110,7 +100,6 @@ class FFAppState extends ChangeNotifier {
     _showCompletedHabits = value;
     prefs.setBool('ff_showCompletedHabits', value);
   }
-
   // Current focus mode state
   bool _isInFocusMode = false;
   bool get isInFocusMode => _isInFocusMode;
@@ -118,16 +107,22 @@ class FFAppState extends ChangeNotifier {
     _isInFocusMode = value;
     notifyListeners();
   }
-
-  // Current sequence being followed in focus mode
-  String? _currentSequenceId;
-  String? get currentSequenceId => _currentSequenceId;
-  set currentSequenceId(String? value) {
-    _currentSequenceId = value;
+  // Current routine being followed in focus mode
+  String? _currentRoutineId;
+  String? get currentRoutineId => _currentRoutineId;
+  set currentRoutineId(String? value) {
+    _currentRoutineId = value;
+    notifyListeners();
+  }
+  // Time bonus points enabled
+  bool _timeBonusEnabled = false;
+  bool get timeBonusEnabled => _timeBonusEnabled;
+  set timeBonusEnabled(bool value) {
+    _timeBonusEnabled = value;
+    prefs.setBool('ff_timeBonusEnabled', value);
     notifyListeners();
   }
 }
-
 void _safeInit(Function() initializeField) {
   try {
     initializeField();

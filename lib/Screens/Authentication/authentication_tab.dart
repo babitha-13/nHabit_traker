@@ -10,17 +10,17 @@ import 'package:habit_tracker/Screens/Authentication/sign_in_card.dart';
 import 'package:habit_tracker/Screens/Authentication/sign_up_card.dart';
 
 class AuthenticationTab extends StatelessWidget {
-  late AuthenticationPgModel model;
+  final AuthenticationPgModel model;
   final FirebaseAuthManager authManager;
   final Map<String, AnimationInfo> animationsMap;
-
-  AuthenticationTab({super.key, required this.model,     required this.authManager,
-    required this.animationsMap
-  });
-
+  AuthenticationTab(
+      {super.key,
+      required this.model,
+      required this.authManager,
+      required this.animationsMap});
   @override
   Widget build(BuildContext context) {
-    return  SafeArea(
+    return SafeArea(
       top: true,
       child: Row(
         mainAxisSize: MainAxisSize.max,
@@ -32,15 +32,16 @@ class AuthenticationTab extends StatelessWidget {
               height: double.infinity,
               decoration: BoxDecoration(
                 gradient: (FlutterFlowTheme.of(context) is LightModeTheme)
-                    ? (FlutterFlowTheme.of(context) as LightModeTheme).neumorphicRadialGradient
+                    ? (FlutterFlowTheme.of(context) as LightModeTheme)
+                        .neumorphicRadialGradient
                     : RadialGradient(
-                  colors: [
-                    FlutterFlowTheme.of(context).primaryBackground,
-                    FlutterFlowTheme.of(context).secondaryBackground,
-                  ],
-                  center: Alignment.center,
-                  radius: 8,
-                ),
+                        colors: [
+                          FlutterFlowTheme.of(context).primaryBackground,
+                          FlutterFlowTheme.of(context).secondaryBackground,
+                        ],
+                        center: Alignment.center,
+                        radius: 8,
+                      ),
               ),
               alignment: const AlignmentDirectional(0.0, -1.0),
               child: SingleChildScrollView(
@@ -49,7 +50,11 @@ class AuthenticationTab extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Padding(
-                      padding: const EdgeInsetsDirectional.fromSTEB(0.0, 44.0, 0.0, 0.0,
+                      padding: const EdgeInsetsDirectional.fromSTEB(
+                        0.0,
+                        44.0,
+                        0.0,
+                        0.0,
                       ),
                       child: Container(
                         width: double.infinity,
@@ -71,30 +76,33 @@ class AuthenticationTab extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Padding(
-                                padding:
-                                const EdgeInsetsDirectional.fromSTEB(16.0, 0.0, 0.0, 0.0,
+                                padding: const EdgeInsetsDirectional.fromSTEB(
+                                  16.0,
+                                  0.0,
+                                  0.0,
+                                  0.0,
                                 ),
                                 child: Text(
                                   'Habit Tracker',
                                   style: FlutterFlowTheme.of(context)
                                       .headlineMedium
                                       .override(
-                                    font: GoogleFonts.interTight(
-                                      fontWeight: FlutterFlowTheme.of(
-                                        context,
-                                      ).headlineMedium.fontWeight,
-                                      fontStyle: FlutterFlowTheme.of(
-                                        context,
-                                      ).headlineMedium.fontStyle,
-                                    ),
-                                    letterSpacing: 0.0,
-                                    fontWeight: FlutterFlowTheme.of(
-                                      context,
-                                    ).headlineMedium.fontWeight,
-                                    fontStyle: FlutterFlowTheme.of(
-                                      context,
-                                    ).headlineMedium.fontStyle,
-                                  ),
+                                        font: GoogleFonts.interTight(
+                                          fontWeight: FlutterFlowTheme.of(
+                                            context,
+                                          ).headlineMedium.fontWeight,
+                                          fontStyle: FlutterFlowTheme.of(
+                                            context,
+                                          ).headlineMedium.fontStyle,
+                                        ),
+                                        letterSpacing: 0.0,
+                                        fontWeight: FlutterFlowTheme.of(
+                                          context,
+                                        ).headlineMedium.fontWeight,
+                                        fontStyle: FlutterFlowTheme.of(
+                                          context,
+                                        ).headlineMedium.fontStyle,
+                                      ),
                                 ),
                               ),
                             ],
@@ -108,7 +116,11 @@ class AuthenticationTab extends StatelessWidget {
                       constraints: const BoxConstraints(maxWidth: 602.0),
                       decoration: const BoxDecoration(),
                       child: Padding(
-                        padding: const EdgeInsetsDirectional.fromSTEB(16.0, 0.0, 16.0, 0.0,
+                        padding: const EdgeInsetsDirectional.fromSTEB(
+                          16.0,
+                          0.0,
+                          16.0,
+                          0.0,
                         ),
                         child: Column(
                           children: [
@@ -126,44 +138,42 @@ class AuthenticationTab extends StatelessWidget {
                                 labelStyle: FlutterFlowTheme.of(context)
                                     .displaySmall
                                     .override(
-                                  font: GoogleFonts.interTight(
-                                    fontWeight: FlutterFlowTheme.of(
-                                      context,
-                                    ).displaySmall.fontWeight,
-                                    fontStyle: FlutterFlowTheme.of(
-                                      context,
-                                    ).displaySmall.fontStyle,
-                                  ),
-                                  letterSpacing: 0.0,
-                                  fontWeight: FlutterFlowTheme.of(
-                                    context,
-                                  ).displaySmall.fontWeight,
-                                  fontStyle: FlutterFlowTheme.of(
-                                    context,
-                                  ).displaySmall.fontStyle,
-                                ),
-                                unselectedLabelStyle:
-                                FlutterFlowTheme.of(
+                                      font: GoogleFonts.interTight(
+                                        fontWeight: FlutterFlowTheme.of(
+                                          context,
+                                        ).displaySmall.fontWeight,
+                                        fontStyle: FlutterFlowTheme.of(
+                                          context,
+                                        ).displaySmall.fontStyle,
+                                      ),
+                                      letterSpacing: 0.0,
+                                      fontWeight: FlutterFlowTheme.of(
+                                        context,
+                                      ).displaySmall.fontWeight,
+                                      fontStyle: FlutterFlowTheme.of(
+                                        context,
+                                      ).displaySmall.fontStyle,
+                                    ),
+                                unselectedLabelStyle: FlutterFlowTheme.of(
                                   context,
                                 ).displaySmall.override(
-                                  font: GoogleFonts.interTight(
-                                    fontWeight: FontWeight.normal,
-                                    fontStyle: FlutterFlowTheme.of(
-                                      context,
-                                    ).displaySmall.fontStyle,
-                                  ),
-                                  letterSpacing: 0.0,
-                                  fontWeight: FontWeight.normal,
-                                  fontStyle: FlutterFlowTheme.of(
-                                    context,
-                                  ).displaySmall.fontStyle,
-                                ),
+                                      font: GoogleFonts.interTight(
+                                        fontWeight: FontWeight.normal,
+                                        fontStyle: FlutterFlowTheme.of(
+                                          context,
+                                        ).displaySmall.fontStyle,
+                                      ),
+                                      letterSpacing: 0.0,
+                                      fontWeight: FontWeight.normal,
+                                      fontStyle: FlutterFlowTheme.of(
+                                        context,
+                                      ).displaySmall.fontStyle,
+                                    ),
                                 indicatorColor: FlutterFlowTheme.of(
                                   context,
                                 ).primary,
                                 indicatorWeight: 4.0,
-                                padding:
-                                const EdgeInsetsDirectional.fromSTEB(
+                                padding: const EdgeInsetsDirectional.fromSTEB(
                                   0.0,
                                   12.0,
                                   16.0,
@@ -183,10 +193,12 @@ class AuthenticationTab extends StatelessWidget {
                               child: TabBarView(
                                 controller: model.tabBarController,
                                 children: [
-                                  SignInCard(model: model,
+                                  SignInCard(
+                                      model: model,
                                       authManager: authManager,
                                       animationsMap: animationsMap),
-                                  SignUpCard(model: model,
+                                  SignUpCard(
+                                      model: model,
                                       authManager: authManager,
                                       animationsMap: animationsMap)
                                 ],

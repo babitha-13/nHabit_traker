@@ -6,22 +6,17 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_pg_model.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_tab.dart';
-
-
 class SignIn extends StatefulWidget {
   const SignIn({super.key});
-
   @override
   State<SignIn> createState() => _SignInState();
 }
-
 class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin  {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   late AuthenticationPgModel _model;
   final animationsMap = <String, AnimationInfo>{};
   final _authManager = FirebaseAuthManager();
   FirebaseAuthManager get authManager => _authManager;
-
   @override
   void initState() {
     super.initState();
@@ -46,15 +41,12 @@ class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin  {
         safeSetState(() {});
       }
     });
-
     _model.passwordConfirmTextController?.addListener(() {
       safeSetState(() {});
     });
-
     _model.emailAddressCreateTextController?.addListener(() {
       safeSetState(() {});
     });
-
     animationsMap.addAll({
       'columnOnPageLoadAnimation1': AnimationInfo(
         trigger: AnimationTrigger.onPageLoad,
@@ -110,7 +102,6 @@ class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin  {
       ),
     });
   }
-
   @override
   void dispose() {
     _model.dispose();

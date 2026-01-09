@@ -9,22 +9,18 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_widgets.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_pg_model.dart';
 import 'package:habit_tracker/main.dart';
-
 class SignUpCard extends StatefulWidget {
   final AuthenticationPgModel model;
   final FirebaseAuthManager authManager;
   final Map<String, AnimationInfo> animationsMap;
-
   const SignUpCard(
       {super.key,
       required this.model,
       required this.authManager,
       required this.animationsMap});
-
   @override
   State<SignUpCard> createState() => _SignUpCardState();
 }
-
 class _SignUpCardState extends State<SignUpCard> {
   @override
   Widget build(BuildContext context) {
@@ -786,7 +782,6 @@ class _SignUpCardState extends State<SignUpCard> {
       ),
     );
   }
-
   bool _isSignUpFormValid() {
     final emailError =
         widget.model.emailAddressCreateTextControllerValidator?.call(
@@ -803,7 +798,6 @@ class _SignUpCardState extends State<SignUpCard> {
       context,
       widget.model.passwordConfirmTextController?.text,
     );
-
     return emailError == null &&
         passwordError == null &&
         confirmPasswordError == null;

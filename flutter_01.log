@@ -40,19 +40,19 @@ StateError: Bad state: No running isolate (inspector is not set).
 ## flutter doctor
 
 ```
-[✓] Flutter (Channel stable, 3.29.2, on Microsoft Windows [Version 10.0.26100.6584], locale en-IN) [474ms]
+[✓] Flutter (Channel stable, 3.29.2, on Microsoft Windows [Version 10.0.26200.7462], locale en-IN) [1,469ms]
     • Flutter version 3.29.2 on channel stable at C:\flutter
     • Upstream repository https://github.com/flutter/flutter.git
-    • Framework revision c236373904 (6 months ago), 2025-03-13 16:17:06 -0400
+    • Framework revision c236373904 (9 months ago), 2025-03-13 16:17:06 -0400
     • Engine revision 18b71d647a
     • Dart version 3.7.2
     • DevTools version 2.42.3
 
-[✓] Windows Version (11 Home Single Language 64-bit, 24H2, 2009) [1,778ms]
+[✓] Windows Version (11 Home Single Language 64-bit, 25H2, 2009) [4.5s]
 
-[✓] Android toolchain - develop for Android devices (Android SDK version 35.0.1) [3.4s]
+[✓] Android toolchain - develop for Android devices (Android SDK version 36.0.0) [7.3s]
     • Android SDK at C:\Android
-    • Platform android-35, build-tools 35.0.1
+    • Platform android-36, build-tools 36.0.0
     • ANDROID_HOME = C:\Android
     • Java binary at: C:\Program Files\Eclipse Adoptium\jdk-21.0.7.6-hotspot\bin\java
       This JDK is specified in your Flutter configuration.
@@ -60,7 +60,7 @@ StateError: Bad state: No running isolate (inspector is not set).
     • Java version OpenJDK Runtime Environment Temurin-21.0.7+6 (build 21.0.7+6-LTS)
     • All Android licenses accepted.
 
-[✓] Chrome - develop for the web [15ms]
+[✓] Chrome - develop for the web [16ms]
     • Chrome at C:\Program Files\Google\Chrome\Application\chrome.exe
 
 [✗] Visual Studio - develop Windows apps [14ms]
@@ -68,7 +68,7 @@ StateError: Bad state: No running isolate (inspector is not set).
       Download at https://visualstudio.microsoft.com/downloads/.
       Please install the "Desktop development with C++" workload, including all of its default components
 
-[!] Android Studio (version 2024.3.2) [13ms]
+[!] Android Studio (version 2024.3.2) [8ms]
     • Android Studio at C:\Program Files\Android\Android Studio
     • Flutter plugin can be installed from:
       🔨 https://plugins.jetbrains.com/plugin/9212-flutter
@@ -77,16 +77,16 @@ StateError: Bad state: No running isolate (inspector is not set).
     ✗ Unable to determine bundled Java version.
     • Try updating or re-installing Android Studio.
 
-[✓] VS Code (version 1.104.1) [11ms]
+[✓] VS Code (version 1.107.0) [6ms]
     • VS Code at C:\Users\Nikhil Mathew\AppData\Local\Programs\Microsoft VS Code
-    • Flutter extension version 3.118.0
+    • Flutter extension version 3.124.0
 
-[✓] Connected device (3 available) [261ms]
-    • Windows (desktop) • windows • windows-x64    • Microsoft Windows [Version 10.0.26100.6584]
-    • Chrome (web)      • chrome  • web-javascript • Google Chrome 140.0.7339.185
-    • Edge (web)        • edge    • web-javascript • Microsoft Edge 139.0.3405.119
+[✓] Connected device (3 available) [470ms]
+    • Windows (desktop) • windows • windows-x64    • Microsoft Windows [Version 10.0.26200.7462]
+    • Chrome (web)      • chrome  • web-javascript • Google Chrome 143.0.7499.110
+    • Edge (web)        • edge    • web-javascript • Microsoft Edge 143.0.3650.80
 
-[✓] Network resources [499ms]
+[✓] Network resources [750ms]
     • All expected network resources are available.
 
 ! Doctor found issues in 2 categories.

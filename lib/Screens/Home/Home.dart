@@ -4,21 +4,40 @@ import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Screens/CreateHabit/create_Habit.dart';
+import 'package:habit_tracker/Helper/backend/goal_service.dart';
+import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
-import 'package:habit_tracker/Screens/Progress/progress_page.dart';
-import 'package:habit_tracker/Screens/Sequence/sequence.dart';
+import 'package:habit_tracker/Screens/Essential/essential_templates_page.dart';
+import 'package:habit_tracker/Screens/Routine/routine.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
+import 'package:habit_tracker/Screens/Progress/progress_page.dart';
+import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
+import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
+import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog.dart';
+import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
+import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
+import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
+import 'package:habit_tracker/Screens/Settings/settings_page.dart';
+import 'package:habit_tracker/Screens/Help/faq_page.dart';
+import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
+import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
+import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/backend/routine_reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
+import 'package:flutter/foundation.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/utils/global_floating_timer.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
-
   @override
   State<Home> createState() => _HomeState();
 }
@@ -28,14 +47,34 @@ class _HomeState extends State<Home> {
   DateTime preBackPress = DateTime.now();
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  bool _showCompleted = false, _showTaskCompleted = false;
-  int currentIndex = 1;
-  late Widget cWidget;
-
+  int currentIndex = 2;
+  // List of all pages - initialized once and cached
+  late final List<Widget> _pages;
+  // Map page names to indices for easy lookup
+  final Map<String, int> _pageIndexMap = {
+    "Tasks": 0,
+    "Habits": 1,
+    "Queue": 2,
+    "Essential": 3,
+    "Routines": 4,
+    "Calendar": 5,
+  };
+  // Prevent race conditions in morning catch-up check
+  static bool _isCheckingCatchUp = false;
   @override
   void initState() {
+    NotificationCenter.addObserver(
+        this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
-    cWidget = QueuePage(showCompleted: _showCompleted);
+    // Initialize all pages once - they will be cached in IndexedStack
+    _pages = [
+      const TaskTab(), // index 0
+      const HabitsPage(showCompleted: true), // index 1
+      const QueuePage(), // index 2
+      const essentialTemplatesPage(), // index 3
+      const Routines(), // index 4
+      const CalendarPage(), // index 5
+    ];
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.white,
@@ -46,10 +85,35 @@ class _HomeState extends State<Home> {
         systemNavigationBarDividerColor: Colors.transparent,
       ),
     );
+    // Check for goal onboarding and morning catch-up after the frame is built
+    // Parallelize independent operations for faster initialization
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // Run independent operations in parallel
+      Future.wait([
+        _checkMorningCatchUp(),
+        _checkGoalOnboarding(),
+        _checkDailyGoal(),
+        _initializeNotifications(),
+      ]).then((_) {
+        // Check notification onboarding after goal onboarding completes
+        // (it depends on goal onboarding being completed)
+        // Only proceed if widget is still mounted to prevent disposed widget errors
+        if (mounted) {
+          _checkNotificationOnboarding();
+        }
+      });
+    });
+  }
+
+  void _onNavigateBottomTab(Object? param) {
+    if (param is String) {
+      loadPage(param);
+    }
   }
 
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
     super.dispose();
   }
@@ -84,62 +148,67 @@ class _HomeState extends State<Home> {
                   ),
             ),
             actions: [
-              Visibility(
-                visible: title != "Progress" &&
-                    title != "Tasks" &&
-                    title != "Manage Categories",
-                child: Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        'Show Completed',
-                        style: FlutterFlowTheme.of(context).bodyMedium.override(
-                              fontFamily: 'Readex Pro',
-                              color: Colors.white,
-                            ),
+              // Catch-up button - temporary, will be removed later
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: IconButton(
+                  icon: const Icon(Icons.history, color: Colors.white),
+                  onPressed: showCatchUpDialogManually,
+                  tooltip: 'Morning Catch-Up',
+                ),
+              ),
+              // Goals button - always visible
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: Container(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: Colors.white,
+                      width: 1.5,
+                    ),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: TextButton(
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => const GoalDialog(),
+                      );
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 12,
+                        vertical: 8,
                       ),
-                      const SizedBox(width: 8),
-                      Switch(
-                        value: _showCompleted,
-                        onChanged: (value) {
-                          setState(() => _showCompleted = value);
-                          NotificationCenter.post(
-                              "showCompleted", _showCompleted);
-                        },
-                        activeColor: Colors.white,
-                      ),
-                    ],
+                      minimumSize: Size.zero,
+                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                    ),
+                    child: Text(
+                      'Goal',
+                      style: FlutterFlowTheme.of(context).bodyLarge.override(
+                            fontFamily: 'Outfit',
+                            color: Colors.white,
+                            fontSize: 16,
+                            fontWeight: FontWeight.w500,
+                          ),
+                    ),
                   ),
                 ),
               ),
-              Visibility(
-                visible: title != "Progress" &&
-                    title != "Queue" &&
-                    title != "Habits" &&
-                    title != "Manage Categories",
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Text(
-                      'Show Completed',
-                      style: FlutterFlowTheme.of(context).bodyMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: Colors.white,
-                          ),
-                    ),
-                    const SizedBox(width: 5),
-                    Switch(
-                      value: _showTaskCompleted,
-                      onChanged: (value) {
-                        setState(() => _showTaskCompleted = value);
-                        NotificationCenter.post(
-                            "showTaskCompleted", _showTaskCompleted);
-                      },
-                      activeColor: Colors.white,
-                    ),
-                  ],
+              // Timer button - utility tool accessible from AppBar (rightmost position)
+              Padding(
+                padding: const EdgeInsets.only(right: 8.0),
+                child: IconButton(
+                  icon: const Icon(Icons.timer, color: Colors.white),
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const TimerPage(),
+                      ),
+                    );
+                  },
+                  tooltip: 'Timer',
                 ),
               ),
               Visibility(
@@ -151,20 +220,20 @@ class _HomeState extends State<Home> {
                     PopupMenuItem(
                       value: 'default',
                       child: ListTile(
-                        leading: Icon(Icons.sort_by_alpha),
-                        title: Text('Default sort'),
+                        leading: const Icon(Icons.sort_by_alpha),
+                        title: const Text('Default sort'),
                       ),
                     ),
                     PopupMenuItem(
                       value: 'importance',
                       child: ListTile(
-                        leading: Icon(Icons.star),
-                        title: Text('Sort by importance'),
+                        leading: const Icon(Icons.star),
+                        title: const Text('Sort by importance'),
                       ),
                     ),
                   ],
                 ),
-              )
+              ),
             ],
             centerTitle: false,
             elevation: 0,
@@ -193,7 +262,9 @@ class _HomeState extends State<Home> {
                               ),
                               const SizedBox(height: 4),
                               Text(
-                                "email",
+                                currentUserEmail.isNotEmpty
+                                    ? currentUserEmail
+                                    : "email",
                                 style: theme.bodyMedium.override(
                                   fontFamily: 'Readex Pro',
                                   color: Colors.white70,
@@ -209,18 +280,7 @@ class _HomeState extends State<Home> {
                                 icon: Icons.home,
                                 label: 'Home',
                                 onTap: () {
-                                  setState(() {
-                                    currentIndex = 1;
-                                    loadPage("Queue");
-                                    Navigator.pop(context);
-                                  });
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.repeat,
-                                label: 'Habits',
-                                onTap: () {
-                                  loadPage("Habits");
+                                  loadPage("Queue");
                                   Navigator.pop(context);
                                 },
                               ),
@@ -228,50 +288,82 @@ class _HomeState extends State<Home> {
                                 icon: Icons.category,
                                 label: 'Manage Categories',
                                 onTap: () {
-                                  loadPage("Manage Categories");
-                                  Navigator.pop(context);
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.playlist_play,
-                                label: 'Sequences',
-                                onTap: () {
-                                  loadPage("Sequences");
-                                  Navigator.pop(context);
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.timer_outlined,
-                                label: 'Timer',
-                                onTap: () {
                                   Navigator.pop(context);
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
-                                      builder: (context) => const TimerPage(),
+                                      builder: (context) =>
+                                          const ManageCategories(),
                                     ),
                                   );
                                 },
                               ),
                               _DrawerItem(
-                                icon: Icons.calendar_today,
-                                label: 'Calendar',
+                                icon: Icons.monitor_heart,
+                                label: 'Essential Activities',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  loadPage("Essential");
+                                },
+                              ),
+                              _DrawerItem(
+                                icon: Icons.trending_up,
+                                label: 'Progress History',
                                 onTap: () {
                                   Navigator.pop(context);
                                   Navigator.push(
                                     context,
                                     MaterialPageRoute(
                                       builder: (context) =>
-                                          const CalendarPage(),
+                                          const ProgressPage(),
                                     ),
                                   );
                                 },
                               ),
+                              // Development/Testing only - show in debug mode
+                              if (kDebugMode) ...[
+                                _DrawerItem(
+                                  icon: Icons.science,
+                                  label: 'Testing Tools',
+                                  onTap: () {
+                                    Navigator.pop(context);
+                                    Navigator.push(
+                                      context,
+                                      MaterialPageRoute(
+                                        builder: (context) =>
+                                            const SimpleTestingPage(),
+                                      ),
+                                    );
+                                  },
+                                ),
+                              ],
                               const Divider(),
                               _DrawerItem(
-                                icon: Icons.person,
-                                label: 'Profile',
-                                onTap: () {},
+                                icon: Icons.settings,
+                                label: 'Settings',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) =>
+                                          const SettingsPage(),
+                                    ),
+                                  );
+                                },
+                              ),
+                              _DrawerItem(
+                                icon: Icons.help_outline,
+                                label: 'FAQ',
+                                onTap: () {
+                                  Navigator.pop(context);
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (context) => const FaqPage(),
+                                    ),
+                                  );
+                                },
                               ),
                             ],
                           ),
@@ -301,49 +393,15 @@ class _HomeState extends State<Home> {
             child: Stack(
               key: _parentKey,
               children: [
-                Container(color: Colors.white, child: cWidget),
-                Visibility(
-                  visible: title != "Tasks" &&
-                      title != "Manage Categories" &&
-                      title != "Queue",
-                  child: Positioned(
-                    right: 16,
-                    bottom: 24,
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.end,
-                      children: [
-                        FloatingActionButton(
-                          heroTag: 'fab_add_habit',
-                          onPressed: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (context) => const CreateHabitPage(),
-                              ),
-                            ).then((value) {
-                              if (value) {
-                                NotificationCenter.post("loadHabits", "");
-                              }
-                            });
-                          },
-                          tooltip: 'Add Habit',
-                          backgroundColor: FlutterFlowTheme.of(context).primary,
-                          child: const Icon(Icons.add, color: Colors.white),
-                        ),
-                        const SizedBox(height: 12),
-                        FloatingActionButton(
-                          heroTag: 'fab_add_category',
-                          onPressed: _showAddCategoryDialog,
-                          tooltip: 'Add Category',
-                          backgroundColor:
-                              FlutterFlowTheme.of(context).secondary,
-                          child: const Icon(Icons.create_new_folder,
-                              color: Colors.white),
-                        ),
-                      ],
-                    ),
+                Container(
+                  color: Colors.white,
+                  child: IndexedStack(
+                    index: currentIndex,
+                    children: _pages,
                   ),
                 ),
+                // Global floating timer - appears on all pages when timers are active
+                const GlobalFloatingTimer(),
               ],
             ),
           ),
@@ -360,18 +418,18 @@ class _HomeState extends State<Home> {
             child: BottomNavigationBar(
               currentIndex: currentIndex,
               onTap: (i) {
-                setState(() {
-                  currentIndex = i;
-                  if (i == 0) {
-                    loadPage("Tasks");
-                  } else if (i == 1) {
-                    loadPage("Queue");
-                  } else if (i == 2) {
-                    loadPage("Habits");
-                  } else if (i == 3) {
-                    loadPage("Progress");
-                  }
-                });
+                // Map index to page name and load it
+                final pageNames = [
+                  "Tasks",
+                  "Habits",
+                  "Queue",
+                  "Essential",
+                  "Routines",
+                  "Calendar"
+                ];
+                if (i >= 0 && i < pageNames.length) {
+                  loadPage(pageNames[i]);
+                }
               },
               type: BottomNavigationBarType.fixed,
               backgroundColor: FlutterFlowTheme.of(context).secondaryBackground,
@@ -379,22 +437,30 @@ class _HomeState extends State<Home> {
               unselectedItemColor: FlutterFlowTheme.of(context).secondaryText,
               selectedFontSize: 12,
               unselectedFontSize: 12,
-              items: const [
+              items: [
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.assignment),
+                  icon: const Icon(Icons.assignment),
                   label: 'Tasks',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.queue),
-                  label: 'Queue',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.flag),
+                  icon: const Icon(Icons.flag),
                   label: 'Habits',
                 ),
                 BottomNavigationBarItem(
-                  icon: Icon(Icons.trending_up),
-                  label: 'Progress',
+                  icon: const Icon(Icons.queue),
+                  label: 'Queue',
+                ),
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.monitor_heart),
+                  label: 'Essential',
+                ),
+                BottomNavigationBarItem(
+                  icon: const Icon(Icons.playlist_play),
+                  label: 'Routines',
+                ),
+                BottomNavigationBarItem(
+                  icon: Icon(Icons.calendar_today),
+                  label: 'Calendar',
                 ),
               ],
             ),
@@ -405,13 +471,19 @@ class _HomeState extends State<Home> {
   }
 
   Future<bool> _onWillPop() async {
+    // Priority: If search is open, close it first
+    if (SearchStateManager().isSearchOpen) {
+      NotificationCenter.post('closeSearch', null);
+      return false;
+    }
+
     if (title == "Queue") {
       final timeGap = DateTime.now().difference(preBackPress);
       final cantExit = timeGap >= const Duration(seconds: 2);
       preBackPress = DateTime.now();
       if (cantExit) {
         const snack = SnackBar(
-          content: Text('Press Back button again to Exit'),
+          content: const Text('Press Back button again to Exit'),
           duration: Duration(seconds: 2),
         );
         ScaffoldMessenger.of(context).showSnackBar(snack);
@@ -421,11 +493,9 @@ class _HomeState extends State<Home> {
       }
     } else {
       if (mounted) {
-        title = "Queue";
         setState(() {
-          cWidget = QueuePage(
-            showCompleted: _showCompleted,
-          );
+          currentIndex = 2; // Queue page index
+          title = "Queue";
         });
       }
       return false;
@@ -435,47 +505,246 @@ class _HomeState extends State<Home> {
   void loadPage(s) {
     if (mounted) {
       setState(() {
-        if (s == "Queue") {
+        // Check if this is a main navigation page (in bottom nav)
+        if (_pageIndexMap.containsKey(s)) {
+          currentIndex = _pageIndexMap[s]!;
           title = s;
-          cWidget = QueuePage(
-            showCompleted: _showCompleted,
-          );
-        }
-        if (s == "Tasks") {
+        } else {
+          // Handle pages not in bottom navigation (Progress, Manage Categories)
+          // These will be shown as overlays or separate routes
           title = s;
-          cWidget = TaskTab(
-            showCompleted: _showTaskCompleted,
-          );
-        }
-        if (s == "Habits") {
-          title = s;
-          cWidget = HabitsPage(
-            showCompleted: _showCompleted,
-          );
-        }
-        if (s == "Progress") {
-          title = s;
-          cWidget = const ProgressPage();
-        }
-        if (s == "Manage Categories") {
-          title = s;
-          cWidget = const ManageCategories();
-        }
-        if (s == "Sequences") {
-          title = s;
-          cWidget = const Sequences();
+          if (s == "Progress") {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ProgressPage(),
+              ),
+            );
+            return;
+          }
+          if (s == "Manage Categories") {
+            Navigator.push(
+              context,
+              MaterialPageRoute(
+                builder: (context) => const ManageCategories(),
+              ),
+            );
+            return;
+          }
         }
       });
     }
   }
 
-  void _showAddCategoryDialog() {
-    showDialog(
-      context: context,
-      builder: (context) => StatefulBuilder(
-          builder: (context, setLocalState) =>
-              const CreateCategory(categoryType: 'habit')),
-    );
+  Future<void> _checkGoalOnboarding() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      final shouldShow = await GoalService.shouldShowOnboardingGoal(userId);
+      if (shouldShow && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const GoalOnboardingDialog(),
+        );
+      }
+    } catch (e) {
+      // Silently ignore errors in goal onboarding check - non-critical UI operation
+      print('Error checking goal onboarding: $e');
+    }
+  }
+
+  Future<void> _checkDailyGoal() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      final shouldShow = await GoalService.shouldShowGoal(userId);
+      if (shouldShow && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const GoalDialog(),
+        );
+      }
+    } catch (e) {
+      // Silently ignore errors in daily goal check - non-critical UI operation
+      print('Error checking daily goal: $e');
+    }
+  }
+
+  Future<void> _checkMorningCatchUp() async {
+    if (_isCheckingCatchUp) return; // Prevent concurrent checks
+
+    try {
+      _isCheckingCatchUp = true;
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+
+      // Check if we've already processed today
+      final prefs = await SharedPreferences.getInstance();
+      final lastProcessedDateString =
+          prefs.getString('last_end_of_day_processed');
+      DateTime? lastProcessedDate;
+      if (lastProcessedDateString != null) {
+        lastProcessedDate = DateTime.parse(lastProcessedDateString);
+        final lastProcessedDateOnly = DateTime(
+          lastProcessedDate.year,
+          lastProcessedDate.month,
+          lastProcessedDate.day,
+        );
+
+        // If we've already processed today, just check if dialog should show
+        if (lastProcessedDateOnly.isAtSameMomentAs(today)) {
+          final shouldShow =
+              await MorningCatchUpService.shouldShowDialog(userId);
+          if (shouldShow && mounted) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => const MorningCatchUpDialog(),
+            );
+          }
+          return;
+        }
+      }
+
+      // It's a new day (or first time) - simplified flow:
+      // 1. Do minimal setup: auto-skip expired items before yesterday, ensure instances exist
+      // 2. Check if there are pending items from yesterday (pure check)
+      // 3. If yes: show dialog (dialog will handle finalization after user confirms)
+      // 4. If no: process end-of-day activities immediately (finalize scoring/records)
+
+      // Step 1: Minimal setup (auto-skip expired, ensure instances)
+      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
+      await DayEndProcessor.ensurePendingInstancesExist(userId);
+
+      // Step 2: Check for pending items from yesterday (pure check)
+      final hasPendingItems =
+          await MorningCatchUpService.hasPendingItemsFromYesterday(userId);
+
+      if (hasPendingItems) {
+        // There are pending items - show dialog first
+        // Dialog will handle finalization after user confirms item status
+        // Update lastDayValue only (defer finalization to dialog)
+        await DayEndProcessor.updateLastDayValuesOnly(
+            userId, DateService.yesterdayStart);
+
+        // Mark as processed to prevent re-running on same day
+        await prefs.setString(
+            'last_end_of_day_processed', today.toIso8601String());
+
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => const MorningCatchUpDialog(),
+          );
+        }
+      } else {
+        // No pending items - process end-of-day activities immediately
+        // This will finalize scoring and create daily progress records
+        await DayEndProcessor.processDayEnd(
+          userId: userId,
+          targetDate: DateService.yesterdayStart,
+          closeInstances: false,
+          ensureInstances: false, // Already ensured above
+        );
+
+        // Mark as processed for today
+        await prefs.setString(
+            'last_end_of_day_processed', today.toIso8601String());
+      }
+    } catch (e) {
+      // Error checking morning catch-up
+    } finally {
+      _isCheckingCatchUp = false;
+    }
+  }
+
+  /// Manually trigger the catch-up dialog (for testing/debugging)
+  /// Call this method from Flutter DevTools console or add a button that calls it
+  Future<void> showCatchUpDialogManually() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        // No user ID available
+        return;
+      }
+      // First, auto-skip all expired items to bring everything up to date
+      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
+      // Reset dialog state to allow showing
+      await MorningCatchUpService.resetDialogState();
+      // Force show the dialog
+      if (mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => const MorningCatchUpDialog(),
+        );
+      }
+    } catch (e) {
+      // Error showing catch-up dialog manually
+    }
+  }
+
+  Future<void> _checkNotificationOnboarding() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      // Only show if goal onboarding is completed
+      final goalOnboardingCompleted =
+          await GoalService.isGoalOnboardingCompleted(userId);
+      if (!goalOnboardingCompleted) {
+        return; // Wait for goal onboarding first
+      }
+      final isCompleted = await NotificationPreferencesService
+          .isNotificationOnboardingCompleted(userId);
+      if (!isCompleted && mounted) {
+        // Add a small delay to avoid showing multiple dialogs at once
+        await Future.delayed(const Duration(milliseconds: 500));
+        if (mounted) {
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (context) => const NotificationOnboardingDialog(),
+          );
+        }
+      }
+    } catch (e) {
+      // Error checking notification onboarding
+    }
+  }
+
+  Future<void> _initializeNotifications() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+      // Initialize daily notifications
+      await DailyNotificationScheduler.initializeDailyNotifications();
+      // Initialize engagement reminders
+      await EngagementReminderScheduler.initializeEngagementReminders();
+      // Schedule all pending task/habit reminders (after user is authenticated)
+      await ReminderScheduler.scheduleAllPendingReminders();
+      // Schedule all active routine reminders
+      await RoutineReminderScheduler.scheduleAllActiveRoutineReminders();
+      // Check for expired snoozes and reschedule
+      await ReminderScheduler.checkExpiredSnoozes();
+    } catch (e) {
+      // Error initializing notifications
+    }
   }
 }
 
@@ -483,13 +752,11 @@ class _DrawerItem extends StatelessWidget {
   final IconData icon;
   final String label;
   final VoidCallback onTap;
-
   const _DrawerItem({
     required this.icon,
     required this.label,
     required this.onTap,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);

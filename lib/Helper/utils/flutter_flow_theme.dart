@@ -1,18 +1,12 @@
 // ignore_for_file: overridden_fields, annotate_overrides
-
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-
 import 'package:shared_preferences/shared_preferences.dart';
-
 const kThemeModeKey = '__theme_mode__';
-
 SharedPreferences? _prefs;
-
 abstract class FlutterFlowTheme {
   static Future initialize() async =>
       _prefs = await SharedPreferences.getInstance();
-
   static ThemeMode get themeMode {
     final darkMode = _prefs?.getBool(kThemeModeKey);
     return darkMode == null
@@ -21,24 +15,20 @@ abstract class FlutterFlowTheme {
             ? ThemeMode.dark
             : ThemeMode.light;
   }
-
   static void saveThemeMode(ThemeMode mode) => mode == ThemeMode.system
       ? _prefs?.remove(kThemeModeKey)
       : _prefs?.setBool(kThemeModeKey, mode == ThemeMode.dark);
-
   static FlutterFlowTheme of(BuildContext context) {
     return Theme.of(context).brightness == Brightness.dark
         ? DarkModeTheme()
         : LightModeTheme();
   }
-
   @Deprecated('Use primary instead')
   Color get primaryColor => primary;
   @Deprecated('Use secondary instead')
   Color get secondaryColor => secondary;
   @Deprecated('Use tertiary instead')
   Color get tertiaryColor => tertiary;
-
   late Color primary;
   late Color secondary;
   late Color tertiary;
@@ -56,14 +46,13 @@ abstract class FlutterFlowTheme {
   late Color warning;
   late Color error;
   late Color info;
-
   // Neumorphic tokens (available across themes)
   late double cardRadius;
   late double buttonRadius;
   late double chipRadius;
   late Color surfaceBorderColor;
+  late Color cardBorderColor;
   late List<BoxShadow> neumorphicShadowsRaised;
-
   // Gradient helpers expected on all themes
   LinearGradient get neumorphicGradient;
   LinearGradient get neumorphicGradientAlt;
@@ -72,7 +61,6 @@ abstract class FlutterFlowTheme {
   LinearGradient get tabIndicatorGradient;
   RadialGradient get neumorphicRadialGradient;
   LinearGradient? get headerSheenGradient => null;
-
   @Deprecated('Use displaySmallFamily instead')
   String get title1Family => displaySmallFamily;
   @Deprecated('Use displaySmall instead')
@@ -101,7 +89,6 @@ abstract class FlutterFlowTheme {
   String get bodyText2Family => bodySmallFamily;
   @Deprecated('Use bodySmall instead')
   TextStyle get bodyText2 => bodySmall;
-
   String get displayLargeFamily => typography.displayLargeFamily;
   bool get displayLargeIsCustom => typography.displayLargeIsCustom;
   TextStyle get displayLarge => typography.displayLarge;
@@ -147,10 +134,8 @@ abstract class FlutterFlowTheme {
   String get bodySmallFamily => typography.bodySmallFamily;
   bool get bodySmallIsCustom => typography.bodySmallIsCustom;
   TextStyle get bodySmall => typography.bodySmall;
-
   Typography get typography => ThemeTypography(this);
 }
-
 class LightModeTheme extends FlutterFlowTheme {
   @Deprecated('Use primary instead')
   Color get primaryColor => primary;
@@ -158,7 +143,6 @@ class LightModeTheme extends FlutterFlowTheme {
   Color get secondaryColor => secondary;
   @Deprecated('Use tertiary instead')
   Color get tertiaryColor => tertiary;
-
   // Slate + Copper (editorial, sophisticated)
   late Color primary = const Color(0xFF2D3A43); // Slate
   late Color secondary = const Color(0xFF7D8A96); // Cool grey
@@ -179,12 +163,13 @@ class LightModeTheme extends FlutterFlowTheme {
   late Color warning = const Color(0xFFF59E0B); // Amber
   late Color error = const Color(0xFFEF4444); // Red
   late Color info = const Color(0xFFA0AEC0); // Cool grey
-
   // Neumorphic tokens (light)
   late double cardRadius = 20.0;
   late double buttonRadius = 16.0;
   late double chipRadius = 12.0;
   late Color surfaceBorderColor = const Color(0x0A000000); // 4% black
+  late Color cardBorderColor =
+      const Color(0x15000000); // 8% black - slightly darker for cards
   late List<BoxShadow> neumorphicShadowsRaised = [
     BoxShadow(
       color: Colors.white.withOpacity(0.9),
@@ -197,7 +182,6 @@ class LightModeTheme extends FlutterFlowTheme {
       blurRadius: 16,
     ),
   ];
-
   // Gradient helpers
   LinearGradient get neumorphicGradient => const LinearGradient(
         colors: [Color(0xFFFFFFFF), Color(0xFFFAF9F7)],
@@ -214,26 +198,22 @@ class LightModeTheme extends FlutterFlowTheme {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       );
-
   RadialGradient get neumorphicRadialGradient => const RadialGradient(
         colors: [Color(0xFFFBF8F4), Color(0xFFFFFFFF)],
         center: Alignment.topCenter,
         radius: 3.5,
       );
-
   // Additional neumorphic gradients for variety
   LinearGradient get neumorphicGradientAlt => const LinearGradient(
         colors: [Color(0xFFFDFBF8), Color(0xFFF8F5F1)],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       );
-
   LinearGradient get neumorphicGradientSubtle => const LinearGradient(
         colors: [Color(0xFFFFFFFF), Color(0xFFF9F7F4)],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       );
-
   // Subtle AppBar sheen (slate to slightly lighter slate)
   @override
   LinearGradient? get headerSheenGradient => const LinearGradient(
@@ -242,7 +222,6 @@ class LightModeTheme extends FlutterFlowTheme {
         end: Alignment.bottomCenter,
       );
 }
-
 abstract class Typography {
   String get displayLargeFamily;
   bool get displayLargeIsCustom;
@@ -290,12 +269,9 @@ abstract class Typography {
   bool get bodySmallIsCustom;
   TextStyle get bodySmall;
 }
-
 class ThemeTypography extends Typography {
   ThemeTypography(this.theme);
-
   final FlutterFlowTheme theme;
-
   String get displayLargeFamily => 'Inter Tight';
   bool get displayLargeIsCustom => false;
   TextStyle get displayLarge => GoogleFonts.interTight(
@@ -402,7 +378,6 @@ class ThemeTypography extends Typography {
         fontSize: 12.0,
       );
 }
-
 class DarkModeTheme extends FlutterFlowTheme {
   @Deprecated('Use primary instead')
   Color get primaryColor => primary;
@@ -410,7 +385,6 @@ class DarkModeTheme extends FlutterFlowTheme {
   Color get secondaryColor => secondary;
   @Deprecated('Use tertiary instead')
   Color get tertiaryColor => tertiary;
-
   late Color primary = const Color(0xFF7ED957); // Pastel Green
   late Color secondary = const Color(0xFFFFB877); // Pastel Orange
   late Color tertiary = const Color(0xFFB2F7EF); // Soft Aqua
@@ -428,12 +402,13 @@ class DarkModeTheme extends FlutterFlowTheme {
   late Color warning = const Color(0xFFFFB300);
   late Color error = const Color(0xFFFF7043);
   late Color info = const Color(0xFFB2F7EF);
-
   // Neumorphic tokens (dark)
   late double cardRadius = 20.0;
   late double buttonRadius = 16.0;
   late double chipRadius = 12.0;
   late Color surfaceBorderColor = const Color(0x0FFFFFFF); // 6% white
+  late Color cardBorderColor =
+      const Color(0x1AFFFFFF); // 10% white - slightly darker for cards
   late List<BoxShadow> neumorphicShadowsRaised = [
     BoxShadow(
       color: Colors.white.withOpacity(0.06),
@@ -446,7 +421,6 @@ class DarkModeTheme extends FlutterFlowTheme {
       blurRadius: 16,
     ),
   ];
-
   LinearGradient get neumorphicGradient => const LinearGradient(
         colors: [Color(0xFF23272A), Color(0xFF181C1F)],
         begin: Alignment.topLeft,
@@ -462,26 +436,22 @@ class DarkModeTheme extends FlutterFlowTheme {
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       );
-
   RadialGradient get neumorphicRadialGradient => const RadialGradient(
         colors: [Color(0xFF23272A), Color(0xFF181C1F)],
         center: Alignment.topCenter,
         radius: 3.5,
       );
-
   // Additional neumorphic gradients for variety (dark mode)
   LinearGradient get neumorphicGradientAlt => const LinearGradient(
         colors: [Color(0xFF1F2326), Color(0xFF181C1F)],
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
       );
-
   LinearGradient get neumorphicGradientSubtle => const LinearGradient(
         colors: [Color(0xFF23272A), Color(0xFF1C2024)],
         begin: Alignment.topCenter,
         end: Alignment.bottomCenter,
       );
-
   @override
   LinearGradient? get headerSheenGradient => const LinearGradient(
         colors: [Color(0xFF23272A), Color(0xFF2A3136)],
@@ -489,7 +459,6 @@ class DarkModeTheme extends FlutterFlowTheme {
         end: Alignment.bottomCenter,
       );
 }
-
 extension TextStyleHelper on TextStyle {
   TextStyle override({
     TextStyle? font,
@@ -510,7 +479,6 @@ extension TextStyleHelper on TextStyle {
           fontWeight: fontWeight ?? this.fontWeight,
           fontStyle: fontStyle ?? this.fontStyle);
     }
-
     return font != null
         ? font.copyWith(
             color: color ?? this.color,

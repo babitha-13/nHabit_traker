@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-
 /// Helper class for task frequency/recurring functionality
 /// Separates business logic from UI components
 class TaskFrequencyHelper {
   /// Schedule options for recurring tasks
   static const List<String> scheduleOptions = ['daily', 'weekly', 'monthly'];
-
   /// Week days for selection (Monday = 1, Sunday = 7)
   static const List<String> weekDays = [
     'Monday',
@@ -17,7 +15,6 @@ class TaskFrequencyHelper {
     'Saturday',
     'Sunday'
   ];
-
   /// Short week day labels for chips
   static const List<String> weekDayShort = [
     'Mon',
@@ -28,7 +25,6 @@ class TaskFrequencyHelper {
     'Sat',
     'Sun'
   ];
-
   /// Get display label for schedule option
   static String getScheduleLabel(String schedule) {
     switch (schedule) {
@@ -42,7 +38,6 @@ class TaskFrequencyHelper {
         return 'Daily';
     }
   }
-
   /// Get frequency input label based on schedule
   static String getFrequencyLabel(String schedule) {
     switch (schedule) {
@@ -54,21 +49,17 @@ class TaskFrequencyHelper {
         return 'Frequency';
     }
   }
-
   /// Check if frequency input should be shown
-  static bool shouldShowFrequencyInput(String schedule) {
+  static bool shouldShowFrequencyInput(String? schedule) {
     return schedule == 'weekly' || schedule == 'monthly';
   }
-
   /// Check if day selection should be shown
-  static bool shouldShowDaySelection(String schedule) {
+  static bool shouldShowDaySelection(String? schedule) {
     return schedule == 'weekly';
   }
-
   /// Validate frequency value based on schedule
   static bool isValidFrequency(String schedule, int frequency) {
     if (frequency <= 0) return false;
-
     switch (schedule) {
       case 'weekly':
         return frequency <= 7; // Max 7 times per week
@@ -78,42 +69,34 @@ class TaskFrequencyHelper {
         return true;
     }
   }
-
   /// Validate selected days for weekly schedule
   static bool isValidDaySelection(String schedule, List<int> selectedDays) {
     if (schedule != 'weekly') return true;
     return selectedDays.isNotEmpty && selectedDays.length <= 7;
   }
-
   /// Get weekday index (1-7) from list index (0-6)
   static int getWeekdayIndex(int listIndex) {
     return listIndex + 1; // Monday = 1, Sunday = 7
   }
-
   /// Get list index (0-6) from weekday index (1-7)
   static int getListIndex(int weekdayIndex) {
     return weekdayIndex - 1;
   }
-
   /// Check if a specific day is selected
   static bool isDaySelected(List<int> selectedDays, int dayIndex) {
     return selectedDays.contains(getWeekdayIndex(dayIndex));
   }
-
   /// Toggle day selection
   static List<int> toggleDay(List<int> selectedDays, int dayIndex) {
     final weekdayIndex = getWeekdayIndex(dayIndex);
     final newList = List<int>.from(selectedDays);
-
     if (newList.contains(weekdayIndex)) {
       newList.remove(weekdayIndex);
     } else {
       newList.add(weekdayIndex);
     }
-
     return newList..sort();
   }
-
   /// Get default frequency for schedule type
   static int getDefaultFrequency(String schedule) {
     switch (schedule) {
@@ -125,14 +108,11 @@ class TaskFrequencyHelper {
         return 1;
     }
   }
-
   /// Format selected days for display
   static String formatSelectedDays(List<int> selectedDays) {
     if (selectedDays.isEmpty) return 'No days selected';
-
     final dayNames =
         selectedDays.map((index) => weekDayShort[getListIndex(index)]).toList();
-
     if (dayNames.length <= 3) {
       return dayNames.join(', ');
     } else {
@@ -140,24 +120,20 @@ class TaskFrequencyHelper {
     }
   }
 }
-
 /// Custom dropdown widget for schedule selection
 class ScheduleDropdown extends StatelessWidget {
-  final String selectedSchedule;
+  final String? selectedSchedule;
   final ValueChanged<String?> onChanged;
   final String? tooltip;
-
   const ScheduleDropdown({
     super.key,
     required this.selectedSchedule,
     required this.onChanged,
     this.tooltip,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Container(
       decoration: BoxDecoration(
         border: Border.all(
@@ -189,22 +165,18 @@ class ScheduleDropdown extends StatelessWidget {
     );
   }
 }
-
 /// Custom widget for day selection chips
 class DaySelectionChips extends StatelessWidget {
   final List<int> selectedDays;
   final ValueChanged<List<int>> onChanged;
-
   const DaySelectionChips({
     super.key,
     required this.selectedDays,
     required this.onChanged,
   });
-
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -250,26 +222,25 @@ class DaySelectionChips extends StatelessWidget {
     );
   }
 }
-
 /// Custom widget for frequency input
 class FrequencyInput extends StatelessWidget {
-  final String schedule;
+  final String? schedule;
   final int frequency;
   final ValueChanged<int> onChanged;
-
   const FrequencyInput({
     super.key,
     required this.schedule,
     required this.frequency,
     required this.onChanged,
   });
-
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       initialValue: frequency.toString(),
       decoration: InputDecoration(
-        labelText: TaskFrequencyHelper.getFrequencyLabel(schedule),
+        labelText: schedule != null
+            ? TaskFrequencyHelper.getFrequencyLabel(schedule!)
+            : 'Frequency',
         labelStyle: const TextStyle(fontSize: 11, fontWeight: FontWeight.w500),
         border: const OutlineInputBorder(),
         contentPadding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -279,7 +250,8 @@ class FrequencyInput extends StatelessWidget {
       keyboardType: TextInputType.number,
       onChanged: (value) {
         final newFrequency = int.tryParse(value) ?? 1;
-        if (TaskFrequencyHelper.isValidFrequency(schedule, newFrequency)) {
+        if (schedule != null &&
+            TaskFrequencyHelper.isValidFrequency(schedule!, newFrequency)) {
           onChanged(newFrequency);
         }
       },

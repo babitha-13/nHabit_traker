@@ -43,12 +43,17 @@ dependencies:
   firebase_core: 3.8.0
   flutter_slidable: ^3.1.0
   calendar_view: ^1.0.4
+  flutter_local_notifications: ^17.0.0
+  timezone: ^0.9.0
+  android_alarm_manager_plus: ^4.0.0
 
   # The following adds the Cupertino Icons font to your application.
   # Use with the CupertinoIcons class for iOS style icons.
   cupertino_icons: ^1.0.0
 
   crypto: any
+  just_audio: ^0.10.5
+  vibration: ^3.1.4
 dependency_overrides:
   http: 1.2.2
   uuid: ^4.0.0

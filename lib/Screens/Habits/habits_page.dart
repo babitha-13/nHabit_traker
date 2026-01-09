@@ -2,21 +2,27 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/habit_record.dart';
-import 'package:habit_tracker/Helper/utils/floating_timer.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
+import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
 import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
+import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
+import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
   const HabitsPage({super.key, required this.showCompleted});
-
   @override
   _HabitsPageState createState() => _HabitsPageState();
 }
@@ -24,23 +30,41 @@ class HabitsPage extends StatefulWidget {
 class _HabitsPageState extends State<HabitsPage> {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<HabitRecord> _habits = [];
+  List<ActivityInstanceRecord> _habitInstances = [];
   List<CategoryRecord> _categories = [];
-  final Map<String, bool> _categoryExpanded = {};
+  Set<String> _expandedCategories = {};
+  final Map<String, GlobalKey> _categoryKeys = {};
   bool _isLoading = true;
   bool _didInitialDependencies = false;
   bool _shouldReloadOnReturn = false;
   late bool _showCompleted;
-
+  bool _hasAutoExpandedOnLoad = false;
+  // Search functionality
+  String _searchQuery = '';
+  final SearchStateManager _searchManager = SearchStateManager();
+  // Cache for groupedByCategory to avoid recalculation on every build
+  Map<String, List<ActivityInstanceRecord>>? _cachedGroupedByCategory;
+  int _habitInstancesHashCode = 0;
+  String _lastSearchQuery = '';
+  bool _lastShowCompleted = false;
+  Set<String> _reorderingInstanceIds =
+      {}; // Track instances being reordered to prevent stale updates
+  // Optimistic operation tracking
+  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
   @override
   void initState() {
     super.initState();
     _showCompleted = widget.showCompleted;
+    _loadExpansionState();
     _loadHabits();
+    // Listen for search changes
+    _searchManager.addListener(_onSearchChanged);
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
         setState(() {
           _showCompleted = param;
+          // Invalidate cache when showCompleted changes
+          _cachedGroupedByCategory = null;
         });
       }
     });
@@ -51,11 +75,55 @@ class _HabitsPageState extends State<HabitsPage> {
         });
       }
     });
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _loadHabitsSilently();
+      }
+    });
+    // Listen for instance events (only habit instances)
+    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
+        (param) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          param.templateCategoryType == 'habit') {
+        _handleInstanceCreated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
+        (param) {
+      if (mounted) {
+        // Check if it's a habit instance (handle both Map and ActivityInstanceRecord formats)
+        ActivityInstanceRecord? instance;
+        if (param is Map) {
+          instance = param['instance'] as ActivityInstanceRecord?;
+        } else if (param is ActivityInstanceRecord) {
+          instance = param;
+        }
+        if (instance != null && instance.templateCategoryType == 'habit') {
+          _handleInstanceUpdated(param);
+        }
+      }
+    });
+    // Listen for rollback events
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRollback(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
+        (param) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          param.templateCategoryType == 'habit') {
+        _handleInstanceDeleted(param);
+      }
+    });
   }
 
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
+    _searchManager.removeListener(_onSearchChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -74,99 +142,235 @@ class _HabitsPageState extends State<HabitsPage> {
     }
   }
 
-  String _getDueDateSubtitle(HabitRecord habit) {
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
-
-    if (habit.dueDate == null) {
-      return 'No due date';
-    }
-
-    final dueDate =
-    DateTime(habit.dueDate!.year, habit.dueDate!.month, habit.dueDate!.day);
-
-    if (dueDate.isAtSameMomentAs(today)) {
-      return 'Today';
-    } else if (dueDate.isAtSameMomentAs(tomorrow)) {
-      return 'Tomorrow';
-    } else {
-      return DateFormat.yMMMd().format(habit.dueDate!);
-    }
-  }
-
-  Future<void> _loadHabits() async {
-    setState(() {
-      _isLoading = true;
-    });
-
-    try {
-      final userId = currentUserUid;
-      if (userId.isNotEmpty) {
-        final allHabits = await queryHabitsRecordOnce(userId: userId);
-        final categories = await queryHabitCategoriesOnce(userId: userId);
-        // Filter habits based on their own categoryType field
-        final habitsOnly = allHabits.where((h) {
-          return h.categoryType == 'habit';
-        }).toList();
-
-        setState(() {
-          _habits = habitsOnly;
-          _categories = categories;
-          _isLoading = false;
-        });
-      } else {
-        setState(() {
-          _isLoading = false;
-        });
-      }
-    } catch (e) {
-      print('Error loading habits: $e');
+  Future<void> _loadExpansionState() async {
+    final expandedSections =
+        await ExpansionStateManager().getHabitsExpandedSections();
+    if (mounted) {
       setState(() {
-        _isLoading = false;
+        _expandedCategories = expandedSections;
       });
     }
   }
 
-  Map<String, List<HabitRecord>> get _groupedHabits {
-    final grouped = <String, List<HabitRecord>>{};
-    for (final habit in _habits) {
-      // No need to check isHabitRecurring since we already filtered by categoryType
-      final isCompleted = HabitTrackingUtil.isCompletedToday(habit);
-      if (!_showCompleted && isCompleted) continue;
-      final categoryName =
-      habit.categoryName.isNotEmpty ? habit.categoryName : 'Uncategorized';
-      (grouped[categoryName] ??= []).add(habit);
+  void _onSearchChanged(String query) {
+    if (mounted) {
+      setState(() {
+        _searchQuery = query;
+        // Invalidate cache when search query changes
+        _cachedGroupedByCategory = null;
+        // Auto-expand categories with results when searching
+        if (_searchQuery.isNotEmpty) {
+          final grouped = groupedByCategory;
+          // Expand all categories with results
+          for (final key in grouped.keys) {
+            if (grouped[key]!.isNotEmpty) {
+              _expandedCategories.add(key);
+            }
+          }
+        }
+      });
     }
+  }
+
+  Map<String, List<ActivityInstanceRecord>> get groupedByCategory {
+    // Check if cache is still valid
+    final currentInstancesHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
+    final cacheInvalid = _cachedGroupedByCategory == null ||
+        currentInstancesHash != _habitInstancesHashCode ||
+        _searchQuery != _lastSearchQuery ||
+        _showCompleted != _lastShowCompleted;
+
+    if (!cacheInvalid && _cachedGroupedByCategory != null) {
+      return _cachedGroupedByCategory!;
+    }
+
+    // Recalculate grouping
+    final grouped = <String, List<ActivityInstanceRecord>>{};
+    // Filter instances by search query if active
+    final instancesToProcess = _habitInstances.where((instance) {
+      if (_searchQuery.isEmpty) return true;
+      return instance.templateName
+          .toLowerCase()
+          .contains(_searchQuery.toLowerCase());
+    }).toList();
+    for (final instance in instancesToProcess) {
+      if (!_showCompleted && instance.status == 'completed') continue;
+      final categoryName = instance.templateCategoryName.isNotEmpty
+          ? instance.templateCategoryName
+          : 'Uncategorized';
+      (grouped[categoryName] ??= []).add(instance);
+    }
+    // Sort items within each category by habits order
+    for (final key in grouped.keys) {
+      final items = grouped[key]!;
+      if (items.isNotEmpty) {
+        // Sort by habits order
+        grouped[key] =
+            InstanceOrderService.sortInstancesByOrder(items, 'habits');
+      }
+    }
+
+    // Update cache
+    _cachedGroupedByCategory = grouped;
+    _habitInstancesHashCode = currentInstancesHash;
+    _lastSearchQuery = _searchQuery;
+    _lastShowCompleted = _showCompleted;
 
     return grouped;
   }
 
+  String _getDueDateSubtitle(ActivityInstanceRecord instance) {
+    // For habits with completion windows, show window information
+    if (WindowDisplayHelper.hasCompletionWindow(instance)) {
+      if (instance.status == 'completed' || instance.status == 'skipped') {
+        return WindowDisplayHelper.getNextWindowStartSubtitle(instance);
+      } else {
+        return WindowDisplayHelper.getWindowEndSubtitle(instance);
+      }
+    }
+    // Fall back to original logic for habits without windows
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    if (instance.dueDate == null) {
+      // Even if no due date, show time if available
+      if (instance.hasDueTime()) {
+        return '@ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}';
+      }
+      return 'No due date';
+    }
+    final dueDate = DateTime(
+        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
+    String dateStr;
+    if (dueDate.isAtSameMomentAs(today)) {
+      dateStr = 'Today';
+    } else if (dueDate.isAtSameMomentAs(tomorrow)) {
+      dateStr = 'Tomorrow';
+    } else {
+      dateStr = DateFormat.MMMd().format(instance.dueDate!);
+    }
+    // Add due time if available
+    final timeStr = instance.hasDueTime()
+        ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
+        : '';
+    return '$dateStr$timeStr';
+  }
+
+  Future<void> _loadHabits() async {
+    if (!mounted) return;
+    setState(() => _isLoading = true);
+    try {
+      final userId = currentUserUid;
+      if (userId.isNotEmpty) {
+        final instances = await queryLatestHabitInstances(userId: userId);
+        if (!mounted) return;
+        // Initialize missing order values during load (avoid DB writes during build/getters).
+        // Best-effort: if something was deleted concurrently, we don't want to crash UI.
+        try {
+          await InstanceOrderService.initializeOrderValues(instances, 'habits');
+        } catch (_) {}
+        final categories = await queryHabitCategoriesOnce(
+          userId: userId,
+          callerTag: 'HabitsPage._loadHabits',
+        );
+        if (mounted) {
+          setState(() {
+            _habitInstances = instances;
+            _categories = categories;
+            // Invalidate cache when data changes
+            _cachedGroupedByCategory = null;
+            _isLoading = false;
+          });
+          // Auto-expand first category only on initial load if no sections are expanded
+          if (!_hasAutoExpandedOnLoad && _habitInstances.isNotEmpty) {
+            _hasAutoExpandedOnLoad = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (mounted && _expandedCategories.isEmpty) {
+                final grouped = groupedByCategory;
+                if (grouped.isNotEmpty) {
+                  setState(() {
+                    _expandedCategories.add(grouped.keys.first);
+                  });
+                  ExpansionStateManager()
+                      .setHabitsExpandedSections(_expandedCategories);
+                }
+              }
+            });
+          }
+        }
+      } else {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
-    return SafeArea(
-      child: Stack(
-        children: [
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : _buildAllHabitsView(),
-          FloatingTimer(
-            activeHabits: _activeFloatingHabits,
-            onRefresh: _loadHabits,
-            onHabitUpdated: (updated) => _updateHabitInLocalState(updated),
-          ),
-        ],
+    return Scaffold(
+      body: SafeArea(
+        child: Stack(
+          children: [
+            _isLoading
+                ? const Center(child: CircularProgressIndicator())
+                : _buildAllHabitsView(),
+            // FloatingTimer(
+            //   activeHabits: _activeFloatingHabits,
+            //   onRefresh: _loadHabits,
+            //   onHabitUpdated: (updated) => {}, // _updateHabitInLocalState(updated),
+            // ),
+            // Search FAB at bottom-left
+            const SearchFAB(heroTag: 'search_fab_habits'),
+            // Existing FABs at bottom-right
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  FloatingActionButton(
+                    heroTag: 'fab_add_habit',
+                    onPressed: () {
+                      showDialog(
+                        context: context,
+                        builder: (context) => ActivityEditorDialog(
+                          isHabit: true,
+                          categories: _categories,
+                          onSave: (record) {
+                            if (record != null) {
+                              NotificationCenter.post("loadHabits", "");
+                            }
+                          },
+                        ),
+                      );
+                    },
+                    tooltip: 'Add Habit',
+                    backgroundColor: FlutterFlowTheme.of(context).primary,
+                    child: const Icon(Icons.add, color: Colors.white),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
-  List<HabitRecord> get _activeFloatingHabits {
-    return _habits.where((h) => h.showInFloatingTimer == true).toList();
-  }
-
+  // List<ActivityRecord> get _activeFloatingHabits {
+  //   // TODO: Re-implement with instances
+  //   return [];
+  // }
   Widget _buildAllHabitsView() {
-    final groupedHabits = _groupedHabits;
-
+    final groupedHabits = groupedByCategory;
     if (groupedHabits.isEmpty) {
       return Center(
         child: Column(
@@ -187,20 +391,11 @@ class _HabitsPageState extends State<HabitsPage> {
               'Create your first habit to get started!',
               style: FlutterFlowTheme.of(context).bodyMedium,
             ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: () {
-                _shouldReloadOnReturn = true;
-              },
-              child: const Text('Add Habit'),
-            ),
           ],
         ),
       );
     }
-
     final slivers = <Widget>[];
-
     for (final categoryName in groupedHabits.keys) {
       final habits = groupedHabits[categoryName]!;
       CategoryRecord? category;
@@ -222,101 +417,66 @@ class _HabitsPageState extends State<HabitsPage> {
           FirebaseFirestore.instance.collection('categories').doc(),
         );
       }
-
-      final expanded = _categoryExpanded[categoryName] ?? true;
-
+      final expanded = _expandedCategories.contains(categoryName);
+      // Get or create GlobalKey for this category
+      if (!_categoryKeys.containsKey(categoryName)) {
+        _categoryKeys[categoryName] = GlobalKey();
+      }
       slivers.add(
         SliverToBoxAdapter(
-          child: _buildCategoryHeader(
-              category, expanded, categoryName, habits.length),
+          child: _buildCategoryHeader(category, expanded, categoryName,
+              habits.length, _categoryKeys[categoryName]!),
         ),
       );
-
       if (expanded) {
-        final sortedHabits = List<HabitRecord>.from(habits);
-        sortedHabits.sort((a, b) {
-          final ao = a.hasManualOrder() ? a.manualOrder : habits.indexOf(a);
-          final bo = b.hasManualOrder() ? b.manualOrder : habits.indexOf(b);
-          return ao.compareTo(bo);
-        });
-
+        final sortedHabits = List<ActivityInstanceRecord>.from(habits);
         slivers.add(
           SliverReorderableList(
-            itemCount: sortedHabits.length,
             itemBuilder: (context, index) {
-              final habit = sortedHabits[index];
+              final instance = sortedHabits[index];
               return ReorderableDelayedDragStartListener(
-                key: ValueKey('habit_${habit.reference.id}'),
                 index: index,
+                key: Key('${instance.reference.id}_drag'),
                 child: ItemComponent(
-                  subtitle: _getDueDateSubtitle(habit),
+                  key: Key(instance.reference.id),
+                  subtitle: _getDueDateSubtitle(instance),
                   showCompleted: _showCompleted,
-                  key: Key(habit.reference.id),
-                  habit: habit,
+                  instance: instance,
                   categoryColorHex: category!.color,
                   onRefresh: _loadHabits,
-                  onHabitUpdated: (updated) =>
-                      _updateHabitInLocalState(updated),
-                  onHabitDeleted: (deleted) async => _loadHabits(),
+                  onInstanceUpdated: _updateInstanceInLocalState,
+                  onInstanceDeleted: _removeInstanceFromLocalState,
                   isHabit: true,
                   showTypeIcon: false,
                   showRecurringIcon: false,
                 ),
               );
             },
-            proxyDecorator: (child, index, animation) {
-              final size = MediaQuery.of(context).size;
-              return AnimatedBuilder(
-                animation: animation,
-                builder: (context, _) {
-                  return Material(
-                    elevation: 6,
-                    color: Colors.transparent,
-                    child: ConstrainedBox(
-                      constraints: BoxConstraints(
-                        maxWidth: size.width,
-                        maxHeight: 140,
-                      ),
-                      child: child,
-                    ),
-                  );
-                },
-              );
-            },
-            onReorder: (oldIndex, newIndex) async {
-              if (newIndex > sortedHabits.length) {
-                newIndex = sortedHabits.length;
-              }
-              if (newIndex > oldIndex) newIndex -= 1;
-              final item = sortedHabits.removeAt(oldIndex);
-              sortedHabits.insert(newIndex, item);
-              for (int i = 0; i < sortedHabits.length; i++) {
-                final h = sortedHabits[i];
-                try {
-                  await updateHabit(habitRef: h.reference, manualOrder: i);
-                } catch (_) {}
-              }
-              await _loadHabits();
-            },
+            itemCount: sortedHabits.length,
+            onReorder: (oldIndex, newIndex) =>
+                _handleReorder(oldIndex, newIndex, categoryName),
           ),
         );
       }
     }
-
-    return CustomScrollView(
-      controller: _scrollController,
-      slivers: [
-        ...slivers,
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 140),
-        ),
-      ],
+    return RefreshIndicator(
+      onRefresh: _loadHabits,
+      child: CustomScrollView(
+        controller: _scrollController,
+        slivers: [
+          ...slivers,
+          const SliverToBoxAdapter(
+            child: SizedBox(height: 140),
+          ),
+        ],
+      ),
     );
   }
 
   Widget _buildCategoryHeader(CategoryRecord category, bool expanded,
-      String categoryName, int itemCount) {
+      String categoryName, int itemCount, GlobalKey headerKey) {
     return Container(
+      key: headerKey,
       margin: EdgeInsets.fromLTRB(16, 8, 16, expanded ? 0 : 6),
       padding: EdgeInsets.fromLTRB(12, 8, 12, expanded ? 2 : 6),
       decoration: BoxDecoration(
@@ -328,8 +488,8 @@ class _HabitsPageState extends State<HabitsPage> {
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
-          bottomLeft: expanded ? Radius.zero : const Radius.circular(16),
-          bottomRight: expanded ? Radius.zero : const Radius.circular(16),
+          bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
+          bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
         ),
         boxShadow: expanded
             ? []
@@ -343,9 +503,9 @@ class _HabitsPageState extends State<HabitsPage> {
               Text(
                 category.name,
                 style: FlutterFlowTheme.of(context).titleMedium.override(
-                  fontFamily: 'Readex Pro',
-                  fontWeight: FontWeight.w600,
-                ),
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
+                    ),
               ),
               const SizedBox(width: 8),
               Container(
@@ -376,7 +536,6 @@ class _HabitsPageState extends State<HabitsPage> {
             ],
           ),
           const Spacer(),
-          _buildCategoryWeightStars(category),
           SizedBox(
             height: 20,
             width: 20,
@@ -395,9 +554,9 @@ class _HabitsPageState extends State<HabitsPage> {
                   value: 'edit',
                   child: Row(
                     children: [
-                      Icon(Icons.edit, size: 16),
-                      SizedBox(width: 5),
-                      Text('Edit category'),
+                      const Icon(Icons.edit, size: 16),
+                      const SizedBox(width: 5),
+                      const Text('Edit category'),
                     ],
                   ),
                 ),
@@ -405,9 +564,9 @@ class _HabitsPageState extends State<HabitsPage> {
                   value: 'delete',
                   child: Row(
                     children: [
-                      Icon(Icons.delete, size: 16, color: Colors.red),
-                      SizedBox(width: 5),
-                      Text('Delete category',
+                      const Icon(Icons.delete, size: 16, color: Colors.red),
+                      const SizedBox(width: 5),
+                      const Text('Delete category',
                           style: TextStyle(color: Colors.red)),
                     ],
                   ),
@@ -419,8 +578,31 @@ class _HabitsPageState extends State<HabitsPage> {
             onTap: () {
               if (mounted) {
                 setState(() {
-                  _categoryExpanded[categoryName] = !expanded;
+                  if (expanded) {
+                    // Collapse this section
+                    _expandedCategories.remove(categoryName);
+                  } else {
+                    // Expand this section
+                    _expandedCategories.add(categoryName);
+                  }
                 });
+                // Save state persistently
+                ExpansionStateManager()
+                    .setHabitsExpandedSections(_expandedCategories);
+                // Scroll to make the newly expanded section visible
+                if (_expandedCategories.contains(categoryName)) {
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    if (headerKey.currentContext != null) {
+                      Scrollable.ensureVisible(
+                        headerKey.currentContext!,
+                        duration: Duration.zero,
+                        alignment: 0.0,
+                        alignmentPolicy:
+                            ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+                      );
+                    }
+                  });
+                }
               }
             },
             child: Icon(
@@ -431,52 +613,6 @@ class _HabitsPageState extends State<HabitsPage> {
         ],
       ),
     );
-  }
-
-  Widget _buildCategoryWeightStars(CategoryRecord category) {
-    final current = category.weight.round().clamp(1, 3);
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: List.generate(3, (i) {
-        final level = i + 1;
-        final filled = current >= level;
-        return GestureDetector(
-          onTap: () async {
-            try {
-              final next = current % 3 + 1;
-              await updateCategory(
-                categoryId: category.reference.id,
-                weight: next.toDouble(),
-              );
-              await _loadHabits();
-            } catch (e) {
-              if (!mounted) return;
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(content: Text('Error updating category weight: $e')),
-              );
-            }
-          },
-          child: Icon(
-            filled ? Icons.star : Icons.star_border,
-            size: 24,
-            color: filled
-                ? Colors.amber
-                : FlutterFlowTheme.of(context).secondaryText.withOpacity(0.35),
-          ),
-        );
-      }),
-    );
-  }
-
-  void _updateHabitInLocalState(HabitRecord updated) {
-    setState(() {
-      final habitIndex =
-      _habits.indexWhere((h) => h.reference.id == updated.reference.id);
-      if (habitIndex != -1) {
-        _habits[habitIndex] = updated;
-      }
-    });
-    _loadHabits();
   }
 
   void _handleCategoryMenuAction(String action, CategoryRecord category) {
@@ -494,7 +630,60 @@ class _HabitsPageState extends State<HabitsPage> {
     showDialog(
       context: context,
       builder: (context) => CreateCategory(category: category),
-    );
+    ).then((value) {
+      if (value != null && value != false) {
+        _loadHabits();
+      }
+    });
+  }
+
+  void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
+    setState(() {
+      final index = _habitInstances.indexWhere(
+          (inst) => inst.reference.id == updatedInstance.reference.id);
+      if (index != -1) {
+        _habitInstances[index] = updatedInstance;
+        // Invalidate cache when instance is updated
+        _cachedGroupedByCategory = null;
+      }
+      // Remove from list if completed and not showing completed
+      if (!_showCompleted && updatedInstance.status == 'completed') {
+        _habitInstances.removeWhere(
+            (inst) => inst.reference.id == updatedInstance.reference.id);
+      }
+    });
+    // Background refresh to sync with server
+    _loadHabitsSilently();
+  }
+
+  void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
+    setState(() {
+      _habitInstances.removeWhere(
+          (inst) => inst.reference.id == deletedInstance.reference.id);
+      // Invalidate cache when instance is removed
+      _cachedGroupedByCategory = null;
+    });
+    // Background refresh to sync with server
+    _loadHabitsSilently();
+  }
+
+  Future<void> _loadHabitsSilently() async {
+    try {
+      final userId = currentUserUid;
+      if (userId.isNotEmpty) {
+        final instances = await queryCurrentHabitInstances(userId: userId);
+        if (mounted) {
+          setState(() {
+            _habitInstances = instances;
+            // Invalidate cache when instances change
+            _cachedGroupedByCategory = null;
+          });
+        }
+      }
+    } catch (e) {
+      // Silently ignore errors in category cache invalidation - non-critical operation
+      print('Error invalidating category cache: $e');
+    }
   }
 
   void _showDeleteCategoryConfirmation(CategoryRecord category) {
@@ -517,7 +706,6 @@ class _HabitsPageState extends State<HabitsPage> {
                 await deleteCategory(category.reference.id,
                     userId: currentUserUid);
                 await _loadHabits();
-
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -528,7 +716,6 @@ class _HabitsPageState extends State<HabitsPage> {
                   );
                 }
               } catch (e) {
-                print('Error deleting category: $e');
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -548,5 +735,199 @@ class _HabitsPageState extends State<HabitsPage> {
         ],
       ),
     );
+  }
+
+  // Event handlers for live updates (habit instances only)
+  void _handleInstanceCreated(ActivityInstanceRecord instance) {
+    setState(() {
+      _habitInstances.add(instance);
+      // Invalidate cache when instance is added
+      _cachedGroupedByCategory = null;
+    });
+  }
+
+  void _handleInstanceUpdated(dynamic param) {
+    // Handle both optimistic and reconciled updates
+    ActivityInstanceRecord instance;
+    bool isOptimistic = false;
+    String? operationId;
+    
+    if (param is Map) {
+      instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+      operationId = param['operationId'] as String?;
+    } else if (param is ActivityInstanceRecord) {
+      // Backward compatibility: handle old format
+      instance = param;
+    } else {
+      return;
+    }
+    
+    // Skip updates for instances currently being reordered to prevent stale data overwrites
+    if (_reorderingInstanceIds.contains(instance.reference.id)) {
+      return;
+    }
+    
+    setState(() {
+      final index = _habitInstances
+          .indexWhere((inst) => inst.reference.id == instance.reference.id);
+      
+      if (index != -1) {
+        if (isOptimistic) {
+          // Store optimistic state with operation ID for later reconciliation
+          _habitInstances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations[operationId] = instance.reference.id;
+          }
+        } else {
+          // Reconciled update - replace optimistic state
+          _habitInstances[index] = instance;
+          if (operationId != null) {
+            _optimisticOperations.remove(operationId);
+          }
+        }
+        // Invalidate cache when instance is updated
+        _cachedGroupedByCategory = null;
+        
+        // Remove from list if completed and not showing completed
+        if (!_showCompleted && instance.status == 'completed') {
+          _habitInstances
+              .removeWhere((inst) => inst.reference.id == instance.reference.id);
+        }
+      } else if (!isOptimistic) {
+        // New instance from backend (not optimistic) - add it
+        _habitInstances.add(instance);
+        _cachedGroupedByCategory = null;
+      }
+    });
+  }
+  
+  void _handleRollback(dynamic param) {
+    if (param is Map) {
+      final operationId = param['operationId'] as String?;
+      final instanceId = param['instanceId'] as String?;
+      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
+      
+      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+        setState(() {
+          _optimisticOperations.remove(operationId);
+          if (originalInstance != null) {
+            // Restore from original state
+            final index = _habitInstances.indexWhere(
+              (inst) => inst.reference.id == instanceId
+            );
+            if (index != -1) {
+              _habitInstances[index] = originalInstance;
+              _cachedGroupedByCategory = null;
+            }
+          } else if (instanceId != null) {
+            // Fallback to reloading from backend
+            _revertOptimisticUpdate(instanceId);
+          }
+        });
+      }
+    }
+  }
+  
+  Future<void> _revertOptimisticUpdate(String instanceId) async {
+    try {
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instanceId,
+      );
+      setState(() {
+        final index = _habitInstances
+            .indexWhere((inst) => inst.reference.id == instanceId);
+        if (index != -1) {
+          _habitInstances[index] = updatedInstance;
+          _cachedGroupedByCategory = null;
+        }
+      });
+    } catch (e) {
+      // Error reverting - non-critical, will be fixed on next data load
+    }
+  }
+
+  void _handleInstanceDeleted(ActivityInstanceRecord instance) {
+    setState(() {
+      _habitInstances
+          .removeWhere((inst) => inst.reference.id == instance.reference.id);
+      // Invalidate cache when instance is deleted
+      _cachedGroupedByCategory = null;
+    });
+  }
+
+  /// Handle reordering of items within a category
+  Future<void> _handleReorder(
+      int oldIndex, int newIndex, String categoryName) async {
+    final reorderingIds = <String>{};
+    try {
+      final groupedHabits = groupedByCategory;
+      final items = groupedHabits[categoryName]!;
+      // Allow dropping at the end (newIndex can equal items.length)
+      if (oldIndex < 0 ||
+          oldIndex >= items.length ||
+          newIndex < 0 ||
+          newIndex > items.length) return;
+      // Create a copy of the items list for reordering
+      final reorderedItems = List<ActivityInstanceRecord>.from(items);
+      // Adjust newIndex for the case where we're moving down
+      int adjustedNewIndex = newIndex;
+      if (oldIndex < newIndex) {
+        adjustedNewIndex -= 1;
+      }
+      // Get the item being moved
+      final movedItem = reorderedItems.removeAt(oldIndex);
+      reorderedItems.insert(adjustedNewIndex, movedItem);
+      // OPTIMISTIC UI UPDATE: Update local state immediately
+      // Update order values in the local _habitInstances list
+      for (int i = 0; i < reorderedItems.length; i++) {
+        final instance = reorderedItems[i];
+        final instanceId = instance.reference.id;
+        reorderingIds.add(instanceId);
+        // Create updated instance with new habits order
+        final updatedData = Map<String, dynamic>.from(instance.snapshotData);
+        updatedData['habitsOrder'] = i;
+        final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
+          updatedData,
+          instance.reference,
+        );
+        // Update in _habitInstances
+        final habitIndex = _habitInstances
+            .indexWhere((inst) => inst.reference.id == instanceId);
+        if (habitIndex != -1) {
+          _habitInstances[habitIndex] = updatedInstance;
+        }
+      }
+      // Add instance IDs to reordering set to prevent stale updates
+      _reorderingInstanceIds.addAll(reorderingIds);
+      // Invalidate cache to ensure UI uses updated order
+      _cachedGroupedByCategory = null;
+      // Trigger setState to update UI immediately (eliminates twitch)
+      if (mounted) {
+        setState(() {
+          // State is already updated above
+        });
+      }
+      // Perform database update in background
+      await InstanceOrderService.reorderInstancesInSection(
+        reorderedItems,
+        'habits',
+        oldIndex,
+        adjustedNewIndex,
+      );
+      // Clear reordering set after successful database update
+      _reorderingInstanceIds.removeAll(reorderingIds);
+    } catch (e) {
+      // Clear reordering set even on error
+      _reorderingInstanceIds.removeAll(reorderingIds);
+      // Revert to correct state by refreshing data
+      await _loadHabits();
+      // Show error to user
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reordering items: $e')),
+        );
+      }
+    }
   }
 }

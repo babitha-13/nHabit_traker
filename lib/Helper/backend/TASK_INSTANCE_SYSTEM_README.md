@@ -8,7 +8,7 @@ This system implements a Microsoft To-Do style recurring task management system 
 
 ### Core Components
 
-1. **TaskRecord & HabitRecord** - Templates that define recurring patterns
+1. **ActivityRecord** - Unified template that defines recurring patterns for both habits and tasks (distinguished by categoryType)
 2. **TaskInstanceRecord & HabitInstanceRecord** - Individual occurrences with due dates
 3. **TaskInstanceService** - Core business logic for instance management
 4. **Backend functions** - Integration layer for UI components
@@ -27,8 +27,7 @@ This system implements a Microsoft To-Do style recurring task management system 
 ### Collections
 
 ```
-users/{userId}/tasks/          # Task templates (existing)
-users/{userId}/habits/         # Habit templates (existing)
+users/{userId}/activities/     # Unified templates for both habits and tasks (existing)
 users/{userId}/task_instances/ # NEW: Task instances
 users/{userId}/habit_instances/# NEW: Habit instances
 ```
@@ -64,12 +63,12 @@ users/{userId}/habit_instances/# NEW: Habit instances
 **OLD WAY (Templates):**
 ```dart
 final tasks = await queryTasksRecordOnce(userId: userId);
-final habits = await queryHabitsRecordOnce(userId: userId);
+final habits = await queryActivitiesRecordOnce(userId: userId);
 ```
 
 **NEW WAY (Instances):**
 ```dart
-final taskInstances = await queryTodaysTaskInstances(userId: userId);
+final taskInstances = await queryTaskInstances(userId: userId);
 final habitInstances = await queryTodaysHabitInstances(userId: userId);
 ```
 
@@ -95,7 +94,7 @@ await createTask(
 );
 
 // Create a habit (always recurring)
-await createHabit(
+await createActivity(
   name: 'Drink Water',
   schedule: 'daily',
   frequency: 1,
@@ -165,7 +164,7 @@ If you need more control:
 
 ```dart
 // Migrate specific task
-final task = await TaskRecord.getDocumentOnce(taskRef);
+final task = await ActivityRecord.getDocumentOnce(taskRef);
 await TaskInstanceService.initializeTaskInstances(
   templateId: taskRef.id,
   template: task,
@@ -181,7 +180,7 @@ class TodayTasksList extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return FutureBuilder<List<TaskInstanceRecord>>(
-      future: queryTodaysTaskInstances(userId: currentUserId),
+      future: queryTaskInstances(userId: currentUserId),
       builder: (context, snapshot) {
         if (!snapshot.hasData) return CircularProgressIndicator();
         
