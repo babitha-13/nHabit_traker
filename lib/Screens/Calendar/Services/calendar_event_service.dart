@@ -10,7 +10,6 @@ import 'package:habit_tracker/Helper/utils/planned_duration_resolver.dart';
 import 'package:habit_tracker/Helper/backend/routine_planned_calendar_service.dart';
 import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
 import 'package:habit_tracker/Screens/Calendar/Date%20Format/calendar_formatting_utils.dart';
-import 'package:intl/intl.dart';
 
 /// Service class for loading and processing calendar events
 class CalendarEventService {
@@ -86,7 +85,8 @@ class CalendarEventService {
       Color categoryColor;
       if (item.templateCategoryColor.isNotEmpty) {
         try {
-          categoryColor = CalendarFormattingUtils.parseColor(item.templateCategoryColor);
+          categoryColor =
+              CalendarFormattingUtils.parseColor(item.templateCategoryColor);
         } catch (e) {
           categoryColor = Colors.blue;
         }
@@ -101,8 +101,7 @@ class CalendarEventService {
             category = allCategories.firstWhere(
               (c) => c.name == item.templateCategoryName,
             );
-          } catch (e2) {
-          }
+          } catch (e2) {}
         }
         if (category != null) {
           categoryColor = CalendarFormattingUtils.parseColor(category.color);
@@ -156,21 +155,25 @@ class CalendarEventService {
               0,
               0,
             );
-            final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
+            final selectedDateEnd =
+                selectedDateStart.add(const Duration(days: 1));
             var validStartTime = sessionStart;
             var validEndTime = actualSessionEnd;
 
             if (validStartTime.isBefore(selectedDateStart)) {
               validStartTime = selectedDateStart;
-            } else if (validStartTime.isAfter(selectedDateEnd) || validStartTime.isAtSameMomentAs(selectedDateEnd)) {
+            } else if (validStartTime.isAfter(selectedDateEnd) ||
+                validStartTime.isAtSameMomentAs(selectedDateEnd)) {
               continue;
             }
 
             if (validEndTime.isAfter(selectedDateEnd)) {
-              validEndTime = selectedDateEnd.subtract(const Duration(seconds: 1));
+              validEndTime =
+                  selectedDateEnd.subtract(const Duration(seconds: 1));
             }
 
-            if (validEndTime.isBefore(validStartTime) || validEndTime.isAtSameMomentAs(validStartTime)) {
+            if (validEndTime.isBefore(validStartTime) ||
+                validEndTime.isAtSameMomentAs(validStartTime)) {
               validEndTime = validStartTime.add(const Duration(minutes: 1));
             }
 
@@ -188,7 +191,8 @@ class CalendarEventService {
             if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
               final prefix = item.status == 'completed' ? '✓ ' : '';
               String? categoryColorHex;
-              if (item.templateCategoryType == 'habit' || item.templateCategoryType == 'task') {
+              if (item.templateCategoryType == 'habit' ||
+                  item.templateCategoryType == 'task') {
                 CategoryRecord? category;
                 try {
                   category = allCategories.firstWhere(
@@ -199,8 +203,7 @@ class CalendarEventService {
                     category = allCategories.firstWhere(
                       (c) => c.name == item.templateCategoryName,
                     );
-                  } catch (e2) {
-                  }
+                  } catch (e2) {}
                 }
                 if (category != null) {
                   categoryColorHex = category.color;
@@ -214,7 +217,8 @@ class CalendarEventService {
               final categoryType = item.templateCategoryType;
               final metadata = CalendarEventMetadata(
                 instanceId: item.reference.id,
-                sessionIndex: originalSessionIndex >= 0 ? originalSessionIndex : i,
+                sessionIndex:
+                    originalSessionIndex >= 0 ? originalSessionIndex : i,
                 activityName: item.templateName,
                 activityType: categoryType,
                 templateId: item.templateId,
@@ -233,7 +237,8 @@ class CalendarEventService {
                 endTime: validEndTime,
                 title: '$prefix${item.templateName}',
                 color: categoryColor,
-                description: 'Session: ${CalendarFormattingUtils.formatDuration(validEndTime.difference(validStartTime))}',
+                description:
+                    'Session: ${CalendarFormattingUtils.formatDuration(validEndTime.difference(validStartTime))}',
                 event: metadata.toMap(),
               ));
             }
@@ -277,7 +282,8 @@ class CalendarEventService {
     }
     cascadedEvents.sort((a, b) => a.startTime!.compareTo(b.startTime!));
 
-    final plannedItems = List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
+    final plannedItems =
+        List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
     final selectedDateOnly = DateTime(
       selectedDate.year,
       selectedDate.month,
@@ -302,7 +308,9 @@ class CalendarEventService {
       }
     }
 
-    final plannedItemsWithTime = plannedItems.where((item) => item.dueTime != null && item.dueTime!.isNotEmpty).toList();
+    final plannedItemsWithTime = plannedItems
+        .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
+        .toList();
     final explicitlyScheduledTemplateIds = <String>{
       ...plannedItemsWithTime.map((i) => i.templateId).whereType<String>(),
     };
@@ -317,7 +325,8 @@ class CalendarEventService {
       Color categoryColor;
       if (item.templateCategoryColor.isNotEmpty) {
         try {
-          categoryColor = CalendarFormattingUtils.parseColor(item.templateCategoryColor);
+          categoryColor =
+              CalendarFormattingUtils.parseColor(item.templateCategoryColor);
         } catch (e) {
           categoryColor = Colors.blue;
         }
@@ -332,8 +341,7 @@ class CalendarEventService {
             category = allCategories.firstWhere(
               (c) => c.name == item.templateCategoryName,
             );
-          } catch (e2) {
-          }
+          } catch (e2) {}
         }
         if (category != null) {
           categoryColor = CalendarFormattingUtils.parseColor(category.color);
@@ -341,7 +349,8 @@ class CalendarEventService {
           categoryColor = Colors.blue;
         }
       }
-      DateTime startTime = CalendarFormattingUtils.parseDueTime(item.dueTime!, selectedDate);
+      DateTime startTime =
+          CalendarFormattingUtils.parseDueTime(item.dueTime!, selectedDate);
       final instanceId = item.reference.id;
       final durationMinutes = plannedDurationByInstanceId[instanceId];
 
@@ -351,9 +360,8 @@ class CalendarEventService {
         activityName: item.templateName,
         activityType: item.templateCategoryType,
         templateId: item.templateId,
-        categoryId: item.templateCategoryId.isNotEmpty
-            ? item.templateCategoryId
-            : null,
+        categoryId:
+            item.templateCategoryId.isNotEmpty ? item.templateCategoryId : null,
         categoryName: item.templateCategoryName.isNotEmpty
             ? item.templateCategoryName
             : null,
@@ -374,7 +382,8 @@ class CalendarEventService {
         color: categoryColor,
         description: isDueMarker
             ? null
-            : CalendarFormattingUtils.formatDuration(Duration(minutes: durationMinutes)),
+            : CalendarFormattingUtils.formatDuration(
+                Duration(minutes: durationMinutes)),
         event: {
           ...metadata.toMap(),
           'isDueMarker': isDueMarker,
@@ -392,8 +401,10 @@ class CalendarEventService {
       );
 
       for (final r in routinePlanned) {
-        final startTime = CalendarFormattingUtils.parseDueTime(r.dueTime, selectedDate);
-        final isDueMarker = r.durationMinutes == null || r.durationMinutes! <= 0;
+        final startTime =
+            CalendarFormattingUtils.parseDueTime(r.dueTime, selectedDate);
+        final isDueMarker =
+            r.durationMinutes == null || r.durationMinutes! <= 0;
         final endTime = isDueMarker
             ? startTime.add(const Duration(minutes: 1))
             : startTime.add(Duration(minutes: r.durationMinutes!));
@@ -419,7 +430,8 @@ class CalendarEventService {
           color: r.routineId != null ? Colors.deepPurple : Colors.blueGrey,
           description: isDueMarker
               ? null
-              : CalendarFormattingUtils.formatDuration(Duration(minutes: r.durationMinutes!)),
+              : CalendarFormattingUtils.formatDuration(
+                  Duration(minutes: r.durationMinutes!)),
           event: {
             ...metadata.toMap(),
             if (r.routineId != null) 'routineId': r.routineId,

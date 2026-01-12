@@ -5,7 +5,6 @@ import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_utils.dart';
 import 'package:intl/intl.dart';
 
@@ -24,9 +23,8 @@ class QueueProgressCalculator {
     final habitInstances = instances
         .where((inst) => inst.templateCategoryType == 'habit')
         .toList();
-    final taskInstances = instances
-        .where((inst) => inst.templateCategoryType == 'task')
-        .toList();
+    final taskInstances =
+        instances.where((inst) => inst.templateCategoryType == 'task').toList();
 
     if (optimistic) {
       // INSTANT UPDATE: Calculate from local data only (no Firestore queries)
@@ -113,8 +111,7 @@ class QueueProgressCalculator {
       pointsEarned,
     );
 
-    final currentCumulativeScore =
-        projectionData['projectedCumulative'] ?? 0.0;
+    final currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
     final currentDailyGain = projectionData['projectedGain'] ?? 0.0;
 
     // Publish to shared state for other pages
@@ -349,5 +346,112 @@ class QueueProgressCalculator {
     cumulativeScoreHistory.clear();
     cumulativeScoreHistory.addAll(updatedHistory);
     return true;
+  }
+}
+
+/// Manages cumulative score calculations and history for queue page
+class QueueScoreManager {
+  /// Calculate progress and update state
+  static Future<Map<String, double>> calculateProgress({
+    required List<ActivityInstanceRecord> instances,
+    required List<CategoryRecord> categories,
+    required String userId,
+    bool optimistic = false,
+  }) async {
+    final progressData = await QueueProgressCalculator.calculateProgress(
+      instances: instances,
+      categories: categories,
+      userId: userId,
+      optimistic: optimistic,
+    );
+    return {
+      'target': progressData['target'] as double,
+      'earned': progressData['earned'] as double,
+      'percentage': progressData['percentage'] as double,
+    };
+  }
+
+  /// Update cumulative score live
+  static Future<Map<String, double>> updateCumulativeScoreLive({
+    required double dailyPercentage,
+    required double pointsEarned,
+    required String userId,
+  }) async {
+    if (userId.isEmpty) {
+      return {'cumulativeScore': 0.0, 'dailyGain': 0.0};
+    }
+
+    final scoreData = await QueueProgressCalculator.updateCumulativeScoreLive(
+      dailyPercentage: dailyPercentage,
+      pointsEarned: pointsEarned,
+      userId: userId,
+    );
+
+    return {
+      'cumulativeScore': scoreData['cumulativeScore'] as double,
+      'dailyGain': scoreData['dailyGain'] as double,
+    };
+  }
+
+  /// Refresh live cumulative score from shared state
+  static Map<String, double> refreshLiveCumulativeScore({
+    required double currentCumulativeScore,
+    required double currentDailyScoreGain,
+  }) {
+    final data = TodayProgressState().getCumulativeScoreData();
+    final hasLiveScore = data['hasLiveScore'] as bool? ?? false;
+
+    if (!hasLiveScore) {
+      return {'needsUpdate': 1.0}; // Signal that update is needed
+    }
+
+    final score =
+        (data['cumulativeScore'] as double?) ?? currentCumulativeScore;
+    final gain = (data['dailyGain'] as double?) ?? currentDailyScoreGain;
+
+    return {
+      'cumulativeScore': score,
+      'dailyGain': gain,
+      'needsUpdate': 0.0,
+    };
+  }
+
+  /// Load cumulative score history
+  static Future<Map<String, dynamic>> loadCumulativeScoreHistory({
+    required String userId,
+  }) async {
+    if (userId.isEmpty) {
+      return {
+        'cumulativeScore': 0.0,
+        'dailyGain': 0.0,
+        'history': <Map<String, dynamic>>[],
+      };
+    }
+
+    final progressData = TodayProgressState().getProgressData();
+    final todayPercentage = progressData['percentage'] ?? 0.0;
+    final todayEarned = progressData['earned'] ?? 0.0;
+
+    final result = await QueueProgressCalculator.loadCumulativeScoreHistory(
+      userId: userId,
+      dailyPercentage: todayPercentage,
+      pointsEarned: todayEarned,
+    );
+
+    return {
+      'cumulativeScore': result['cumulativeScore'] as double,
+      'dailyGain': result['dailyGain'] as double,
+      'history': result['history'] as List<Map<String, dynamic>>,
+    };
+  }
+
+  /// Apply live score to history
+  static bool applyLiveScoreToHistory(
+    List<Map<String, dynamic>> history,
+    double score,
+    double gain,
+  ) {
+    return QueueProgressCalculator.applyLiveScoreToHistory(
+        history, score, gain);
   }
 }

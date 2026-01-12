@@ -1,31 +1,22 @@
-import 'package:flutter/material.dart';
-import 'dart:async';
-import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
+import 'package:collection/collection.dart';
 
-/// Helper class for handling focus and highlighting in queue page
+/// Handles focus management logic for queue page
 class QueueFocusHandler {
-  /// Apply pending focus to an instance
-  static void applyPendingFocus({
+  /// Find target instance and section key for focusing
+  static FocusResult? findFocusTarget({
     required Map<String, List<ActivityInstanceRecord>> buckets,
-    required String? targetInstanceId,
-    required String? targetTemplateId,
-    required Map<String, GlobalKey> itemKeys,
-    required Function(String) onInstanceFound,
-    required Function(String?) onSectionExpanded,
-    required Function(String) onHighlight,
-    required Function() onFocusApplied,
-    required Function(String, GlobalKey?) scrollToItem,
-    required Function(Timer) setHighlightTimer,
+    String? targetInstanceId,
+    String? targetTemplateId,
   }) {
     if (targetInstanceId == null && targetTemplateId == null) {
-      return;
+      return null;
     }
 
     ActivityInstanceRecord? target;
     String? sectionKey;
 
+    // Search by instance ID first
     if (targetInstanceId != null) {
       for (final entry in buckets.entries) {
         final match = entry.value
@@ -38,6 +29,7 @@ class QueueFocusHandler {
       }
     }
 
+    // If not found, search by template ID
     if (target == null && targetTemplateId != null) {
       for (final entry in buckets.entries) {
         final match = entry.value
@@ -51,26 +43,23 @@ class QueueFocusHandler {
     }
 
     if (target == null) {
-      return;
+      return null;
     }
 
-    final resolvedInstanceId = target.reference.id;
-    onInstanceFound(resolvedInstanceId);
-    onFocusApplied();
-
-    if (sectionKey != null) {
-      onSectionExpanded(sectionKey);
-      // Note: The parent widget should handle calling setQueueExpandedSections
-      // with the full expanded sections set, not just this single section
-    }
-
-    onHighlight(resolvedInstanceId);
-
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final highlightKey = itemKeys[resolvedInstanceId];
-      if (highlightKey?.currentContext != null) {
-        scrollToItem(resolvedInstanceId, highlightKey);
-      }
-    });
+    return FocusResult(
+      instanceId: target.reference.id,
+      sectionKey: sectionKey,
+    );
   }
+}
+
+/// Result of focus target search
+class FocusResult {
+  final String instanceId;
+  final String? sectionKey;
+
+  FocusResult({
+    required this.instanceId,
+    this.sectionKey,
+  });
 }

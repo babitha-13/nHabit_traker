@@ -4,6 +4,86 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/utils/queue_filter_state_manager.dart'
     show QueueFilterState;
 
+Widget buildFilterButton({
+  required BuildContext context,
+  required QueueFilterState currentFilter,
+  required List<CategoryRecord> categories,
+  required Function(QueueFilterState) onFilterChanged,
+  required bool isDefaultFilterState,
+  required int excludedCategoryCount,
+}) {
+  final theme = FlutterFlowTheme.of(context);
+  final isFilterActive = !isDefaultFilterState;
+
+  return Stack(
+    clipBehavior: Clip.none,
+    children: [
+      Container(
+        decoration: BoxDecoration(
+          color: isFilterActive
+              ? theme.primary.withOpacity(0.15)
+              : Colors.transparent,
+          borderRadius: BorderRadius.circular(8),
+          border: isFilterActive
+              ? Border.all(
+                  color: theme.primary.withOpacity(0.4),
+                  width: 1.5,
+                )
+              : null,
+        ),
+        child: IconButton(
+          icon: Icon(
+            Icons.filter_list,
+            color: isFilterActive ? theme.primary : theme.secondaryText,
+          ),
+          onPressed: () async {
+            final result = await showQueueFilterDialog(
+              context: context,
+              categories: categories,
+              initialFilter: currentFilter,
+            );
+            if (result != null) {
+              onFilterChanged(result);
+            }
+          },
+          tooltip: 'Filter',
+        ),
+      ),
+      if (excludedCategoryCount > 0)
+        Positioned(
+          right: 4,
+          top: 4,
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+            decoration: BoxDecoration(
+              color: theme.primary,
+              borderRadius: BorderRadius.circular(10),
+              border: Border.all(
+                color: theme.primaryBackground,
+                width: 1.5,
+              ),
+            ),
+            constraints: const BoxConstraints(
+              minWidth: 18,
+              minHeight: 18,
+            ),
+            child: Center(
+              child: Text(
+                excludedCategoryCount > 99 ? '99+' : '$excludedCategoryCount',
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  height: 1.0,
+                ),
+              ),
+            ),
+          ),
+        ),
+    ],
+  );
+}
+
 /// Dialog for filtering queue items by type and categories
 class QueueFilterDialog extends StatefulWidget {
   final List<CategoryRecord> categories;
@@ -253,186 +333,191 @@ class _QueueFilterDialogState extends State<QueueFilterDialog> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-          // Handle bar
-          Container(
-            margin: const EdgeInsets.only(top: 12),
-            width: 40,
-            height: 4,
-            decoration: BoxDecoration(
-              color: theme.secondaryText.withOpacity(0.3),
-              borderRadius: BorderRadius.circular(2),
+            // Handle bar
+            Container(
+              margin: const EdgeInsets.only(top: 12),
+              width: 40,
+              height: 4,
+              decoration: BoxDecoration(
+                color: theme.secondaryText.withOpacity(0.3),
+                borderRadius: BorderRadius.circular(2),
+              ),
             ),
-          ),
-          // Header
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  'Filter Queue',
-                  style: theme.titleMedium.override(
-                    fontFamily: 'Readex Pro',
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-                TextButton(
-                  onPressed: _clearFilter,
-                  child: Text(
-                    'Clear',
-                    style: TextStyle(color: theme.primary),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Content
-          Flexible(
-            child: SingleChildScrollView(
-              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  // Habits section
-                  if (_habitCategories.isNotEmpty) ...[
-                    // Habits parent checkbox (tristate for partial selection)
-                    CheckboxListTile(
-                      title: Text(
-                        'Habits',
-                        style: theme.bodyMedium.override(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      value: _allHabitCategoriesSelected
-                          ? true
-                          : (_someHabitCategoriesSelected ? null : false),
-                      tristate: true,
-                      onChanged: _toggleAllHabits,
-                      contentPadding: EdgeInsets.zero,
+                  Text(
+                    'Filter Queue',
+                    style: theme.titleMedium.override(
+                      fontFamily: 'Readex Pro',
+                      fontWeight: FontWeight.w600,
                     ),
-                    // Habit categories (indented)
-                    ..._habitCategories.map((category) {
-                      final isSelected =
-                          _selectedHabitCategoryNames.contains(category.name);
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 24),
-                        child: CheckboxListTile(
-                          title: Text(
-                            category.name,
-                            style: theme.bodyMedium,
-                          ),
-                          value: isSelected,
-                          onChanged: (_) => _toggleHabitCategory(category.name),
-                          contentPadding: EdgeInsets.zero,
-                          secondary: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: Color(int.parse(
-                                  category.color.replaceFirst('#', '0xFF'))),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                    const SizedBox(height: 16),
-                  ],
-                  // Tasks section
-                  if (_taskCategories.isNotEmpty) ...[
-                    // Tasks parent checkbox (tristate for partial selection)
-                    CheckboxListTile(
-                      title: Text(
-                        'Tasks',
-                        style: theme.bodyMedium.override(
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                      value: _allTaskCategoriesSelected
-                          ? true
-                          : (_someTaskCategoriesSelected ? null : false),
-                      tristate: true,
-                      onChanged: _toggleAllTasks,
-                      contentPadding: EdgeInsets.zero,
+                  ),
+                  TextButton(
+                    onPressed: _clearFilter,
+                    child: Text(
+                      'Clear',
+                      style: TextStyle(color: theme.primary),
                     ),
-                    // Task categories (indented)
-                    ..._taskCategories.map((category) {
-                      final isSelected =
-                          _selectedTaskCategoryNames.contains(category.name);
-                      return Padding(
-                        padding: const EdgeInsets.only(left: 24),
-                        child: CheckboxListTile(
-                          title: Text(
-                            category.name,
-                            style: theme.bodyMedium,
-                          ),
-                          value: isSelected,
-                          onChanged: (_) => _toggleTaskCategory(category.name),
-                          contentPadding: EdgeInsets.zero,
-                          secondary: Container(
-                            width: 16,
-                            height: 16,
-                            decoration: BoxDecoration(
-                              color: Color(int.parse(
-                                  category.color.replaceFirst('#', '0xFF'))),
-                              shape: BoxShape.circle,
-                            ),
-                          ),
-                        ),
-                      );
-                    }),
-                  ],
-                  const SizedBox(height: 20),
+                  ),
                 ],
               ),
             ),
-          ),
-          // Action buttons
-          Padding(
-            padding: const EdgeInsets.all(20),
-            child: Row(
-              children: [
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    style: OutlinedButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      side: BorderSide(color: theme.surfaceBorderColor),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(theme.buttonRadius),
+            // Content
+            Flexible(
+              child: SingleChildScrollView(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 20, vertical: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // Habits section
+                    if (_habitCategories.isNotEmpty) ...[
+                      // Habits parent checkbox (tristate for partial selection)
+                      CheckboxListTile(
+                        title: Text(
+                          'Habits',
+                          style: theme.bodyMedium.override(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        value: _allHabitCategoriesSelected
+                            ? true
+                            : (_someHabitCategoriesSelected ? null : false),
+                        tristate: true,
+                        onChanged: _toggleAllHabits,
+                        contentPadding: EdgeInsets.zero,
                       ),
-                    ),
-                    child: Text(
-                      'Cancel',
-                      style: TextStyle(color: theme.secondaryText),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: ElevatedButton(
-                    onPressed: _applyFilter,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: theme.primary,
-                      padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(theme.buttonRadius),
+                      // Habit categories (indented)
+                      ..._habitCategories.map((category) {
+                        final isSelected =
+                            _selectedHabitCategoryNames.contains(category.name);
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 24),
+                          child: CheckboxListTile(
+                            title: Text(
+                              category.name,
+                              style: theme.bodyMedium,
+                            ),
+                            value: isSelected,
+                            onChanged: (_) =>
+                                _toggleHabitCategory(category.name),
+                            contentPadding: EdgeInsets.zero,
+                            secondary: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: Color(int.parse(
+                                    category.color.replaceFirst('#', '0xFF'))),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                      const SizedBox(height: 16),
+                    ],
+                    // Tasks section
+                    if (_taskCategories.isNotEmpty) ...[
+                      // Tasks parent checkbox (tristate for partial selection)
+                      CheckboxListTile(
+                        title: Text(
+                          'Tasks',
+                          style: theme.bodyMedium.override(
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                        value: _allTaskCategoriesSelected
+                            ? true
+                            : (_someTaskCategoriesSelected ? null : false),
+                        tristate: true,
+                        onChanged: _toggleAllTasks,
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      elevation: 0,
-                    ),
-                    child: const Text(
-                      'Apply',
-                      style: TextStyle(color: Colors.white),
-                    ),
-                  ),
+                      // Task categories (indented)
+                      ..._taskCategories.map((category) {
+                        final isSelected =
+                            _selectedTaskCategoryNames.contains(category.name);
+                        return Padding(
+                          padding: const EdgeInsets.only(left: 24),
+                          child: CheckboxListTile(
+                            title: Text(
+                              category.name,
+                              style: theme.bodyMedium,
+                            ),
+                            value: isSelected,
+                            onChanged: (_) =>
+                                _toggleTaskCategory(category.name),
+                            contentPadding: EdgeInsets.zero,
+                            secondary: Container(
+                              width: 16,
+                              height: 16,
+                              decoration: BoxDecoration(
+                                color: Color(int.parse(
+                                    category.color.replaceFirst('#', '0xFF'))),
+                                shape: BoxShape.circle,
+                              ),
+                            ),
+                          ),
+                        );
+                      }),
+                    ],
+                    const SizedBox(height: 20),
+                  ],
                 ),
-              ],
+              ),
             ),
-          ),
-        ],
+            // Action buttons
+            Padding(
+              padding: const EdgeInsets.all(20),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: BorderSide(color: theme.surfaceBorderColor),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(theme.buttonRadius),
+                        ),
+                      ),
+                      child: Text(
+                        'Cancel',
+                        style: TextStyle(color: theme.secondaryText),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 16),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: _applyFilter,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: theme.primary,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius:
+                              BorderRadius.circular(theme.buttonRadius),
+                        ),
+                        elevation: 0,
+                      ),
+                      child: const Text(
+                        'Apply',
+                        style: TextStyle(color: Colors.white),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
   }
 }
 

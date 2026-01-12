@@ -59,7 +59,24 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
 
   @override
   Widget build(BuildContext context) {
-    if (widget.history.isEmpty) return const SizedBox();
+    if (widget.history.isEmpty) {
+      final theme = FlutterFlowTheme.of(context);
+      return Container(
+        decoration: BoxDecoration(
+          color: theme.alternate.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: Text(
+            'No data',
+            style: theme.bodySmall.override(
+              fontFamily: 'Readex Pro',
+              color: theme.secondaryText,
+            ),
+          ),
+        ),
+      );
+    }
     return LayoutBuilder(
       builder: (context, constraints) =>
           _buildScrollableGraph(context, constraints),

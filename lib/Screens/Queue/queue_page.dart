@@ -12,18 +12,21 @@ import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/utils/queue_filter_state_manager.dart' show QueueFilterState, QueueFilterStateManager;
+import 'package:habit_tracker/Helper/utils/queue_filter_state_manager.dart'
+    show QueueFilterState, QueueFilterStateManager;
 import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
     show QueueSortState, QueueSortStateManager, QueueSortType;
 import 'package:habit_tracker/Screens/Queue/Logic/queue_utils.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_progress_calculator.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_instance_handlers.dart';
+import 'package:habit_tracker/Screens/Queue/Logic/queue_instance_state_manager.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_bucket_service.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_page_refresh.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_reorder_handler.dart';
-import 'package:habit_tracker/Screens/Queue/Queue%20UI/daily_progress_graph.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter_section/queue_filter_logic.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_calculator.dart';
+import 'package:habit_tracker/Screens/Queue/Logic/queue_focus_handler.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_section.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter_section/queue_filter_dialog.dart';
 import 'dart:async';
-import 'package:collection/collection.dart';
 
 class QueuePage extends StatefulWidget {
   final bool expandCompleted;
@@ -278,43 +281,12 @@ class _QueuePageState extends State<QueuePage> {
       if (userId.isNotEmpty) {
         final result = await QueueDataService.loadQueueData(userId: userId);
         if (!mounted) return;
-        var updatedFilter = _currentFilter;
-        final habitCategories = result.categories
-            .where((c) => c.categoryType == 'habit')
-            .toList();
-        final taskCategories =
-            result.categories.where((c) => c.categoryType == 'task').toList();
-        final allHabitNames = habitCategories.map((cat) => cat.name).toSet();
-        final allTaskNames = taskCategories.map((cat) => cat.name).toSet();
-        if (!_currentFilter.hasAnyFilter) {
-          updatedFilter = QueueFilterState(
-            allTasks: true,
-            allHabits: true,
-            selectedHabitCategoryNames: allHabitNames,
-            selectedTaskCategoryNames: allTaskNames,
-          );
-        } else {
-          if (_currentFilter.allHabits &&
-              _currentFilter.selectedHabitCategoryNames.isEmpty &&
-              habitCategories.isNotEmpty) {
-            updatedFilter = QueueFilterState(
-              allTasks: updatedFilter.allTasks,
-              allHabits: updatedFilter.allHabits,
-              selectedHabitCategoryNames: allHabitNames,
-              selectedTaskCategoryNames: updatedFilter.selectedTaskCategoryNames,
-            );
-          }
-          if (updatedFilter.allTasks &&
-              updatedFilter.selectedTaskCategoryNames.isEmpty &&
-              taskCategories.isNotEmpty) {
-            updatedFilter = QueueFilterState(
-              allTasks: updatedFilter.allTasks,
-              allHabits: updatedFilter.allHabits,
-              selectedHabitCategoryNames: updatedFilter.selectedHabitCategoryNames,
-              selectedTaskCategoryNames: allTaskNames,
-            );
-          }
-        }
+
+        // Use filter logic service to initialize filter state
+        final updatedFilter = QueueFilterLogic.initializeFilterState(
+          currentFilter: _currentFilter,
+          categories: result.categories,
+        );
 
         if (mounted) {
           setState(() {
@@ -364,60 +336,35 @@ class _QueuePageState extends State<QueuePage> {
     if (_hasAppliedInitialFocus) return;
     final targetInstanceId = _pendingFocusInstanceId ?? widget.focusInstanceId;
     final targetTemplateId = _pendingFocusTemplateId ?? widget.focusTemplateId;
-    if (targetInstanceId == null && targetTemplateId == null) {
+
+    // Use focus handler service to find target
+    final focusResult = QueueFocusHandler.findFocusTarget(
+      buckets: _bucketedItems,
+      targetInstanceId: targetInstanceId,
+      targetTemplateId: targetTemplateId,
+    );
+
+    if (focusResult == null) {
       return;
     }
 
-    final buckets = _bucketedItems;
-    ActivityInstanceRecord? target;
-    String? sectionKey;
-
-    if (targetInstanceId != null) {
-      for (final entry in buckets.entries) {
-        final match = entry.value
-            .firstWhereOrNull((inst) => inst.reference.id == targetInstanceId);
-        if (match != null) {
-          target = match;
-          sectionKey = entry.key;
-          break;
-        }
-      }
-    }
-
-    if (target == null && targetTemplateId != null) {
-      for (final entry in buckets.entries) {
-        final match = entry.value
-            .firstWhereOrNull((inst) => inst.templateId == targetTemplateId);
-        if (match != null) {
-          target = match;
-          sectionKey = entry.key;
-          break;
-        }
-      }
-    }
-
-    if (target == null) {
-      return;
-    }
-
-    final resolvedInstanceId = target.reference.id;
     _pendingFocusInstanceId = null;
     _pendingFocusTemplateId = null;
     _hasAppliedInitialFocus = true;
 
     setState(() {
-      _highlightedInstanceId = resolvedInstanceId;
-      if (sectionKey != null) {
-        _expandedSections.add(sectionKey);
+      _highlightedInstanceId = focusResult.instanceId;
+      if (focusResult.sectionKey != null) {
+        _expandedSections.add(focusResult.sectionKey!);
         _cachedBucketedItems = null;
       }
     });
-    if (sectionKey != null) {
+    if (focusResult.sectionKey != null) {
       ExpansionStateManager().setQueueExpandedSections(_expandedSections);
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final highlightKey = _itemKeys[resolvedInstanceId];
+      final highlightKey = _itemKeys[focusResult.instanceId];
       if (highlightKey?.currentContext != null) {
         Scrollable.ensureVisible(
           highlightKey!.currentContext!,
@@ -437,7 +384,7 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   void _calculateProgress({bool optimistic = false}) async {
-    final progressData = await QueueProgressCalculator.calculateProgress(
+    final progressData = await QueueScoreManager.calculateProgress(
       instances: _instances,
       categories: _categories,
       userId: currentUserUid,
@@ -473,7 +420,7 @@ class _QueuePageState extends State<QueuePage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      final scoreData = await QueueProgressCalculator.updateCumulativeScoreLive(
+      final scoreData = await QueueScoreManager.updateCumulativeScoreLive(
         dailyPercentage: _dailyPercentage,
         pointsEarned: _pointsEarned,
         userId: userId,
@@ -501,26 +448,28 @@ class _QueuePageState extends State<QueuePage> {
 
   Future<void> _refreshLiveCumulativeScore() async {
     try {
-      final data = TodayProgressState().getCumulativeScoreData();
-      final hasLiveScore = data['hasLiveScore'] as bool? ?? false;
+      final scoreData = QueueScoreManager.refreshLiveCumulativeScore(
+        currentCumulativeScore: _cumulativeScore,
+        currentDailyScoreGain: _dailyScoreGain,
+      );
 
-      if (!hasLiveScore) {
+      if (scoreData['needsUpdate'] == 1.0) {
         await _updateCumulativeScoreLive();
         return;
       }
-      final score = (data['cumulativeScore'] as double?) ?? _cumulativeScore;
-      final gain = (data['dailyGain'] as double?) ?? _dailyScoreGain;
 
       if (mounted) {
         setState(() {
-          _cumulativeScore = score;
-          _dailyScoreGain = gain;
+          _cumulativeScore = scoreData['cumulativeScore'] as double;
+          _dailyScoreGain = scoreData['dailyGain'] as double;
         });
       }
 
-      _queueHistoryOverlay(score, gain);
-    } catch (e) {
-    }
+      _queueHistoryOverlay(
+        scoreData['cumulativeScore'] as double,
+        scoreData['dailyGain'] as double,
+      );
+    } catch (e) {}
   }
 
   Future<void> _loadCumulativeScoreHistory({bool forceReload = false}) async {
@@ -538,22 +487,19 @@ class _QueuePageState extends State<QueuePage> {
         _isLoadingHistory = false;
         return;
       }
-      final progressData = TodayProgressState().getProgressData();
-      final todayPercentage = progressData['percentage'] ?? 0.0;
-      final todayEarned = progressData['earned'] ?? 0.0;
 
-      final result = await QueueProgressCalculator.loadCumulativeScoreHistory(
+      final result = await QueueScoreManager.loadCumulativeScoreHistory(
         userId: userId,
-        dailyPercentage: todayPercentage,
-        pointsEarned: todayEarned,
       );
 
       final currentCumulativeScore = result['cumulativeScore'] as double;
       final currentDailyGain = result['dailyGain'] as double;
       final history = result['history'] as List<Map<String, dynamic>>;
 
-      final bool isNewHistoryValid = history.any((h) => (h['score'] as double) > 0);
-      final bool wasOldHistoryValid = _cumulativeScoreHistory.any((h) => (h['score'] as double) > 0);
+      final bool isNewHistoryValid =
+          history.any((h) => (h['score'] as double) > 0);
+      final bool wasOldHistoryValid =
+          _cumulativeScoreHistory.any((h) => (h['score'] as double) > 0);
 
       if (!isNewHistoryValid && wasOldHistoryValid) {
         _isLoadingHistory = false;
@@ -594,7 +540,7 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   bool _applyLiveScoreToHistory(double score, double gain) {
-    return QueueProgressCalculator.applyLiveScoreToHistory(
+    return QueueScoreManager.applyLiveScoreToHistory(
       _cumulativeScoreHistory,
       score,
       gain,
@@ -614,8 +560,10 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
-    final currentInstancesHash = QueueBucketService.calculateInstancesHash(_instances);
-    final currentCategoriesHash = QueueBucketService.calculateCategoriesHash(_categories);
+    final currentInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+    final currentCategoriesHash =
+        QueueBucketService.calculateCategoriesHash(_categories);
 
     final cacheInvalid = _cachedBucketedItems == null ||
         currentInstancesHash != _instancesHashCode ||
@@ -813,7 +761,8 @@ class _QueuePageState extends State<QueuePage> {
     final buckets = _bucketedItems;
     final order = ['Overdue', 'Pending', 'Completed', 'Skipped/Snoozed'];
     final theme = FlutterFlowTheme.of(context);
-    final visibleSections = order.where((key) => buckets[key]!.isNotEmpty).toList();
+    final visibleSections =
+        order.where((key) => buckets[key]!.isNotEmpty).toList();
     if (visibleSections.isEmpty) {
       return Center(
         child: Column(
@@ -856,8 +805,12 @@ class _QueuePageState extends State<QueuePage> {
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
-                bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
-                bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
+                bottomLeft: expanded
+                    ? const Radius.circular(12)
+                    : const Radius.circular(16),
+                bottomRight: expanded
+                    ? const Radius.circular(12)
+                    : const Radius.circular(16),
               ),
               boxShadow: expanded ? [] : theme.neumorphicShadowsRaised,
             ),
@@ -887,7 +840,8 @@ class _QueuePageState extends State<QueuePage> {
                         }
                         _cachedBucketedItems = null;
                       });
-                      ExpansionStateManager().setQueueExpandedSections(_expandedSections);
+                      ExpansionStateManager()
+                          .setQueueExpandedSections(_expandedSections);
                       if (_expandedSections.contains(key)) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (_sectionKeys[key]?.currentContext != null) {
@@ -1019,7 +973,7 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   Widget _buildFilterButton(FlutterFlowTheme theme) {
-    return QueueUIBuilders.buildFilterButton(
+    return buildFilterButton(
       context: context,
       currentFilter: _currentFilter,
       categories: _categories,
@@ -1029,32 +983,11 @@ class _QueuePageState extends State<QueuePage> {
             _currentFilter = result;
             _cachedBucketedItems = null;
           });
-          final habitCategories = _categories
-              .where((c) => c.categoryType == 'habit')
-              .map((c) => c.name)
-              .toSet();
-          final taskCategories = _categories
-              .where((c) => c.categoryType == 'task')
-              .map((c) => c.name)
-              .toSet();
-          final allHabitsSelected = habitCategories.isEmpty ||
-              (habitCategories.length ==
-                      result.selectedHabitCategoryNames.length &&
-                  habitCategories.every((name) =>
-                      result.selectedHabitCategoryNames.contains(name)));
-          final allTasksSelected = taskCategories.isEmpty ||
-              (taskCategories.length ==
-                      result.selectedTaskCategoryNames.length &&
-                  taskCategories.every((name) =>
-                      result.selectedTaskCategoryNames.contains(name)));
-
-          if (allHabitsSelected && allTasksSelected) {
-            // Default state - clear stored filter
-            await QueueFilterStateManager().clearFilterState();
-          } else {
-            // Not default - save the filter state
-            await QueueFilterStateManager().setFilterState(result);
-          }
+          // Use filter logic service to handle state persistence
+          await QueueFilterLogic.handleFilterStateChange(
+            newFilter: result,
+            categories: _categories,
+          );
         }
       },
       isDefaultFilterState: _isDefaultFilterState(),
@@ -1134,7 +1067,8 @@ class _QueuePageState extends State<QueuePage> {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
-      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
+      final originalInstance =
+          param['originalInstance'] as ActivityInstanceRecord?;
       if (operationId != null &&
           _optimisticOperations.containsKey(operationId)) {
         setState(() {
@@ -1193,8 +1127,7 @@ class _QueuePageState extends State<QueuePage> {
         });
         _calculateProgress();
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   Future<void> _refreshWithoutFlicker() async {
@@ -1250,7 +1183,8 @@ class _QueuePageState extends State<QueuePage> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
-                content: Text('Error reordering items: ${result.error ?? 'Unknown error'}')),
+                content: Text(
+                    'Error reordering items: ${result.error ?? 'Unknown error'}')),
           );
         }
       }
