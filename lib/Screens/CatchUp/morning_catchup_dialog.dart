@@ -5,7 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:intl/intl.dart';

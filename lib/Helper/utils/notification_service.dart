@@ -13,7 +13,7 @@ import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
-import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
+import 'package:habit_tracker/Screens/Components/Dialogs/snooze_dialog.dart';
 import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';

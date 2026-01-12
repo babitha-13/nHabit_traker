@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:calendar_view/calendar_view.dart';
-import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
+import 'package:habit_tracker/Screens/Components/Dialogs/manual_time_log_modal.dart';
 import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
 import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
 import 'package:habit_tracker/Screens/Calendar/Calculators/calendar_time_breakdown_calculator.dart';

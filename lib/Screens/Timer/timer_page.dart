@@ -8,7 +8,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 import 'package:habit_tracker/Helper/utils/TimeManager.dart';
-import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
+import 'package:habit_tracker/Screens/Components/Dialogs/manual_time_log_modal.dart';
 import 'package:habit_tracker/Screens/Timer/timer_stop_flow.dart';
 
 class TimerPage extends StatefulWidget {

@@ -7,7 +7,7 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Queue/queue_page.dart';
-import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
+import 'package:habit_tracker/Screens/Components/Dialogs/snooze_dialog.dart';
 import 'package:habit_tracker/Helper/utils/constants.dart';
 import 'package:habit_tracker/main.dart';
 

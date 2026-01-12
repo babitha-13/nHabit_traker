@@ -8,7 +8,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
 import 'package:collection/collection.dart';

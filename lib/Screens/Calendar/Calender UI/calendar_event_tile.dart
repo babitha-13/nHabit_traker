@@ -1,9 +1,10 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Screens/Calendar/Calender%20UI/Time%20Blocks%20UI/diagonal_stripe_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Calender%20UI/Time%20Blocks%20UI/dotted_diagonal_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Calender%20UI/Time%20Blocks%20UI/double_diagonal_painter.dart';
 import 'dart:math' as math;
-import 'package:habit_tracker/Screens/Calendar/Background%20UI/diagonal_stripe_painter.dart';
-import 'package:habit_tracker/Screens/Calendar/Background%20UI/dotted_diagonal_painter.dart';
-import 'package:habit_tracker/Screens/Calendar/Background%20UI/double_diagonal_painter.dart';
+
 import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
 import 'package:habit_tracker/Screens/Calendar/Calculators/calendar_overlap_calculator.dart';
 

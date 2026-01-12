@@ -9,7 +9,7 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/utils/planned_duration_resolver.dart';
 import 'package:habit_tracker/Helper/backend/routine_planned_calendar_service.dart';
 import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
-import 'package:habit_tracker/Screens/Calendar/Utils/calendar_formatting_utils.dart';
+import 'package:habit_tracker/Screens/Calendar/Date%20Format/calendar_formatting_utils.dart';
 import 'package:intl/intl.dart';
 
 /// Service class for loading and processing calendar events

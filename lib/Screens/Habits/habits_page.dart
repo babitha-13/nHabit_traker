@@ -12,7 +12,7 @@ import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/utils/window_display_helper.dart';

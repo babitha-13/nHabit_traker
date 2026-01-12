@@ -3,7 +3,7 @@ import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
+import 'package:habit_tracker/Screens/Components/Dialogs/manual_time_log_modal.dart';
 
 /// Shared helper for timer stop/complete flow
 /// Handles showing modal, saving time entry, and cleanup

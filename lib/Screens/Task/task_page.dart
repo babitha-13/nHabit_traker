@@ -7,7 +7,7 @@ import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';

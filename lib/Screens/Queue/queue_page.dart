@@ -5,7 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
@@ -19,9 +19,9 @@ import 'package:habit_tracker/Screens/Queue/Logic/queue_utils.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_progress_calculator.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_instance_handlers.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_bucket_service.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_data_service.dart';
+import 'package:habit_tracker/Screens/Queue/Logic/queue_page_refresh.dart';
 import 'package:habit_tracker/Screens/Queue/Logic/queue_reorder_handler.dart';
-import 'package:habit_tracker/Screens/Queue/Queue%20UI/queue_ui_builders.dart';
+import 'package:habit_tracker/Screens/Queue/Queue%20UI/daily_progress_graph.dart';
 import 'dart:async';
 import 'package:collection/collection.dart';
 
