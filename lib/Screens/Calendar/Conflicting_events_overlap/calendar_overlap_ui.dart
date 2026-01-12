@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/planned_overlap_group.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
 
 /// Helper class for building overlap UI components
 class CalendarOverlapUI {
@@ -8,7 +8,8 @@ class CalendarOverlapUI {
   static bool isSelectedDateToday(DateTime selectedDate) {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
-    final selected = DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+    final selected =
+        DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
     return selected.isAtSameMomentAs(today);
   }
 

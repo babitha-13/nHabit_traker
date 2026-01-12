@@ -1,12 +1,12 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/Time%20Blocks%20UI/diagonal_stripe_painter.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/Time%20Blocks%20UI/dotted_diagonal_painter.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/Time%20Blocks%20UI/double_diagonal_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/diagonal_stripe_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Event_tiles/dotted_diagonal_painter.dart';
+import 'package:habit_tracker/Screens/Calendar/Event_tiles/double_diagonal_painter.dart';
 import 'dart:math' as math;
 
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
-import 'package:habit_tracker/Screens/Calendar/Calculators/calendar_overlap_calculator.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
+import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/calendar_overlap_calculator.dart';
 
 /// Helper class for building calendar event tiles
 class CalendarEventTileBuilder {
@@ -186,13 +186,9 @@ class CalendarEventTileBuilder {
   }
 
   /// Build time box widget
-  Widget buildTimeBox(
-    CalendarEventData event,
-    double height,
-    bool isCompleted,
-    bool isessential,
-    {required bool isConflict}
-  ) {
+  Widget buildTimeBox(CalendarEventData event, double height, bool isCompleted,
+      bool isessential,
+      {required bool isConflict}) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
     final activityType = metadata?.activityType ?? 'task';
     Color boxColor;

@@ -7,7 +7,7 @@ import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -637,37 +637,42 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
           startTime: _startTime,
           endTime: _endTime,
         );
-        
+
         // Check if name or type has changed and update instance metadata
         // Use template name if template is selected, otherwise use typed name
         final finalName = _selectedTemplate?.name ?? name;
         final hasNameChanged = finalName != widget.editMetadata!.activityName;
-        final hasTypeChanged = _selectedType != widget.editMetadata!.activityType;
-        
-        if (hasNameChanged || hasTypeChanged || templateId != null || _selectedCategory != null) {
+        final hasTypeChanged =
+            _selectedType != widget.editMetadata!.activityType;
+
+        if (hasNameChanged ||
+            hasTypeChanged ||
+            templateId != null ||
+            _selectedCategory != null) {
           // Update instance metadata
-          final instanceRef = ActivityInstanceRecord.collectionForUser(currentUserUid)
-              .doc(widget.editMetadata!.instanceId);
-          
+          final instanceRef =
+              ActivityInstanceRecord.collectionForUser(currentUserUid)
+                  .doc(widget.editMetadata!.instanceId);
+
           final updateData = <String, dynamic>{
             'lastUpdated': DateTime.now(),
           };
-          
+
           // Update name if changed (use template name if available, otherwise typed name)
           if (hasNameChanged) {
             updateData['templateName'] = finalName;
           }
-          
+
           // Update type if changed
           if (hasTypeChanged) {
             updateData['templateCategoryType'] = _selectedType;
           }
-          
+
           // Update template ID if a template is selected
           if (templateId != null) {
             updateData['templateId'] = templateId;
           }
-          
+
           // Update category if changed
           if (_selectedCategory != null) {
             updateData['templateCategoryId'] = _selectedCategory!.reference.id;
@@ -676,7 +681,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
               updateData['templateCategoryColor'] = _selectedCategory!.color;
             }
           }
-          
+
           // Also update the template if it exists
           if (templateId != null) {
             final templateRef = ActivityRecord.collectionForUser(currentUserUid)
@@ -684,16 +689,17 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
             final templateUpdateData = <String, dynamic>{
               'lastUpdated': DateTime.now(),
             };
-            
+
             if (hasNameChanged) {
               templateUpdateData['name'] = finalName;
             }
-            
+
             if (_selectedCategory != null) {
-              templateUpdateData['categoryId'] = _selectedCategory!.reference.id;
+              templateUpdateData['categoryId'] =
+                  _selectedCategory!.reference.id;
               templateUpdateData['categoryName'] = _selectedCategory!.name;
             }
-            
+
             try {
               await templateRef.update(templateUpdateData);
             } catch (e) {
@@ -701,7 +707,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
               print('Warning: Could not update template: $e');
             }
           }
-          
+
           // Update the instance
           await instanceRef.update(updateData);
         }
@@ -929,11 +935,11 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     final bottomSafeArea = MediaQuery.of(context).padding.bottom;
     final keyboardInset = MediaQuery.of(context).viewInsets.bottom;
     final hasKeyboard = keyboardInset > 0;
-    
+
     // When keyboard is shown, we want the container to be pushed up by keyboardInset.
     // When keyboard is not shown, we want it to respect the bottom safe area.
     final containerBottomPadding = hasKeyboard ? keyboardInset : bottomSafeArea;
-    
+
     // This padding is inside the scrollable area or at the bottom of the content.
     final contentBottomPadding = hasKeyboard ? 8.0 : 12.0;
 
@@ -946,21 +952,20 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
           padding: EdgeInsets.only(
             bottom: containerBottomPadding,
           ),
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(20)),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(0.1),
-                  blurRadius: 10,
-                  offset: const Offset(0, -2),
-                ),
-              ],
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.1),
+                blurRadius: 10,
+                offset: const Offset(0, -2),
+              ),
+            ],
+          ),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Divider(color: Colors.grey[200], height: 1),

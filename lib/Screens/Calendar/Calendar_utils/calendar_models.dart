@@ -1,3 +1,5 @@
+import 'package:calendar_view/calendar_view.dart';
+
 class CalendarEventMetadata {
   final String instanceId;
   final int sessionIndex; // Index in timeLogSessions array
@@ -47,4 +49,28 @@ class CalendarEventMetadata {
     }
     return null;
   }
+}
+
+class PlannedOverlapGroup {
+  final DateTime start;
+  final DateTime end;
+  final List<CalendarEventData> events;
+
+  const PlannedOverlapGroup({
+    required this.start,
+    required this.end,
+    required this.events,
+  });
+}
+
+class PlannedOverlapInfo {
+  final int pairCount;
+  final Set<String> overlappedIds;
+  final List<PlannedOverlapGroup> groups;
+
+  const PlannedOverlapInfo({
+    required this.pairCount,
+    required this.overlappedIds,
+    required this.groups,
+  });
 }

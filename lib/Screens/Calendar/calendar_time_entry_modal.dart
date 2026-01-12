@@ -2,10 +2,7 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:calendar_view/calendar_view.dart';
 import 'package:habit_tracker/Screens/Components/Dialogs/manual_time_log_modal.dart';
-import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
-import 'package:habit_tracker/Screens/Calendar/Calculators/calendar_time_breakdown_calculator.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 
@@ -17,7 +14,8 @@ class CalendarModals {
     required DateTime selectedDate,
     DateTime? startTime,
     DateTime? endTime,
-    required Function(DateTime start, DateTime end, String type, Color? color) onPreviewChange,
+    required Function(DateTime start, DateTime end, String type, Color? color)
+        onPreviewChange,
     required VoidCallback onSave,
     required VoidCallback onRemovePreview,
   }) {
@@ -39,83 +37,13 @@ class CalendarModals {
     });
   }
 
-  /// Show time breakdown chart
-  static void showTimeBreakdownChart({
-    required BuildContext context,
-    required DateTime selectedDate,
-    required List<CalendarEventData> sortedCompletedEvents,
-  }) {
-    final breakdownData = CalendarTimeBreakdownCalculator.calculateTimeBreakdown(
-      sortedCompletedEvents,
-    );
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (BuildContext context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom,
-          ),
-          child: Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-            ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom: BorderSide(
-                        color: FlutterFlowTheme.of(context)
-                            .alternate
-                            .withOpacity(0.2),
-                        width: 1,
-                      ),
-                    ),
-                  ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                    children: [
-                      Text(
-                        'Time Breakdown',
-                        style: FlutterFlowTheme.of(context).titleLarge.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                      ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                        tooltip: 'Close',
-                      ),
-                    ],
-                  ),
-                ),
-                Padding(
-                  padding: const EdgeInsets.all(24.0),
-                  child: TimeBreakdownChartWidget(
-                    breakdownData: breakdownData,
-                    selectedDate: selectedDate,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      },
-    );
-  }
-
   /// Show edit entry dialog
   static Future<void> showEditEntryDialog({
     required BuildContext context,
     required CalendarEventMetadata metadata,
     required DateTime selectedDate,
-    required Function(DateTime start, DateTime end, String type, Color? color) onPreviewChange,
+    required Function(DateTime start, DateTime end, String type, Color? color)
+        onPreviewChange,
     required VoidCallback onSave,
     required VoidCallback onRemovePreview,
   }) async {
@@ -205,7 +133,8 @@ class CalendarModals {
     if (validEndTime.isAfter(selectedDateEnd)) {
       validEndTime = selectedDateEnd.subtract(const Duration(seconds: 1));
     }
-    if (validEndTime.isBefore(validStartTime) || validEndTime.isAtSameMomentAs(validStartTime)) {
+    if (validEndTime.isBefore(validStartTime) ||
+        validEndTime.isAtSameMomentAs(validStartTime)) {
       validEndTime =
           validStartTime.add(Duration(minutes: defaultDurationMinutes));
     }
@@ -244,7 +173,8 @@ class CalendarModals {
       final eventY = minutesFromMidnight * calculateHeightPerMinute();
       final viewportHeight = MediaQuery.of(context).size.height;
       final bottomSheetHeight = viewportHeight * 0.5;
-      final visibleBottom = currentScrollOffset + (viewportHeight - bottomSheetHeight);
+      final visibleBottom =
+          currentScrollOffset + (viewportHeight - bottomSheetHeight);
       if (eventY > visibleBottom - 50) {
         final targetOffset = math.max(0.0, eventY - (viewportHeight * 0.2));
         final state = dayViewKey.currentState as dynamic;
@@ -265,8 +195,7 @@ class CalendarModals {
                 curve: Curves.easeOut,
               );
             }
-          } catch (e2) {
-          }
+          } catch (e2) {}
         }
       }
     }

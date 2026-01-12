@@ -1,8 +1,8 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:from_css_color/from_css_color.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
-import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
+import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
 
 /// Utility class for calculating time breakdown from calendar events
 class CalendarTimeBreakdownCalculator {
@@ -56,7 +56,8 @@ class CalendarTimeBreakdownCalculator {
           if (colorHex != null && colorHex.isNotEmpty) {
             taskCategoryColorMap[categoryKey] = colorHex;
           } else if (!taskCategoryColorMap.containsKey(categoryKey)) {
-            taskCategoryColorMap[categoryKey] = '#1A1A1A'; // Dark charcoal default
+            taskCategoryColorMap[categoryKey] =
+                '#1A1A1A'; // Dark charcoal default
           }
         }
       } else if (metadata.activityType == 'essential') {
@@ -124,7 +125,8 @@ class CalendarTimeBreakdownCalculator {
     }
 
     final essentialSubcategories = <PieChartSegment>[];
-    final essentialActivityKeys = essentialActivityTimeMap.keys.toList()..sort();
+    final essentialActivityKeys = essentialActivityTimeMap.keys.toList()
+      ..sort();
     for (final activityKey in essentialActivityKeys) {
       final minutes = essentialActivityTimeMap[activityKey]!;
       if (minutes > 0) {

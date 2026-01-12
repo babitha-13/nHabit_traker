@@ -3,24 +3,22 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/calender_body.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/planned_overlap_group.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/calender_event_metadata.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20models/planned_overlap_info.dart';
-import 'package:habit_tracker/Screens/Calendar/Date%20Format/calendar_formatting_utils.dart';
-import 'package:habit_tracker/Screens/Calendar/time_breakdown_pie_chart.dart';
+import 'package:habit_tracker/Screens/Calendar/calender_body.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
+import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_formatting_utils.dart';
+import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:habit_tracker/Screens/Calendar/Calculators/calendar_overlap_calculator.dart';
-import 'package:habit_tracker/Screens/Calendar/Calculators/calendar_time_breakdown_calculator.dart';
-import 'package:habit_tracker/Screens/Calendar/Services/calendar_event_service.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/calendar_event_tile.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/calendar_overlap_ui.dart';
-import 'package:habit_tracker/Screens/Calendar/Calender%20UI/calendar_modals.dart';
+import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/calendar_overlap_calculator.dart';
+import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_calculator.dart';
+import 'package:habit_tracker/Screens/Calendar/calendar_event_service.dart';
+import 'package:habit_tracker/Screens/Calendar/Event_tiles/calendar_event_tile.dart';
+import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/calendar_overlap_ui.dart';
+import 'package:habit_tracker/Screens/Calendar/calendar_time_entry_modal.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -69,9 +67,21 @@ class _CalendarPageState extends State<CalendarPage> {
     _calculateInitialScrollOffset();
     _initializeTabState();
     _loadDefaultDuration();
-    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated, _handleInstanceUpdated,);
-    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated, _handleInstanceCreated,);
-    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted, _handleInstanceDeleted,);
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceUpdated,
+      _handleInstanceUpdated,
+    );
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceCreated,
+      _handleInstanceCreated,
+    );
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceDeleted,
+      _handleInstanceDeleted,
+    );
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
         _loadEvents();
@@ -109,8 +119,7 @@ class _CalendarPageState extends State<CalendarPage> {
           });
         }
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   Future<void> _initializeTabState() async {
@@ -156,7 +165,8 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   TimeBreakdownData _calculateTimeBreakdown() {
-    return CalendarTimeBreakdownCalculator.calculateTimeBreakdown(_sortedCompletedEvents);
+    return CalendarTimeBreakdownCalculator.calculateTimeBreakdown(
+        _sortedCompletedEvents);
   }
 
   void _showTimeBreakdownChart() {
@@ -734,21 +744,20 @@ class _CalendarPageState extends State<CalendarPage> {
         controller.jumpTo(offset);
         return;
       }
-    } catch (_) {
-    }
+    } catch (_) {}
     try {
       dayViewState.animateTo(
         offset,
         duration: const Duration(milliseconds: 1),
         curve: Curves.linear,
       );
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   void _zoomIn() {
     final oldHeight = _calculateHeightPerMinute();
-    final newScale = (_verticalZoom + _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
+    final newScale =
+        (_verticalZoom + _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
 
     if ((newScale - _verticalZoom).abs() < 0.001) return;
     final newHeight = _baseHeightPerMinute * newScale;
@@ -762,7 +771,8 @@ class _CalendarPageState extends State<CalendarPage> {
 
   void _zoomOut() {
     final oldHeight = _calculateHeightPerMinute();
-    final newScale = (_verticalZoom - _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
+    final newScale =
+        (_verticalZoom - _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
 
     if ((newScale - _verticalZoom).abs() < 0.001) return;
     final newHeight = _baseHeightPerMinute * newScale;
@@ -797,12 +807,14 @@ class _CalendarPageState extends State<CalendarPage> {
     final oldHeight = _baseHeightPerMinute * _verticalZoom;
     final newHeight = _baseHeightPerMinute * clampedZoom;
     final focalDy = details.localFocalPoint.dy;
-    final totalPixelsBefore = (_currentScrollOffset + focalDy).clamp(0.0, double.infinity);
+    final totalPixelsBefore =
+        (_currentScrollOffset + focalDy).clamp(0.0, double.infinity);
     final focalMinutes = oldHeight > 0 ? totalPixelsBefore / oldHeight : 0.0;
     final desiredOffset = (focalMinutes * newHeight) - focalDy;
     final clampedOffset = _clampScrollOffsetForZoom(desiredOffset, clampedZoom);
     final zoomChanged = (clampedZoom - _verticalZoom).abs() >= 0.001;
-    final offsetChanged = (clampedOffset - _currentScrollOffset).abs() >= 0.5; // avoid noisy rebuilds
+    final offsetChanged = (clampedOffset - _currentScrollOffset).abs() >=
+        0.5; // avoid noisy rebuilds
     if (!zoomChanged && !offsetChanged) return;
 
     setState(() {
