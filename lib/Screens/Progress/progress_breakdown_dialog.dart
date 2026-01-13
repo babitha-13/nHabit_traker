@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+
 class ProgressBreakdownDialog extends StatelessWidget {
   final DateTime date;
   final double totalEarned;
@@ -161,6 +162,7 @@ class ProgressBreakdownDialog extends StatelessWidget {
       ),
     );
   }
+
   Widget _buildSummaryCard(
       BuildContext context, String label, String value, Color color) {
     return Column(
@@ -184,6 +186,7 @@ class ProgressBreakdownDialog extends StatelessWidget {
       ],
     );
   }
+
   Widget _buildSectionHeader(BuildContext context, String title, int count) {
     return Row(
       children: [
@@ -213,6 +216,7 @@ class ProgressBreakdownDialog extends StatelessWidget {
       ],
     );
   }
+
   Widget _buildItemCard(BuildContext context, Map<String, dynamic> item) {
     final name = item['name'] as String;
     final status = item['status'] as String;
@@ -286,6 +290,7 @@ class ProgressBreakdownDialog extends StatelessWidget {
       ),
     );
   }
+
   Widget _buildStatusChip(BuildContext context, String status) {
     Color color;
     String label;
@@ -323,6 +328,7 @@ class ProgressBreakdownDialog extends StatelessWidget {
       ),
     );
   }
+
   Color _getProgressColor(BuildContext context, double percentage) {
     if (percentage >= 100) return Colors.green;
     if (percentage >= 75) return Colors.blue;

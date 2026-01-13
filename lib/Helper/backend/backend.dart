@@ -8,12 +8,12 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/utils/instance_date_calculator.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
@@ -252,7 +252,7 @@ bool isHabitActiveByDate(ActivityRecord habit, DateTime currentDate) {
 /// Query to get habits for a specific user
 Future<List<ActivityRecord>> queryActivitiesRecordOnce({
   required String userId,
-  bool includeSequenceItems = false,
+  bool includeEssentialItems = false,
 }) async {
   try {
     // Use simple query without orderBy to avoid Firestore composite index requirements
@@ -263,7 +263,7 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
     // Filter out essential types unless explicitly requested
     final filteredActivities = activities.where((activity) {
-      if (!includeSequenceItems && activity.categoryType == 'essential') {
+      if (!includeEssentialItems && activity.categoryType == 'essential') {
         return false;
       }
       return true;
@@ -634,7 +634,8 @@ Future<DocumentReference> createActivity({
       dueTime: dueTime,
       template: activity,
       userId: uid,
-      skipOrderLookup: categoryType == 'task', // Skip order lookup for tasks to speed up quick add
+      skipOrderLookup: categoryType ==
+          'task', // Skip order lookup for tasks to speed up quick add
     ).timeout(const Duration(seconds: 10));
   } catch (e) {
     // Surface instance creation errors so UI can display them
@@ -646,7 +647,8 @@ Future<DocumentReference> createActivity({
       'action': 'created',
       'categoryType': categoryType,
       'hasDueTime': dueTime != null && dueTime.isNotEmpty,
-      if (timeEstimateMinutes != null) 'timeEstimateMinutes': timeEstimateMinutes,
+      if (timeEstimateMinutes != null)
+        'timeEstimateMinutes': timeEstimateMinutes,
     },
   );
   return habitRef;

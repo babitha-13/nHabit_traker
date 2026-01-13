@@ -1,17 +1,17 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
+import 'package:habit_tracker/Helper/Helpers/Point_system_helper/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
-import 'package:habit_tracker/Helper/backend/points_service.dart';
-import 'package:habit_tracker/Helper/utils/score_bonus_toast_service.dart';
-import 'package:habit_tracker/Helper/utils/milestone_toast_service.dart';
-import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
+import 'package:habit_tracker/Screens/Progress/cumulative_score_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Point_system_helper/points_service.dart';
+import 'package:habit_tracker/Screens/Progress/score_bonus_toast_service.dart';
+import 'package:habit_tracker/Screens/Progress/milestone_toast_service.dart';
+import 'package:habit_tracker/Screens/CatchUp/day_end_processor.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -461,7 +461,6 @@ class MorningCatchUpService {
 
       // Recalculate progress for all affected dates in parallel (with concurrency limit)
       if (affectedDates.isNotEmpty) {
-
         // Historical edit functionality removed - progress recalculation disabled
         // Process dates in batches
         // for (int i = 0; i < datesList.length; i += maxConcurrency) {
@@ -500,7 +499,7 @@ class MorningCatchUpService {
 
   /// Process all end-of-day activities for yesterday
   /// This should be called after midnight (12 AM) when a new day starts
-  /// 
+  ///
   /// Flow:
   /// 1. Auto-skip expired items before yesterday (brings everything up to date)
   /// 2. Ensure all active habits have pending instances (but respects yesterday-pending)
@@ -510,18 +509,18 @@ class MorningCatchUpService {
   static Future<void> processEndOfDayActivities(String userId) async {
     try {
       final yesterday = DateService.yesterdayStart;
-      
+
       // Step 1: Auto-skip expired items before yesterday
       // This brings everything up to date and creates records for missed days
       await autoSkipExpiredItemsBeforeYesterday(userId);
-      
+
       // Step 2: Ensure all active habits have pending instances
       // This respects yesterday-pending instances (won't auto-skip them)
       await DayEndProcessor.ensurePendingInstancesExist(userId);
-      
+
       // Step 3: Pure check - are there pending items from yesterday?
       final hasPendingItems = await hasPendingItemsFromYesterday(userId);
-      
+
       if (!hasPendingItems) {
         // No pending items - safe to finalize now
         // Update lastDayValue and create daily progress record
@@ -536,13 +535,12 @@ class MorningCatchUpService {
         // There ARE pending items - do NOT finalize yet
         // Only update lastDayValue (without creating daily progress record)
         // The dialog will handle finalization after user confirms item status
-        
+
         // Update lastDayValue separately (without creating daily progress record)
         await DayEndProcessor.updateLastDayValuesOnly(userId, yesterday);
-        
+
         // Do NOT create daily progress record - dialog will handle it after user actions
       }
-      
     } catch (e) {
       // Error processing end-of-day activities
       // Log but don't throw - this is a background operation
@@ -850,8 +848,9 @@ class MorningCatchUpService {
                 .toList();
             final categoryTarget =
                 PointsService.calculateTotalDailyTarget(categoryAll);
-            final categoryEarned = await PointsService.calculateTotalPointsEarned(
-                categoryCompleted, userId);
+            final categoryEarned =
+                await PointsService.calculateTotalPointsEarned(
+                    categoryCompleted, userId);
             categoryBreakdown[category.reference.id] = {
               'target': categoryTarget,
               'earned': categoryEarned,

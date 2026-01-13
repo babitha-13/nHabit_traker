@@ -1,5 +1,5 @@
 import 'dart:async';
-import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
+import 'package:habit_tracker/Screens/CatchUp/day_end_processor.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';

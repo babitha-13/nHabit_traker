@@ -1,5 +1,5 @@
 import 'package:calendar_view/calendar_view.dart';
-import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
+import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
 
 /// Utility class for calculating calendar event overlaps
 class CalendarOverlapCalculator {

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/testing/simple_day_advancer_ui.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+
 /// Simple testing page for day advancement
 class SimpleTestingPage extends StatelessWidget {
   const SimpleTestingPage({Key? key}) : super(key: key);
@@ -112,6 +113,7 @@ class SimpleTestingPage extends StatelessWidget {
       ),
     );
   }
+
   Widget _buildInstructionStep(
       String number, String title, String description, FlutterFlowTheme theme) {
     return Padding(

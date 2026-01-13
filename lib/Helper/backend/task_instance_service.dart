@@ -6,14 +6,14 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart'
     as habit_schema;
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/timer_task_template_service.dart';
 import 'package:habit_tracker/Helper/backend/essential_service.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/utils/time_validation_helper.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Helper/utils/optimistic_operation_tracker.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_validation_helper.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits

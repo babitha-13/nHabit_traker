@@ -1,9 +1,9 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/utils/notification_service.dart';
-import 'package:habit_tracker/Helper/utils/alarm_service.dart';
-import 'package:habit_tracker/Helper/utils/reminder_config.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_service.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/alarm_service.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -403,10 +403,10 @@ class ReminderScheduler {
       ActivityInstanceRecord? instance = instanceOverride;
       if (instance == null) {
         try {
-          final instanceDoc = await ActivityInstanceRecord.collectionForUser(
-                  userId)
-              .doc(instanceId)
-              .get();
+          final instanceDoc =
+              await ActivityInstanceRecord.collectionForUser(userId)
+                  .doc(instanceId)
+                  .get();
           if (!instanceDoc.exists) {
             return;
           }
@@ -437,8 +437,7 @@ class ReminderScheduler {
 
       if (reminderConfigs.isEmpty) {
         // Cancel IDs used by the default reminder scheduler for recurring items
-        final defaultIds =
-            _buildDefaultReminderIds(template, instance).toSet();
+        final defaultIds = _buildDefaultReminderIds(template, instance).toSet();
         for (final reminderId in defaultIds) {
           await NotificationService.cancelNotification(reminderId);
         }
@@ -712,7 +711,6 @@ class ReminderScheduler {
           actions: _buildNotificationActions(instance, newReminderId),
         );
       }
-
     } catch (e) {
       // Error snoozing reminder
     }

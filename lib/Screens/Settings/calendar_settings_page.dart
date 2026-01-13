@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
 
 /// Settings page for managing calendar time logging preferences
@@ -243,7 +243,8 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
                       value: _defaultDurationMinutes.toDouble(),
                       min: 5,
                       max: 60,
-                      divisions: 11, // 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
+                      divisions:
+                          11, // 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55, 60
                       label: '$_defaultDurationMinutes minutes',
                       onChanged: (value) {
                         setState(() {
@@ -287,4 +288,3 @@ class _CalendarSettingsPageState extends State<CalendarSettingsPage> {
     );
   }
 }
-

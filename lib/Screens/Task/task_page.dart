@@ -3,24 +3,23 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
-import 'package:habit_tracker/Helper/utils/floating_timer.dart';
-import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
-import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
-import 'package:habit_tracker/Helper/utils/frequency_display_helper.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_fab.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_type_dropdown_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_display_helper.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
-import 'package:habit_tracker/Helper/utils/reminder_config.dart';
-import 'package:habit_tracker/Helper/utils/reminder_config_dialog.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config_dialog.dart';
 import 'package:intl/intl.dart';
 
 class TaskPage extends StatefulWidget {
@@ -173,11 +172,6 @@ class _TaskPageState extends State<TaskPage> {
                   ],
                 ),
               ),
-              FloatingTimer(
-                activeInstances: _activeFloatingInstances,
-                onRefresh: _loadData,
-                onInstanceUpdated: _updateInstanceInLocalState,
-              ),
               Positioned(
                 right: 16,
                 bottom: 16,
@@ -191,15 +185,6 @@ class _TaskPageState extends State<TaskPage> {
             ],
           );
     return returnedWidget;
-  }
-
-  List<ActivityInstanceRecord> get _activeFloatingInstances {
-    return _taskInstances.where((inst) {
-      return inst.templateShowInFloatingTimer == true &&
-          inst.templateTrackingType == 'time' &&
-          inst.isTimerActive &&
-          inst.status != 'completed';
-    }).toList();
   }
 
   Future<void> _loadData() async {
@@ -1244,7 +1229,7 @@ class _TaskPageState extends State<TaskPage> {
       ));
     }
     // Add bottom padding to allow content to scroll past bottom FABs
-    // FAB height (56px) + bottom position (16px) + FloatingTimer space + extra padding
+    // FAB height (56px) + bottom position (16px) + GlobalFloatingTimer space + extra padding
     widgets.add(
       SliverPadding(
         padding: const EdgeInsets.only(bottom: 120),

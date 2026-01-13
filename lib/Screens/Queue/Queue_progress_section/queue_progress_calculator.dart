@@ -1,11 +1,11 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
+import 'package:habit_tracker/Helper/Helpers/Point_system_helper/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
-import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Screens/Progress/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_utils.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_utils.dart';
 import 'package:intl/intl.dart';
 
 /// Service class for calculating progress and cumulative scores

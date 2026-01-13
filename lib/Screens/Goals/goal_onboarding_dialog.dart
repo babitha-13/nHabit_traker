@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/goal_record.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
+
 /// Onboarding goal dialog for new users to set their first goal
 /// Provides three options: Fill & Save, Do It Later, or Skip
 class GoalOnboardingDialog extends StatefulWidget {
@@ -10,6 +11,7 @@ class GoalOnboardingDialog extends StatefulWidget {
   @override
   State<GoalOnboardingDialog> createState() => _GoalOnboardingDialogState();
 }
+
 class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
   bool _isSaving = false;
   // Form controllers
@@ -29,6 +31,7 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
     _avoidController.dispose();
     super.dispose();
   }
+
   Future<void> _saveGoal() async {
     if (!_formKey.currentState!.validate()) {
       return;
@@ -80,9 +83,11 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
       }
     }
   }
+
   Future<void> _doItLater() async {
     Navigator.of(context).pop();
   }
+
   Future<void> _skip() async {
     try {
       await GoalService.markOnboardingSkipped(users.uid ?? '');
@@ -91,6 +96,7 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
       Navigator.of(context).pop();
     }
   }
+
   Widget _buildFormField({
     required String label,
     required String helperText,
@@ -125,6 +131,7 @@ class _GoalOnboardingDialogState extends State<GoalOnboardingDialog> {
       ],
     );
   }
+
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);

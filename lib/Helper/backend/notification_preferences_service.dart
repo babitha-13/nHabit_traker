@@ -1,6 +1,6 @@
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 
 /// Service for managing user notification preferences
 /// All business logic for notification preferences is centralized here (#REFACTOR_NOW compliance)
@@ -18,38 +18,44 @@ class NotificationPreferencesService {
       // Merge with defaults to ensure all keys exist
       final defaults = getDefaultNotificationPreferences();
       defaults.addAll(prefs);
-      
+
       // If wake_up_time or sleep_time exist, use them and recalculate notification times
-      if (defaults['wake_up_time'] != null && defaults['wake_up_time'].toString().isNotEmpty) {
-        final wakeUpTime = TimeUtils.stringToTimeOfDay(defaults['wake_up_time'] as String);
+      if (defaults['wake_up_time'] != null &&
+          defaults['wake_up_time'].toString().isNotEmpty) {
+        final wakeUpTime =
+            TimeUtils.stringToTimeOfDay(defaults['wake_up_time'] as String);
         if (wakeUpTime != null) {
           final morningTime = calculateMorningNotificationTime(wakeUpTime);
           defaults['morning_time'] = TimeUtils.timeOfDayToString(morningTime);
           defaults['quiet_hours_end'] = wakeUpTime.hour;
         }
       }
-      
-      if (defaults['sleep_time'] != null && defaults['sleep_time'].toString().isNotEmpty) {
-        final sleepTime = TimeUtils.stringToTimeOfDay(defaults['sleep_time'] as String);
+
+      if (defaults['sleep_time'] != null &&
+          defaults['sleep_time'].toString().isNotEmpty) {
+        final sleepTime =
+            TimeUtils.stringToTimeOfDay(defaults['sleep_time'] as String);
         if (sleepTime != null) {
           final eveningTime = calculateEveningNotificationTime(sleepTime);
           defaults['evening_time'] = TimeUtils.timeOfDayToString(eveningTime);
           defaults['quiet_hours_start'] = sleepTime.hour;
         }
       }
-      
+
       // Fallback to stored notification times if wake/sleep times don't exist (backward compatibility)
-      if (defaults['morning_time'] == null || defaults['morning_time'].toString().isEmpty) {
+      if (defaults['morning_time'] == null ||
+          defaults['morning_time'].toString().isEmpty) {
         defaults['morning_time'] = userData.morningNotificationTime.isNotEmpty
             ? userData.morningNotificationTime
             : defaults['morning_time'];
       }
-      if (defaults['evening_time'] == null || defaults['evening_time'].toString().isEmpty) {
+      if (defaults['evening_time'] == null ||
+          defaults['evening_time'].toString().isEmpty) {
         defaults['evening_time'] = userData.eveningNotificationTime.isNotEmpty
             ? userData.eveningNotificationTime
             : defaults['evening_time'];
       }
-      
+
       return defaults;
     } catch (e) {
       return getDefaultNotificationPreferences();
@@ -66,7 +72,8 @@ class NotificationPreferencesService {
       'morning_reminder_enabled': true,
       'evening_reminder_enabled': true,
       'engagement_reminder_enabled': true,
-      'engagement_reminder_hours': 6, // Send reminder if app not opened for 6 hours
+      'engagement_reminder_hours':
+          6, // Send reminder if app not opened for 6 hours
       'max_notifications_per_day': 5,
       'quiet_hours_start': 22, // Will be calculated from sleep_time
       'quiet_hours_end': 7, // Will be calculated from wake_up_time
@@ -82,11 +89,11 @@ class NotificationPreferencesService {
       // Extract wake/sleep times and calculate notification times
       final wakeUpTimeString = preferences['wake_up_time'] as String?;
       final sleepTimeString = preferences['sleep_time'] as String?;
-      
+
       // Calculate notification times if wake/sleep times are provided
       String? morningTimeString;
       String? eveningTimeString;
-      
+
       if (wakeUpTimeString != null && wakeUpTimeString.isNotEmpty) {
         final wakeUpTime = TimeUtils.stringToTimeOfDay(wakeUpTimeString);
         if (wakeUpTime != null) {
@@ -94,7 +101,7 @@ class NotificationPreferencesService {
           morningTimeString = TimeUtils.timeOfDayToString(morningTime);
         }
       }
-      
+
       if (sleepTimeString != null && sleepTimeString.isNotEmpty) {
         final sleepTime = TimeUtils.stringToTimeOfDay(sleepTimeString);
         if (sleepTime != null) {
@@ -102,7 +109,7 @@ class NotificationPreferencesService {
           eveningTimeString = TimeUtils.timeOfDayToString(eveningTime);
         }
       }
-      
+
       // Update quiet hours based on sleep/wake times
       final prefsMap = Map<String, dynamic>.from(preferences);
       if (sleepTimeString != null && sleepTimeString.isNotEmpty) {
@@ -117,19 +124,19 @@ class NotificationPreferencesService {
           prefsMap['quiet_hours_end'] = wakeUpTime.hour;
         }
       }
-      
+
       // Remove calculated times from preferences map (they're stored separately)
       prefsMap.remove('morning_time');
       prefsMap.remove('evening_time');
-      
+
       // Update user document
       await UsersRecord.collection.doc(userId).update(
-        createUsersRecordData(
-          morningNotificationTime: morningTimeString,
-          eveningNotificationTime: eveningTimeString,
-          notificationPreferences: prefsMap.isNotEmpty ? prefsMap : null,
-        ),
-      );
+            createUsersRecordData(
+              morningNotificationTime: morningTimeString,
+              eveningNotificationTime: eveningTimeString,
+              notificationPreferences: prefsMap.isNotEmpty ? prefsMap : null,
+            ),
+          );
     } catch (e) {
       rethrow;
     }
@@ -184,8 +191,7 @@ class NotificationPreferencesService {
   }
 
   /// Get morning notification time as TimeOfDay (calculated from wake up time)
-  static Future<TimeOfDay?> getMorningNotificationTime(
-      String userId) async {
+  static Future<TimeOfDay?> getMorningNotificationTime(String userId) async {
     try {
       final wakeUpTime = await getWakeUpTime(userId);
       if (wakeUpTime == null) {
@@ -198,8 +204,7 @@ class NotificationPreferencesService {
   }
 
   /// Get evening notification time as TimeOfDay (calculated from sleep time)
-  static Future<TimeOfDay?> getEveningNotificationTime(
-      String userId) async {
+  static Future<TimeOfDay?> getEveningNotificationTime(String userId) async {
     try {
       final sleepTime = await getSleepTime(userId);
       if (sleepTime == null) {
@@ -252,8 +257,7 @@ class NotificationPreferencesService {
   }
 
   /// Check if notification onboarding is completed
-  static Future<bool> isNotificationOnboardingCompleted(
-      String userId) async {
+  static Future<bool> isNotificationOnboardingCompleted(String userId) async {
     try {
       final userDoc = await UsersRecord.collection.doc(userId).get();
       if (!userDoc.exists) {
@@ -267,17 +271,15 @@ class NotificationPreferencesService {
   }
 
   /// Mark notification onboarding as completed
-  static Future<void> markNotificationOnboardingCompleted(
-      String userId) async {
+  static Future<void> markNotificationOnboardingCompleted(String userId) async {
     try {
       await UsersRecord.collection.doc(userId).update(
-        createUsersRecordData(
-          notificationOnboardingCompleted: true,
-        ),
-      );
+            createUsersRecordData(
+              notificationOnboardingCompleted: true,
+            ),
+          );
     } catch (e) {
       rethrow;
     }
   }
 }
-

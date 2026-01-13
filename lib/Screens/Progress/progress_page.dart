@@ -1,29 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Screens/Progress/progress_breakdown_dialog.dart';
-import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
+import 'package:habit_tracker/Helper/Helpers/Point_system_helper/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Screens/Progress/cumulative_score_service.dart';
 import 'package:habit_tracker/Helper/backend/milestone_service.dart';
-import 'package:habit_tracker/Helper/utils/cumulative_score_line_painter.dart';
+import 'package:habit_tracker/Screens/Shared/cumulative_score_line_painter.dart';
 import 'package:habit_tracker/Screens/Progress/habit_statistics_tab.dart';
 import 'package:habit_tracker/Screens/Progress/category_statistics_tab.dart';
 import 'package:flutter/foundation.dart';
-import 'package:habit_tracker/Helper/utils/constants.dart';
-import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
+import 'package:habit_tracker/Helper/Helpers/constants.dart';
+import 'package:habit_tracker/Helper/Helpers/sharedPreference.dart';
 import 'package:habit_tracker/Helper/Response/login_response.dart';
 import 'package:habit_tracker/main.dart';
-import 'package:habit_tracker/Screens/Essential/essential_templates_page.dart';
+import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.dart';
 import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
-import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
+import 'package:habit_tracker/Screens/Categories/manage_categories.dart';
 import 'package:intl/intl.dart';
 
 class ProgressPage extends StatefulWidget {
@@ -92,8 +92,10 @@ class _ProgressPageState extends State<ProgressPage> {
         setState(() {
           // Update local state from shared state to trigger UI rebuild
           final data = TodayProgressState().getCumulativeScoreData();
-          _projectedCumulativeScore = data['cumulativeScore'] as double? ?? _projectedCumulativeScore;
-          _projectedDailyGain = data['dailyGain'] as double? ?? _projectedDailyGain;
+          _projectedCumulativeScore =
+              data['cumulativeScore'] as double? ?? _projectedCumulativeScore;
+          _projectedDailyGain =
+              data['dailyGain'] as double? ?? _projectedDailyGain;
         });
       }
     });
@@ -1201,8 +1203,9 @@ class _ProgressPageState extends State<ProgressPage> {
   Widget _buildCumulativeScoreCard() {
     // Use shared state as single source of truth for consistency with Queue page
     final sharedData = TodayProgressState().getCumulativeScoreData();
-    final displayScore = sharedData['cumulativeScore'] as double? ?? _projectedCumulativeScore;
-    
+    final displayScore =
+        sharedData['cumulativeScore'] as double? ?? _projectedCumulativeScore;
+
     // Calculate daily gain consistently: today's score (from graph) - yesterday's score (from graph history)
     // This ensures both pages show the same value and matches the graph trend exactly
     final todayScore = _cumulativeScoreHistory.isNotEmpty
@@ -1211,7 +1214,9 @@ class _ProgressPageState extends State<ProgressPage> {
     double displayGain = 0.0;
     if (_cumulativeScoreHistory.length >= 2) {
       // Use yesterday's score from history to match the graph
-      final yesterdayScore = _cumulativeScoreHistory[_cumulativeScoreHistory.length - 2]['score'] as double;
+      final yesterdayScore =
+          _cumulativeScoreHistory[_cumulativeScoreHistory.length - 2]['score']
+              as double;
       displayGain = todayScore - yesterdayScore;
     } else if (_cumulativeScoreHistory.length == 1) {
       // Only one day in history, can't calculate difference - use fallback

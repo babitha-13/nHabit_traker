@@ -1,46 +1,45 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/habit_statistics_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/utils/completion_calendar_widget.dart';
-import 'package:habit_tracker/Helper/utils/habit_trend_chart_widget.dart';
-import 'package:habit_tracker/Helper/utils/habit_distribution_chart_widget.dart';
-import 'package:habit_tracker/Helper/utils/habit_period_comparison_widget.dart';
-import 'package:habit_tracker/Helper/utils/habit_progress_trend_widget.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Screens/Progress/completion_stats_calendar_view.dart';
+import 'package:habit_tracker/Screens/Progress/habit_trend_chart_widget.dart';
+import 'package:habit_tracker/Screens/Progress/habit_distribution_chart_widget.dart';
+import 'package:habit_tracker/Screens/Progress/habit_period_comparison_widget.dart';
+import 'package:habit_tracker/Screens/Progress/habit_progress_trend_widget.dart';
 
 class HabitDetailStatisticsPage extends StatefulWidget {
   final String habitName;
-  
+
   const HabitDetailStatisticsPage({
     Key? key,
     required this.habitName,
   }) : super(key: key);
-  
+
   @override
   State<HabitDetailStatisticsPage> createState() =>
       _HabitDetailStatisticsPageState();
 }
 
-class _HabitDetailStatisticsPageState
-    extends State<HabitDetailStatisticsPage> {
+class _HabitDetailStatisticsPageState extends State<HabitDetailStatisticsPage> {
   HabitStatistics? _stats;
   bool _isLoading = true;
   String _selectedPeriod = '30';
   Map<DateTime, String> _completionHistory = {};
-  
+
   @override
   void initState() {
     super.initState();
     _loadStatistics();
   }
-  
+
   Future<void> _loadStatistics() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
@@ -51,10 +50,10 @@ class _HabitDetailStatisticsPageState
         }
         return;
       }
-      
+
       DateTime? startDate;
       final endDate = DateService.currentDate;
-      
+
       switch (_selectedPeriod) {
         case '7':
           startDate = endDate.subtract(const Duration(days: 7));
@@ -69,14 +68,14 @@ class _HabitDetailStatisticsPageState
           startDate = null;
           break;
       }
-      
+
       final stats = await HabitStatisticsService.getHabitStatistics(
         userId,
         widget.habitName,
         startDate: startDate,
         endDate: endDate,
       );
-      
+
       // Get completion history for calendar
       final days = _selectedPeriod == 'all' ? 365 : int.parse(_selectedPeriod);
       final history = await HabitStatisticsService.getHabitCompletionHistory(
@@ -84,7 +83,7 @@ class _HabitDetailStatisticsPageState
         widget.habitName,
         days,
       );
-      
+
       if (mounted) {
         setState(() {
           _stats = stats;
@@ -101,7 +100,7 @@ class _HabitDetailStatisticsPageState
       }
     }
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -139,7 +138,8 @@ class _HabitDetailStatisticsPageState
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
-                          color: FlutterFlowTheme.of(context).secondaryBackground,
+                          color:
+                              FlutterFlowTheme.of(context).secondaryBackground,
                           borderRadius: BorderRadius.circular(8),
                         ),
                         child: Row(
@@ -238,14 +238,16 @@ class _HabitDetailStatisticsPageState
                         ],
                       ),
                       // Time-based statistics (for time-tracked habits)
-                      if (_stats!.trackingType == 'time' && _stats!.totalSessions > 0) ...[
+                      if (_stats!.trackingType == 'time' &&
+                          _stats!.totalSessions > 0) ...[
                         const SizedBox(height: 24),
                         Text(
                           'Time Statistics',
-                          style: FlutterFlowTheme.of(context).titleMedium.override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style:
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -291,14 +293,16 @@ class _HabitDetailStatisticsPageState
                         ),
                       ],
                       // Quantity-based statistics (for quantity habits)
-                      if (_stats!.trackingType == 'quantity' && _stats!.totalQuantityCompleted > 0) ...[
+                      if (_stats!.trackingType == 'quantity' &&
+                          _stats!.totalQuantityCompleted > 0) ...[
                         const SizedBox(height: 24),
                         Text(
                           'Quantity Statistics',
-                          style: FlutterFlowTheme.of(context).titleMedium.override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style:
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                         const SizedBox(height: 12),
                         Row(
@@ -307,7 +311,8 @@ class _HabitDetailStatisticsPageState
                               child: _buildMetricCard(
                                 context,
                                 'Total Quantity',
-                                _stats!.totalQuantityCompleted.toStringAsFixed(1),
+                                _stats!.totalQuantityCompleted
+                                    .toStringAsFixed(1),
                                 Icons.stacked_bar_chart,
                                 FlutterFlowTheme.of(context).primary,
                               ),
@@ -317,7 +322,8 @@ class _HabitDetailStatisticsPageState
                               child: _buildMetricCard(
                                 context,
                                 'Avg per Completion',
-                                _stats!.averageQuantityPerCompletion.toStringAsFixed(1),
+                                _stats!.averageQuantityPerCompletion
+                                    .toStringAsFixed(1),
                                 Icons.analytics,
                                 Colors.blue,
                               ),
@@ -326,14 +332,17 @@ class _HabitDetailStatisticsPageState
                         ),
                       ],
                       // Best day/week/month
-                      if (_stats!.bestDayOfWeek != null || _stats!.bestWeek != null || _stats!.bestMonth != null) ...[
+                      if (_stats!.bestDayOfWeek != null ||
+                          _stats!.bestWeek != null ||
+                          _stats!.bestMonth != null) ...[
                         const SizedBox(height: 24),
                         Text(
                           'Best Performance',
-                          style: FlutterFlowTheme.of(context).titleMedium.override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style:
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                         const SizedBox(height: 12),
                         Wrap(
@@ -368,10 +377,11 @@ class _HabitDetailStatisticsPageState
                       // Trend chart
                       Text(
                         'Completion Trend',
-                        style: FlutterFlowTheme.of(context).titleMedium.override(
-                              fontFamily: 'Readex Pro',
-                              fontWeight: FontWeight.w600,
-                            ),
+                        style:
+                            FlutterFlowTheme.of(context).titleMedium.override(
+                                  fontFamily: 'Readex Pro',
+                                  fontWeight: FontWeight.w600,
+                                ),
                       ),
                       const SizedBox(height: 12),
                       HabitTrendChartWidget(
@@ -382,10 +392,11 @@ class _HabitDetailStatisticsPageState
                       // Completion calendar
                       Text(
                         'Completion Calendar',
-                        style: FlutterFlowTheme.of(context).titleMedium.override(
-                              fontFamily: 'Readex Pro',
-                              fontWeight: FontWeight.w600,
-                            ),
+                        style:
+                            FlutterFlowTheme.of(context).titleMedium.override(
+                                  fontFamily: 'Readex Pro',
+                                  fontWeight: FontWeight.w600,
+                                ),
                       ),
                       const SizedBox(height: 12),
                       CompletionCalendarWidget(
@@ -399,10 +410,11 @@ class _HabitDetailStatisticsPageState
                       if (_stats!.completionsByDayOfWeek.isNotEmpty) ...[
                         Text(
                           'Distribution Analysis',
-                          style: FlutterFlowTheme.of(context).titleMedium.override(
-                                fontFamily: 'Readex Pro',
-                                fontWeight: FontWeight.w600,
-                              ),
+                          style:
+                              FlutterFlowTheme.of(context).titleMedium.override(
+                                    fontFamily: 'Readex Pro',
+                                    fontWeight: FontWeight.w600,
+                                  ),
                         ),
                         const SizedBox(height: 12),
                         HabitDistributionChartWidget(
@@ -413,7 +425,8 @@ class _HabitDetailStatisticsPageState
                         const SizedBox(height: 24),
                       ],
                       // Hour distribution (for time-tracked habits)
-                      if (_stats!.trackingType == 'time' && _stats!.completionsByHour.isNotEmpty) ...[
+                      if (_stats!.trackingType == 'time' &&
+                          _stats!.completionsByHour.isNotEmpty) ...[
                         HabitDistributionChartWidget(
                           data: _stats!.completionsByHour,
                           isDayOfWeek: false,
@@ -430,7 +443,8 @@ class _HabitDetailStatisticsPageState
                         const SizedBox(height: 24),
                       ],
                       // Period comparisons
-                      if (_stats!.weeklyBreakdown.isNotEmpty || _stats!.monthlyBreakdown.isNotEmpty) ...[
+                      if (_stats!.weeklyBreakdown.isNotEmpty ||
+                          _stats!.monthlyBreakdown.isNotEmpty) ...[
                         HabitPeriodComparisonWidget(
                           weeklyBreakdown: _stats!.weeklyBreakdown,
                           monthlyBreakdown: _stats!.monthlyBreakdown,
@@ -440,10 +454,11 @@ class _HabitDetailStatisticsPageState
                       // Status breakdown
                       Text(
                         'Status Breakdown',
-                        style: FlutterFlowTheme.of(context).titleMedium.override(
-                              fontFamily: 'Readex Pro',
-                              fontWeight: FontWeight.w600,
-                            ),
+                        style:
+                            FlutterFlowTheme.of(context).titleMedium.override(
+                                  fontFamily: 'Readex Pro',
+                                  fontWeight: FontWeight.w600,
+                                ),
                       ),
                       const SizedBox(height: 12),
                       _buildStatusBreakdown(context),
@@ -452,7 +467,7 @@ class _HabitDetailStatisticsPageState
                 ),
     );
   }
-  
+
   Widget _buildBestPerformanceCard(
     BuildContext context,
     String label,
@@ -498,7 +513,7 @@ class _HabitDetailStatisticsPageState
       ),
     );
   }
-  
+
   String _formatDuration(Duration duration) {
     if (duration.inHours > 0) {
       return '${duration.inHours}h ${duration.inMinutes.remainder(60)}m';
@@ -508,17 +523,17 @@ class _HabitDetailStatisticsPageState
       return '${duration.inSeconds}s';
     }
   }
-  
+
   String _getDayName(int dayOfWeek) {
     const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
     return days[dayOfWeek - 1];
   }
-  
+
   String _formatWeekDate(DateTime weekStart) {
     final weekEnd = weekStart.add(const Duration(days: 6));
     return '${weekStart.month}/${weekStart.day} - ${weekEnd.month}/${weekEnd.day}';
   }
-  
+
   String _formatMonthDate(DateTime monthStart) {
     const months = [
       'Jan',
@@ -536,13 +551,13 @@ class _HabitDetailStatisticsPageState
     ];
     return '${months[monthStart.month - 1]} ${monthStart.year}';
   }
-  
+
   Color _getConsistencyColor(double score) {
     if (score >= 80) return Colors.green;
     if (score >= 50) return Colors.orange;
     return Colors.red;
   }
-  
+
   Widget _buildMetricCard(
     BuildContext context,
     String title,
@@ -585,13 +600,13 @@ class _HabitDetailStatisticsPageState
       ),
     );
   }
-  
+
   Widget _buildStatusBreakdown(BuildContext context) {
     final completed = _stats!.statusBreakdown['completed'] ?? 0;
     final skipped = _stats!.statusBreakdown['skipped'] ?? 0;
     final pending = _stats!.statusBreakdown['pending'] ?? 0;
     final total = completed + skipped + pending;
-    
+
     if (total == 0) {
       return Container(
         padding: const EdgeInsets.all(16),
@@ -608,7 +623,7 @@ class _HabitDetailStatisticsPageState
         ),
       );
     }
-    
+
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -621,7 +636,8 @@ class _HabitDetailStatisticsPageState
       ),
       child: Column(
         children: [
-          _buildStatusItem(context, 'Completed', completed, total, Colors.green),
+          _buildStatusItem(
+              context, 'Completed', completed, total, Colors.green),
           const SizedBox(height: 12),
           _buildStatusItem(context, 'Skipped', skipped, total, Colors.orange),
           const SizedBox(height: 12),
@@ -630,7 +646,7 @@ class _HabitDetailStatisticsPageState
       ),
     );
   }
-  
+
   Widget _buildStatusItem(
     BuildContext context,
     String label,
@@ -668,11 +684,10 @@ class _HabitDetailStatisticsPageState
       ],
     );
   }
-  
+
   Color _getCompletionColor(double rate) {
     if (rate >= 80) return Colors.green;
     if (rate >= 50) return Colors.orange;
     return Colors.red;
   }
 }
-

@@ -1,6 +1,6 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:intl/intl.dart';
 
 /// Custom painter for dotted diagonal lines (used for Habits)
@@ -267,7 +267,8 @@ class TimeBreakdownData {
   final double taskMinutes;
   final double essentialMinutes;
   final List<PieChartSegment> segments;
-  final Map<String, List<PieChartSegment>> subcategories; // key: 'habit', 'task', 'essential'
+  final Map<String, List<PieChartSegment>>
+      subcategories; // key: 'habit', 'task', 'essential'
 
   TimeBreakdownData({
     required this.habitMinutes,
@@ -283,7 +284,7 @@ class TimeBreakdownData {
   /// Get top-level segments only (Tasks, Habits, Essentials, Unlogged)
   List<PieChartSegment> get topLevelSegments {
     final topLevel = <PieChartSegment>[];
-    
+
     if (taskMinutes > 0) {
       topLevel.add(PieChartSegment(
         label: 'Tasks',
@@ -292,7 +293,7 @@ class TimeBreakdownData {
         category: 'task',
       ));
     }
-    
+
     if (habitMinutes > 0) {
       topLevel.add(PieChartSegment(
         label: 'Habits',
@@ -301,7 +302,7 @@ class TimeBreakdownData {
         category: 'habit',
       ));
     }
-    
+
     if (essentialMinutes > 0) {
       topLevel.add(PieChartSegment(
         label: 'Essentials',
@@ -310,7 +311,7 @@ class TimeBreakdownData {
         category: 'essential',
       ));
     }
-    
+
     final totalLogged = totalLoggedMinutes;
     final unloggedMinutes = (24 * 60) - totalLogged;
     if (unloggedMinutes > 0) {
@@ -321,7 +322,7 @@ class TimeBreakdownData {
         category: 'unlogged',
       ));
     }
-    
+
     return topLevel;
   }
 }
@@ -505,7 +506,8 @@ class TimeBreakdownChartWidget extends StatefulWidget {
 }
 
 class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
-  String? selectedCategory; // null = top level, 'habit'/'task'/'essential' = subcategory view
+  String?
+      selectedCategory; // null = top level, 'habit'/'task'/'essential' = subcategory view
 
   void _handleSegmentTap(Offset tapPosition, Size chartSize) {
     final center = Offset(chartSize.width / 2, chartSize.height / 2);
@@ -520,7 +522,7 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
       // Tapped outside chart - do nothing
       return;
     }
-    
+
     // If tapped in center area and in subcategory view, go back
     if (distance < radius * 0.3 && selectedCategory != null) {
       setState(() {
@@ -545,8 +547,8 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
     if (angle < 0) angle += 2 * math.pi;
 
     // Calculate total value
-    final total = currentSegments.fold<double>(
-        0, (sum, segment) => sum + segment.value);
+    final total =
+        currentSegments.fold<double>(0, (sum, segment) => sum + segment.value);
     if (total == 0) return;
 
     // Find which segment was tapped
@@ -560,17 +562,20 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
       // Handle wrap-around case (angle near 2π)
       bool isInSegment = false;
       if (currentAngle + sweepAngle <= 2 * math.pi) {
-        isInSegment = angle >= currentAngle && angle < currentAngle + sweepAngle;
+        isInSegment =
+            angle >= currentAngle && angle < currentAngle + sweepAngle;
       } else {
         // Segment wraps around
-        isInSegment = angle >= currentAngle || angle < (currentAngle + sweepAngle - 2 * math.pi);
+        isInSegment = angle >= currentAngle ||
+            angle < (currentAngle + sweepAngle - 2 * math.pi);
       }
 
       if (isInSegment) {
         // Tapped this segment
         if (selectedCategory == null) {
           // Top level - drill down if subcategories exist
-          final subcategories = widget.breakdownData.subcategories[segment.category];
+          final subcategories =
+              widget.breakdownData.subcategories[segment.category];
           if (subcategories != null && subcategories.isNotEmpty) {
             setState(() {
               selectedCategory = segment.category;
@@ -691,8 +696,8 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
                     onTap: () {
                       // Tapping legend item has same effect as tapping chart segment
                       if (selectedCategory == null) {
-                        final subcategories =
-                            widget.breakdownData.subcategories[segment.category];
+                        final subcategories = widget
+                            .breakdownData.subcategories[segment.category];
                         if (subcategories != null && subcategories.isNotEmpty) {
                           setState(() {
                             selectedCategory = segment.category;
@@ -744,7 +749,8 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
     );
   }
 
-  Widget _buildLegendIndicator(PieChartSegment segment, FlutterFlowTheme theme) {
+  Widget _buildLegendIndicator(
+      PieChartSegment segment, FlutterFlowTheme theme) {
     if (selectedCategory == null) {
       // Top level - show pattern indicator
       return Container(
@@ -802,5 +808,4 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
       );
     }
   }
-
 }

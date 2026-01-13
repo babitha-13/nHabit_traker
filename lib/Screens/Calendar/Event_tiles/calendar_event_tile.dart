@@ -5,7 +5,7 @@ import 'package:habit_tracker/Screens/Calendar/Event_tiles/dotted_diagonal_paint
 import 'package:habit_tracker/Screens/Calendar/Event_tiles/double_diagonal_painter.dart';
 import 'dart:math' as math;
 
-import 'package:habit_tracker/Screens/Calendar/Calendar_utils/calendar_models.dart';
+import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
 import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/calendar_overlap_calculator.dart';
 
 /// Helper class for building calendar event tiles

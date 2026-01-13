@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/custom_tab_decorator.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Screens/Task/task_tabs_UI.dart';
 import 'package:habit_tracker/Screens/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
@@ -58,9 +58,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
         }
       }
       final inboxName = inboxCategory?.name ?? 'Inbox';
-      final otherCategories = updatedFetched
-          .where((c) => c.name.toLowerCase() != 'inbox')
-          .toList();
+      final otherCategories =
+          updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
       newTabNames
         ..add(inboxName)
         ..addAll(otherCategories.map((c) => c.name));

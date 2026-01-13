@@ -2,30 +2,30 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
+import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
-import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_fab.dart';
+import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/utils/queue_filter_state_manager.dart'
+import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart'
     show QueueFilterState, QueueFilterStateManager;
-import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_sort_state_manager.dart'
     show QueueSortState, QueueSortStateManager, QueueSortType;
-import 'package:habit_tracker/Screens/Queue/Logic/queue_utils.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_instance_state_manager.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_bucket_service.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_page_refresh.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_reorder_handler.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_filter_section/queue_filter_logic.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_utils.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_instance_state_manager.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_bucket_service.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_page_refresh.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_reorder_handler.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_logic.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_calculator.dart';
-import 'package:habit_tracker/Screens/Queue/Logic/queue_focus_handler.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_section.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_filter_section/queue_filter_dialog.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
 import 'dart:async';
 
 class QueuePage extends StatefulWidget {

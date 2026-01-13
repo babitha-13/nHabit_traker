@@ -1,17 +1,19 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/firebase_auth_manager.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_animations.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_animations.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_pg_model.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication_tab.dart';
+
 class SignIn extends StatefulWidget {
   const SignIn({super.key});
   @override
   State<SignIn> createState() => _SignInState();
 }
-class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin  {
+
+class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   late AuthenticationPgModel _model;
   final animationsMap = <String, AnimationInfo>{};
@@ -102,11 +104,13 @@ class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin  {
       ),
     });
   }
+
   @override
   void dispose() {
     _model.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -115,11 +119,13 @@ class _SignInState extends State<SignIn> with SingleTickerProviderStateMixin  {
         FocusManager.instance.primaryFocus?.unfocus();
       },
       child: Scaffold(
-        key: scaffoldKey,
-        backgroundColor: FlutterFlowTheme.of(context).secondaryBackground,
-        body: AuthenticationTab(model: _model,   authManager: authManager,   animationsMap: animationsMap,
-        )
-      ),
+          key: scaffoldKey,
+          backgroundColor: FlutterFlowTheme.of(context).secondaryBackground,
+          body: AuthenticationTab(
+            model: _model,
+            authManager: authManager,
+            animationsMap: animationsMap,
+          )),
     );
   }
 }

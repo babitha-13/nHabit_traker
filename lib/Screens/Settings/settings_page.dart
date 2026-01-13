@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/app_state.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/app_state.dart';
 import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
 import 'package:habit_tracker/Screens/Settings/calendar_settings_page.dart';
 
@@ -31,49 +31,49 @@ class _SettingsPageState extends State<SettingsPage> {
         foregroundColor: Colors.white,
       ),
       body: SingleChildScrollView(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  // Header
-                  Row(
-                    children: [
-                      Icon(
-                        Icons.settings,
-                        color: theme.primary,
-                        size: 32,
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: Text(
-                          'App Settings',
-                          style: theme.headlineSmall.override(
-                            fontFamily: 'Outfit',
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 32),
-                  // Points System Settings Section
-                  _buildPointsSystemCard(theme),
-                  const SizedBox(height: 16),
-                  // Calendar Settings Navigation
-                  _buildCalendarSettingsCard(theme),
-                  const SizedBox(height: 16),
-                  // Notification Settings Navigation
-                  _buildNotificationSettingsCard(theme),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Changes are saved automatically.',
-                    style: theme.bodySmall.override(
-                      color: Colors.grey.shade600,
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Row(
+              children: [
+                Icon(
+                  Icons.settings,
+                  color: theme.primary,
+                  size: 32,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Text(
+                    'App Settings',
+                    style: theme.headlineSmall.override(
+                      fontFamily: 'Outfit',
+                      fontWeight: FontWeight.bold,
                     ),
                   ),
-                ],
+                ),
+              ],
+            ),
+            const SizedBox(height: 32),
+            // Points System Settings Section
+            _buildPointsSystemCard(theme),
+            const SizedBox(height: 16),
+            // Calendar Settings Navigation
+            _buildCalendarSettingsCard(theme),
+            const SizedBox(height: 16),
+            // Notification Settings Navigation
+            _buildNotificationSettingsCard(theme),
+            const SizedBox(height: 16),
+            Text(
+              'Changes are saved automatically.',
+              style: theme.bodySmall.override(
+                color: Colors.grey.shade600,
               ),
             ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -172,7 +172,8 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
               child: Row(
                 children: [
-                  Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                  Icon(Icons.info_outline,
+                      color: Colors.blue.shade700, size: 20),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
@@ -237,4 +238,3 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 }
-

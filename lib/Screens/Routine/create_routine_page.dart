@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/activity_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/backend/category_color_util.dart';
-import 'package:habit_tracker/Screens/Routine/create_routine_item_dialog.dart';
-import 'package:habit_tracker/Helper/utils/reminder_config.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/category_color_util.dart';
+import 'package:habit_tracker/Screens/Essential/create_essential_item_dialog.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/routine_service.dart';
+import 'package:habit_tracker/Screens/Item_component/item_dotted_line_painter.dart';
 
 class CreateRoutinePage extends StatefulWidget {
   final RoutineRecord? existingRoutine;
@@ -124,7 +125,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
         // Load all activities including Essential Activities
         final activities = await queryActivitiesRecordOnce(
           userId: userId,
-          includeSequenceItems: true,
+          includeEssentialItems: true,
         );
         // Filter out completed/skipped one-time tasks (keep recurring tasks, habits, and Essential Activities)
         final filteredActivities = activities.where((activity) {
@@ -176,7 +177,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
         existingItems.add(activity);
       } catch (e) {
         // Silently ignore missing activities - they may have been deleted
-        print('Activity not found for sequence item: $itemId');
+        print('Activity not found for routine item: $itemId');
       }
     }
     setState(() {
@@ -245,11 +246,11 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
     );
 
     if (confirmed == true) {
-      await _deleteSequenceItem(activity);
+      await _deleteEssentialItem(activity);
     }
   }
 
-  Future<void> _deleteSequenceItem(ActivityRecord activity) async {
+  Future<void> _deleteEssentialItem(ActivityRecord activity) async {
     try {
       // Call business logic to delete the activity
       await ActivityService.deleteActivity(activity.reference);
@@ -286,10 +287,10 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
     }
   }
 
-  Future<void> _createNewSequenceItem() async {
+  Future<void> _createNewEssentialItem() async {
     showDialog(
       context: context,
-      builder: (context) => CreateRoutineItemDialog(
+      builder: (context) => CreateEssentialItemDialog(
         onItemCreated: (activity) {
           setState(() {
             _allActivities.add(activity);
@@ -486,7 +487,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                       width: 3,
                       child: CustomPaint(
                         size: const Size(3, double.infinity),
-                        painter: _DottedLinePainter(color: stripeColor),
+                        painter: DottedLinePainter(color: stripeColor),
                       ),
                     )
                   : Container(
@@ -812,7 +813,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                                           theme.buttonRadius),
                                     ),
                                     child: ElevatedButton.icon(
-                                      onPressed: _createNewSequenceItem,
+                                      onPressed: _createNewEssentialItem,
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.transparent,
                                         shadowColor: Colors.transparent,
@@ -998,7 +999,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
                                                                   double
                                                                       .infinity),
                                                               painter:
-                                                                  _DottedLinePainter(
+                                                                  DottedLinePainter(
                                                                       color:
                                                                           stripeColor),
                                                             ),
@@ -1140,34 +1141,4 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
             ),
     );
   }
-}
-
-/// Custom painter for creating a dotted vertical line
-class _DottedLinePainter extends CustomPainter {
-  final Color color;
-
-  _DottedLinePainter({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = color
-      ..strokeWidth = 3.0
-      ..strokeCap = StrokeCap.round;
-
-    const double dashHeight = 4.0;
-    const double dashSpace = 3.0;
-    double startY = 0;
-    while (startY < size.height) {
-      canvas.drawLine(
-        Offset(1.5, startY),
-        Offset(1.5, startY + dashHeight),
-        paint,
-      );
-      startY += dashHeight + dashSpace;
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }

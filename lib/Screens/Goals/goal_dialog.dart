@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/goal_record.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
 import 'package:habit_tracker/Screens/Goals/goal_history_page.dart';
 

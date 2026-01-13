@@ -3,10 +3,10 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/utils/activity_template_events.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
 
 /// Service to manage Essential Activities (sleep, travel, rest, etc.)
 /// These items track time but don't earn points
@@ -157,21 +157,25 @@ class essentialService {
       habitsOrder: habitsOrder,
       tasksOrder: tasksOrder,
     );
-    
+
     // Create instance and get reference
-    final instanceRef = await ActivityInstanceRecord.collectionForUser(uid)
-        .add(instanceData);
-    
+    final instanceRef =
+        await ActivityInstanceRecord.collectionForUser(uid).add(instanceData);
+
     // Fetch the created instance and broadcast optimistic update
-    final createdInstance = await ActivityInstanceRecord.getDocumentOnce(instanceRef);
-    
+    final createdInstance =
+        await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+
     // Broadcast optimistic instance creation for immediate calendar update
-    final operationId = 'essential_create_${DateTime.now().millisecondsSinceEpoch}';
-    InstanceEvents.broadcastInstanceCreatedOptimistic(createdInstance, operationId);
-    
+    final operationId =
+        'essential_create_${DateTime.now().millisecondsSinceEpoch}';
+    InstanceEvents.broadcastInstanceCreatedOptimistic(
+        createdInstance, operationId);
+
     // Also broadcast as updated since it's completed with time logs
-    InstanceEvents.broadcastInstanceUpdatedOptimistic(createdInstance, operationId);
-    
+    InstanceEvents.broadcastInstanceUpdatedOptimistic(
+        createdInstance, operationId);
+
     return instanceRef;
   }
 

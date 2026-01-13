@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Helper/utils/notification_service.dart';
-import 'package:habit_tracker/Helper/utils/reminder_config.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_service.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -39,7 +39,8 @@ class RoutineReminderScheduler {
       // Determine scheduling strategy based on frequency type
       if (frequencyType == 'specific_days' && routine.specificDays.isNotEmpty) {
         // Use native repeating for specific days of week
-        await _scheduleSpecificDaysRepeating(routine, enabledReminders, dueTime);
+        await _scheduleSpecificDaysRepeating(
+            routine, enabledReminders, dueTime);
       } else if (frequencyType == 'every_x') {
         final periodType = routine.everyXPeriodType;
         final everyXValue = routine.everyXValue;
@@ -75,8 +76,8 @@ class RoutineReminderScheduler {
   /// Check if any reminder needs due time (uses relative offsets)
   static bool _needsDueTime(List<Map<String, dynamic>> reminders) {
     final configs = ReminderConfigList.fromMapList(reminders);
-    return configs.any((r) =>
-        r.enabled && r.fixedTimeMinutes == null && r.offsetMinutes != 0);
+    return configs.any(
+        (r) => r.enabled && r.fixedTimeMinutes == null && r.offsetMinutes != 0);
   }
 
   /// Schedule daily repeating reminders
@@ -305,7 +306,8 @@ class RoutineReminderScheduler {
     int daysUntilNext = (dayOfWeek - currentWeekday) % 7;
     if (daysUntilNext == 0) {
       // Today is the target day - check if time has passed
-      final targetTime = DateTime(now.year, now.month, now.day, baseTime.hour, baseTime.minute);
+      final targetTime = DateTime(
+          now.year, now.month, now.day, baseTime.hour, baseTime.minute);
       if (targetTime.isBefore(now)) {
         daysUntilNext = 7; // Next week
       }
@@ -325,7 +327,8 @@ class RoutineReminderScheduler {
     final occurrences = <DateTime>[];
 
     // Start from today
-    var currentDate = DateTime(now.year, now.month, now.day, dueTime.hour, dueTime.minute);
+    var currentDate =
+        DateTime(now.year, now.month, now.day, dueTime.hour, dueTime.minute);
 
     // If time has passed today, start from next period
     if (currentDate.isBefore(now)) {
@@ -409,9 +412,8 @@ class RoutineReminderScheduler {
 
       // Try to load routine to determine which IDs to cancel
       try {
-        final routineDoc = RoutineRecord.collectionForUser(userId)
-            .doc(routineId)
-            .get();
+        final routineDoc =
+            RoutineRecord.collectionForUser(userId).doc(routineId).get();
         final routineSnap = await routineDoc;
         if (routineSnap.exists) {
           final routine = RoutineRecord.fromSnapshot(routineSnap);
@@ -419,11 +421,13 @@ class RoutineReminderScheduler {
             final reminders = ReminderConfigList.fromMapList(routine.reminders);
             final frequencyType = routine.reminderFrequencyType;
 
-            if (frequencyType == 'specific_days' && routine.specificDays.isNotEmpty) {
+            if (frequencyType == 'specific_days' &&
+                routine.specificDays.isNotEmpty) {
               // Cancel specific days notifications
               for (final reminder in reminders) {
                 for (final dayOfWeek in routine.specificDays) {
-                  final reminderId = 'routine_${routineId}_${reminder.id}_$dayOfWeek';
+                  final reminderId =
+                      'routine_${routineId}_${reminder.id}_$dayOfWeek';
                   await NotificationService.cancelNotification(reminderId);
                 }
               }
@@ -434,7 +438,8 @@ class RoutineReminderScheduler {
               if (periodType == 'day' && everyXValue == 1) {
                 // Cancel daily notifications
                 for (final reminder in reminders) {
-                  final reminderId = 'routine_${routineId}_${reminder.id}_daily';
+                  final reminderId =
+                      'routine_${routineId}_${reminder.id}_daily';
                   await NotificationService.cancelNotification(reminderId);
                 }
               } else {
@@ -496,4 +501,3 @@ class RoutineReminderScheduler {
     }
   }
 }
-

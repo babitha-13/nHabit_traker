@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/category_statistics_service.dart';
+import 'package:habit_tracker/Screens/Progress/category_statistics_data_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 
 class CategoryStatisticsTab extends StatefulWidget {
   const CategoryStatisticsTab({Key? key}) : super(key: key);
-  
+
   @override
   State<CategoryStatisticsTab> createState() => _CategoryStatisticsTabState();
 }
@@ -15,19 +15,19 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
   List<CategoryStatistics> _categoriesStats = [];
   bool _isLoading = true;
   String _selectedPeriod = '30';
-  
+
   @override
   void initState() {
     super.initState();
     _loadCategoriesStatistics();
   }
-  
+
   Future<void> _loadCategoriesStatistics() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
@@ -38,10 +38,10 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
         }
         return;
       }
-      
+
       DateTime? startDate;
       final endDate = DateService.currentDate;
-      
+
       switch (_selectedPeriod) {
         case '7':
           startDate = endDate.subtract(const Duration(days: 7));
@@ -56,13 +56,13 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
           startDate = null;
           break;
       }
-      
+
       final stats = await CategoryStatisticsService.getAllCategoriesStatistics(
         userId,
         startDate: startDate,
         endDate: endDate,
       );
-      
+
       if (mounted) {
         setState(() {
           _categoriesStats = stats;
@@ -78,7 +78,7 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
       }
     }
   }
-  
+
   double get _overallCompletionRate {
     if (_categoriesStats.isEmpty) return 0.0;
     final total = _categoriesStats.fold(
@@ -87,7 +87,7 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
     );
     return total / _categoriesStats.length;
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -179,7 +179,7 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
       ],
     );
   }
-  
+
   Widget _buildSummaryCard(
     BuildContext context,
     String title,
@@ -219,7 +219,7 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
       ),
     );
   }
-  
+
   Widget _buildCategoryCard(
     BuildContext context,
     CategoryStatistics category,
@@ -227,11 +227,12 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
     // Parse color from hex string
     Color categoryColor;
     try {
-      categoryColor = Color(int.parse(category.categoryColor.replaceFirst('#', '0xFF')));
+      categoryColor =
+          Color(int.parse(category.categoryColor.replaceFirst('#', '0xFF')));
     } catch (e) {
       categoryColor = FlutterFlowTheme.of(context).primary;
     }
-    
+
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
       shape: RoundedRectangleBorder(
@@ -288,7 +289,8 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
                       LinearProgressIndicator(
                         value: category.completionRate / 100,
                         backgroundColor: FlutterFlowTheme.of(context).alternate,
-                        valueColor: AlwaysStoppedAnimation<Color>(categoryColor),
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(categoryColor),
                         minHeight: 8,
                       ),
                       const SizedBox(height: 4),
@@ -339,7 +341,7 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
       ),
     );
   }
-  
+
   Widget _buildStatItem(
     BuildContext context,
     String label,
@@ -373,4 +375,3 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
     );
   }
 }
-

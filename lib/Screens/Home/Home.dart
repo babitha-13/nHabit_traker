@@ -1,43 +1,42 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:habit_tracker/Helper/Response/login_response.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/constants.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/constants.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Helper/backend/goal_service.dart';
 import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
-import 'package:habit_tracker/Screens/Home/Home%20AppBar/home_app_bar.dart';
-import 'package:habit_tracker/Screens/Home/Home%20BottomNavigationBar/home_bottom_navigation_bar.dart';
-import 'package:habit_tracker/Screens/Home/Home%20Drawer/app_drawer.dart';
-import 'package:habit_tracker/Screens/Home/Home%20Drawer/drawer_item.dart';
-import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
-import 'package:habit_tracker/Screens/Essential/essential_templates_page.dart';
-import 'package:habit_tracker/Screens/Routine/routine.dart';
+import 'package:habit_tracker/Screens/Home/home_app_bar.dart';
+import 'package:habit_tracker/Screens/Home/home_bottom_navigation_bar.dart';
+import 'package:habit_tracker/Screens/Home/app_drawer.dart';
+import 'package:habit_tracker/Screens/Categories/manage_categories.dart';
+import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.dart';
+import 'package:habit_tracker/Screens/Routine/routines_page_main.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
-import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
+import 'package:habit_tracker/Screens/Calendar/calendar_page_main.dart';
 import 'package:habit_tracker/Screens/Progress/progress_page.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
-import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog.dart';
+import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog_UI.dart';
 import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
-import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
+import 'package:habit_tracker/Screens/CatchUp/day_end_processor.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Screens/Settings/notification_onboarding_dialog.dart';
 import 'package:habit_tracker/Screens/Settings/settings_page.dart';
-import 'package:habit_tracker/Screens/Help/faq_page.dart';
+import 'package:habit_tracker/Screens/Settings/faq_page.dart';
 import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
-import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
-import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/daily_notification_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/engagement_reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/backend/routine_reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/global_floating_timer.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Screens/Timer/global_floating_timer.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
@@ -64,7 +63,8 @@ class _HomeState extends State<Home> {
   static bool _isCheckingCatchUp = false;
   @override
   void initState() {
-    NotificationCenter.addObserver(this, 'navigateBottomTab', _onNavigateBottomTab);
+    NotificationCenter.addObserver(
+        this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
     _pages = [
       const TaskTab(), // index 0
@@ -127,9 +127,7 @@ class _HomeState extends State<Home> {
             currentUserEmail: currentUserEmail,
             loadPage: loadPage,
             onLogout: () {
-              sharedPref
-                  .remove(SharedPreference.name.sUserDetails)
-                  .then((_) {
+              sharedPref.remove(SharedPreference.name.sUserDetails).then((_) {
                 users = LoginResponse();
                 Navigator.pushReplacementNamed(context, login);
               });
@@ -316,7 +314,6 @@ class _HomeState extends State<Home> {
           );
         }
       } else {
-
         await DayEndProcessor.processDayEnd(
           userId: userId,
           targetDate: DateService.yesterdayStart,

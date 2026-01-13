@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/habit_statistics_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Screens/Progress/habit_detail_statistics_page.dart';
 
 class HabitStatisticsTab extends StatefulWidget {
   const HabitStatisticsTab({Key? key}) : super(key: key);
-  
+
   @override
   State<HabitStatisticsTab> createState() => _HabitStatisticsTabState();
 }
@@ -17,19 +17,19 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
   bool _isLoading = true;
   String _selectedPeriod = '30';
   String _searchQuery = '';
-  
+
   @override
   void initState() {
     super.initState();
     _loadHabitsStatistics();
   }
-  
+
   Future<void> _loadHabitsStatistics() async {
     if (!mounted) return;
     setState(() {
       _isLoading = true;
     });
-    
+
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) {
@@ -40,10 +40,10 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
         }
         return;
       }
-      
+
       DateTime? startDate;
       final endDate = DateService.currentDate;
-      
+
       switch (_selectedPeriod) {
         case '7':
           startDate = endDate.subtract(const Duration(days: 7));
@@ -58,13 +58,13 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
           startDate = null;
           break;
       }
-      
+
       final stats = await HabitStatisticsService.getAllHabitsStatistics(
         userId,
         startDate: startDate,
         endDate: endDate,
       );
-      
+
       if (mounted) {
         setState(() {
           _habitsStats = stats;
@@ -80,18 +80,16 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
       }
     }
   }
-  
+
   List<HabitStatistics> get _filteredHabits {
     if (_searchQuery.isEmpty) {
       return _habitsStats;
     }
     return _habitsStats.where((habit) {
-      return habit.habitName
-          .toLowerCase()
-          .contains(_searchQuery.toLowerCase());
+      return habit.habitName.toLowerCase().contains(_searchQuery.toLowerCase());
     }).toList();
   }
-  
+
   double get _overallCompletionRate {
     if (_habitsStats.isEmpty) return 0.0;
     final total = _habitsStats.fold(
@@ -100,7 +98,7 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
     );
     return total / _habitsStats.length;
   }
-  
+
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -213,7 +211,7 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
       ],
     );
   }
-  
+
   Widget _buildSummaryCard(
     BuildContext context,
     String title,
@@ -253,7 +251,7 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
       ),
     );
   }
-  
+
   Widget _buildHabitCard(BuildContext context, HabitStatistics habit) {
     return Card(
       margin: const EdgeInsets.only(bottom: 12),
@@ -282,8 +280,7 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
                     CircularProgressIndicator(
                       value: habit.completionRate / 100,
                       strokeWidth: 6,
-                      backgroundColor:
-                          FlutterFlowTheme.of(context).alternate,
+                      backgroundColor: FlutterFlowTheme.of(context).alternate,
                       valueColor: AlwaysStoppedAnimation<Color>(
                         _getCompletionColor(habit.completionRate),
                       ),
@@ -333,11 +330,10 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
       ),
     );
   }
-  
+
   Color _getCompletionColor(double rate) {
     if (rate >= 80) return Colors.green;
     if (rate >= 50) return Colors.orange;
     return Colors.red;
   }
 }
-
