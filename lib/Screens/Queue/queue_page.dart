@@ -5,7 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';

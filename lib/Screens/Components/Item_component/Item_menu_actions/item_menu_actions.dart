@@ -1,9 +1,10 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:intl/intl.dart';
 
 class ItemMenuLogicHelper {
   // Utility to match your original _isSameDay
@@ -11,7 +12,42 @@ class ItemMenuLogicHelper {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
-  // EXACT copy of your _showScheduleMenu logic
+  static Future<void> updateTemplatePriority({
+    required int newPriority,
+    required ActivityInstanceRecord instance,
+    required Function(ActivityInstanceRecord) onInstanceUpdated,
+    required BuildContext context,
+  }) async {
+    final previousInstance = instance;
+    final optimisticInstance =
+        InstanceEvents.createOptimisticPropertyUpdateInstance(
+      previousInstance,
+      {'templatePriority': newPriority},
+    );
+    onInstanceUpdated(optimisticInstance);
+    try {
+      final uid = FirebaseAuth.instance.currentUser!.uid;
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+      await templateRef
+          .update({'priority': newPriority, 'lastUpdated': DateTime.now()});
+      final instanceRef = ActivityInstanceRecord.collectionForUser(uid)
+          .doc(instance.reference.id);
+      await instanceRef.update(
+          {'templatePriority': newPriority, 'lastUpdated': DateTime.now()});
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id);
+      onInstanceUpdated(updatedInstance);
+      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+    } catch (e) {
+      onInstanceUpdated(previousInstance);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error updating priority: $e')));
+      }
+    }
+  }
+
   static Future<void> showScheduleMenu({
     required BuildContext context,
     required BuildContext anchorContext,
@@ -46,7 +82,7 @@ class ItemMenuLogicHelper {
         menuItems.add(const PopupMenuItem<String>(
             value: 'bring_back',
             height: 32,
-            child: Text('Bring back', style: TextStyle(fontSize: 12))));
+            child: Text('Unsnooze', style: TextStyle(fontSize: 12))));
       } else {
         final hasProgress = currentProgressLocal > 0;
         if (hasProgress) {
@@ -88,7 +124,7 @@ class ItemMenuLogicHelper {
         menuItems.add(const PopupMenuItem<String>(
             value: 'bring_back',
             height: 32,
-            child: Text('Bring back', style: TextStyle(fontSize: 12))));
+            child: Text('Unsnooze', style: TextStyle(fontSize: 12))));
       } else {
         final now = DateTime.now();
         final today = DateTime(now.year, now.month, now.day);
@@ -217,10 +253,7 @@ class ItemMenuLogicHelper {
               InstanceEvents.createOptimisticSkippedInstance(instance));
           await ActivityInstanceService.skipInstance(
               instanceId: instance.reference.id);
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(instance.templateCategoryType == 'habit'
-                  ? 'Habit skipped'
-                  : 'Occurrence skipped')));
+
           break;
         case 'skip_until_today':
           onInstanceUpdated(
@@ -241,9 +274,6 @@ class ItemMenuLogicHelper {
                 InstanceEvents.createOptimisticSkippedInstance(instance));
             await ActivityInstanceService.skipInstancesUntil(
                 templateId: instance.templateId, untilDate: picked);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(
-                    'Skipped until ${DateFormat('EEE, MMM d').format(picked)}')));
           }
           break;
         case 'today':
@@ -253,8 +283,6 @@ class ItemMenuLogicHelper {
               newDueTime: instance.dueTime));
           await ActivityInstanceService.rescheduleInstance(
               instanceId: instance.reference.id, newDueDate: today);
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Scheduled for today')));
           break;
         case 'tomorrow':
           onInstanceUpdated(InstanceEvents.createOptimisticRescheduledInstance(
@@ -263,8 +291,6 @@ class ItemMenuLogicHelper {
               newDueTime: instance.dueTime));
           await ActivityInstanceService.rescheduleInstance(
               instanceId: instance.reference.id, newDueDate: tomorrow);
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Scheduled for tomorrow')));
           break;
         case 'pick_date':
           final picked = await showDatePicker(
@@ -278,9 +304,6 @@ class ItemMenuLogicHelper {
                     newDueDate: picked, newDueTime: instance.dueTime));
             await ActivityInstanceService.rescheduleInstance(
                 instanceId: instance.reference.id, newDueDate: picked);
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(
-                    'Scheduled for ${DateFormat('EEE, MMM d').format(picked)}')));
           }
           break;
         case 'clear_due_date':
@@ -289,8 +312,6 @@ class ItemMenuLogicHelper {
                   instance, {'dueDate': null, 'dueTime': null}));
           await ActivityInstanceService.removeDueDateFromInstance(
               instanceId: instance.reference.id);
-          ScaffoldMessenger.of(context)
-              .showSnackBar(const SnackBar(content: Text('Due date cleared')));
           break;
         case 'skip_rest':
           onInstanceUpdated(
@@ -336,10 +357,6 @@ class ItemMenuLogicHelper {
       }
       await ActivityInstanceService.uncompleteInstance(
           instanceId: instance.reference.id, deleteLogs: deleteLogs);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Item unskipped and returned to pending')));
-      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -353,10 +370,6 @@ class ItemMenuLogicHelper {
     try {
       await ActivityInstanceService.skipInstance(
           instanceId: instance.reference.id);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Habit skipped (progress preserved)')));
-      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
@@ -384,11 +397,6 @@ class ItemMenuLogicHelper {
             snoozedUntil: picked));
         await ActivityInstanceService.snoozeInstance(
             instanceId: instance.reference.id, snoozeUntil: picked);
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(
-                  'Snoozed until ${DateFormat('EEE, MMM d').format(picked)}')));
-        }
       }
     } catch (e) {
       if (context.mounted) {
@@ -410,10 +418,7 @@ class ItemMenuLogicHelper {
           snoozedUntil: tomorrow));
       await ActivityInstanceService.snoozeInstance(
           instanceId: instance.reference.id, snoozeUntil: tomorrow);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Snoozed until tomorrow')));
-      }
+      // Do not show snackbar on success, only on failure.
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -430,14 +435,10 @@ class ItemMenuLogicHelper {
       onUpdate(InstanceEvents.createOptimisticUnsnoozedInstance(instance));
       await ActivityInstanceService.unsnoozeInstance(
           instanceId: instance.reference.id);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Brought back to queue')));
-      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text('Error bringing back: $e')));
+            .showSnackBar(SnackBar(content: Text('Error unsnoozing: $e')));
       }
     }
   }

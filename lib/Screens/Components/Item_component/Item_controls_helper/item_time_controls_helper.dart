@@ -4,13 +4,13 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
+import 'package:habit_tracker/Helper/utils/TimeManager.dart';
+import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class ItemTimeControlsHelper {
-
-  // EXACT copy of your _showTimeControlsMenu logic
   static Future<void> showTimeControlsMenu({
     required BuildContext context,
     required BuildContext anchorContext,
@@ -24,10 +24,11 @@ class ItemTimeControlsHelper {
   }) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
-    Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
-    final realTimeAccumulated = TimerLogicHelper.getRealTimeAccumulated(instance);
+    final realTimeAccumulated =
+        TimerLogicHelper.getRealTimeAccumulated(instance);
     final target = instance.templateTarget ?? 0;
     final targetMs = target * 60000; // Convert minutes to milliseconds
     final remainingMs = targetMs - realTimeAccumulated;
@@ -95,7 +96,6 @@ class ItemTimeControlsHelper {
     }
   }
 
-  // EXACT copy of your _formatRemainingTime logic
   static String formatRemainingTime(int remainingMs) {
     final totalSeconds = remainingMs ~/ 1000;
     final minutes = totalSeconds ~/ 60;
@@ -106,7 +106,6 @@ class ItemTimeControlsHelper {
     return '${seconds}s';
   }
 
-  // EXACT copy of your _formatTimeFromMs logic
   static String formatTimeFromMs(int milliseconds) {
     final totalSeconds = milliseconds ~/ 1000;
     final hours = totalSeconds ~/ 3600;
@@ -122,7 +121,6 @@ class ItemTimeControlsHelper {
     }
   }
 
-  // EXACT copy of your _resetTimer logic
   static Future<void> resetTimer({
     required ActivityInstanceRecord instance,
     required bool isUpdating,
@@ -138,8 +136,8 @@ class ItemTimeControlsHelper {
     });
     try {
       final instanceRef =
-      ActivityInstanceRecord.collectionForUser(currentUserUid)
-          .doc(instance.reference.id);
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(instance.reference.id);
       await instanceRef.update({
         'accumulatedTime': 0,
         'totalTimeLogged': 0,
@@ -178,7 +176,6 @@ class ItemTimeControlsHelper {
     }
   }
 
-  // EXACT copy of your _markTimerComplete logic
   static Future<void> markTimerComplete({
     required ActivityInstanceRecord instance,
     required bool isUpdating,
@@ -193,8 +190,7 @@ class ItemTimeControlsHelper {
       setUpdating(true);
     });
     try {
-      if (instance.isTimeLogging &&
-          instance.currentSessionStartTime != null) {
+      if (instance.isTimeLogging && instance.currentSessionStartTime != null) {
         await TaskInstanceService.stopTimeLogging(
           activityInstanceRef: instance.reference,
           markComplete: false, // Don't mark complete yet, just stop the session
@@ -207,19 +203,22 @@ class ItemTimeControlsHelper {
       int newAccumulatedTime;
       if (target == 0) {
         final realTimeAccumulated =
-        TimerLogicHelper.getRealTimeAccumulated(updatedInstance);
+            TimerLogicHelper.getRealTimeAccumulated(updatedInstance);
         if (realTimeAccumulated <= 0) {
           throw Exception('No time recorded to complete task');
         }
         newAccumulatedTime = realTimeAccumulated;
         final targetInMinutes = realTimeAccumulated ~/ 60000;
-        final instanceRef = ActivityInstanceRecord.collectionForUser(currentUserUid).doc(updatedInstance.reference.id);
+        final instanceRef =
+            ActivityInstanceRecord.collectionForUser(currentUserUid)
+                .doc(updatedInstance.reference.id);
         await instanceRef.update({
           'templateTarget': targetInMinutes,
           'lastUpdated': DateTime.now(),
         });
 
-        final templateRef = ActivityRecord.collectionForUser(currentUserUid).doc(updatedInstance.templateId);
+        final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+            .doc(updatedInstance.templateId);
         await templateRef.update({
           'target': targetInMinutes,
           'lastUpdated': DateTime.now(),
@@ -231,7 +230,7 @@ class ItemTimeControlsHelper {
 
       final completionTime = DateTime.now();
       final stackedTimes =
-      await ActivityInstanceService.calculateStackedStartTime(
+          await ActivityInstanceService.calculateStackedStartTime(
         userId: currentUserUid,
         completionTime: completionTime,
         durationMs: newAccumulatedTime,
@@ -239,7 +238,7 @@ class ItemTimeControlsHelper {
       );
 
       final instanceBeforeSession =
-      await ActivityInstanceService.getUpdatedInstance(
+          await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
 
@@ -249,17 +248,18 @@ class ItemTimeControlsHelper {
         'durationMilliseconds': newAccumulatedTime,
       };
 
-      final existingSessions = List<Map<String, dynamic>>.from(instanceBeforeSession.timeLogSessions);
+      final existingSessions = List<Map<String, dynamic>>.from(
+          instanceBeforeSession.timeLogSessions);
 
       existingSessions.add(newSession);
       final totalTime = existingSessions.fold<int>(
         0,
-            (sum, session) => sum + (session['durationMilliseconds'] as int? ?? 0),
+        (sum, session) => sum + (session['durationMilliseconds'] as int? ?? 0),
       );
 
       final instanceRef =
-      ActivityInstanceRecord.collectionForUser(currentUserUid)
-          .doc(updatedInstance.reference.id);
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(updatedInstance.reference.id);
 
       final Map<String, dynamic> updateData = {
         'timeLogSessions': existingSessions,
@@ -281,8 +281,8 @@ class ItemTimeControlsHelper {
         finalValue: updatedInstance.templateTrackingType == 'time'
             ? newAccumulatedTime
             : (updatedInstance.templateTrackingType == 'binary'
-            ? 1
-            : updatedInstance.currentValue),
+                ? 1
+                : updatedInstance.currentValue),
         finalAccumulatedTime: newAccumulatedTime,
       );
       if (isMounted()) {
@@ -306,21 +306,23 @@ class ItemTimeControlsHelper {
     }
   }
 
-  // EXACT copy of your _showCustomTimeDialog logic
   static Future<void> showCustomTimeDialog({
     required ActivityInstanceRecord instance,
     required BuildContext context,
     required Function(int, int) setCustomTime,
     required String Function(int) formatTimeFromMs,
   }) async {
-    final realTimeAccumulated = TimerLogicHelper.getRealTimeAccumulated(instance);
+    final realTimeAccumulated =
+        TimerLogicHelper.getRealTimeAccumulated(instance);
     final currentHours = realTimeAccumulated ~/ 3600000;
     final currentMinutes = (realTimeAccumulated % 3600000) ~/ 60000;
     final target = instance.templateTarget ?? 0;
     final targetHours = target ~/ 60;
     final targetMinutes = (target % 60).toInt();
-    final hoursController = TextEditingController(text: currentHours > 0 ? currentHours.toString() : '');
-    final minutesController = TextEditingController(text: currentMinutes > 0 ? currentMinutes.toString() : '0');
+    final hoursController = TextEditingController(
+        text: currentHours > 0 ? currentHours.toString() : '');
+    final minutesController = TextEditingController(
+        text: currentMinutes > 0 ? currentMinutes.toString() : '0');
 
     final result = await showDialog<Map<String, int>>(
       context: context,
@@ -402,7 +404,6 @@ class ItemTimeControlsHelper {
     }
   }
 
-  // EXACT copy of your _setCustomTime logic
   static Future<void> setCustomTime({
     required int hours,
     required int minutes,
@@ -420,8 +421,7 @@ class ItemTimeControlsHelper {
       setUpdating(true);
     });
     try {
-      if (instance.isTimeLogging &&
-          instance.currentSessionStartTime != null) {
+      if (instance.isTimeLogging && instance.currentSessionStartTime != null) {
         await TaskInstanceService.stopTimeLogging(
           activityInstanceRef: instance.reference,
           markComplete: false, // Don't mark complete yet, just stop the session
@@ -432,8 +432,8 @@ class ItemTimeControlsHelper {
       );
       final customTimeMs = (hours * 3600000) + (minutes * 60000);
       final instanceRef =
-      ActivityInstanceRecord.collectionForUser(currentUserUid)
-          .doc(instance.reference.id);
+          ActivityInstanceRecord.collectionForUser(currentUserUid)
+              .doc(instance.reference.id);
 
       final Map<String, dynamic> updateData = {
         'accumulatedTime': customTimeMs,
@@ -454,8 +454,8 @@ class ItemTimeControlsHelper {
           finalValue: updatedInstance.templateTrackingType == 'time'
               ? customTimeMs
               : (updatedInstance.templateTrackingType == 'binary'
-              ? 1
-              : updatedInstance.currentValue),
+                  ? 1
+                  : updatedInstance.currentValue),
           finalAccumulatedTime: customTimeMs,
         );
       } else if (!shouldComplete &&
@@ -495,8 +495,8 @@ class ItemTimeControlsHelper {
         final timeDisplay = hours > 0
             ? '${hours}h ${minutes}m'
             : minutes > 0
-            ? '${minutes}m'
-            : '0m';
+                ? '${minutes}m'
+                : '0m';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Time set to $timeDisplay')),
         );
@@ -512,6 +512,86 @@ class ItemTimeControlsHelper {
         setState(() {
           setUpdating(false);
         });
+      }
+    }
+  }
+
+  static Future<void> toggleTimer({
+    required ActivityInstanceRecord instance,
+    required bool isUpdating,
+    required Function(bool) setUpdating,
+    required Function(bool?) setTimerOverride,
+    required Function(ActivityInstanceRecord) onInstanceUpdated,
+    required BuildContext context,
+    required Function(ActivityInstanceRecord) checkTimerCompletion,
+    required bool isTimerActiveLocal,
+  }) async {
+    if (isUpdating) return;
+    setUpdating(true);
+    try {
+      final wasActive = isTimerActiveLocal;
+      final newTimerState = !wasActive;
+      setTimerOverride(newTimerState);
+
+      await ActivityInstanceService.toggleInstanceTimer(
+        instanceId: instance.reference.id,
+      );
+
+      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instance.reference.id,
+      );
+
+      if (!wasActive) {
+        SoundHelper().playPlayButtonSound();
+        TimerManager().startInstance(updatedInstance);
+      } else {
+        SoundHelper().playStopButtonSound();
+        TimerManager().stopInstance(updatedInstance);
+        if (TimerLogicHelper.hasMetTarget(updatedInstance)) {
+          await checkTimerCompletion(updatedInstance);
+        }
+      }
+    } catch (e) {
+      setTimerOverride(null);
+      onInstanceUpdated(instance);
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error toggling timer: $e')),
+        );
+      }
+    } finally {
+      setUpdating(false);
+    }
+  }
+
+  static Future<void> checkTimerCompletion(
+    BuildContext context,
+    ActivityInstanceRecord instance,
+    Function(ActivityInstanceRecord) onInstanceUpdated,
+  ) async {
+    if (instance.templateTrackingType != 'time') return;
+    final target = instance.templateTarget ?? 0;
+    if (target == 0) return; // No target set
+    final accumulated = instance.accumulatedTime;
+    final targetMs = (target * 60000).toInt();
+    if (accumulated >= targetMs) {
+      try {
+        await ActivityInstanceService.completeInstance(
+          instanceId: instance.reference.id,
+          finalAccumulatedTime: accumulated,
+        );
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Task completed! Target reached.')),
+          );
+        }
+        final completedInstance =
+            await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        onInstanceUpdated(completedInstance);
+      } catch (e) {
+        // Log error but don't fail - instance update callback is non-critical
       }
     }
   }

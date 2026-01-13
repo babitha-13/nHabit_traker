@@ -7,28 +7,29 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Components/Background%20UI/item_painter.dart';
-import 'package:habit_tracker/Screens/Components/Item Logic/item_management_helper.dart';
-import 'package:habit_tracker/Screens/Components/Item Logic/item_menu_logic_helper.dart';
-import 'package:habit_tracker/Screens/Components/Item Logic/item_progress_logic_helper.dart';
-import 'package:habit_tracker/Screens/Components/Item Logic/item_quantitative_controls_helper.dart';
-import 'package:habit_tracker/Screens/Components/Item Logic/item_subtitle_reminder_helper.dart';
-import 'package:habit_tracker/Screens/Components/Item Logic/item_time_controls_helper.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_ui_building_helper.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/Item_menu_actions/item_context_menu_actions.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/Item_menu_actions/item_menu_actions.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/Item_controls_helper/item_binary_controls_helper.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/Item_controls_helper/item_quantitative_controls_helper.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_subtitle.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/Item_controls_helper/item_time_controls_helper.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_ui.dart';
 import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Progress/habit_detail_statistics_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_expanded_details.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_expanded.dart';
 
 class ItemComponent extends StatefulWidget {
   final ActivityInstanceRecord instance;
   final Future<void> Function()? onRefresh;
-  final void Function(ActivityRecord updatedHabit)?onHabitUpdated;
-  final void Function(ActivityRecord deletedHabit)?onHabitDeleted;
-  final void Function(ActivityInstanceRecord updatedInstance)?onInstanceUpdated;
-  final void Function(ActivityInstanceRecord deletedInstance)?onInstanceDeleted;
+  final void Function(ActivityRecord updatedHabit)? onHabitUpdated;
+  final void Function(ActivityRecord deletedHabit)? onHabitDeleted;
+  final void Function(ActivityInstanceRecord updatedInstance)?
+      onInstanceUpdated;
+  final void Function(ActivityInstanceRecord deletedInstance)?
+      onInstanceDeleted;
   final String? categoryColorHex, page;
   final bool? showCompleted;
   final bool showCalendar;
@@ -43,7 +44,8 @@ class ItemComponent extends StatefulWidget {
   final DateTime? progressReferenceTime;
   final bool showQuickLogOnLeft; // NEW: Flag to show + on left
   final VoidCallback? onQuickLog; // NEW: Callback for + on left
-  final bool treatAsBinary; // NEW: Forces checklist behavior regardless of tracking type
+  final bool
+      treatAsBinary; // NEW: Forces checklist behavior regardless of tracking type
   const ItemComponent(
       {super.key,
       required this.instance,
@@ -110,7 +112,8 @@ class _ItemComponentState extends State<ItemComponent>
         setState(() => _quantProgressOverride = null);
       }
     }
-    if (widget.instance.templateTrackingType == 'time' && _timerStateOverride != null) {
+    if (widget.instance.templateTrackingType == 'time' &&
+        _timerStateOverride != null) {
       if (widget.instance.isTimerActive == _timerStateOverride) {
         setState(() => _timerStateOverride = null);
       } else if (widget.instance.isTimerActive != _timerStateOverride &&
@@ -190,11 +193,14 @@ class _ItemComponentState extends State<ItemComponent>
     if (uid == null) return;
     _isFetchingTimeEstimate = true;
     try {
-      final templateRef = ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
       final template = await ActivityRecord.getDocumentOnce(templateRef);
       if (!mounted) return;
       final sanitized = _normalizeTimeEstimate(template.timeEstimateMinutes);
-      if (sanitized != null && sanitized != _resolvedTimeEstimateMinutes && mounted) {
+      if (sanitized != null &&
+          sanitized != _resolvedTimeEstimateMinutes &&
+          mounted) {
         setState(() {
           _resolvedTimeEstimateMinutes = sanitized;
         });
@@ -225,17 +231,10 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Color get _impactLevelColor {
-    final theme = FlutterFlowTheme.of(context);
-    switch (widget.instance.templatePriority) {
-      case 1:
-        return theme.accent3;
-      case 2:
-        return theme.secondary;
-      case 3:
-        return theme.primary;
-      default:
-        return theme.secondary;
-    }
+    return ItemUIBuildingHelper.getImpactLevelColor(
+      theme: FlutterFlowTheme.of(context),
+      priority: widget.instance.templatePriority,
+    );
   }
 
   String _getTimerDisplayWithSeconds() {
@@ -279,7 +278,8 @@ class _ItemComponentState extends State<ItemComponent>
         if (pct.isNaN) return 0.0;
         return pct.clamp(0.0, 1.0);
       } else if (widget.instance.templateTrackingType == 'time') {
-        final realTimeAccumulated = TimerLogicHelper.getRealTimeAccumulated(widget.instance);
+        final realTimeAccumulated =
+            TimerLogicHelper.getRealTimeAccumulated(widget.instance);
         final target = widget.instance.templateTarget ?? 0;
         if (target == 0) return 0.0;
         final targetMs = target * 60000;
@@ -382,23 +382,43 @@ class _ItemComponentState extends State<ItemComponent>
                           Text(
                             widget.instance.templateName,
                             maxLines: _isExpanded ? null : 1,
-                            overflow: _isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
-                            style: FlutterFlowTheme.of(context).bodyMedium.override(
+                            overflow: _isExpanded
+                                ? TextOverflow.visible
+                                : TextOverflow.ellipsis,
+                            style: FlutterFlowTheme.of(context)
+                                .bodyMedium
+                                .override(
                                   fontFamily: 'Readex Pro',
                                   fontWeight: FontWeight.w600,
-                                  decoration: _isCompleted ? TextDecoration.lineThrough : TextDecoration.none,
-                                  color: _isCompleted ? FlutterFlowTheme.of(context).secondaryText : FlutterFlowTheme.of(context).primaryText,
+                                  decoration: _isCompleted
+                                      ? TextDecoration.lineThrough
+                                      : TextDecoration.none,
+                                  color: _isCompleted
+                                      ? FlutterFlowTheme.of(context)
+                                          .secondaryText
+                                      : FlutterFlowTheme.of(context)
+                                          .primaryText,
                                 ),
                           ),
-                          if (_getEnhancedSubtitle(includeProgress: _shouldShowProgress).isNotEmpty && !_isessential) ...[
+                          if (_getEnhancedSubtitle(
+                                      includeProgress: _shouldShowProgress)
+                                  .isNotEmpty &&
+                              !_isessential) ...[
                             const SizedBox(height: 2),
                             Text(
-                              _getEnhancedSubtitle(includeProgress: _shouldShowProgress),
+                              _getEnhancedSubtitle(
+                                  includeProgress: _shouldShowProgress),
                               maxLines: _isExpanded ? null : 1,
-                              overflow: _isExpanded ? TextOverflow.visible : TextOverflow.ellipsis,
-                              style: FlutterFlowTheme.of(context).bodySmall.override(
+                              overflow: _isExpanded
+                                  ? TextOverflow.visible
+                                  : TextOverflow.ellipsis,
+                              style: FlutterFlowTheme.of(context)
+                                  .bodySmall
+                                  .override(
                                     fontFamily: 'Readex Pro',
-                                    color: FlutterFlowTheme.of(context).primaryText.withOpacity(0.7),
+                                    color: FlutterFlowTheme.of(context)
+                                        .primaryText
+                                        .withOpacity(0.7),
                                     fontSize: 13,
                                     fontWeight: FontWeight.w500,
                                   ),
@@ -415,12 +435,15 @@ class _ItemComponentState extends State<ItemComponent>
                               frequencyDisplay: _getFrequencyDisplay(),
                               hasReminders: _hasReminders,
                               reminderDisplayText: _reminderDisplayText,
-                              showCategoryOnExpansion: widget.showExpandedCategoryName,
+                              showCategoryOnExpansion:
+                                  widget.showExpandedCategoryName,
                               timeEstimateMinutes: _resolvedTimeEstimateMinutes,
                               onEdit: _editActivity,
                             ),
                           ],
-                          if (widget.instance.templateTrackingType != 'binary' && !widget.treatAsBinary) ...[
+                          if (widget.instance.templateTrackingType !=
+                                  'binary' &&
+                              !widget.treatAsBinary) ...[
                             const SizedBox(height: 4),
                             Container(
                               height: 3,
@@ -509,8 +532,10 @@ class _ItemComponentState extends State<ItemComponent>
                                     anchorContext: btnCtx,
                                     instance: widget.instance,
                                     isRecurringItem: _isRecurringItem(),
-                                    currentProgressLocal: _currentProgressLocal(),
-                                    onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
+                                    currentProgressLocal:
+                                        _currentProgressLocal(),
+                                    onInstanceUpdated: (updated) =>
+                                        widget.onInstanceUpdated?.call(updated),
                                     onRefresh: widget.onRefresh,
                                     showUncompleteDialog: _showUncompleteDialog,
                                   );
@@ -530,13 +555,18 @@ class _ItemComponentState extends State<ItemComponent>
                                     anchorContext: btnCtx,
                                     instance: widget.instance,
                                     categories: widget.categories ?? [],
-                                    onInstanceDeleted: (deleted) => widget.onInstanceDeleted?.call(deleted),
-                                    onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
-                                    setUpdating: (val) => setState(() => _isUpdating = val),
+                                    onInstanceDeleted: (deleted) =>
+                                        widget.onInstanceDeleted?.call(deleted),
+                                    onInstanceUpdated: (updated) =>
+                                        widget.onInstanceUpdated?.call(updated),
+                                    setUpdating: (val) =>
+                                        setState(() => _isUpdating = val),
                                     onRefresh: widget.onRefresh,
-                                    onEstimateUpdate: (newEst) => setState(() => _resolvedTimeEstimateMinutes = newEst),
+                                    onEstimateUpdate: (newEst) => setState(() =>
+                                        _resolvedTimeEstimateMinutes = newEst),
                                     editActivity: _editActivity, // ADD THIS
-                                    normalizeTimeEstimate: _normalizeTimeEstimate, // ADD THIS
+                                    normalizeTimeEstimate:
+                                        _normalizeTimeEstimate, // ADD THIS
                                     isMounted: () => mounted, // ADD THIS
                                   );
                                 },
@@ -580,12 +610,14 @@ class _ItemComponentState extends State<ItemComponent>
     widget.onInstanceUpdated?.call(optimisticInstance);
     try {
       final uid = FirebaseAuth.instance.currentUser!.uid;
-      final templateRef = ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(widget.instance.templateId);
       await templateRef.update({
         'priority': newPriority,
         'lastUpdated': DateTime.now(),
       });
-      final instanceRef = ActivityInstanceRecord.collectionForUser(uid).doc(widget.instance.reference.id);
+      final instanceRef = ActivityInstanceRecord.collectionForUser(uid)
+          .doc(widget.instance.reference.id);
       await instanceRef.update({
         'templatePriority': newPriority,
         'lastUpdated': DateTime.now(),
@@ -650,20 +682,10 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Color get _leftStripeColor {
-    final hex = widget.categoryColorHex;
-    if (hex != null && hex.isNotEmpty) {
-      try {
-        return Color(int.parse(hex.replaceFirst('#', '0xFF')));
-      } catch (_) {
-      }
-    }
-    if (widget.instance.templateCategoryType == 'essential') {
-      return const Color(0xFF9E9E9E); // Medium grey fallback
-    }
-    if (widget.instance.templateCategoryType == 'task') {
-      return const Color(0xFF2F4F4F); // Dark Slate Gray fallback
-    }
-    return Colors.black; // Default fallback for habits
+    return ItemUIBuildingHelper.getLeftStripeColor(
+      categoryColorHex: widget.categoryColorHex,
+      categoryType: widget.instance.templateCategoryType,
+    );
   }
 
   bool get _isessential {
@@ -734,15 +756,18 @@ class _ItemComponentState extends State<ItemComponent>
       setUpdating: (val) => setState(() => _isUpdating = val),
       currentProgressLocal: _currentProgressLocal,
       getTargetValue: _getTargetValue,
-      setQuantProgressOverride: (val) => setState(() => _quantProgressOverride = val),
-      setBinaryCompletionOverride: (val) => setState(() => _binaryCompletionOverride = val),
+      setQuantProgressOverride: (val) =>
+          setState(() => _quantProgressOverride = val),
+      setBinaryCompletionOverride: (val) =>
+          setState(() => _binaryCompletionOverride = val),
       onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
       onRefresh: widget.onRefresh,
       context: context,
       isMounted: () => mounted,
       setState: (callback) => setState(callback),
       getPendingQuantIncrement: () => _pendingQuantIncrement,
-      setPendingQuantIncrement: (val) => setState(() => _pendingQuantIncrement = val),
+      setPendingQuantIncrement: (val) =>
+          setState(() => _pendingQuantIncrement = val),
       getQuantUpdateTimer: () => _quantUpdateTimer,
       setQuantUpdateTimer: (val) => setState(() => _quantUpdateTimer = val),
       processPendingQuantUpdate: () => _processPendingQuantUpdate(),
@@ -762,8 +787,10 @@ class _ItemComponentState extends State<ItemComponent>
       isMounted: () => mounted,
       setState: (callback) => setState(callback),
       getPendingQuantIncrement: () => _pendingQuantIncrement,
-      setPendingQuantIncrement: (val) => setState(() => _pendingQuantIncrement = val),
-      setQuantProgressOverride: (val) => setState(() => _quantProgressOverride = val),
+      setPendingQuantIncrement: (val) =>
+          setState(() => _pendingQuantIncrement = val),
+      setQuantProgressOverride: (val) =>
+          setState(() => _quantProgressOverride = val),
       getQuantUpdateTimer: () => _quantUpdateTimer,
       setQuantUpdateTimer: (val) => setState(() => _quantUpdateTimer = val),
       processPendingQuantUpdateCallback: () => _processPendingQuantUpdate(),
@@ -798,7 +825,7 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Future<void> _handleBinaryCompletion(bool completed) async {
-    await ItemProgressLogicHelper.handleBinaryCompletion(
+    await ItemBinaryControlsHelper.handleBinaryCompletion(
       completed: completed,
       instance: widget.instance,
       isUpdating: _isUpdating,
@@ -817,17 +844,18 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Future<void> _toggleTimer() async {
-    await ItemProgressLogicHelper.toggleTimer(
+    await ItemTimeControlsHelper.toggleTimer(
       instance: widget.instance,
       isUpdating: _isUpdating,
       setUpdating: (val) => setState(() => _isUpdating = val),
       setTimerOverride: (val) => setState(() => _timerStateOverride = val),
       onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
       context: context,
-      checkTimerCompletion: (updated) => ItemProgressLogicHelper.checkTimerCompletion(
+      checkTimerCompletion: (updated) =>
+          ItemTimeControlsHelper.checkTimerCompletion(
         context,
         updated,
-            (finalUpdate) => widget.onInstanceUpdated?.call(finalUpdate),
+        (finalUpdate) => widget.onInstanceUpdated?.call(finalUpdate),
       ),
       isTimerActiveLocal: _isTimerActiveLocal,
     );
@@ -837,7 +865,8 @@ class _ItemComponentState extends State<ItemComponent>
     return widget.instance.templateTarget ?? 0;
   }
 
-  Future<void> _showQuantControlsMenu(BuildContext anchorContext, bool canDecrement) async {
+  Future<void> _showQuantControlsMenu(
+      BuildContext anchorContext, bool canDecrement) async {
     await ItemQuantitativeControlsHelper.showQuantControlsMenu(
       context: context,
       anchorContext: anchorContext,
@@ -850,7 +879,8 @@ class _ItemComponentState extends State<ItemComponent>
         isUpdating: _isUpdating,
         progressReferenceTime: widget.progressReferenceTime,
         setUpdating: (val) => setState(() => _isUpdating = val),
-        setQuantProgressOverride: (val) => setState(() => _quantProgressOverride = val),
+        setQuantProgressOverride: (val) =>
+            setState(() => _quantProgressOverride = val),
         onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
         onRefresh: widget.onRefresh,
         context: context,
@@ -866,15 +896,18 @@ class _ItemComponentState extends State<ItemComponent>
         setUpdating: (val) => setState(() => _isUpdating = val),
         currentProgressLocal: _currentProgressLocal,
         getTargetValue: _getTargetValue,
-        setQuantProgressOverride: (val) => setState(() => _quantProgressOverride = val),
-        setBinaryCompletionOverride: (val) => setState(() => _binaryCompletionOverride = val),
+        setQuantProgressOverride: (val) =>
+            setState(() => _quantProgressOverride = val),
+        setBinaryCompletionOverride: (val) =>
+            setState(() => _binaryCompletionOverride = val),
         onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
         onRefresh: widget.onRefresh,
         context: context,
         isMounted: () => mounted,
         setState: (callback) => setState(callback),
         getPendingQuantIncrement: () => _pendingQuantIncrement,
-        setPendingQuantIncrement: (val) => setState(() => _pendingQuantIncrement = val),
+        setPendingQuantIncrement: (val) =>
+            setState(() => _pendingQuantIncrement = val),
         getQuantUpdateTimer: () => _quantUpdateTimer,
         setQuantUpdateTimer: (val) => setState(() => _quantUpdateTimer = val),
         processPendingQuantUpdate: () => _processPendingQuantUpdate(),
@@ -908,7 +941,8 @@ class _ItemComponentState extends State<ItemComponent>
           instance: widget.instance,
           isUpdating: _isUpdating,
           setUpdating: (val) => setState(() => _isUpdating = val),
-          onInstanceUpdated: (updated) => widget.onInstanceUpdated?.call(updated),
+          onInstanceUpdated: (updated) =>
+              widget.onInstanceUpdated?.call(updated),
           context: context,
           isMounted: () => mounted,
           setState: (callback) => setState(callback),

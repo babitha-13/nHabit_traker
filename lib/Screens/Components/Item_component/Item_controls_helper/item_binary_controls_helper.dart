@@ -1,93 +1,10 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/utils/timer_logic_helper.dart';
-import 'package:habit_tracker/Helper/utils/TimeManager.dart';
 import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 
-class ItemProgressLogicHelper {
-
-  static Future<void> toggleTimer({
-    required ActivityInstanceRecord instance,
-    required bool isUpdating,
-    required Function(bool) setUpdating,
-    required Function(bool?) setTimerOverride,
-    required Function(ActivityInstanceRecord) onInstanceUpdated,
-    required BuildContext context,
-    required Function(ActivityInstanceRecord) checkTimerCompletion,
-    required bool isTimerActiveLocal,
-  }) async {
-    if (isUpdating) return;
-    setUpdating(true);
-    try {
-      final wasActive = isTimerActiveLocal;
-      final newTimerState = !wasActive;
-      setTimerOverride(newTimerState);
-
-      await ActivityInstanceService.toggleInstanceTimer(
-        instanceId: instance.reference.id,
-      );
-
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instance.reference.id,
-      );
-
-      if (!wasActive) {
-        SoundHelper().playPlayButtonSound();
-        TimerManager().startInstance(updatedInstance);
-      } else {
-        SoundHelper().playStopButtonSound();
-        TimerManager().stopInstance(updatedInstance);
-        if (TimerLogicHelper.hasMetTarget(updatedInstance)) {
-          await checkTimerCompletion(updatedInstance);
-        }
-      }
-    } catch (e) {
-      setTimerOverride(null);
-      onInstanceUpdated(instance);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error toggling timer: $e')),
-        );
-      }
-    } finally {
-      setUpdating(false);
-    }
-  }
-
-  static Future<void> checkTimerCompletion(
-      BuildContext context,
-      ActivityInstanceRecord instance,
-      Function(ActivityInstanceRecord) onInstanceUpdated,
-      ) async {
-    if (instance.templateTrackingType != 'time') return;
-    final target = instance.templateTarget ?? 0;
-    if (target == 0) return; // No target set
-    final accumulated = instance.accumulatedTime;
-    final targetMs = (target * 60000).toInt();
-    if (accumulated >= targetMs) {
-      try {
-        await ActivityInstanceService.completeInstance(
-          instanceId: instance.reference.id,
-          finalAccumulatedTime: accumulated,
-        );
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(content: Text('Task completed! Target reached.')),
-          );
-        }
-        final completedInstance = await ActivityInstanceService.getUpdatedInstance(
-          instanceId: instance.reference.id,
-        );
-        onInstanceUpdated(completedInstance);
-      } catch (e) {
-        // Log error but don't fail - instance update callback is non-critical
-      }
-    }
-  }
-
+class ItemBinaryControlsHelper {
   static Future<void> handleBinaryCompletion({
     required bool completed,
     required ActivityInstanceRecord instance,

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/utils/frequency_display_helper.dart';
 import 'package:habit_tracker/Screens/Components/Background%20UI/item_painter.dart';
 
 class ItemUIBuildingHelper {
-
-  // EXACT copy of your _isRecurringItem logic
+  /// Check if an activity instance is recurring
+  /// Habits are always recurring; tasks are recurring if they have frequency settings
   static bool isRecurringItem(ActivityInstanceRecord instance) {
     if (instance.templateCategoryType == 'habit') {
       return true; // Habits are always recurring
@@ -16,48 +17,54 @@ class ItemUIBuildingHelper {
     }
   }
 
-  // EXACT copy of your _getFrequencyDisplay logic
+  /// Get frequency display string for an activity instance
+  /// Uses shared FrequencyDisplayHelper for consistent formatting
   static String getFrequencyDisplay(ActivityInstanceRecord instance) {
-    if (!isRecurringItem(instance)) return '';
-    if (instance.templateEveryXValue > 0 &&
-        instance.templateEveryXPeriodType.isNotEmpty) {
-      final value = instance.templateEveryXValue;
-      final period = instance.templateEveryXPeriodType;
-
-      if (value == 1) {
-        switch (period) {
-          case 'days':
-            return 'Every day';
-          case 'weeks':
-            return 'Every week';
-          case 'months':
-            return 'Every month';
-          default:
-            return 'Every $value $period';
-        }
-      } else {
-        final periodName = period == 'days'
-            ? 'days'
-            : period == 'weeks'
-                ? 'weeks'
-                : 'months';
-        return 'Every $value $periodName';
-      }
-    }
-    if (instance.templateTimesPerPeriod > 0 &&
-        instance.templatePeriodType.isNotEmpty) {
-      final times = instance.templateTimesPerPeriod;
-      final period = instance.templatePeriodType;
-      final periodName = period == 'weeks'
-          ? (times == 1 ? 'week' : 'weeks')
-          : (times == 1 ? 'month' : 'months');
-
-      return '$times time${times == 1 ? '' : 's'} per $periodName';
-    }
-    return '';
+    return FrequencyDisplayHelper.formatFromInstance(instance);
   }
 
-  // EXACT copy of your _buildLeftStripe logic
+  /// Get the left stripe color based on category color hex or category type
+  /// Returns the category color if provided, otherwise uses fallback colors
+  static Color getLeftStripeColor({
+    required String? categoryColorHex,
+    required String categoryType,
+  }) {
+    if (categoryColorHex != null && categoryColorHex.isNotEmpty) {
+      try {
+        return Color(int.parse(categoryColorHex.replaceFirst('#', '0xFF')));
+      } catch (_) {
+        // Fall through to default colors if parsing fails
+      }
+    }
+    if (categoryType == 'essential') {
+      return const Color(0xFF9E9E9E); // Medium grey fallback
+    }
+    if (categoryType == 'task') {
+      return const Color(0xFF2F4F4F); // Dark Slate Gray fallback
+    }
+    return Colors.black; // Default fallback for habits
+  }
+
+  /// Get the impact level color based on priority
+  /// Priority 1 = accent3, Priority 2 = secondary, Priority 3 = primary
+  static Color getImpactLevelColor({
+    required FlutterFlowTheme theme,
+    required int priority,
+  }) {
+    switch (priority) {
+      case 1:
+        return theme.accent3;
+      case 2:
+        return theme.secondary;
+      case 3:
+        return theme.primary;
+      default:
+        return theme.secondary;
+    }
+  }
+
+  /// Build the left stripe widget based on category type
+  /// Essential: double line, Habit: dotted line, Task: solid line
   static Widget buildLeftStripe({
     required ActivityInstanceRecord instance,
     required BuildContext context,
@@ -101,7 +108,8 @@ class ItemUIBuildingHelper {
     );
   }
 
-  // EXACT copy of your _buildHabitPriorityStars logic
+  /// Build priority stars widget for habits
+  /// Allows toggling priority by tapping stars
   static Widget buildHabitPriorityStars({
     required ActivityInstanceRecord instance,
     required BuildContext context,
@@ -128,7 +136,8 @@ class ItemUIBuildingHelper {
     );
   }
 
-  // EXACT copy of your _buildLeftControlsCompact logic
+  /// Build compact left control widget (checkmark, increment, timer, etc.)
+  /// Handles binary, quantitative, and time tracking types
   static Widget buildLeftControlsCompact({
     required BuildContext context,
     required ActivityInstanceRecord instance,
@@ -167,7 +176,8 @@ class ItemUIBuildingHelper {
         ),
       );
     }
-    final effectiveTrackingType = treatAsBinary ? 'binary' : instance.templateTrackingType;
+    final effectiveTrackingType =
+        treatAsBinary ? 'binary' : instance.templateTrackingType;
 
     switch (effectiveTrackingType) {
       case 'binary':

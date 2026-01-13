@@ -8,13 +8,14 @@ import 'package:habit_tracker/Helper/backend/weekly_progress_calculator.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
 import 'package:collection/collection.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
+
 class WeeklyView extends StatefulWidget {
   final String searchQuery;
   const WeeklyView({
@@ -24,6 +25,7 @@ class WeeklyView extends StatefulWidget {
   @override
   State<WeeklyView> createState() => _WeeklyViewState();
 }
+
 class _WeeklyViewState extends State<WeeklyView> {
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _instances = [];
@@ -32,7 +34,8 @@ class _WeeklyViewState extends State<WeeklyView> {
   final Map<String, GlobalKey> _sectionKeys = {};
   bool _isLoading = true;
   // Optimistic operation tracking
-  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
+  final Map<String, String> _optimisticOperations =
+      {}; // operationId -> instanceId
   // Weekly progress data
   List<Map<String, dynamic>> _tasks = [];
   List<Map<String, dynamic>> _habits = [];
@@ -99,6 +102,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       }
     });
   }
+
   @override
   void didUpdateWidget(covariant WeeklyView oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -121,12 +125,14 @@ class _WeeklyViewState extends State<WeeklyView> {
       }
     }
   }
+
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
     _scrollController.dispose();
     super.dispose();
   }
+
   Future<void> _loadExpansionState() async {
     final expandedSections =
         await ExpansionStateManager().getWeeklyExpandedSections();
@@ -136,6 +142,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       });
     }
   }
+
   Future<void> _loadData() async {
     if (!mounted) return;
     setState(() => _isLoading = true);
@@ -172,6 +179,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       if (mounted) setState(() => _isLoading = false);
     }
   }
+
   Future<void> _calculateWeeklyProgress() async {
     print('WeeklyView: _calculateWeeklyProgress() called');
     final weekStart = DateService.currentWeekStart;
@@ -189,12 +197,14 @@ class _WeeklyViewState extends State<WeeklyView> {
       _weekEnd = progressData['weekEnd'] as DateTime;
     }
   }
+
   @override
   Widget build(BuildContext context) {
     return _isLoading
         ? const Center(child: CircularProgressIndicator())
         : _buildWeeklyView();
   }
+
   Widget _buildWeeklyView() {
     final theme = FlutterFlowTheme.of(context);
     // Show week range
@@ -240,7 +250,8 @@ class _WeeklyViewState extends State<WeeklyView> {
     }
     // Add Habits section
     if (filteredHabits.isNotEmpty) {
-      slivers.add(_buildSectionHeader('Habits', filteredHabits.length, 'Habits'));
+      slivers
+          .add(_buildSectionHeader('Habits', filteredHabits.length, 'Habits'));
       if (_expandedSections.contains('Habits')) {
         slivers.add(_buildHabitsList(filteredHabits));
       }
@@ -286,6 +297,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       ],
     );
   }
+
   Widget _buildSectionHeader(String title, int count, String sectionKey) {
     final expanded = _expandedSections.contains(sectionKey);
     final theme = FlutterFlowTheme.of(context);
@@ -307,8 +319,12 @@ class _WeeklyViewState extends State<WeeklyView> {
           borderRadius: BorderRadius.only(
             topLeft: const Radius.circular(16),
             topRight: const Radius.circular(16),
-            bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
-            bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
+            bottomLeft: expanded
+                ? const Radius.circular(12)
+                : const Radius.circular(16),
+            bottomRight: expanded
+                ? const Radius.circular(12)
+                : const Radius.circular(16),
           ),
           boxShadow: expanded ? [] : theme.neumorphicShadowsRaised,
         ),
@@ -368,6 +384,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
+
   Widget _buildTasksList(List<Map<String, dynamic>> tasks) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -485,6 +502,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
+
   Widget _buildHabitsList(List<Map<String, dynamic>> habits) {
     return SliverList(
       delegate: SliverChildBuilderDelegate(
@@ -554,11 +572,13 @@ class _WeeklyViewState extends State<WeeklyView> {
       ),
     );
   }
+
   String _getCategoryColor(ActivityInstanceRecord instance) {
     final category = _categories
         .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
     return category?.color ?? '#000000';
   }
+
   /// Create a display instance with converted tracking type for weekly view
   ActivityInstanceRecord _createDisplayInstance(
     ActivityInstanceRecord originalInstance,
@@ -580,6 +600,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       originalInstance.reference,
     );
   }
+
   /// Update instance in local state and recalculate progress
   void _updateInstanceInLocalState(
       ActivityInstanceRecord updatedInstance) async {
@@ -588,14 +609,14 @@ class _WeeklyViewState extends State<WeeklyView> {
           (inst) => inst.reference.id == updatedInstance.reference.id);
       if (index != -1) {
         _instances[index] = updatedInstance;
-      } else {
-      }
+      } else {}
     });
     // Recalculate weekly progress for instant updates
     print(
         'WeeklyView: Triggering _calculateWeeklyProgress() after instance update');
     _calculateWeeklyProgress();
   }
+
   /// Remove instance from local state and recalculate progress
   void _removeInstanceFromLocalState(
       ActivityInstanceRecord deletedInstance) async {
@@ -606,6 +627,7 @@ class _WeeklyViewState extends State<WeeklyView> {
     // Recalculate weekly progress for instant updates
     _calculateWeeklyProgress();
   }
+
   // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     setState(() {
@@ -613,12 +635,13 @@ class _WeeklyViewState extends State<WeeklyView> {
     });
     _calculateWeeklyProgress();
   }
+
   void _handleInstanceUpdated(dynamic param) {
     // Handle both optimistic and reconciled updates
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -629,11 +652,11 @@ class _WeeklyViewState extends State<WeeklyView> {
     } else {
       return;
     }
-    
+
     setState(() {
       final index = _instances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
-      
+
       if (index != -1) {
         if (isOptimistic) {
           // Store optimistic state with operation ID for later reconciliation
@@ -655,21 +678,22 @@ class _WeeklyViewState extends State<WeeklyView> {
     });
     _calculateWeeklyProgress();
   }
-  
+
   void _handleRollback(dynamic param) {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
-      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
-      
-      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+      final originalInstance =
+          param['originalInstance'] as ActivityInstanceRecord?;
+
+      if (operationId != null &&
+          _optimisticOperations.containsKey(operationId)) {
         setState(() {
           _optimisticOperations.remove(operationId);
           if (originalInstance != null) {
             // Restore from original state
-            final index = _instances.indexWhere(
-              (inst) => inst.reference.id == instanceId
-            );
+            final index = _instances
+                .indexWhere((inst) => inst.reference.id == instanceId);
             if (index != -1) {
               _instances[index] = originalInstance;
             }
@@ -682,15 +706,15 @@ class _WeeklyViewState extends State<WeeklyView> {
       }
     }
   }
-  
+
   Future<void> _revertOptimisticUpdate(String instanceId) async {
     try {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instanceId,
       );
       setState(() {
-        final index = _instances
-            .indexWhere((inst) => inst.reference.id == instanceId);
+        final index =
+            _instances.indexWhere((inst) => inst.reference.id == instanceId);
         if (index != -1) {
           _instances[index] = updatedInstance;
         }
@@ -700,6 +724,7 @@ class _WeeklyViewState extends State<WeeklyView> {
       // Error reverting - non-critical, will be fixed on next data load
     }
   }
+
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     setState(() {
       _instances

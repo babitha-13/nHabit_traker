@@ -10,8 +10,6 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class ItemManagementHelper {
-
-  // EXACT copy of your _copyHabit logic
   static Future<void> copyHabit({
     required ActivityInstanceRecord instance,
     required BuildContext context,
@@ -20,7 +18,8 @@ class ItemManagementHelper {
   }) async {
     try {
       setUpdating(true);
-      final templateRef = ActivityRecord.collectionForUser(currentUserUid).doc(instance.templateId);
+      final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+          .doc(instance.templateId);
       final template = await ActivityRecord.getDocumentOnce(templateRef);
       final newTemplateName = 'Copy of ${template.name}';
       final newTemplateRef = await createActivity(
@@ -46,50 +45,21 @@ class ItemManagementHelper {
       );
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Task "$newTemplateName" created successfully')),
+          SnackBar(
+              content: Text('Task "$newTemplateName" created successfully')),
         );
         if (onRefresh != null) await onRefresh();
       }
     } catch (e) {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error copying task: $e')));
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Error copying task: $e')));
       }
     } finally {
       setUpdating(false);
     }
   }
 
-  // EXACT copy of your _updateTemplatePriority logic
-  static Future<void> updateTemplatePriority({
-    required int newPriority,
-    required ActivityInstanceRecord instance,
-    required Function(ActivityInstanceRecord) onInstanceUpdated,
-    required BuildContext context,
-  }) async {
-    final previousInstance = instance;
-    final optimisticInstance = InstanceEvents.createOptimisticPropertyUpdateInstance(
-      previousInstance,
-      {'templatePriority': newPriority},
-    );
-    onInstanceUpdated(optimisticInstance);
-    try {
-      final uid = FirebaseAuth.instance.currentUser!.uid;
-      final templateRef = ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-      await templateRef.update({'priority': newPriority, 'lastUpdated': DateTime.now()});
-      final instanceRef = ActivityInstanceRecord.collectionForUser(uid).doc(instance.reference.id);
-      await instanceRef.update({'templatePriority': newPriority, 'lastUpdated': DateTime.now()});
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(instanceId: instance.reference.id);
-      onInstanceUpdated(updatedInstance);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
-    } catch (e) {
-      onInstanceUpdated(previousInstance);
-      if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text('Error updating priority: $e')));
-      }
-    }
-  }
-
-  // EXACT copy of your _showHabitOverflowMenu logic
   static Future<void> showHabitOverflowMenu({
     required BuildContext context,
     required BuildContext anchorContext,
@@ -100,12 +70,15 @@ class ItemManagementHelper {
     required Function(bool) setUpdating,
     required Future<void> Function()? onRefresh,
     required Function(int?) onEstimateUpdate,
-    required Future<void> Function() editActivity, // ADD THIS - callback for edit
-    required num? Function(int?) normalizeTimeEstimate, // ADD THIS - callback for normalize
+    required Future<void> Function()
+        editActivity, // ADD THIS - callback for edit
+    required num? Function(int?)
+        normalizeTimeEstimate, // ADD THIS - callback for normalize
     required bool Function() isMounted, // ADD THIS - callback for mounted check
   }) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
-    final overlay = Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final selected = await showMenu<String>(
@@ -138,12 +111,17 @@ class ItemManagementHelper {
     );
     if (selected == null) return;
     final uid = FirebaseAuth.instance.currentUser!.uid;
-    final templateRef = ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+    final templateRef =
+        ActivityRecord.collectionForUser(uid).doc(instance.templateId);
 
     if (selected == 'edit') {
       await editActivity(); // CALL THE CALLBACK
     } else if (selected == 'copy') {
-      await copyHabit(instance: instance, context: context, setUpdating: setUpdating, onRefresh: onRefresh);
+      await copyHabit(
+          instance: instance,
+          context: context,
+          setUpdating: setUpdating,
+          onRefresh: onRefresh);
     } else if (selected == 'delete') {
       final shouldDelete = await showDialog<bool>(
         context: context,

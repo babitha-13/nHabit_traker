@@ -7,10 +7,11 @@ import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/utils/floating_timer.dart';
 import 'package:habit_tracker/Helper/utils/task_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/frequency_display_helper.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
@@ -66,7 +67,8 @@ class _TaskPageState extends State<TaskPage> {
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
   // Optimistic operation tracking
-  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
+  final Map<String, String> _optimisticOperations =
+      {}; // operationId -> instanceId
 
   @override
   void initState() {
@@ -1144,55 +1146,19 @@ class _TaskPageState extends State<TaskPage> {
 
   String _getQuickFrequencyDescription() {
     if (_quickFrequencyConfig == null) return '';
-    switch (_quickFrequencyConfig!.type) {
-      case FrequencyType.specificDays:
-        const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-        final selectedDayNames = _quickFrequencyConfig!.selectedDays
-            .map((day) => days[day - 1])
-            .join(', ');
-        return 'Recurring on $selectedDayNames';
-      case FrequencyType.timesPerPeriod:
-        final String period;
-        switch (_quickFrequencyConfig!.periodType) {
-          case PeriodType.weeks:
-            period = 'week';
-            break;
-          case PeriodType.months:
-            period = 'month';
-            break;
-          case PeriodType.year:
-            period = 'year';
-            break;
-          case PeriodType.days:
-            period = 'days';
-            break;
-        }
-        return 'Recurring ${_quickFrequencyConfig!.timesPerPeriod} times per $period';
-      case FrequencyType.everyXPeriod:
-        // Special case: every 1 day is the same as every day
-        if (_quickFrequencyConfig!.everyXValue == 1 &&
-            _quickFrequencyConfig!.everyXPeriodType == PeriodType.days) {
-          return 'Recurring every day';
-        }
-        final String period;
-        switch (_quickFrequencyConfig!.everyXPeriodType) {
-          case PeriodType.days:
-            period = 'days';
-            break;
-          case PeriodType.weeks:
-            period = 'weeks';
-            break;
-          case PeriodType.months:
-            period = 'months';
-            break;
-          case PeriodType.year:
-            period = 'years';
-            break;
-        }
-        return 'Recurring every ${_quickFrequencyConfig!.everyXValue} $period';
-      default:
-        return 'Recurring';
+
+    // Special handling for specificDays (shows day names)
+    if (_quickFrequencyConfig!.type == FrequencyType.specificDays) {
+      const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+      final selectedDayNames = _quickFrequencyConfig!.selectedDays
+          .map((day) => days[day - 1])
+          .join(', ');
+      return 'Recurring on $selectedDayNames';
     }
+
+    // Use shared utility for other frequency types
+    return FrequencyDisplayHelper.formatWithRecurringPrefix(
+        _quickFrequencyConfig!);
   }
 
   List<Widget> _buildSections() {
@@ -1304,8 +1270,12 @@ class _TaskPageState extends State<TaskPage> {
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
-          bottomLeft: isExpanded ? const Radius.circular(12) : const Radius.circular(16),
-          bottomRight: isExpanded ? const Radius.circular(12) : const Radius.circular(16),
+          bottomLeft: isExpanded
+              ? const Radius.circular(12)
+              : const Radius.circular(16),
+          bottomRight: isExpanded
+              ? const Radius.circular(12)
+              : const Radius.circular(16),
         ),
         boxShadow: isExpanded ? [] : theme.neumorphicShadowsRaised,
       ),
@@ -1483,9 +1453,8 @@ class _TaskPageState extends State<TaskPage> {
             _categories.firstWhere((c) => c.reference.id == categoryId).name,
         trackingType: _selectedQuickTrackingType!,
         target: targetValue,
-        timeEstimateMinutes: !_isQuickTimeTarget()
-            ? _quickTimeEstimateMinutes
-            : null,
+        timeEstimateMinutes:
+            !_isQuickTimeTarget() ? _quickTimeEstimateMinutes : null,
         isRecurring: quickIsRecurring,
         userId: currentUserUid,
         dueDate: _selectedQuickDueDate,
@@ -1560,7 +1529,6 @@ class _TaskPageState extends State<TaskPage> {
       _quickMinutesController.text = '0';
     });
   }
-
 
   bool _isQuickTimeTarget() {
     return _selectedQuickTrackingType == 'time' &&
@@ -2206,7 +2174,7 @@ class _TaskPageState extends State<TaskPage> {
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -2217,7 +2185,7 @@ class _TaskPageState extends State<TaskPage> {
     } else {
       return;
     }
-    
+
     // Only add task instances to this page
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
@@ -2236,7 +2204,8 @@ class _TaskPageState extends State<TaskPage> {
             _cachedBucketedItems = null;
           } else {
             // Reconciled creation - replace optimistic instance or add if not found
-            if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+            if (operationId != null &&
+                _optimisticOperations.containsKey(operationId)) {
               // Find and replace the optimistic instance
               final optimisticId = _optimisticOperations[operationId];
               final index = _taskInstances.indexWhere(
@@ -2271,7 +2240,7 @@ class _TaskPageState extends State<TaskPage> {
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -2282,12 +2251,12 @@ class _TaskPageState extends State<TaskPage> {
     } else {
       return;
     }
-    
+
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }
-    
+
     // Only handle task instances
     if (instance.templateCategoryType == 'task') {
       // Check if instance matches this page's category filter
@@ -2297,7 +2266,7 @@ class _TaskPageState extends State<TaskPage> {
         setState(() {
           final index = _taskInstances
               .indexWhere((inst) => inst.reference.id == instance.reference.id);
-          
+
           if (index != -1) {
             if (isOptimistic) {
               // Store optimistic state with operation ID for later reconciliation
@@ -2323,21 +2292,22 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
-  
+
   void _handleRollback(dynamic param) {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
-      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
-      
-      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+      final originalInstance =
+          param['originalInstance'] as ActivityInstanceRecord?;
+
+      if (operationId != null &&
+          _optimisticOperations.containsKey(operationId)) {
         setState(() {
           _optimisticOperations.remove(operationId);
           if (originalInstance != null) {
             // Restore from original state
-            final index = _taskInstances.indexWhere(
-              (inst) => inst.reference.id == instanceId
-            );
+            final index = _taskInstances
+                .indexWhere((inst) => inst.reference.id == instanceId);
             if (index != -1) {
               _taskInstances[index] = originalInstance;
               _cachedBucketedItems = null;
@@ -2350,7 +2320,7 @@ class _TaskPageState extends State<TaskPage> {
       }
     }
   }
-  
+
   Future<void> _revertOptimisticUpdate(String instanceId) async {
     try {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(

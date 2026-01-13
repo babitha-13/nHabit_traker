@@ -5,7 +5,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/utils/instance_events.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:intl/intl.dart';
@@ -176,10 +176,10 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     // Trigger refresh of habit and queue pages
     NotificationCenter.post('loadHabits', null);
     NotificationCenter.post('loadData', null);
-    
+
     // Small delay to ensure notifications are processed
     await Future.delayed(const Duration(milliseconds: 100));
-    
+
     if (mounted) {
       Navigator.of(context).pop();
     }
@@ -207,15 +207,16 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     // Differentiate between progress updates and status changes (completion/skip)
     final isStatusChange = updatedInstance.status == 'completed' ||
         updatedInstance.status == 'skipped';
-    final isProgressUpdate = updatedInstance.status == 'pending' &&
-        !isStatusChange;
+    final isProgressUpdate =
+        updatedInstance.status == 'pending' && !isStatusChange;
 
     // For progress updates (just incrementing value), update item in place
     if (isProgressUpdate) {
       if (mounted) {
         setState(() {
           // Update the existing item in the list with new progress value
-          final index = _items.indexWhere((item) => item.reference.id == instanceId);
+          final index =
+              _items.indexWhere((item) => item.reference.id == instanceId);
           if (index != -1) {
             _items[index] = updatedInstance;
           }
@@ -555,7 +556,8 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
               targetDate: DateService.yesterdayStart,
             ).catchError((error) {
               // Silent error handling - recalculation failure shouldn't block dialog close
-              print('Background recalculation error on close (non-critical): $error');
+              print(
+                  'Background recalculation error on close (non-critical): $error');
             });
           }
           await MorningCatchUpService.markDialogAsShown();
@@ -799,12 +801,14 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                           onPressed: () async {
                             // Start recalculation in background before closing (non-blocking)
                             if (_processedItemIds.isNotEmpty) {
-                              MorningCatchUpService.recalculateDailyProgressRecordForDate(
+                              MorningCatchUpService
+                                  .recalculateDailyProgressRecordForDate(
                                 userId: currentUserUid,
                                 targetDate: DateService.yesterdayStart,
                               ).catchError((error) {
                                 // Silent error handling - recalculation failure shouldn't block dialog close
-                                print('Background recalculation error on close (non-critical): $error');
+                                print(
+                                    'Background recalculation error on close (non-critical): $error');
                               });
                             }
                             await MorningCatchUpService.markDialogAsShown();

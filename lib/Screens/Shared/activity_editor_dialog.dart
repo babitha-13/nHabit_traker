@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
 import 'package:habit_tracker/Helper/utils/frequency_config_dialog.dart';
+import 'package:habit_tracker/Helper/utils/frequency_display_helper.dart';
 
 import 'package:habit_tracker/Helper/utils/start_date_change_dialog.dart';
 import 'package:habit_tracker/Helper/utils/time_utils.dart';
@@ -1429,20 +1430,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   }
 
   String _formatFrequencySummary() {
-    final config = _frequencyConfig;
-    if (config == null) return 'One-time task';
-
-    // Simple summary logic (can be expanded)
-    switch (config.type) {
-      case FrequencyType.daily:
-        return 'Every day';
-      case FrequencyType.specificDays:
-        return 'Specific days';
-      case FrequencyType.timesPerPeriod:
-        return '${config.timesPerPeriod} times per ${config.periodType.toString().split('.').last}';
-      case FrequencyType.everyXPeriod:
-        return 'Every ${config.everyXValue} ${config.everyXPeriodType.toString().split('.').last}';
-    }
+    return FrequencyDisplayHelper.formatSummary(_frequencyConfig);
   }
 
   Future<void> _handleOpenFrequencyConfig() async {

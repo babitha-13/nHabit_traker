@@ -6,7 +6,6 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/sound_helper.dart';
 
 class ItemQuantitativeControlsHelper {
-
   // EXACT copy of your _showQuantControlsMenu logic
   static Future<void> showQuantControlsMenu({
     required BuildContext context,
@@ -19,7 +18,8 @@ class ItemQuantitativeControlsHelper {
     required Future<void> Function(int) updateProgress,
   }) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
-    final overlay = Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
     final position = box?.localToGlobal(Offset.zero) ?? Offset.zero;
     final size = box?.size ?? const Size(0, 0);
     final current = currentProgressLocal();
@@ -147,11 +147,6 @@ class ItemQuantitativeControlsHelper {
           );
         }
       }
-      if (isMounted()) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Quantity reset to 0')),
-        );
-      }
     } catch (e) {
       onInstanceUpdated(instance);
       if (isMounted()) {
@@ -206,7 +201,7 @@ class ItemQuantitativeControlsHelper {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(
                   content:
-                  Text('Maximum completions reached (${maxCompletions}x)')),
+                      Text('Maximum completions reached (${maxCompletions}x)')),
             );
           }
           setState(() => setUpdating(false));
@@ -238,7 +233,8 @@ class ItemQuantitativeControlsHelper {
     final currentPending = getPendingQuantIncrement();
     setPendingQuantIncrement(currentPending + delta);
     final currentValue = currentProgressLocal();
-    final newOptimisticValue = (currentValue + getPendingQuantIncrement()).clamp(0, double.infinity);
+    final newOptimisticValue =
+        (currentValue + getPendingQuantIncrement()).clamp(0, double.infinity);
     final targetValue = getTargetValue();
     setState(() {
       setQuantProgressOverride(newOptimisticValue.toInt());
@@ -312,7 +308,9 @@ class ItemQuantitativeControlsHelper {
         onRefresh: onRefresh,
         context: context,
         isMounted: isMounted,
-        shouldAutoCompleteQuant: (inst) => ItemQuantitativeControlsHelper.shouldAutoCompleteQuant(inst, ItemQuantitativeControlsHelper.valueToNum),
+        shouldAutoCompleteQuant: (inst) =>
+            ItemQuantitativeControlsHelper.shouldAutoCompleteQuant(
+                inst, ItemQuantitativeControlsHelper.valueToNum),
       );
       await ItemQuantitativeControlsHelper.handleQuantUncompletion(
         instance: instance,
@@ -321,7 +319,9 @@ class ItemQuantitativeControlsHelper {
         onRefresh: onRefresh,
         context: context,
         isMounted: isMounted,
-        shouldAutoUncompleteQuant: (inst) => ItemQuantitativeControlsHelper.shouldAutoUncompleteQuant(inst, ItemQuantitativeControlsHelper.valueToNum),
+        shouldAutoUncompleteQuant: (inst) =>
+            ItemQuantitativeControlsHelper.shouldAutoUncompleteQuant(
+                inst, ItemQuantitativeControlsHelper.valueToNum),
       );
     } catch (e) {
       setState(() {
@@ -367,7 +367,7 @@ class ItemQuantitativeControlsHelper {
         finalValue: updatedInstance.currentValue,
       );
       final completedInstance =
-      await ActivityInstanceService.getUpdatedInstance(
+          await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
       onInstanceUpdated(completedInstance);
@@ -399,7 +399,7 @@ class ItemQuantitativeControlsHelper {
         instanceId: instance.reference.id,
       );
       final uncompletedInstance =
-      await ActivityInstanceService.getUpdatedInstance(
+          await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
       onInstanceUpdated(uncompletedInstance);
@@ -417,9 +417,9 @@ class ItemQuantitativeControlsHelper {
 
   // EXACT copy of your _shouldAutoCompleteQuant logic
   static bool shouldAutoCompleteQuant(
-      ActivityInstanceRecord instance,
-      num Function(dynamic) valueToNum,
-      ) {
+    ActivityInstanceRecord instance,
+    num Function(dynamic) valueToNum,
+  ) {
     final target = valueToNum(instance.templateTarget);
     if (target <= 0) return false;
     if (instance.status == 'completed' || instance.status == 'skipped') {
@@ -431,9 +431,9 @@ class ItemQuantitativeControlsHelper {
 
   // EXACT copy of your _shouldAutoUncompleteQuant logic
   static bool shouldAutoUncompleteQuant(
-      ActivityInstanceRecord instance,
-      num Function(dynamic) valueToNum,
-      ) {
+    ActivityInstanceRecord instance,
+    num Function(dynamic) valueToNum,
+  ) {
     final target = valueToNum(instance.templateTarget);
     if (target <= 0) return false;
     if (instance.status != 'completed' && instance.status != 'skipped') {

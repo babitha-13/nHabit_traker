@@ -11,7 +11,7 @@ import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/utils/notification_center.dart';
 import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
 import 'package:habit_tracker/Helper/utils/search_fab.dart';
-import 'package:habit_tracker/Screens/Components/Item UI/item_component.dart';
+import 'package:habit_tracker/Screens/Components/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
 import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
@@ -295,8 +295,8 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
     final result = await showDialog<ActivityRecord>(
       context: context,
       builder: (context) => essentialTemplateDialog(
-        // Callback removed - dialog now returns result directly
-      ),
+          // Callback removed - dialog now returns result directly
+          ),
     );
     // Refresh templates after dialog closes if template was created
     if (result != null && mounted) {
