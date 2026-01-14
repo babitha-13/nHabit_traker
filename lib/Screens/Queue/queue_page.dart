@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_cen
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/Screens/Shared/queue_progress_calculator.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
@@ -22,7 +23,6 @@ import 'package:habit_tracker/Screens/Queue/Helpers/queue_bucket_service.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_page_refresh.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_reorder_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_logic.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_calculator.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_section.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
