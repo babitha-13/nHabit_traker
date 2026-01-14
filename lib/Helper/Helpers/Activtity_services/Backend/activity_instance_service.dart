@@ -5,11 +5,12 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
-import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/time_estimate_resolver.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/recurrence_calculator.dart';
 
 /// Result of calculating stacked session times
 class StackedSessionTimes {
@@ -1206,7 +1207,7 @@ class ActivityInstanceService {
             final template = ActivityRecord.fromSnapshot(templateDoc);
             // Generate next instance if template is recurring and still active
             if (template.isRecurring && template.isActive) {
-              final nextDueDate = _calculateNextDueDate(
+              final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
                 currentDueDate: instance.dueDate!,
                 template: template,
               );
@@ -2044,7 +2045,7 @@ class ActivityInstanceService {
               final template = ActivityRecord.fromSnapshot(templateDoc);
               // Generate next instance if template is recurring and still active
               if (template.isRecurring && template.isActive) {
-                final nextDueDate = _calculateNextDueDate(
+                final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
                   currentDueDate: instance.dueDate!,
                   template: template,
                 );
@@ -2129,7 +2130,7 @@ class ActivityInstanceService {
       // Generate due dates until we pass yesterday
       while (currentDueDate.isBefore(yesterday.add(const Duration(days: 30)))) {
         allDueDates.add(currentDueDate);
-        final nextDate = _calculateNextDueDate(
+        final nextDate = RecurrenceCalculator.calculateNextDueDate(
           currentDueDate: currentDueDate,
           template: template,
         );
@@ -2516,7 +2517,7 @@ class ActivityInstanceService {
           rethrow;
         }
         // Calculate next due date based on recurrence pattern
-        final nextDueDate = _calculateNextDueDate(
+        final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
           currentDueDate: currentDueDate,
           template: template,
         );
@@ -2548,7 +2549,7 @@ class ActivityInstanceService {
             );
           } else {
             // Need to calculate one more step to get past untilDate
-            final nextProperDate = _calculateNextDueDate(
+            final nextProperDate = RecurrenceCalculator.calculateNextDueDate(
               currentDueDate: currentDueDate,
               template: template,
             );
@@ -2583,152 +2584,6 @@ class ActivityInstanceService {
   }
 
   // ==================== HELPER METHODS ====================
-  /// Calculate next due date based on template recurrence settings
-  static DateTime? _calculateNextDueDate({
-    required DateTime currentDueDate,
-    required ActivityRecord template,
-  }) {
-    if (!template.isRecurring) return null;
-    // Handle different frequency types
-    switch (template.frequencyType) {
-      case 'everyXPeriod':
-        return _calculateEveryXPeriodNextDate(currentDueDate, template);
-      case 'specificDays':
-        return _calculateSpecificDaysNextDate(currentDueDate, template);
-      case 'timesPerPeriod':
-        return _calculateTimesPerPeriodNextDate(currentDueDate, template);
-      default:
-        return null;
-    }
-  }
-
-  static DateTime? _calculateEveryXPeriodNextDate(
-      DateTime currentDueDate, ActivityRecord template) {
-    final everyXValue = template.everyXValue;
-    final periodType = template.everyXPeriodType;
-    switch (periodType) {
-      case 'days':
-        return currentDueDate.add(Duration(days: everyXValue));
-      case 'weeks':
-        return currentDueDate.add(Duration(days: everyXValue * 7));
-      case 'months':
-        return DateTime(
-          currentDueDate.year,
-          currentDueDate.month + everyXValue,
-          currentDueDate.day,
-        );
-      case 'year':
-        return DateTime(
-          currentDueDate.year + everyXValue,
-          currentDueDate.month,
-          currentDueDate.day,
-        );
-      default:
-        return null;
-    }
-  }
-
-  static DateTime? _calculateSpecificDaysNextDate(
-      DateTime currentDueDate, ActivityRecord template) {
-    final specificDays = template.specificDays;
-    if (specificDays.isEmpty) return null;
-    // Find next occurrence of any of the specified days
-    for (int i = 1; i <= 7; i++) {
-      final candidate = currentDueDate.add(Duration(days: i));
-      if (specificDays.contains(candidate.weekday)) {
-        return candidate;
-      }
-    }
-    return null;
-  }
-
-  static DateTime? _calculateTimesPerPeriodNextDate(
-      DateTime currentDueDate, ActivityRecord template) {
-    // For times per period, we need to find the next target date within the current period
-    // If we're past the current period, move to the next period
-    final periodType = template.periodType;
-    final timesPerPeriod = template.timesPerPeriod;
-    if (timesPerPeriod <= 0) return null;
-    // Get the start of the current period
-    DateTime periodStart;
-    int periodLength;
-    switch (periodType) {
-      case 'days':
-        periodStart = DateTime(
-            currentDueDate.year, currentDueDate.month, currentDueDate.day);
-        periodLength = 1;
-        break;
-      case 'weeks':
-        // Find start of week (Sunday = 0)
-        final daysSinceSunday = currentDueDate.weekday % 7;
-        periodStart = DateTime(currentDueDate.year, currentDueDate.month,
-            currentDueDate.day - daysSinceSunday);
-        periodLength = 7;
-        break;
-      case 'months':
-        periodStart = DateTime(currentDueDate.year, currentDueDate.month, 1);
-        periodLength =
-            DateTime(currentDueDate.year, currentDueDate.month + 1, 0).day;
-        break;
-      case 'year':
-        periodStart = DateTime(currentDueDate.year, 1, 1);
-        periodLength = 365;
-        break;
-      default:
-        return null;
-    }
-    // Calculate target dates within the period
-    final targetDates = <DateTime>[];
-    for (int i = 0; i < timesPerPeriod; i++) {
-      final progress = (i + 1) / timesPerPeriod; // 1/3, 2/3, 3/3
-      final daysFromStart = (progress * periodLength).floor();
-      final hoursFromStart = ((progress * periodLength) - daysFromStart) * 24;
-      targetDates.add(DateTime(
-        periodStart.year,
-        periodStart.month,
-        periodStart.day + daysFromStart,
-        hoursFromStart.floor(),
-        ((hoursFromStart - hoursFromStart.floor()) * 60).round(),
-      ));
-    }
-    // Find the next target date after current due date
-    for (final targetDate in targetDates) {
-      if (targetDate.isAfter(currentDueDate)) {
-        return targetDate;
-      }
-    }
-    // If we're past all targets in this period, move to next period
-    DateTime nextPeriodStart;
-    switch (periodType) {
-      case 'days':
-        nextPeriodStart = periodStart.add(const Duration(days: 1));
-        break;
-      case 'weeks':
-        nextPeriodStart = periodStart.add(const Duration(days: 7));
-        break;
-      case 'months':
-        nextPeriodStart = DateTime(periodStart.year, periodStart.month + 1, 1);
-        break;
-      case 'year':
-        nextPeriodStart = DateTime(periodStart.year + 1, 1, 1);
-        break;
-      default:
-        return null;
-    }
-    // Calculate first target date in next period
-    final firstProgress = 1.0 / timesPerPeriod;
-    final daysFromStart = (firstProgress * periodLength).floor();
-    final hoursFromStart =
-        ((firstProgress * periodLength) - daysFromStart) * 24;
-    return DateTime(
-      nextPeriodStart.year,
-      nextPeriodStart.month,
-      nextPeriodStart.day + daysFromStart,
-      hoursFromStart.floor(),
-      ((hoursFromStart - hoursFromStart.floor()) * 60).round(),
-    );
-  }
-
   /// Get period start date
   static DateTime _getPeriodStart(DateTime date, String periodType) {
     switch (periodType) {
@@ -3147,7 +3002,7 @@ class ActivityInstanceService {
     DateTime nextDueDate = currentDueDate;
     // Keep calculating next due dates until we reach or pass today
     while (nextDueDate.isBefore(today)) {
-      final nextDate = _calculateNextDueDate(
+      final nextDate = RecurrenceCalculator.calculateNextDueDate(
         currentDueDate: nextDueDate,
         template: template,
       );

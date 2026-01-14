@@ -3,9 +3,8 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
-import 'package:habit_tracker/Helper/Response/login_response.dart';
+import 'package:habit_tracker/Helper/Helpers/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/finalize_habit_data.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/Helpers/app_state.dart';
 import 'package:habit_tracker/Helper/Helpers/constants.dart';
@@ -79,11 +78,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     userStream = habitTrackerFirebaseUserStream();
     userStream.listen((user) {
-      if (user.uid != null && user.uid!.isNotEmpty) {
-        finalizeActivityData(user.uid!);
-        // Migration removed - all leaks plugged at source
-        // Categories now always created with proper categoryType
-      }
+      // User authentication state changes handled here
+      // Categories are created on signup and on-demand when needed
     });
     jwtTokenStream.listen((_) {});
   }

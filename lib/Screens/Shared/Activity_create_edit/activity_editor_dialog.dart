@@ -5,11 +5,11 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_display_helper.dart';
 
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/start_date_change_dialog.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/start_date_change_dialog.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
@@ -18,7 +18,7 @@ import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
 import 'package:habit_tracker/Screens/Categories/create_category.dart';
-import 'package:habit_tracker/Helper/backend/essential_service.dart';
+import 'package:habit_tracker/Screens/Essential/essential_data_service.dart';
 import 'package:intl/intl.dart';
 
 class ActivityEditorDialog extends StatefulWidget {

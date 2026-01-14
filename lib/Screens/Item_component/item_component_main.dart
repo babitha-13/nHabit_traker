@@ -16,9 +16,9 @@ import 'package:habit_tracker/Screens/Item_component/Item_controls_helper/item_t
 import 'package:habit_tracker/Screens/Item_component/item_component_ui.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_editor_dialog.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
-import 'package:habit_tracker/Screens/Progress/habit_detail_statistics_page.dart';
+import 'package:habit_tracker/Screens/Progress/Pages/habit_detail_statistics_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_expanded.dart';
 
 class ItemComponent extends StatefulWidget {

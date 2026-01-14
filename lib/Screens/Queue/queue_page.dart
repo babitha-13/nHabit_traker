@@ -4,14 +4,14 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
-import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
+import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart'
     show QueueFilterState, QueueFilterStateManager;
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_sort_state_manager.dart'

@@ -9,8 +9,8 @@ import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_formatting_utils
 import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic%20update.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/calendar_overlap_calculator.dart';

@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
-import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_preferences_service.dart';
 
 /// Service for tracking app usage and engagement
 /// All business logic for engagement tracking is centralized here (#REFACTOR_NOW compliance)
@@ -9,10 +9,10 @@ class EngagementTracker {
     try {
       final now = DateTime.now();
       await UsersRecord.collection.doc(userId).update(
-        createUsersRecordData(
-          lastAppOpened: now,
-        ),
-      );
+            createUsersRecordData(
+              lastAppOpened: now,
+            ),
+          );
     } catch (e) {
       print('EngagementTracker: Error recording app opened: $e');
     }
@@ -83,8 +83,9 @@ class EngagementTracker {
   /// Check if user is in quiet hours (default: 10 PM - 6 AM)
   static Future<bool> isInQuietHours(String userId) async {
     try {
-      final prefs = await NotificationPreferencesService
-          .getUserNotificationPreferences(userId);
+      final prefs =
+          await NotificationPreferencesService.getUserNotificationPreferences(
+              userId);
       final quietStart = prefs['quiet_hours_start'] as int? ?? 22; // 10 PM
       final quietEnd = prefs['quiet_hours_end'] as int? ?? 6; // 6 AM
 
@@ -105,4 +106,3 @@ class EngagementTracker {
     }
   }
 }
-

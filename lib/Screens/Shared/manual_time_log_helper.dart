@@ -3,7 +3,7 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/task_instance_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
@@ -11,7 +11,7 @@ import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 
 // Manual time log modal for logging time manually, used by both Timer and Calendar pages
 

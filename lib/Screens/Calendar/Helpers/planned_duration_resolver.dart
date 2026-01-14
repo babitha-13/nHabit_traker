@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 
 /// Resolves planned-calendar durations for activity instances.
 ///
@@ -109,5 +109,3 @@ class PlannedDurationResolver {
     return out;
   }
 }
-
-

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
-import 'package:habit_tracker/Screens/Progress/progress_page.dart';
+import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_progress_section/cumulative_score_chart.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_progress_section/daily_progress_chart.dart';
 

@@ -1,6 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Response/login_response.dart';
+import 'package:habit_tracker/Helper/Helpers/login_response.dart';
 import 'package:habit_tracker/Helper/Helpers/constants.dart';
 import 'package:habit_tracker/Helper/Helpers/sharedPreference.dart';
 import 'package:habit_tracker/main.dart';

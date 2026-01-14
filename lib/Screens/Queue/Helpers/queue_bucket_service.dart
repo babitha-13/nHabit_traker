@@ -2,7 +2,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_sort_state_manager.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_utils.dart';
 
 /// Service class for bucketing queue items

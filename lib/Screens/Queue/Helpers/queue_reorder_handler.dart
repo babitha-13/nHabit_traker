@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 
 /// Helper class for handling reordering in queue page
 class QueueReorderHandler {
@@ -40,8 +40,8 @@ class QueueReorderHandler {
       final instance = reorderedItems[i];
       final instanceId = instance.reference.id;
       reorderingIds.add(instanceId);
-      final index =
-          updatedInstances.indexWhere((inst) => inst.reference.id == instanceId);
+      final index = updatedInstances
+          .indexWhere((inst) => inst.reference.id == instanceId);
       if (index != -1) {
         // Create updated instance with new queue order by creating new data map
         final updatedData = Map<String, dynamic>.from(instance.snapshotData);

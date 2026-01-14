@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 
 /// Helper utility to resolve the effective time estimate for an activity instance
 /// This is business logic that should be testable independently (#TEST_SEPARATELY)
@@ -54,4 +54,3 @@ class TimeEstimateResolver {
     return defaultMinutes;
   }
 }
-

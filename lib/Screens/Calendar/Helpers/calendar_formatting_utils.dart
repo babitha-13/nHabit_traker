@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:from_css_color/from_css_color.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/duration_format_helper.dart';
 
 /// Utility functions for calendar formatting
 class CalendarFormattingUtils {
   /// Format duration to human-readable string
   static String formatDuration(Duration duration) {
-    final hours = duration.inHours;
-    final minutes = duration.inMinutes.remainder(60);
-    return hours > 0 ? '${hours}h ${minutes}m' : '${minutes}m';
+    return DurationFormatHelper.formatHuman(duration);
   }
 
   /// Parse color string to Color object

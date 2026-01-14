@@ -1,12 +1,12 @@
-import 'package:habit_tracker/Helper/Helpers/Point_system_helper/points_service.dart';
+import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Point_system_helper/daily_progress_calculator.dart';
-import 'package:habit_tracker/Screens/Progress/cumulative_score_service.dart';
-import 'package:habit_tracker/Screens/Progress/score_bonus_toast_service.dart';
-import 'package:habit_tracker/Screens/Progress/milestone_toast_service.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
+import 'package:habit_tracker/Screens/Shared/daily_progress_calculator.dart';
+import 'package:habit_tracker/Screens/Progress/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Screens/Progress/toasts/bonus_notification_formatter.dart';
+import 'package:habit_tracker/Screens/Progress/toasts/milestone_toast_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
@@ -411,12 +411,7 @@ class DayEndProcessor {
       );
 
       // Show bonus notifications
-      final bonuses = CumulativeScoreService.getBonusNotifications(
-        cumulativeScoreData,
-      );
-      if (bonuses.isNotEmpty) {
-        ScoreBonusToastService.showMultipleNotifications(bonuses);
-      }
+      BonusNotificationFormatter.showBonusNotifications(cumulativeScoreData);
 
       // Show milestone achievements
       final newMilestones =

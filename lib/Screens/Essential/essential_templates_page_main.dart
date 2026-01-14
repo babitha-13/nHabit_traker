@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/essential_service.dart';
+import 'package:habit_tracker/Screens/Essential/essential_data_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
@@ -14,8 +14,8 @@ import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Categories/create_category.dart';
-import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
-import 'package:habit_tracker/Helper/backend/time_logging_preferences_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/task_instance_service.dart';
+import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 
 class essentialTemplatesPage extends StatefulWidget {
   const essentialTemplatesPage({Key? key}) : super(key: key);

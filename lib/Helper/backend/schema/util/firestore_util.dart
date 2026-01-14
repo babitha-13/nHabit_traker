@@ -1,6 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/schema_util.dart';
-import 'package:habit_tracker/Helper/flutter_flow/lat_lng.dart';
+import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 typedef RecordBuilder<T> = T Function(DocumentSnapshot snapshot);
 abstract class FirestoreRecord {
   FirestoreRecord(this.reference, this.snapshotData);

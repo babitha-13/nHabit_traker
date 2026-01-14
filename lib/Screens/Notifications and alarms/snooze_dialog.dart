@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
 
 /// Dialog for selecting snooze duration
 class SnoozeDialog {
@@ -39,7 +39,8 @@ class _SnoozeDialogContent extends StatelessWidget {
         Navigator.of(context).pop();
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Reminder snoozed for ${_snoozeOptions.firstWhere((opt) => opt['minutes'] == minutes)['label']}'),
+            content: Text(
+                'Reminder snoozed for ${_snoozeOptions.firstWhere((opt) => opt['minutes'] == minutes)['label']}'),
             duration: const Duration(seconds: 2),
           ),
         );
@@ -79,4 +80,3 @@ class _SnoozeDialogContent extends StatelessWidget {
     );
   }
 }
-
