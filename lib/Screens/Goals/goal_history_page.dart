@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/goal_record.dart';
-import 'package:habit_tracker/Helper/backend/goal_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
+import 'package:habit_tracker/Screens/Goals/goal_data_service.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
 import 'package:intl/intl.dart';
 
@@ -48,7 +48,7 @@ class _GoalHistoryPageState extends State<GoalHistoryPage> {
   Widget _buildGoalCard(GoalRecord goal) {
     final theme = FlutterFlowTheme.of(context);
     final isCompleted = goal.completedAt != null;
-    
+
     return Card(
       margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
       elevation: 2,
@@ -65,15 +65,20 @@ class _GoalHistoryPageState extends State<GoalHistoryPage> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
-                    color: isCompleted ? Colors.green.withOpacity(0.1) : Colors.blue.withOpacity(0.1),
+                    color: isCompleted
+                        ? Colors.green.withOpacity(0.1)
+                        : Colors.blue.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(16),
                   ),
                   child: Text(
                     isCompleted ? 'Completed' : 'Active',
                     style: TextStyle(
-                      color: isCompleted ? Colors.green.shade700 : Colors.blue.shade700,
+                      color: isCompleted
+                          ? Colors.green.shade700
+                          : Colors.blue.shade700,
                       fontWeight: FontWeight.w600,
                       fontSize: 12,
                     ),
@@ -134,7 +139,8 @@ class _GoalHistoryPageState extends State<GoalHistoryPage> {
     );
   }
 
-  Widget _buildAnswerSection(String label, String answer, FlutterFlowTheme theme) {
+  Widget _buildAnswerSection(
+      String label, String answer, FlutterFlowTheme theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Column(
@@ -209,4 +215,3 @@ class _GoalHistoryPageState extends State<GoalHistoryPage> {
     );
   }
 }
-

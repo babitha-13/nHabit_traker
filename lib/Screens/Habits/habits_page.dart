@@ -4,19 +4,19 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_fab.dart';
-import 'package:habit_tracker/Screens/Create%20Catagory/create_category.dart';
-import 'package:habit_tracker/Screens/Shared/activity_editor_dialog.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
-import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
+import 'package:habit_tracker/Screens/Categories/create_category.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_editor_dialog.dart';
+import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
+import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
+import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
@@ -50,7 +50,8 @@ class _HabitsPageState extends State<HabitsPage> {
   Set<String> _reorderingInstanceIds =
       {}; // Track instances being reordered to prevent stale updates
   // Optimistic operation tracking
-  final Map<String, String> _optimisticOperations = {}; // operationId -> instanceId
+  final Map<String, String> _optimisticOperations =
+      {}; // operationId -> instanceId
   @override
   void initState() {
     super.initState();
@@ -488,8 +489,10 @@ class _HabitsPageState extends State<HabitsPage> {
         borderRadius: BorderRadius.only(
           topLeft: const Radius.circular(16),
           topRight: const Radius.circular(16),
-          bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
-          bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
+          bottomLeft:
+              expanded ? const Radius.circular(12) : const Radius.circular(16),
+          bottomRight:
+              expanded ? const Radius.circular(12) : const Radius.circular(16),
         ),
         boxShadow: expanded
             ? []
@@ -751,7 +754,7 @@ class _HabitsPageState extends State<HabitsPage> {
     ActivityInstanceRecord instance;
     bool isOptimistic = false;
     String? operationId;
-    
+
     if (param is Map) {
       instance = param['instance'] as ActivityInstanceRecord;
       isOptimistic = param['isOptimistic'] as bool? ?? false;
@@ -762,16 +765,16 @@ class _HabitsPageState extends State<HabitsPage> {
     } else {
       return;
     }
-    
+
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }
-    
+
     setState(() {
       final index = _habitInstances
           .indexWhere((inst) => inst.reference.id == instance.reference.id);
-      
+
       if (index != -1) {
         if (isOptimistic) {
           // Store optimistic state with operation ID for later reconciliation
@@ -788,11 +791,11 @@ class _HabitsPageState extends State<HabitsPage> {
         }
         // Invalidate cache when instance is updated
         _cachedGroupedByCategory = null;
-        
+
         // Remove from list if completed and not showing completed
         if (!_showCompleted && instance.status == 'completed') {
-          _habitInstances
-              .removeWhere((inst) => inst.reference.id == instance.reference.id);
+          _habitInstances.removeWhere(
+              (inst) => inst.reference.id == instance.reference.id);
         }
       } else if (!isOptimistic) {
         // New instance from backend (not optimistic) - add it
@@ -801,21 +804,22 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     });
   }
-  
+
   void _handleRollback(dynamic param) {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
-      final originalInstance = param['originalInstance'] as ActivityInstanceRecord?;
-      
-      if (operationId != null && _optimisticOperations.containsKey(operationId)) {
+      final originalInstance =
+          param['originalInstance'] as ActivityInstanceRecord?;
+
+      if (operationId != null &&
+          _optimisticOperations.containsKey(operationId)) {
         setState(() {
           _optimisticOperations.remove(operationId);
           if (originalInstance != null) {
             // Restore from original state
-            final index = _habitInstances.indexWhere(
-              (inst) => inst.reference.id == instanceId
-            );
+            final index = _habitInstances
+                .indexWhere((inst) => inst.reference.id == instanceId);
             if (index != -1) {
               _habitInstances[index] = originalInstance;
               _cachedGroupedByCategory = null;
@@ -828,7 +832,7 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     }
   }
-  
+
   Future<void> _revertOptimisticUpdate(String instanceId) async {
     try {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(

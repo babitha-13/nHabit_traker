@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/testing/simple_day_advancer_ui.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
+import 'package:habit_tracker/Helper/Helpers/testing/simple_day_advancer_ui.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+
 /// Testing page for day simulation and habit/task testing
 /// Add this to your app navigation for easy testing access
 class TestingPage extends StatefulWidget {
@@ -9,6 +10,7 @@ class TestingPage extends StatefulWidget {
   @override
   State<TestingPage> createState() => _TestingPageState();
 }
+
 class _TestingPageState extends State<TestingPage> {
   @override
   Widget build(BuildContext context) {
@@ -78,6 +80,7 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
+
   Widget _buildDateServiceStatus(FlutterFlowTheme theme) {
     final status = DateService.getStatus();
     return Container(
@@ -118,6 +121,7 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
+
   Widget _buildStatusRow(String label, String value, FlutterFlowTheme theme) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
@@ -148,6 +152,7 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
+
   Widget _buildInstructions(FlutterFlowTheme theme) {
     return Container(
       padding: const EdgeInsets.all(16),
@@ -195,6 +200,7 @@ class _TestingPageState extends State<TestingPage> {
       ),
     );
   }
+
   Widget _buildInstructionStep(
       String number, String title, String description, FlutterFlowTheme theme) {
     return Padding(

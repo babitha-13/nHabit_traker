@@ -1,38 +1,34 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/daily_progress_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/utils/instance_events.dart';
-import 'package:habit_tracker/Helper/utils/item_component.dart';
-import 'package:habit_tracker/Helper/utils/progress_donut_chart.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Helper/backend/today_progress_state.dart';
-import 'package:habit_tracker/Helper/utils/expansion_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
-import 'package:habit_tracker/Helper/utils/search_fab.dart';
-import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
-import 'package:habit_tracker/Helper/backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/utils/window_display_helper.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
-import 'package:habit_tracker/Screens/Progress/progress_page.dart';
-import 'package:habit_tracker/Helper/backend/cumulative_score_service.dart';
-import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Helper/utils/cumulative_score_line_painter.dart';
-import 'package:habit_tracker/Helper/utils/queue_filter_state_manager.dart'
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
+import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
+import 'package:habit_tracker/Screens/Queue/Weekly_view/weekly_view.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart'
     show QueueFilterState, QueueFilterStateManager;
-import 'package:habit_tracker/Helper/utils/queue_sort_state_manager.dart'
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_sort_state_manager.dart'
     show QueueSortState, QueueSortStateManager, QueueSortType;
-import 'package:habit_tracker/Screens/Queue/queue_filter_dialog.dart';
-import 'package:habit_tracker/Helper/backend/points_service.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_utils.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_instance_state_manager.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_bucket_service.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_page_refresh.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_reorder_handler.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_logic.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/today_points_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
+import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_charts_section/queue_charts_section.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'dart:async';
-import 'dart:math' as math;
-import 'package:intl/intl.dart';
-import 'package:collection/collection.dart';
 
 class QueuePage extends StatefulWidget {
   final bool expandCompleted;
@@ -61,16 +57,11 @@ class _QueuePageState extends State<QueuePage> {
   bool _shouldReloadOnReturn = false;
   bool _isLoadingData = false; // Guard against concurrent loads
   bool _ignoreInstanceEvents = true; // Ignore events during initial load
-  Set<String> _reorderingInstanceIds =
-      {}; // Track instances being reordered to prevent stale updates
-  // Optimistic operation tracking
-  final Map<String, String> _optimisticOperations =
-      {}; // operationId -> instanceId
-  // Progress tracking variables
+  final Set<String> _reorderingInstanceIds = {};
+  final Map<String, String> _optimisticOperations = {};
   double _dailyTarget = 0.0;
   double _pointsEarned = 0.0;
   double _dailyPercentage = 0.0;
-  // Cumulative score variables
   double _cumulativeScore = 0.0;
   double _dailyScoreGain = 0.0;
   List<Map<String, dynamic>> _cumulativeScoreHistory = [];
@@ -81,15 +72,14 @@ class _QueuePageState extends State<QueuePage> {
   bool _pendingLiveScoreUpdate = false;
   double? _pendingHistoryScore;
   double? _pendingHistoryGain;
-  // Removed legacy Recent Completions expansion state; now uses standard sections
-  // Search functionality
+  bool _isCalculatingProgress = false;
+  int _progressCalculationVersion =
+      0; // Track calculation order to prevent overwriting newer values
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
   bool _isSearchBarVisible = false;
-  // Filter and sort state
   QueueFilterState _currentFilter = QueueFilterState();
   QueueSortState _currentSort = QueueSortState();
-  // Cache for bucketed items to avoid recalculation on every build
   Map<String, List<ActivityInstanceRecord>>? _cachedBucketedItems;
   int _instancesHashCode = 0;
   int _categoriesHashCode = 0;
@@ -102,22 +92,22 @@ class _QueuePageState extends State<QueuePage> {
   bool _hasAppliedInitialFocus = false;
   String? _highlightedInstanceId;
   Timer? _highlightTimer;
+  DateTime?
+      _lastKnownDate; // Track last known date for day transition detection
   @override
   void initState() {
     super.initState();
+    _lastKnownDate = DateService.todayStart;
     _pendingFocusTemplateId = widget.focusTemplateId;
     _pendingFocusInstanceId = widget.focusInstanceId;
     _loadExpansionState();
-    // Load filter and sort state first, then load data to ensure filters are applied correctly
     _loadFilterAndSortState().then((_) {
       _loadData().then((_) {
-        // Defer cumulative score loading until after initial render for faster initial load
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
             _loadCumulativeScoreHistory();
           }
         });
-        // Handle auto-expand request from widget constructor
         if (widget.expandCompleted) {
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -127,23 +117,23 @@ class _QueuePageState extends State<QueuePage> {
         }
       });
     });
-    // Listen for cumulative score updates from Progress page
     NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
       if (!mounted) return;
       final data = TodayProgressState().getCumulativeScoreData();
       final updatedScore =
           (data['cumulativeScore'] as double?) ?? _cumulativeScore;
-      final updatedGain = (data['dailyGain'] as double?) ?? _dailyScoreGain;
+      final updatedTodayScore =
+          (data['todayScore'] as double?) ?? _dailyScoreGain;
       setState(() {
         _cumulativeScore = updatedScore;
-        _dailyScoreGain = updatedGain;
+        _dailyScoreGain = updatedTodayScore;
       });
-      _queueHistoryOverlay(updatedScore, updatedGain);
+      _queueHistoryOverlay(updatedScore, updatedTodayScore);
     });
-    // Listen for today's progress updates to recalculate cumulative score
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
       if (!mounted) return;
-      _refreshLiveCumulativeScore();
+      // When completion points update, recalculate today's score
+      _updateTodayScore();
     });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
@@ -152,17 +142,14 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     });
-    // Listen for category updates to refresh data
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
         _silentRefreshInstances();
       }
     });
-    // Listen for search changes
     _isSearchBarVisible = _searchManager.isSearchOpen;
     _searchManager.addListener(_onSearchChanged);
     _searchManager.addSearchOpenListener(_onSearchVisibilityChanged);
-    // Listen for instance events (but ignore during initial load)
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
       if (param is ActivityInstanceRecord &&
@@ -191,14 +178,12 @@ class _QueuePageState extends State<QueuePage> {
         _handleInstanceDeleted(param);
       }
     });
-    // Listen for section expansion requests
     NotificationCenter.addObserver(this, 'expandQueueSection', (param) {
       if (mounted && param is String) {
         setState(() {
           _expandedSections.add(param);
           ExpansionStateManager().setQueueExpandedSections(_expandedSections);
         });
-        // Scroll to the section after a delay to ensure it's rendered
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (_sectionKeys[param]?.currentContext != null) {
             Scrollable.ensureVisible(
@@ -226,6 +211,8 @@ class _QueuePageState extends State<QueuePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Check for day transition when page becomes visible
+    _checkDayTransition();
     if (_didInitialDependencies) {
       final route = ModalRoute.of(context);
       if (route != null && route.isCurrent && _shouldReloadOnReturn) {
@@ -235,6 +222,23 @@ class _QueuePageState extends State<QueuePage> {
     } else {
       _didInitialDependencies = true;
     }
+  }
+
+  void _checkDayTransition() {
+    final today = DateService.todayStart;
+    if (_lastKnownDate != null && !_isSameDay(_lastKnownDate!, today)) {
+      // Day has changed - reload all data
+      _lastKnownDate = today;
+      _loadData();
+      _loadCumulativeScoreHistory(forceReload: true);
+      _calculateProgress();
+    } else if (_lastKnownDate == null) {
+      _lastKnownDate = today;
+    }
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   @override
@@ -271,7 +275,6 @@ class _QueuePageState extends State<QueuePage> {
       setState(() {
         _currentFilter = filterState;
         _currentSort = sortState;
-        // Invalidate cache when filter/sort state changes
         _cachedBucketedItems = null;
       });
     }
@@ -281,7 +284,6 @@ class _QueuePageState extends State<QueuePage> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
-        // Invalidate cache when search query changes
         _cachedBucketedItems = null;
       });
     }
@@ -298,7 +300,6 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   Future<void> _loadData() async {
-    // Prevent concurrent loads
     if (_isLoadingData) return;
     if (!mounted) return;
     _isLoadingData = true;
@@ -307,80 +308,24 @@ class _QueuePageState extends State<QueuePage> {
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        // Batch Firestore queries in parallel for faster loading
-        final results = await Future.wait([
-          queryAllInstances(userId: userId),
-          queryHabitCategoriesOnce(
-            userId: userId,
-            callerTag: 'QueuePage._loadData.habits',
-          ),
-          queryTaskCategoriesOnce(
-            userId: userId,
-            callerTag: 'QueuePage._loadData.tasks',
-          ),
-        ]);
+        final result = await QueueDataService.loadQueueData(userId: userId);
         if (!mounted) return;
-        final allInstances = results[0] as List<ActivityInstanceRecord>;
-        final habitCategories = results[1] as List<CategoryRecord>;
-        final taskCategories = results[2] as List<CategoryRecord>;
-        final allCategories = [...habitCategories, ...taskCategories];
-        // Deduplicate instances by reference ID to prevent duplicates
-        final uniqueInstances = <String, ActivityInstanceRecord>{};
-        for (final instance in allInstances) {
-          uniqueInstances[instance.reference.id] = instance;
-        }
-        final deduplicatedInstances = uniqueInstances.values.toList();
+
+        // Use filter logic service to initialize filter state
+        final updatedFilter = QueueFilterLogic.initializeFilterState(
+          currentFilter: _currentFilter,
+          categories: result.categories,
+        );
+
         if (mounted) {
           setState(() {
-            _instances = deduplicatedInstances;
-            _categories = allCategories;
-            // Invalidate cache when data changes
+            _instances = result.instances;
+            _categories = result.categories;
             _cachedBucketedItems = null;
             _itemKeys.removeWhere(
-              (id, key) => !deduplicatedInstances
+              (id, key) => !result.instances
                   .any((instance) => instance.reference.id == id),
             );
-
-            // Initialize default filter state (all categories selected) if filter is empty
-            var updatedFilter = _currentFilter;
-            final allHabitNames =
-                habitCategories.map((cat) => cat.name).toSet();
-            final allTaskNames = taskCategories.map((cat) => cat.name).toSet();
-
-            // If filter state is empty (default), initialize with all categories selected
-            if (!_currentFilter.hasAnyFilter) {
-              updatedFilter = QueueFilterState(
-                allTasks: true,
-                allHabits: true,
-                selectedHabitCategoryNames: allHabitNames,
-                selectedTaskCategoryNames: allTaskNames,
-              );
-            } else {
-              // If filter has allHabits/allTasks true but selected sets are empty,
-              // populate them with all category names (handles old saved states)
-              if (_currentFilter.allHabits &&
-                  _currentFilter.selectedHabitCategoryNames.isEmpty &&
-                  habitCategories.isNotEmpty) {
-                updatedFilter = QueueFilterState(
-                  allTasks: updatedFilter.allTasks,
-                  allHabits: updatedFilter.allHabits,
-                  selectedHabitCategoryNames: allHabitNames,
-                  selectedTaskCategoryNames:
-                      updatedFilter.selectedTaskCategoryNames,
-                );
-              }
-              if (updatedFilter.allTasks &&
-                  updatedFilter.selectedTaskCategoryNames.isEmpty &&
-                  taskCategories.isNotEmpty) {
-                updatedFilter = QueueFilterState(
-                  allTasks: updatedFilter.allTasks,
-                  allHabits: updatedFilter.allHabits,
-                  selectedHabitCategoryNames:
-                      updatedFilter.selectedHabitCategoryNames,
-                  selectedTaskCategoryNames: allTaskNames,
-                );
-              }
-            }
             _currentFilter = updatedFilter;
             _isLoading = false;
             _isLoadingData = false;
@@ -390,15 +335,14 @@ class _QueuePageState extends State<QueuePage> {
               _maybeApplyPendingFocus();
             }
           });
-          // Calculate progress for today's habits
-          _calculateProgress();
-          // Enable instance event listeners after initial load completes
+          // Fast UI update using local instances
+          _calculateProgress(optimistic: true);
+          // Reconcile with backend in background
+          Future.microtask(() => _calculateProgress(optimistic: false));
           _ignoreInstanceEvents = false;
-
-          // Initialize order values for instances that don't have them (run once after load)
           try {
             await InstanceOrderService.initializeOrderValues(
-                deduplicatedInstances, 'queue');
+                result.instances, 'queue');
           } catch (_) {}
         } else {
           _isLoadingData = false;
@@ -424,60 +368,35 @@ class _QueuePageState extends State<QueuePage> {
     if (_hasAppliedInitialFocus) return;
     final targetInstanceId = _pendingFocusInstanceId ?? widget.focusInstanceId;
     final targetTemplateId = _pendingFocusTemplateId ?? widget.focusTemplateId;
-    if (targetInstanceId == null && targetTemplateId == null) {
+
+    // Use focus handler service to find target
+    final focusResult = QueueFocusHandler.findFocusTarget(
+      buckets: _bucketedItems,
+      targetInstanceId: targetInstanceId,
+      targetTemplateId: targetTemplateId,
+    );
+
+    if (focusResult == null) {
       return;
     }
 
-    final buckets = _bucketedItems;
-    ActivityInstanceRecord? target;
-    String? sectionKey;
-
-    if (targetInstanceId != null) {
-      for (final entry in buckets.entries) {
-        final match = entry.value
-            .firstWhereOrNull((inst) => inst.reference.id == targetInstanceId);
-        if (match != null) {
-          target = match;
-          sectionKey = entry.key;
-          break;
-        }
-      }
-    }
-
-    if (target == null && targetTemplateId != null) {
-      for (final entry in buckets.entries) {
-        final match = entry.value
-            .firstWhereOrNull((inst) => inst.templateId == targetTemplateId);
-        if (match != null) {
-          target = match;
-          sectionKey = entry.key;
-          break;
-        }
-      }
-    }
-
-    if (target == null) {
-      return;
-    }
-
-    final resolvedInstanceId = target.reference.id;
     _pendingFocusInstanceId = null;
     _pendingFocusTemplateId = null;
     _hasAppliedInitialFocus = true;
 
     setState(() {
-      _highlightedInstanceId = resolvedInstanceId;
-      if (sectionKey != null) {
-        _expandedSections.add(sectionKey);
+      _highlightedInstanceId = focusResult.instanceId;
+      if (focusResult.sectionKey != null) {
+        _expandedSections.add(focusResult.sectionKey!);
         _cachedBucketedItems = null;
       }
     });
-    if (sectionKey != null) {
+    if (focusResult.sectionKey != null) {
       ExpansionStateManager().setQueueExpandedSections(_expandedSections);
     }
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      final highlightKey = _itemKeys[resolvedInstanceId];
+      final highlightKey = _itemKeys[focusResult.instanceId];
       if (highlightKey?.currentContext != null) {
         Scrollable.ensureVisible(
           highlightKey!.currentContext!,
@@ -496,98 +415,69 @@ class _QueuePageState extends State<QueuePage> {
     });
   }
 
-  /// Calculate progress for today's habits and tasks
-  /// Uses shared DailyProgressCalculator for consistency with historical data
-  /// [optimistic] - If true, calculates instantly from local data without Firestore queries
   void _calculateProgress({bool optimistic = false}) async {
-    // Separate habit and task instances
-    final habitInstances = _instances
-        .where((inst) => inst.templateCategoryType == 'habit')
-        .toList();
-    final taskInstances = _instances
-        .where((inst) => inst.templateCategoryType == 'task')
-        .toList();
+    // Increment version to track calculation order
+    final calculationVersion = ++_progressCalculationVersion;
 
     if (optimistic) {
-      // INSTANT UPDATE: Calculate from local data only (no Firestore queries)
-      try {
-        final userId = currentUserUid;
-        final progressData =
-            await DailyProgressCalculator.calculateTodayProgressOptimistic(
-          userId: userId,
-          allInstances: habitInstances,
-          categories: _categories,
-          taskInstances: taskInstances,
-        );
+      // INSTANT calculation - synchronous, no Firestore queries
+      // Like an Excel sheet - calculates from instances already in memory
+      final progressData =
+          TodayCompletionPointsService.calculateTodayCompletionPointsSync(
+        userId: currentUserUid,
+        instances: _instances,
+        categories: _categories,
+      );
 
-        // Update UI immediately
-        if (mounted) {
-          setState(() {
-            _dailyTarget = progressData['target'] as double;
-            _pointsEarned = progressData['earned'] as double;
-            _dailyPercentage = progressData['percentage'] as double;
-          });
-        }
-
-        // Publish to shared state for other pages
-        TodayProgressState().updateProgress(
-          target: _dailyTarget,
-          earned: _pointsEarned,
-          percentage: _dailyPercentage,
-        );
-
-        // Update cumulative score optimistically
-        _updateCumulativeScoreLiveOptimistic();
-      } catch (e) {
-        // If optimistic calculation fails, fall back to full calculation
-        _calculateProgress(optimistic: false);
+      // Only update UI if this is still the latest calculation
+      // (no newer calculation has started since we began)
+      if (mounted && calculationVersion == _progressCalculationVersion) {
+        setState(() {
+          _dailyTarget = progressData['target'] as double;
+          _pointsEarned = progressData['earned'] as double;
+          _dailyPercentage = progressData['percentage'] as double;
+        });
       }
+
+      // Update score in background - don't block UI
+      Future.microtask(() => _updateTodayScore());
     } else {
-      // BACKEND RECONCILIATION: Use full calculation with Firestore
+      // Prevent concurrent non-optimistic calculations
+      if (_isCalculatingProgress) {
+        return; // Skip if already calculating
+      }
+
+      _isCalculatingProgress = true;
+
       try {
+        // BACKEND RECONCILIATION: Use full calculation with Firestore
         final progressData =
-            await DailyProgressCalculator.calculateTodayProgress(
+            await TodayCompletionPointsService.calculateTodayCompletionPoints(
           userId: currentUserUid,
-          allInstances: habitInstances,
+          instances: _instances,
           categories: _categories,
-          taskInstances: taskInstances,
+          optimistic: false,
         );
 
-        // Update UI with backend data
-        if (mounted) {
+        // Only update UI if this is still the latest calculation
+        // (no newer calculation has started since we began)
+        if (mounted && calculationVersion == _progressCalculationVersion) {
           setState(() {
             _dailyTarget = progressData['target'] as double;
             _pointsEarned = progressData['earned'] as double;
             _dailyPercentage = progressData['percentage'] as double;
           });
+
+          // For non-optimistic, await to ensure accuracy
+          await _updateTodayScore();
         }
-
-        // Publish to shared state for other pages
-        TodayProgressState().updateProgress(
-          target: _dailyTarget,
-          earned: _pointsEarned,
-          percentage: _dailyPercentage,
-        );
-
-        // Update cumulative score live when progress changes
-        _updateCumulativeScoreLive();
-      } catch (e) {
-        // Error in backend calculation - non-critical, continue silently
+      } finally {
+        _isCalculatingProgress = false;
       }
     }
   }
 
-  /// Update cumulative score optimistically - triggers full calculation
-  /// Uses shared state as single source of truth for consistency with Progress page
-  Future<void> _updateCumulativeScoreLiveOptimistic() async {
-    // Use the same full calculation as the non-optimistic path
-    // This ensures consistency between pages
-    await _updateCumulativeScoreLive();
-  }
-
-  /// Update cumulative score live without reloading full history
-  /// This provides instant updates similar to daily progress chart
-  Future<void> _updateCumulativeScoreLive() async {
+  Future<void> _updateTodayScore() async {
     if (_isUpdatingLiveScore) {
       _pendingLiveScoreUpdate = true;
       return;
@@ -599,72 +489,39 @@ class _QueuePageState extends State<QueuePage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      // Get today's progress
-      final todayPercentage = _dailyPercentage;
-      final todayEarned = _pointsEarned;
+      // Get habit instances for category neglect penalty calculation
+      final habitInstances = _instances
+          .where((inst) => inst.templateCategoryType == 'habit')
+          .toList();
 
-      // Calculate projected score including today's progress (even if 0)
-      final projectionData =
-          await CumulativeScoreService.calculateProjectedDailyScore(
-        userId,
-        todayPercentage,
-        todayEarned,
+      final scoreData = await CumulativeScoreCalculator.updateTodayScore(
+        userId: userId,
+        completionPercentage: _dailyPercentage,
+        pointsEarned: _pointsEarned,
+        categories: _categories,
+        habitInstances: habitInstances,
+        includeBreakdown: false,
       );
-
-      final currentCumulativeScore =
-          projectionData['projectedCumulative'] ?? 0.0;
-      final currentDailyGain = projectionData['projectedGain'] ?? 0.0;
-
-      // Update cumulative score values
       if (mounted) {
         setState(() {
-          _cumulativeScore = currentCumulativeScore;
-          _dailyScoreGain = currentDailyGain;
+          _cumulativeScore =
+              (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+          _dailyScoreGain =
+              (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
         });
       }
 
-      _queueHistoryOverlay(currentCumulativeScore, currentDailyGain);
-
-      // Publish to shared state for other pages
-      TodayProgressState().updateCumulativeScore(
-        cumulativeScore: currentCumulativeScore,
-        dailyGain: currentDailyGain,
-        hasLiveScore: true,
+      _queueHistoryOverlay(
+        (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0,
+        (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0,
       );
     } catch (e) {
-      // Error updating cumulative score live - non-critical, continue silently
     } finally {
       _isUpdatingLiveScore = false;
       if (_pendingLiveScoreUpdate) {
         _pendingLiveScoreUpdate = false;
-        Future.microtask(_refreshLiveCumulativeScore);
+        Future.microtask(_updateTodayScore);
       }
-    }
-  }
-
-  Future<void> _refreshLiveCumulativeScore() async {
-    try {
-      final data = TodayProgressState().getCumulativeScoreData();
-      final hasLiveScore = data['hasLiveScore'] as bool? ?? false;
-
-      if (!hasLiveScore) {
-        await _updateCumulativeScoreLive();
-        return;
-      }
-
-      final score = (data['cumulativeScore'] as double?) ?? _cumulativeScore;
-      final gain = (data['dailyGain'] as double?) ?? _dailyScoreGain;
-
-      if (mounted) {
-        setState(() {
-          _cumulativeScore = score;
-          _dailyScoreGain = gain;
-        });
-      }
-
-      _queueHistoryOverlay(score, gain);
-    } catch (e) {
-      // Non-critical; best-effort live refresh
     }
   }
 
@@ -684,180 +541,40 @@ class _QueuePageState extends State<QueuePage> {
         return;
       }
 
-      // Use local variables to track score values (setState is async)
-      double currentCumulativeScore = 0.0;
-      double currentDailyGain = 0.0;
+      // Load 30 days of history for the scrollable graph
+      final result = await CumulativeScoreCalculator.loadCumulativeScoreHistory(
+        userId: userId,
+        days: 30,
+      );
 
-      // First check if the Progress page has already calculated the live score
-      final sharedData = TodayProgressState().getCumulativeScoreData();
-      if (sharedData['hasLiveScore'] as bool) {
-        currentCumulativeScore = sharedData['cumulativeScore'] as double;
-        currentDailyGain = sharedData['dailyGain'] as double;
-      } else {
-        // Calculate the live cumulative score ourselves
-        // Get today's progress
-        final progressData = TodayProgressState().getProgressData();
-        final todayPercentage = progressData['percentage'] ?? 0.0;
-        final todayEarned = progressData['earned'] ?? 0.0;
+      final currentCumulativeScore =
+          (result['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+      final currentTodayScore =
+          (result['todayScore'] as num?)?.toDouble() ?? 0.0;
+      final history =
+          (result['history'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
-        // Calculate projected score including today's progress (even if 0)
-        final projectionData =
-            await CumulativeScoreService.calculateProjectedDailyScore(
-          userId,
-          todayPercentage,
-          todayEarned,
-        );
-
-        currentCumulativeScore = projectionData['projectedCumulative'] ?? 0.0;
-        currentDailyGain = projectionData['projectedGain'] ?? 0.0;
-
-        // Publish to shared state for other pages
-        TodayProgressState().updateCumulativeScore(
-          cumulativeScore: currentCumulativeScore,
-          dailyGain: currentDailyGain,
-          hasLiveScore: true,
-        );
-      }
-
-      // Update state with calculated values
-      if (mounted) {
-        setState(() {
-          _cumulativeScore = currentCumulativeScore;
-          _dailyScoreGain = currentDailyGain;
-        });
-      }
-
-      // Load cumulative score history for the last 30 days
-      // Load cumulative score history for the last 30 days
-      // Use todayStart to ensuring consistent midnight-to-midnight querying
-      final endDate = DateService.todayStart;
-      final startDate = endDate.subtract(const Duration(days: 30));
-
-      final query = await DailyProgressRecord.collectionForUser(userId)
-          .where('date', isGreaterThanOrEqualTo: startDate)
-          .where('date', isLessThanOrEqualTo: endDate)
-          .orderBy('date', descending: false)
-          .get();
-
-      // Create a map for quick lookup of existing records
-      final recordMap = <String, DailyProgressRecord>{};
-      for (final doc in query.docs) {
-        final record = DailyProgressRecord.fromSnapshot(doc);
-        if (record.date != null) {
-          final dateKey = DateFormat('yyyy-MM-dd').format(record.date!);
-          recordMap[dateKey] = record;
-        }
-      }
-
-      final history = <Map<String, dynamic>>[];
-
-      double lastKnownScore = 0.0;
-
-      // Fetch the last record BEFORE the start date to get the baseline score
-      try {
-        final lastPriorRecordQuery =
-            await DailyProgressRecord.collectionForUser(userId)
-                .where('date', isLessThan: startDate)
-                .orderBy('date', descending: true)
-                .limit(1)
-                .get();
-
-        if (lastPriorRecordQuery.docs.isNotEmpty) {
-          final priorRec =
-              DailyProgressRecord.fromSnapshot(lastPriorRecordQuery.docs.first);
-          if (priorRec.cumulativeScoreSnapshot > 0) {
-            lastKnownScore = priorRec.cumulativeScoreSnapshot;
-          }
-        } else {
-          // If no prior record exists, use the first record in our current range as baseline
-          // This handles new users or when history doesn't go back 30 days
-          if (recordMap.isNotEmpty) {
-            // Get the earliest date in our map
-            final sortedDates = recordMap.keys.toList()..sort();
-            final firstRecord = recordMap[sortedDates.first]!;
-            if (firstRecord.cumulativeScoreSnapshot > 0) {
-              // Use the score from the day BEFORE the first record
-              // by subtracting that day's gain
-              lastKnownScore = firstRecord.cumulativeScoreSnapshot -
-                  firstRecord.dailyScoreGain;
-              if (lastKnownScore < 0) lastKnownScore = 0;
-            }
-          }
-        }
-      } catch (e) {
-        // Error fetching prior cumulative score
-      }
-
-      // Iterate day by day from startDate to endDate
-      for (int i = 0; i <= 30; i++) {
-        final date = startDate.add(Duration(days: i));
-        final dateKey = DateFormat('yyyy-MM-dd').format(date);
-
-        if (recordMap.containsKey(dateKey)) {
-          final record = recordMap[dateKey]!;
-          // Use cumulativeScoreSnapshot if available, otherwise calculate from lastKnownScore
-          // This matches Progress page logic to ensure consistent data
-          if (record.cumulativeScoreSnapshot > 0) {
-            lastKnownScore = record.cumulativeScoreSnapshot;
-          } else if (record.hasDailyScoreGain()) {
-            // If no snapshot but has gain, calculate from last known score
-            lastKnownScore = (lastKnownScore + record.dailyScoreGain)
-                .clamp(0.0, double.infinity);
-          }
-          history.add({
-            'date': date,
-            'score': lastKnownScore,
-            'gain': record.dailyScoreGain,
-          });
-        } else {
-          // No record for this day, simply carry forward the last cumulative score
-          // Gain is 0 for missing days
-          history.add({
-            'date': date,
-            'score': lastKnownScore,
-            'gain': 0.0,
-          });
-        }
-      }
-
-      // Ensure today reflects the live score (if today is the last day in loop)
-      // The loop goes up to endDate (today). existing logic overrides today with live score.
-      // Let's check if the last item in history is today.
-      if (history.isNotEmpty) {
-        final lastItem = history.last;
-        final lastDate = lastItem['date'] as DateTime;
-        final today = DateService.currentDate;
-
-        if (lastDate.year == today.year &&
-            lastDate.month == today.month &&
-            lastDate.day == today.day) {
-          // Always update today's entry with current values to match Progress page behavior
-          // Use projected score if available (hasLiveScore), otherwise use base score
-          history.last['score'] = currentCumulativeScore;
-          history.last['gain'] = currentDailyGain;
-        }
-      }
-
-      // Safeguard: Check if the new history is all zeros (invalid) while we possibly have valid data
       final bool isNewHistoryValid =
           history.any((h) => (h['score'] as double) > 0);
       final bool wasOldHistoryValid =
           _cumulativeScoreHistory.any((h) => (h['score'] as double) > 0);
 
       if (!isNewHistoryValid && wasOldHistoryValid) {
-        // Warning: New cumulative score history is empty/zero. Ignoring update to preserve data.
         _isLoadingHistory = false;
         return;
       }
-
       if (mounted) {
         setState(() {
+          _cumulativeScore = currentCumulativeScore;
+          _dailyScoreGain = currentTodayScore;
           _cumulativeScoreHistory = history;
           _historyLoaded = true;
         });
       } else {
-        _historyLoaded = true;
+        _cumulativeScore = currentCumulativeScore;
+        _dailyScoreGain = currentTodayScore;
         _cumulativeScoreHistory = history;
+        _historyLoaded = true;
       }
 
       final overlayScore = _pendingHistoryScore ?? _cumulativeScore;
@@ -866,7 +583,6 @@ class _QueuePageState extends State<QueuePage> {
       _pendingHistoryScore = null;
       _pendingHistoryGain = null;
     } catch (e) {
-      // Error loading cumulative score
     } finally {
       _isLoadingHistory = false;
       if (_pendingHistoryReload) {
@@ -876,423 +592,72 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  /// Returns a copy of the currently loaded cumulative score history.
   List<Map<String, dynamic>> _getMiniGraphHistory() {
     if (_cumulativeScoreHistory.isEmpty) return [];
     return List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
   }
 
-  bool _applyLiveScoreToHistory(double score, double gain) {
-    final todayStart = DateService.todayStart;
-
-    if (_cumulativeScoreHistory.isEmpty) {
-      _cumulativeScoreHistory = [
-        {
-          'date': todayStart,
-          'score': score,
-          'gain': gain,
-        },
-      ];
-      return true;
-    }
-
-    final lastIndex = _cumulativeScoreHistory.length - 1;
-    final lastEntry = _cumulativeScoreHistory[lastIndex];
-    final lastDate = lastEntry['date'] as DateTime;
-
-    final updatedHistory =
-        List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
-
-    if (_isSameDay(lastDate, todayStart)) {
-      updatedHistory[lastIndex] = {
-        'date': lastDate,
-        'score': score,
-        'gain': gain,
-      };
-    } else if (lastDate.isBefore(todayStart)) {
-      updatedHistory.add({
-        'date': todayStart,
-        'score': score,
-        'gain': gain,
-      });
-      if (updatedHistory.length > 31) {
-        updatedHistory.removeAt(0);
-      }
-    } else {
-      return false;
-    }
-
-    _cumulativeScoreHistory = updatedHistory;
-    return true;
-  }
-
-  void _queueHistoryOverlay(double score, double gain) {
+  void _queueHistoryOverlay(double cumulativeScore, double todayScore) {
     if (_historyLoaded) {
-      final changed = _applyLiveScoreToHistory(score, gain);
+      // Create a copy of the list to ensure Flutter detects the change
+      final historyCopy =
+          List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
+      final changed = CumulativeScoreCalculator.updateHistoryWithTodayScore(
+        historyCopy,
+        todayScore,
+        cumulativeScore,
+      );
       if (changed && mounted) {
-        setState(() {});
+        setState(() {
+          // Assign new list reference to trigger widget rebuild
+          _cumulativeScoreHistory = historyCopy;
+        });
       }
     } else {
-      _pendingHistoryScore = score;
-      _pendingHistoryGain = gain;
-    }
-  }
-
-  Widget _buildCumulativeScoreMiniGraph(List<Map<String, dynamic>> history) {
-    if (history.isEmpty) {
-      return Container(
-        decoration: BoxDecoration(
-          color: FlutterFlowTheme.of(context).alternate.withOpacity(0.1),
-          borderRadius: BorderRadius.circular(8),
-        ),
-        child: Center(
-          child: Text(
-            'No data',
-            style: FlutterFlowTheme.of(context).bodySmall.override(
-                  fontFamily: 'Readex Pro',
-                  color: FlutterFlowTheme.of(context).secondaryText,
-                ),
-          ),
-        ),
-      );
-    }
-
-    return CumulativeScoreGraph(
-      history: history,
-      color: FlutterFlowTheme.of(context).primary,
-    );
-  }
-
-  /// Check if instance is due today or overdue
-  bool _isTodayOrOverdue(ActivityInstanceRecord instance) {
-    if (instance.dueDate == null) return true; // No due date = today
-    final today = _todayDate();
-    final dueDate = DateTime(
-        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
-    // For habits: include if today is within the window [dueDate, windowEndDate]
-    if (instance.templateCategoryType == 'habit') {
-      final windowEnd = instance.windowEndDate;
-      if (windowEnd != null) {
-        // Today should be >= dueDate AND <= windowEnd
-        final isWithinWindow = !today.isBefore(dueDate) &&
-            !today.isAfter(
-                DateTime(windowEnd.year, windowEnd.month, windowEnd.day));
-        return isWithinWindow;
+      _pendingHistoryScore = cumulativeScore;
+      _pendingHistoryGain = todayScore;
+      if (mounted) {
+        // Show a quick one-point history while real history loads
+        setState(() {
+          _cumulativeScoreHistory = [
+            {
+              'date': DateService.todayStart,
+              'score': cumulativeScore,
+              'gain': todayScore,
+            },
+          ];
+        });
       }
-      // Fallback to due date check if no window
-      final isDueToday = dueDate.isAtSameMomentAs(today);
-      return isDueToday;
     }
-    // For tasks: only if due today or overdue
-    final isTodayOrOverdue =
-        dueDate.isAtSameMomentAs(today) || dueDate.isBefore(today);
-    return isTodayOrOverdue;
-  }
-
-  // Removed _wasCompletedToday - now handled by DailyProgressCalculator
-  bool _isInstanceCompleted(ActivityInstanceRecord instance) {
-    return instance.status == 'completed' || instance.status == 'skipped';
-  }
-
-  /// Apply filter logic to instances
-  List<ActivityInstanceRecord> _applyFilters(
-      List<ActivityInstanceRecord> instances) {
-    // If in default state (all categories selected), show all items (no filtering)
-    if (_isDefaultFilterState()) {
-      return instances;
-    }
-
-    // Check if any categories are actually selected
-    final hasSelectedHabits =
-        _currentFilter.selectedHabitCategoryNames.isNotEmpty;
-    final hasSelectedTasks =
-        _currentFilter.selectedTaskCategoryNames.isNotEmpty;
-
-    // If filter was applied but no categories are selected, show nothing
-    // (This handles the case where user explicitly unchecks everything)
-    if (!hasSelectedHabits && !hasSelectedTasks) {
-      return []; // Nothing selected, show nothing
-    }
-
-    // Filter based ONLY on which sub-items (categories) are checked
-    // "All Habits" and "All Tasks" checkboxes only control checking/unchecking of sub-items,
-    // they don't directly affect filtering - filtering is purely based on selected category names
-    return instances.where((instance) {
-      // Skip instances with empty category name (shouldn't happen, but safety check)
-      if (instance.templateCategoryName.isEmpty) {
-        return false;
-      }
-      // Check habits
-      if (instance.templateCategoryType == 'habit' &&
-          hasSelectedHabits &&
-          _currentFilter.selectedHabitCategoryNames
-              .contains(instance.templateCategoryName)) {
-        return true;
-      }
-      // Check tasks
-      if (instance.templateCategoryType == 'task' &&
-          hasSelectedTasks &&
-          _currentFilter.selectedTaskCategoryNames
-              .contains(instance.templateCategoryName)) {
-        return true;
-      }
-      return false;
-    }).toList();
-  }
-
-  /// Parse time string (HH:mm) to minutes since midnight
-  /// Returns null if parsing fails
-  int? _parseTimeToMinutes(String? timeStr) {
-    if (timeStr == null) return null;
-    final timeValues = timeStr.split(':');
-    if (timeValues.length != 2) return null;
-    final hour = int.tryParse(timeValues[0]);
-    final minute = int.tryParse(timeValues[1]);
-    if (hour == null || minute == null) return null;
-    return hour * 60 + minute;
-  }
-
-  /// Compare two time strings (HH:mm format)
-  /// Returns: -1 if timeA < timeB, 0 if equal, 1 if timeA > timeB
-  /// Items without time are considered "larger" (go to end)
-  int _compareTimes(String? timeA, String? timeB) {
-    if (timeA == null && timeB == null) return 0;
-    if (timeA == null) return 1; // A has no time, put it after B
-    if (timeB == null) return -1; // B has no time, put it after A
-
-    final timeAInt = _parseTimeToMinutes(timeA);
-    final timeBInt = _parseTimeToMinutes(timeB);
-
-    if (timeAInt == null && timeBInt == null) return 0;
-    if (timeAInt == null) return 1;
-    if (timeBInt == null) return -1;
-
-    // Always ascending for time
-    return timeAInt.compareTo(timeBInt);
-  }
-
-  /// Sort items within a section based on sort state
-  List<ActivityInstanceRecord> _sortSectionItems(
-      List<ActivityInstanceRecord> items, String sectionKey) {
-    // Only sort expanded sections
-    if (!_expandedSections.contains(sectionKey) || !_currentSort.isActive) {
-      return items;
-    }
-
-    final sortedItems = List<ActivityInstanceRecord>.from(items);
-
-    if (_currentSort.sortType == QueueSortType.points) {
-      // Sort by daily target points (with priority fallback) - descending
-      sortedItems.sort((a, b) {
-        final pointsA = _getSortPointsForInstance(a);
-        final pointsB = _getSortPointsForInstance(b);
-
-        final comparison = pointsB.compareTo(pointsA);
-        if (comparison != 0) {
-          return comparison;
-        }
-        // Stable fallback: alphabetical by name
-        return a.templateName.toLowerCase().compareTo(
-              b.templateName.toLowerCase(),
-            );
-      });
-    } else if (_currentSort.sortType == QueueSortType.time) {
-      // Sort by time only - date-agnostic, always ascending (earliest time first)
-      sortedItems.sort((a, b) {
-        final timeA = a.dueTime;
-        final timeB = b.dueTime;
-
-        // Items with time come first, sorted by time
-        // Items without time go to the end
-        if (timeA == null && timeB == null) return 0;
-        if (timeA == null) return 1; // A has no time, put it after B
-        if (timeB == null) return -1; // B has no time, put it after A
-
-        // Both have time - parse and compare
-        final timeAInt = _parseTimeToMinutes(timeA);
-        final timeBInt = _parseTimeToMinutes(timeB);
-
-        if (timeAInt == null && timeBInt == null) return 0;
-        if (timeAInt == null) return 1;
-        if (timeBInt == null) return -1;
-
-        // Always ascending for time
-        return timeAInt.compareTo(timeBInt);
-      });
-    } else if (_currentSort.sortType == QueueSortType.urgency) {
-      // Sort by urgency - date (deadline) then time, always ascending (most urgent first)
-      sortedItems.sort((a, b) {
-        // For habits with windows, use windowEndDate (deadline)
-        // For tasks and habits without windows, use dueDate
-        DateTime? dateA;
-        DateTime? dateB;
-
-        if (WindowDisplayHelper.hasCompletionWindow(a)) {
-          dateA = a.windowEndDate;
-        } else {
-          dateA = a.dueDate;
-        }
-
-        if (WindowDisplayHelper.hasCompletionWindow(b)) {
-          dateB = b.windowEndDate;
-        } else {
-          dateB = b.dueDate;
-        }
-
-        // Handle null dates (put them at the end)
-        if (dateA == null && dateB == null) {
-          // Both have no date, compare by time
-          return _compareTimes(a.dueTime, b.dueTime);
-        }
-        if (dateA == null) return 1; // A has no date, put it after B
-        if (dateB == null) return -1; // B has no date, put it after A
-
-        // Compare dates - always ascending (earliest deadline first)
-        int dateComparison = dateA.compareTo(dateB);
-        if (dateComparison != 0) {
-          return dateComparison;
-        }
-
-        // If dates are equal, compare times
-        return _compareTimes(a.dueTime, b.dueTime);
-      });
-    }
-
-    return sortedItems;
   }
 
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
-    // Check if cache is still valid
-    // Include currentValue and lastUpdated in hash to invalidate cache when progress changes
-    final currentInstancesHash = _instances.length.hashCode ^
-        _instances.fold(0, (sum, inst) {
-          final idHash = inst.reference.id.hashCode;
-          final valueHash = inst.currentValue.hashCode;
-          final updatedHash = inst.lastUpdated?.hashCode ?? 0;
-          final statusHash = inst.status.hashCode;
-          return sum ^ idHash ^ valueHash ^ updatedHash ^ statusHash;
-        });
-    final currentCategoriesHash = _categories.length.hashCode ^
-        _categories.fold(0, (sum, cat) => sum ^ cat.reference.id.hashCode);
+    final currentInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+    final currentCategoriesHash =
+        QueueBucketService.calculateCategoriesHash(_categories);
 
     final cacheInvalid = _cachedBucketedItems == null ||
         currentInstancesHash != _instancesHashCode ||
         currentCategoriesHash != _categoriesHashCode ||
         _searchQuery != _lastSearchQuery ||
-        !_filtersEqual(_currentFilter, _lastFilter) ||
-        !_sortsEqual(_currentSort, _lastSort) ||
-        !_setsEqual(_expandedSections, _lastExpandedSections);
+        !QueueUtils.filtersEqual(_currentFilter, _lastFilter) ||
+        !QueueUtils.sortsEqual(_currentSort, _lastSort) ||
+        !QueueUtils.setsEqual(_expandedSections, _lastExpandedSections);
 
     if (!cacheInvalid && _cachedBucketedItems != null) {
       return _cachedBucketedItems!;
     }
+    final buckets = QueueBucketService.bucketItems(
+      instances: _instances,
+      categories: _categories,
+      currentFilter: _currentFilter,
+      currentSort: _currentSort,
+      expandedSections: _expandedSections,
+      searchQuery: _searchQuery,
+      isDefaultFilterState: _isDefaultFilterState(),
+    );
 
-    // Recalculate buckets
-    final Map<String, List<ActivityInstanceRecord>> buckets = {
-      'Overdue': [],
-      'Pending': [],
-      'Completed': [],
-      'Skipped/Snoozed': [],
-    };
-    final today = _todayDate();
-    // Apply filters first
-    final filteredInstances = _applyFilters(_instances);
-    // Filter instances by search query if active
-    final instancesToProcess = filteredInstances.where((instance) {
-      if (_searchQuery.isEmpty) return true;
-      return instance.templateName
-          .toLowerCase()
-          .contains(_searchQuery.toLowerCase());
-    }).toList();
-    for (final instance in instancesToProcess) {
-      // Don't skip completed/skipped instances here - they'll be handled in the Completed/Skipped section
-      if (_isInstanceCompleted(instance)) {
-        continue;
-      }
-      // Skip snoozed instances from main processing (they'll be handled in Completed/Skipped section)
-      if (instance.snoozedUntil != null &&
-          DateTime.now().isBefore(instance.snoozedUntil!)) {
-        continue;
-      }
-      final dueDate = instance.dueDate;
-      if (dueDate == null) {
-        // Skip instances without due dates (no "Later" section)
-        continue;
-      }
-      final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      // OVERDUE: Only tasks that are overdue
-      if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
-        buckets['Overdue']!.add(instance);
-      }
-      // PENDING: Both habits and tasks for today
-      else if (_isTodayOrOverdue(instance)) {
-        buckets['Pending']!.add(instance);
-      }
-      // Skip anything beyond today (no "Later" section)
-    }
-    // Populate Completed bucket (completed TODAY only)
-    final now = DateTime.now();
-    final todayStart = DateTime(now.year, now.month, now.day);
-    for (final instance in instancesToProcess) {
-      if (instance.status == 'completed') {
-        if (instance.completedAt == null) {
-          continue;
-        }
-        final completedAt = instance.completedAt!;
-        final completedDateOnly =
-            DateTime(completedAt.year, completedAt.month, completedAt.day);
-        final isToday = completedDateOnly.isAtSameMomentAs(todayStart);
-        if (isToday) {
-          buckets['Completed']!.add(instance);
-        }
-      }
-    }
-    // Populate Skipped/Snoozed bucket (skipped TODAY or currently snoozed)
-    for (final instance in instancesToProcess) {
-      // For skipped items, check skipped date
-      if (instance.status == 'skipped') {
-        if (instance.skippedAt == null) {
-          continue;
-        }
-        final skippedAt = instance.skippedAt!;
-        final skippedDateOnly =
-            DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
-        final isToday = skippedDateOnly.isAtSameMomentAs(todayStart);
-        if (isToday) {
-          buckets['Skipped/Snoozed']!.add(instance);
-        }
-      }
-    }
-    // Add snoozed instances to Skipped/Snoozed section (only if due today)
-    for (final instance in instancesToProcess) {
-      if (instance.snoozedUntil != null &&
-          DateTime.now().isBefore(instance.snoozedUntil!)) {
-        // Only show snoozed items if their original due date was today
-        final dueDate = instance.dueDate;
-        if (dueDate != null) {
-          final dueDateOnly =
-              DateTime(dueDate.year, dueDate.month, dueDate.day);
-          if (dueDateOnly.isAtSameMomentAs(todayStart)) {
-            buckets['Skipped/Snoozed']!.add(instance);
-          }
-        }
-      }
-    }
-    // Sort items within each bucket
-    for (final key in buckets.keys) {
-      final items = buckets[key]!;
-      if (items.isNotEmpty) {
-        // Apply sort if active, otherwise use queue order
-        if (_currentSort.isActive && _expandedSections.contains(key)) {
-          buckets[key] = _sortSectionItems(items, key);
-        } else {
-          // Sort by queue order (manual order)
-          buckets[key] =
-              InstanceOrderService.sortInstancesByOrder(items, 'queue');
-        }
-      }
-    }
-    // Auto-expand sections with search results
     if (_searchQuery.isNotEmpty) {
       for (final key in buckets.keys) {
         if (buckets[key]!.isNotEmpty) {
@@ -1300,8 +665,6 @@ class _QueuePageState extends State<QueuePage> {
         }
       }
     }
-
-    // Update cache
     _cachedBucketedItems = buckets;
     _instancesHashCode = currentInstancesHash;
     _categoriesHashCode = currentCategoriesHash;
@@ -1322,96 +685,8 @@ class _QueuePageState extends State<QueuePage> {
     return buckets;
   }
 
-  bool _filtersEqual(QueueFilterState? a, QueueFilterState? b) {
-    if (a == null || b == null) return a == b;
-    return a.allTasks == b.allTasks &&
-        a.allHabits == b.allHabits &&
-        _setsEqual(
-            a.selectedHabitCategoryNames, b.selectedHabitCategoryNames) &&
-        _setsEqual(a.selectedTaskCategoryNames, b.selectedTaskCategoryNames);
-  }
-
-  bool _sortsEqual(QueueSortState? a, QueueSortState? b) {
-    if (a == null || b == null) return a == b;
-    return a.sortType == b.sortType;
-  }
-
-  bool _setsEqual<T>(Set<T> a, Set<T> b) {
-    if (a.length != b.length) return false;
-    return a.every((item) => b.contains(item));
-  }
-
   String _getSubtitle(ActivityInstanceRecord item, String bucketKey) {
-    if (bucketKey == 'Completed') {
-      // For completed habits with completion windows, show next window info
-      if (item.templateCategoryType == 'habit' &&
-          WindowDisplayHelper.hasCompletionWindow(item)) {
-        return WindowDisplayHelper.getNextWindowStartSubtitle(item);
-      }
-      final due = item.dueDate;
-      final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
-      final timeStr = item.hasDueTime()
-          ? ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}'
-          : '';
-      final subtitle =
-          'Completed • ${item.templateCategoryName} • Due: $dueStr$timeStr';
-      return subtitle;
-    }
-    if (bucketKey == 'Skipped/Snoozed') {
-      // For skipped/snoozed habits with completion windows, show next window info
-      if (item.templateCategoryType == 'habit' &&
-          WindowDisplayHelper.hasCompletionWindow(item)) {
-        return WindowDisplayHelper.getNextWindowStartSubtitle(item);
-      }
-      String statusText;
-      // Check if item is snoozed first
-      if (item.snoozedUntil != null &&
-          DateTime.now().isBefore(item.snoozedUntil!)) {
-        statusText = 'Snoozed';
-      } else if (item.status == 'skipped') {
-        statusText = 'Skipped';
-      } else {
-        statusText = 'Unknown';
-      }
-      final due = item.dueDate;
-      final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
-      final timeStr = item.hasDueTime()
-          ? ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}'
-          : '';
-      final subtitle =
-          '$statusText • ${item.templateCategoryName} • Due: $dueStr$timeStr';
-      return subtitle;
-    }
-    if (bucketKey == 'Pending') {
-      // For habits with completion windows, show when window ends
-      if (item.templateCategoryType == 'habit' &&
-          WindowDisplayHelper.hasCompletionWindow(item)) {
-        return WindowDisplayHelper.getWindowEndSubtitle(item);
-      }
-      // Show category name + due time if available
-      String subtitle = item.templateCategoryName;
-      if (item.hasDueTime()) {
-        subtitle += ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}';
-      }
-      return subtitle;
-    }
-    final dueDate = item.dueDate;
-    if (dueDate != null) {
-      final formattedDate = DateFormat.MMMd().format(dueDate);
-      final timeStr = item.hasDueTime()
-          ? ' @ ${TimeUtils.formatTimeForDisplay(item.dueTime)}'
-          : '';
-      return '$formattedDate$timeStr • ${item.templateCategoryName}';
-    }
-    return item.templateCategoryName;
-  }
-
-  DateTime _todayDate() {
-    return DateService.todayStart;
-  }
-
-  bool _isSameDay(DateTime a, DateTime b) {
-    return a.year == b.year && a.month == b.month && a.day == b.day;
+    return QueueUtils.getSubtitle(item, bucketKey);
   }
 
   @override
@@ -1424,7 +699,7 @@ class _QueuePageState extends State<QueuePage> {
           automaticallyImplyLeading: false,
           backgroundColor: theme.primaryBackground,
           elevation: 0,
-          title: TabBar(
+          title: const TabBar(
             dividerColor: Colors.transparent,
             tabs: [
               Tab(
@@ -1463,7 +738,6 @@ class _QueuePageState extends State<QueuePage> {
                     await QueueSortStateManager().setSortState(sort);
                     setState(() {
                       _currentSort = sort;
-                      // Invalidate cache when sort changes
                       _cachedBucketedItems = null;
                     });
                   }
@@ -1475,7 +749,6 @@ class _QueuePageState extends State<QueuePage> {
                     await QueueSortStateManager().setSortState(sort);
                     setState(() {
                       _currentSort = sort;
-                      // Invalidate cache when sort changes
                       _cachedBucketedItems = null;
                     });
                   }
@@ -1487,32 +760,30 @@ class _QueuePageState extends State<QueuePage> {
                     await QueueSortStateManager().setSortState(sort);
                     setState(() {
                       _currentSort = sort;
-                      // Invalidate cache when sort changes
                       _cachedBucketedItems = null;
                     });
                   }
                 }
               },
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
-                PopupMenuItem<String>(
+                const PopupMenuItem<String>(
                   value: QueueSortType.none,
-                  child: const Text('Manual Order'),
+                  child: Text('Manual Order'),
                 ),
-                PopupMenuItem<String>(
+                const PopupMenuItem<String>(
                   value: QueueSortType.points,
-                  child: const Text('Sort by Points'),
+                  child: Text('Sort by Points'),
                 ),
-                PopupMenuItem<String>(
+                const PopupMenuItem<String>(
                   value: QueueSortType.time,
-                  child: const Text('Sort by Time'),
+                  child: Text('Sort by Time'),
                 ),
-                PopupMenuItem<String>(
+                const PopupMenuItem<String>(
                   value: QueueSortType.urgency,
-                  child: const Text('Sort by Urgency'),
+                  child: Text('Sort by Urgency'),
                 ),
               ],
             ),
-            // Filter button with prominent active state
             _buildFilterButton(theme),
           ],
         ),
@@ -1520,7 +791,6 @@ class _QueuePageState extends State<QueuePage> {
           children: [
             Column(
               children: [
-                // Tab content
                 Expanded(
                   child: TabBarView(
                     children: [
@@ -1548,146 +818,14 @@ class _QueuePageState extends State<QueuePage> {
     );
   }
 
-  /// Build the progress charts widget (used in scrollable view)
   Widget _buildProgressCharts() {
     final miniGraphHistory = _getMiniGraphHistory();
-
-    return GestureDetector(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => const ProgressPage(),
-          ),
-        );
-      },
-      child: Container(
-        margin: const EdgeInsets.fromLTRB(16, 16, 16, 0),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: FlutterFlowTheme.of(context).secondaryBackground,
-          borderRadius: BorderRadius.circular(12),
-          boxShadow: const [
-            BoxShadow(
-              blurRadius: 4,
-              color: Color(0x33000000),
-              offset: Offset(0, 2),
-            )
-          ],
-        ),
-        child: Center(
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              // Daily Progress Donut Chart
-              Column(
-                children: [
-                  ProgressDonutChart(
-                    percentage: _dailyPercentage,
-                    totalTarget: _dailyTarget,
-                    pointsEarned: _pointsEarned,
-                    size: 80,
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Daily Progress',
-                    style: FlutterFlowTheme.of(context).bodyMedium.override(
-                          fontFamily: 'Readex Pro',
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  Text(
-                    '${_pointsEarned.toStringAsFixed(1)} / ${_dailyTarget.toStringAsFixed(1)}',
-                    style: FlutterFlowTheme.of(context).bodySmall.override(
-                          fontFamily: 'Readex Pro',
-                          color: FlutterFlowTheme.of(context).secondaryText,
-                        ),
-                  ),
-                ],
-              ),
-              // Cumulative Score Graph
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  Container(
-                    width: 120,
-                    height: 80,
-                    child: _buildCumulativeScoreMiniGraph(miniGraphHistory),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    'Cumulative Score',
-                    style: FlutterFlowTheme.of(context).bodyMedium.override(
-                          fontFamily: 'Readex Pro',
-                          fontWeight: FontWeight.w600,
-                        ),
-                  ),
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Builder(
-                        builder: (context) {
-                          // Use the same value as the graph for consistency
-                          // The graph's last point is always the projected score for today
-                          final score = miniGraphHistory.isNotEmpty
-                              ? (miniGraphHistory.last['score'] as double)
-                              : TodayProgressState().cumulativeScore;
-                          
-                          return Text(
-                            '${score.toStringAsFixed(0)} pts',
-                            style: FlutterFlowTheme.of(context).bodySmall.override(
-                                  fontFamily: 'Readex Pro',
-                                  color: FlutterFlowTheme.of(context).secondaryText,
-                                ),
-                          );
-                        },
-                      ),
-                      if (miniGraphHistory.isNotEmpty) ...[
-                        const SizedBox(width: 8),
-                        Builder(
-                          builder: (context) {
-                            // Calculate daily gain consistently: today's score (from shared state) - yesterday's score (from graph history)
-                            // This ensures both pages show the same value
-                            final todayScore = miniGraphHistory.isNotEmpty
-                                ? (miniGraphHistory.last['score'] as double)
-                                : TodayProgressState().cumulativeScore;
-                            
-                            double dailyGain = 0.0;
-                            if (miniGraphHistory.length >= 2) {
-                              // Use yesterday's score from history to match the graph
-                              final yesterdayScore = miniGraphHistory[miniGraphHistory.length - 2]['score'] as double;
-                              dailyGain = todayScore - yesterdayScore;
-                            } else if (miniGraphHistory.length == 1) {
-                              // Only one day in history, can't calculate difference - use fallback
-                              dailyGain = (miniGraphHistory.last['gain'] as double?) ?? 0.0;
-                            }
-                            
-                            if (dailyGain == 0) return const SizedBox.shrink();
-                            return Text(
-                              dailyGain >= 0
-                                  ? '+${dailyGain.toStringAsFixed(1)}'
-                                  : dailyGain.toStringAsFixed(1),
-                              style: FlutterFlowTheme.of(context)
-                                  .bodySmall
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    color: dailyGain >= 0
-                                        ? Colors.green
-                                        : Colors.red,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            );
-                          },
-                        ),
-                      ],
-                    ],
-                  ),
-                ],
-              ),
-            ],
-          ),
-        ),
-      ),
+    return QueueUIBuilders.buildProgressCharts(
+      context: context,
+      dailyPercentage: _dailyPercentage,
+      dailyTarget: _dailyTarget,
+      pointsEarned: _pointsEarned,
+      miniGraphHistory: miniGraphHistory,
     );
   }
 
@@ -1721,7 +859,6 @@ class _QueuePageState extends State<QueuePage> {
     for (final key in visibleSections) {
       final items = buckets[key]!;
       final expanded = _expandedSections.contains(key);
-      // Get or create GlobalKey for this section
       if (!_sectionKeys.containsKey(key)) {
         _sectionKeys[key] = GlobalKey();
       }
@@ -1740,8 +877,12 @@ class _QueuePageState extends State<QueuePage> {
               borderRadius: BorderRadius.only(
                 topLeft: const Radius.circular(16),
                 topRight: const Radius.circular(16),
-                bottomLeft: expanded ? const Radius.circular(12) : const Radius.circular(16),
-                bottomRight: expanded ? const Radius.circular(12) : const Radius.circular(16),
+                bottomLeft: expanded
+                    ? const Radius.circular(12)
+                    : const Radius.circular(16),
+                bottomRight: expanded
+                    ? const Radius.circular(12)
+                    : const Radius.circular(16),
               ),
               boxShadow: expanded ? [] : theme.neumorphicShadowsRaised,
             ),
@@ -1765,19 +906,14 @@ class _QueuePageState extends State<QueuePage> {
                     if (mounted) {
                       setState(() {
                         if (expanded) {
-                          // Collapse this section
                           _expandedSections.remove(key);
                         } else {
-                          // Expand this section
                           _expandedSections.add(key);
                         }
-                        // Invalidate cache when expansion changes (affects sorting)
                         _cachedBucketedItems = null;
                       });
-                      // Save state persistently
                       ExpansionStateManager()
                           .setQueueExpandedSections(_expandedSections);
-                      // Scroll to make the newly expanded section visible
                       if (_expandedSections.contains(key)) {
                         WidgetsBinding.instance.addPostFrameCallback((_) {
                           if (_sectionKeys[key]?.currentContext != null) {
@@ -1884,10 +1020,9 @@ class _QueuePageState extends State<QueuePage> {
     return RefreshIndicator(
       onRefresh: () async {
         await _loadData();
-        // Reload 30-day history only once per manual refresh
         if (mounted) {
           await _loadCumulativeScoreHistory(forceReload: true);
-          await _refreshLiveCumulativeScore();
+          await _updateTodayScore();
         }
       },
       child: CustomScrollView(
@@ -1898,286 +1033,109 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   String _getCategoryColor(ActivityInstanceRecord instance) {
-    final category = _categories
-        .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
-    return category?.color ?? '#000000';
+    return QueueUtils.getCategoryColor(instance, _categories);
   }
 
-  double _getSortPointsForInstance(ActivityInstanceRecord instance) {
-    final points = PointsService.calculateDailyTarget(instance);
-    if (points > 0) {
-      return points;
-    }
-    return instance.templatePriority.toDouble();
-  }
-
-  /// Check if filter is in default state (all categories selected)
   bool _isDefaultFilterState() {
-    if (_categories.isEmpty) return true; // No categories = default state
-
-    final habitCategories = _categories
-        .where((c) => c.categoryType == 'habit')
-        .map((c) => c.name)
-        .toSet();
-    final taskCategories = _categories
-        .where((c) => c.categoryType == 'task')
-        .map((c) => c.name)
-        .toSet();
-
-    // Check if all habit categories are selected
-    final allHabitsSelected = habitCategories.isEmpty ||
-        (habitCategories.length ==
-                _currentFilter.selectedHabitCategoryNames.length &&
-            habitCategories.every((name) =>
-                _currentFilter.selectedHabitCategoryNames.contains(name)));
-
-    // Check if all task categories are selected
-    final allTasksSelected = taskCategories.isEmpty ||
-        (taskCategories.length ==
-                _currentFilter.selectedTaskCategoryNames.length &&
-            taskCategories.every((name) =>
-                _currentFilter.selectedTaskCategoryNames.contains(name)));
-
-    return allHabitsSelected && allTasksSelected;
+    return QueueUtils.isDefaultFilterState(_currentFilter, _categories);
   }
 
-  /// Count the number of excluded categories (not selected)
   int _getExcludedCategoryCount() {
-    if (_categories.isEmpty) return 0;
-
-    final habitCategories = _categories
-        .where((c) => c.categoryType == 'habit')
-        .map((c) => c.name)
-        .toSet();
-    final taskCategories = _categories
-        .where((c) => c.categoryType == 'task')
-        .map((c) => c.name)
-        .toSet();
-
-    final excludedHabits = habitCategories.length -
-        _currentFilter.selectedHabitCategoryNames.length;
-    final excludedTasks =
-        taskCategories.length - _currentFilter.selectedTaskCategoryNames.length;
-
-    return excludedHabits + excludedTasks;
+    return QueueUtils.getExcludedCategoryCount(_currentFilter, _categories);
   }
 
-  /// Build a prominent filter button with badge and colored background when active
   Widget _buildFilterButton(FlutterFlowTheme theme) {
-    final isFilterActive = !_isDefaultFilterState();
-    final excludedCount = _getExcludedCategoryCount();
-
-    return Stack(
-      clipBehavior: Clip.none,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            color: isFilterActive
-                ? theme.primary.withOpacity(0.15)
-                : Colors.transparent,
-            borderRadius: BorderRadius.circular(8),
-            border: isFilterActive
-                ? Border.all(
-                    color: theme.primary.withOpacity(0.4),
-                    width: 1.5,
-                  )
-                : null,
-          ),
-          child: IconButton(
-            icon: Icon(
-              Icons.filter_list,
-              color: isFilterActive ? theme.primary : theme.secondaryText,
-            ),
-            onPressed: () async {
-              final result = await showQueueFilterDialog(
-                context: context,
-                categories: _categories,
-                initialFilter: _currentFilter,
-              );
-              if (result != null && mounted) {
-                setState(() {
-                  _currentFilter = result;
-                  // Invalidate cache when filter changes
-                  _cachedBucketedItems = null;
-                });
-                // Check if result is in default state (all categories selected)
-                // If so, clear stored state; otherwise save it
-                final habitCategories = _categories
-                    .where((c) => c.categoryType == 'habit')
-                    .map((c) => c.name)
-                    .toSet();
-                final taskCategories = _categories
-                    .where((c) => c.categoryType == 'task')
-                    .map((c) => c.name)
-                    .toSet();
-                final allHabitsSelected = habitCategories.isEmpty ||
-                    (habitCategories.length ==
-                            result.selectedHabitCategoryNames.length &&
-                        habitCategories.every((name) =>
-                            result.selectedHabitCategoryNames.contains(name)));
-                final allTasksSelected = taskCategories.isEmpty ||
-                    (taskCategories.length ==
-                            result.selectedTaskCategoryNames.length &&
-                        taskCategories.every((name) =>
-                            result.selectedTaskCategoryNames.contains(name)));
-
-                if (allHabitsSelected && allTasksSelected) {
-                  // Default state - clear stored filter
-                  await QueueFilterStateManager().clearFilterState();
-                } else {
-                  // Not default - save the filter state
-                  await QueueFilterStateManager().setFilterState(result);
-                }
-              }
-            },
-            tooltip: isFilterActive
-                ? 'Filter active ($excludedCount excluded)'
-                : 'Filter',
-          ),
-        ),
-        // Badge showing excluded category count when not in default state
-        if (isFilterActive && excludedCount > 0)
-          Positioned(
-            right: 4,
-            top: 4,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
-              decoration: BoxDecoration(
-                color: theme.primary,
-                borderRadius: BorderRadius.circular(10),
-                border: Border.all(
-                  color: theme.primaryBackground,
-                  width: 1.5,
-                ),
-              ),
-              constraints: const BoxConstraints(
-                minWidth: 18,
-                minHeight: 18,
-              ),
-              child: Center(
-                child: Text(
-                  excludedCount > 99 ? '99+' : '$excludedCount',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    height: 1.0,
-                  ),
-                ),
-              ),
-            ),
-          ),
-      ],
+    return buildFilterButton(
+      context: context,
+      currentFilter: _currentFilter,
+      categories: _categories,
+      onFilterChanged: (result) async {
+        if (mounted) {
+          setState(() {
+            _currentFilter = result;
+            _cachedBucketedItems = null;
+          });
+          // Use filter logic service to handle state persistence
+          await QueueFilterLogic.handleFilterStateChange(
+            newFilter: result,
+            categories: _categories,
+          );
+        }
+      },
+      isDefaultFilterState: _isDefaultFilterState(),
+      excludedCategoryCount: _getExcludedCategoryCount(),
     );
   }
 
-  // Recent Completions UI is now handled via standard sections and ItemComponent
-  /// Update instance in local state and recalculate progress
   void _updateInstanceInLocalState(
       ActivityInstanceRecord updatedInstance) async {
     setState(() {
-      final index = _instances.indexWhere(
-          (inst) => inst.reference.id == updatedInstance.reference.id);
-      if (index != -1) {
-        _instances[index] = updatedInstance;
-        // Invalidate cache when instance is updated
-        _cachedBucketedItems = null;
-      } else {}
+      QueueInstanceHandlers.updateInstanceInLocalState(
+        _instances,
+        updatedInstance,
+      );
+      _cachedBucketedItems = null;
     });
-    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
     _calculateProgress(optimistic: true);
-    // BACKGROUND RECONCILIATION: Recalculate with backend data
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
-  /// Remove instance from local state and recalculate progress
   void _removeInstanceFromLocalState(
       ActivityInstanceRecord deletedInstance) async {
     setState(() {
-      _instances.removeWhere(
-          (inst) => inst.reference.id == deletedInstance.reference.id);
-      // Invalidate cache when instance is removed
+      QueueInstanceHandlers.removeInstanceFromLocalState(
+        _instances,
+        deletedInstance,
+      );
       _cachedBucketedItems = null;
     });
-    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
     _calculateProgress(optimistic: true);
-    // BACKGROUND RECONCILIATION: Recalculate with backend data
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
-  // Event handlers for live updates
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     setState(() {
-      // Check if instance already exists to prevent duplicates
-      final exists =
-          _instances.any((inst) => inst.reference.id == instance.reference.id);
-      if (!exists) {
-        _instances.add(instance);
-        // Invalidate cache when instance is added
-        _cachedBucketedItems = null;
-      }
+      QueueInstanceHandlers.handleInstanceCreated(_instances, instance);
+      _cachedBucketedItems = null;
     });
-    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
     _calculateProgress(optimistic: true);
-    // BACKGROUND RECONCILIATION: Recalculate with backend data
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
   void _handleInstanceUpdated(dynamic param) {
-    // Handle both optimistic and reconciled updates
-    ActivityInstanceRecord instance;
-    bool isOptimistic = false;
-    String? operationId;
-
+    ActivityInstanceRecord? instance;
     if (param is Map) {
-      instance = param['instance'] as ActivityInstanceRecord;
-      isOptimistic = param['isOptimistic'] as bool? ?? false;
-      operationId = param['operationId'] as String?;
+      instance = param['instance'] as ActivityInstanceRecord?;
+      if (instance != null &&
+          _reorderingInstanceIds.contains(instance.reference.id)) {
+        return;
+      }
     } else if (param is ActivityInstanceRecord) {
-      // Backward compatibility: handle old format
-      instance = param;
-    } else {
-      return;
-    }
-
-    // Skip updates for instances currently being reordered to prevent stale data overwrites
-    if (_reorderingInstanceIds.contains(instance.reference.id)) {
-      return;
+      if (_reorderingInstanceIds.contains(param.reference.id)) {
+        return;
+      }
     }
 
     setState(() {
-      final index = _instances
-          .indexWhere((inst) => inst.reference.id == instance.reference.id);
-
-      if (index != -1) {
-        if (isOptimistic) {
-          // Store optimistic state with operation ID for later reconciliation
-          _instances[index] = instance;
-          if (operationId != null) {
-            _optimisticOperations[operationId] = instance.reference.id;
-          }
-        } else {
-          // Reconciled update - replace optimistic state
-          _instances[index] = instance;
-          if (operationId != null) {
-            _optimisticOperations.remove(operationId);
-          }
-        }
-        // Invalidate cache when instance is updated
-        _cachedBucketedItems = null;
-      } else if (!isOptimistic) {
-        // New instance from backend (not optimistic) - add it
-        _instances.add(instance);
-        _cachedBucketedItems = null;
-      }
+      QueueInstanceHandlers.handleInstanceUpdated(
+        _instances,
+        param,
+        _reorderingInstanceIds,
+        _optimisticOperations,
+      );
+      _cachedBucketedItems = null;
     });
-
-    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
+    bool isOptimistic = false;
+    if (param is Map) {
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
+    }
     _calculateProgress(optimistic: true);
-
-    // BACKGROUND RECONCILIATION: Only if this is a reconciled update
     if (!isOptimistic) {
-      _calculateProgress(optimistic: false);
+      // Schedule non-optimistic in background to avoid race condition
+      Future.microtask(() => _calculateProgress(optimistic: false));
     }
   }
 
@@ -2187,35 +1145,29 @@ class _QueuePageState extends State<QueuePage> {
       final instanceId = param['instanceId'] as String?;
       final originalInstance =
           param['originalInstance'] as ActivityInstanceRecord?;
-
       if (operationId != null &&
           _optimisticOperations.containsKey(operationId)) {
         setState(() {
-          _optimisticOperations.remove(operationId);
-          if (originalInstance != null) {
-            // Restore from original state
-            final index = _instances
-                .indexWhere((inst) => inst.reference.id == instanceId);
-            if (index != -1) {
-              _instances[index] = originalInstance;
-              _cachedBucketedItems = null;
-            }
-          } else if (instanceId != null) {
-            // Fallback to reloading from backend
-            _revertOptimisticUpdate(instanceId);
-          }
+          QueueInstanceHandlers.handleRollback(
+            _instances,
+            param,
+            _optimisticOperations,
+          );
+          _cachedBucketedItems = null;
         });
-        // Recalculate progress with actual data
-        _calculateProgress(optimistic: false);
+        if (originalInstance == null && instanceId != null) {
+          _revertOptimisticUpdate(instanceId);
+        } else {
+          _calculateProgress(optimistic: false);
+        }
       }
     }
   }
 
   Future<void> _revertOptimisticUpdate(String instanceId) async {
-    try {
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instanceId,
-      );
+    final updatedInstance =
+        await QueueInstanceHandlers.revertOptimisticUpdate(instanceId);
+    if (updatedInstance != null) {
       setState(() {
         final index =
             _instances.indexWhere((inst) => inst.reference.id == instanceId);
@@ -2224,87 +1176,53 @@ class _QueuePageState extends State<QueuePage> {
           _cachedBucketedItems = null;
         }
       });
-      // Recalculate progress with actual data
       _calculateProgress(optimistic: false);
-    } catch (e) {
-      // Error reverting - non-critical, will be fixed on next data load
     }
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
     setState(() {
-      _instances
-          .removeWhere((inst) => inst.reference.id == instance.reference.id);
-      // Invalidate cache when instance is deleted
+      QueueInstanceHandlers.handleInstanceDeleted(_instances, instance);
       _cachedBucketedItems = null;
     });
-    // OPTIMISTIC UPDATE: Calculate progress instantly from local data
     _calculateProgress(optimistic: true);
-    // BACKGROUND RECONCILIATION: Recalculate with backend data
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
-  /// Silent refresh instances without loading indicator
   Future<void> _silentRefreshInstances() async {
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
-      // Batch Firestore queries in parallel for faster loading
-      final results = await Future.wait([
-        queryAllInstances(userId: userId),
-        queryHabitCategoriesOnce(
-          userId: userId,
-          callerTag: 'QueuePage._silentRefreshInstances.habits',
-        ),
-        queryTaskCategoriesOnce(
-          userId: userId,
-          callerTag: 'QueuePage._silentRefreshInstances.tasks',
-        ),
-      ]);
-      final allInstances = results[0] as List<ActivityInstanceRecord>;
-      final habitCategories = results[1] as List<CategoryRecord>;
-      final taskCategories = results[2] as List<CategoryRecord>;
-      final allCategories = [...habitCategories, ...taskCategories];
-      // Deduplicate instances by reference ID to prevent duplicates
-      final uniqueInstances = <String, ActivityInstanceRecord>{};
-      for (final instance in allInstances) {
-        uniqueInstances[instance.reference.id] = instance;
-      }
-      final deduplicatedInstances = uniqueInstances.values.toList();
+      final result =
+          await QueueDataService.silentRefreshInstances(userId: userId);
       if (mounted) {
         setState(() {
-          _instances = deduplicatedInstances;
-          _categories = allCategories;
-          // Invalidate cache when data changes
+          _instances = result.instances;
+          _categories = result.categories;
           _cachedBucketedItems = null;
-          // Don't touch _isLoading
         });
-        _calculateProgress();
+        // Fast UI update using local instances
+        _calculateProgress(optimistic: true);
+        // Reconcile with backend in background
+        Future.microtask(() => _calculateProgress(optimistic: false));
       }
-    } catch (e) {
-      // Silently ignore errors in silent refresh - non-critical background operation
-      print('Error in silent refresh instances: $e');
-    }
+    } catch (e) {}
   }
 
-  /// Wrapper for silent refresh to use as callback
   Future<void> _refreshWithoutFlicker() async {
     await _silentRefreshInstances();
   }
 
-  /// Handle reordering of items within a section
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
-    final reorderingIds = <String>{};
     try {
-      // If a sort is active, clear it immediately so the manual order sticks
       if (_currentSort.isActive) {
         final clearedSort = QueueSortState();
         await QueueSortStateManager().setSortState(clearedSort);
         if (mounted) {
           setState(() {
             _currentSort = clearedSort;
-            // Invalidate cache when sort is cleared
             _cachedBucketedItems = null;
           });
         }
@@ -2312,65 +1230,46 @@ class _QueuePageState extends State<QueuePage> {
 
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
-      // Allow dropping at the end (newIndex can equal items.length)
-      if (oldIndex < 0 ||
-          oldIndex >= items.length ||
-          newIndex < 0 ||
-          newIndex > items.length) return;
-      // Create a copy of the items list for reordering
-      final reorderedItems = List<ActivityInstanceRecord>.from(items);
-      // Adjust newIndex for the case where we're moving down
-      int adjustedNewIndex = newIndex;
-      if (oldIndex < newIndex) {
-        adjustedNewIndex -= 1;
-      }
-      // Get the item being moved
-      final movedItem = reorderedItems.removeAt(oldIndex);
-      reorderedItems.insert(adjustedNewIndex, movedItem);
-      // OPTIMISTIC UI UPDATE: Update local state immediately
-      // Update order values in the local _instances list
-      for (int i = 0; i < reorderedItems.length; i++) {
-        final instance = reorderedItems[i];
-        final instanceId = instance.reference.id;
-        reorderingIds.add(instanceId);
-        final index =
-            _instances.indexWhere((inst) => inst.reference.id == instanceId);
-        if (index != -1) {
-          // Create updated instance with new queue order by creating new data map
-          final updatedData = Map<String, dynamic>.from(instance.snapshotData);
-          updatedData['queueOrder'] = i;
-          final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
-            updatedData,
-            instance.reference,
+
+      final result = await QueueReorderHandler.handleReorder(
+        items: items,
+        oldIndex: oldIndex,
+        newIndex: newIndex,
+        allInstances: _instances,
+        reorderingInstanceIds: _reorderingInstanceIds,
+        isSortActive: _currentSort.isActive,
+        sectionKey: sectionKey,
+      );
+
+      if (result.success && result.updatedInstances != null) {
+        if (result.reorderingIds != null) {
+          _reorderingInstanceIds.addAll(result.reorderingIds!);
+        }
+        _cachedBucketedItems = null;
+        if (mounted) {
+          setState(() {
+            _instances.clear();
+            _instances.addAll(result.updatedInstances!);
+          });
+        }
+        if (result.reorderingIds != null) {
+          _reorderingInstanceIds.removeAll(result.reorderingIds!);
+        }
+      } else {
+        if (result.reorderingIds != null) {
+          _reorderingInstanceIds.removeAll(result.reorderingIds!);
+        }
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+                content: Text(
+                    'Error reordering items: ${result.error ?? 'Unknown error'}')),
           );
-          _instances[index] = updatedInstance;
         }
       }
-      // Add instance IDs to reordering set to prevent stale updates
-      _reorderingInstanceIds.addAll(reorderingIds);
-      // Invalidate cache to ensure UI uses updated order
-      _cachedBucketedItems = null;
-      // Trigger setState to update UI immediately (eliminates twitch)
-      if (mounted) {
-        setState(() {
-          // State is already updated above
-        });
-      }
-      // Perform database update in background
-      await InstanceOrderService.reorderInstancesInSection(
-        reorderedItems,
-        'queue',
-        oldIndex,
-        adjustedNewIndex,
-      );
-      // Clear reordering set after successful database update
-      _reorderingInstanceIds.removeAll(reorderingIds);
     } catch (e) {
-      // Clear reordering set even on error
-      _reorderingInstanceIds.removeAll(reorderingIds);
-      // Revert to correct state by refreshing data
       await _loadData();
-      // Show error to user
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error reordering items: $e')),
@@ -2378,212 +1277,4 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
   }
-}
-
-class CumulativeScoreGraph extends StatefulWidget {
-  final List<Map<String, dynamic>> history;
-  final Color color;
-
-  const CumulativeScoreGraph({
-    super.key,
-    required this.history,
-    required this.color,
-  });
-
-  @override
-  State<CumulativeScoreGraph> createState() => _CumulativeScoreGraphState();
-}
-
-class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
-  final ScrollController _scrollController = ScrollController();
-
-  @override
-  void initState() {
-    super.initState();
-    _jumpToLatestPoint();
-  }
-
-  @override
-  void didUpdateWidget(covariant CumulativeScoreGraph oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    // Check if history length changed
-    if (widget.history.length != oldWidget.history.length) {
-      _jumpToLatestPoint();
-    } else if (widget.history.isNotEmpty && oldWidget.history.isNotEmpty) {
-      // Check if the last item's score changed (for live updates)
-      final lastScore = widget.history.last['score'] as double;
-      final oldLastScore = oldWidget.history.last['score'] as double;
-      if (lastScore != oldLastScore) {
-        // Data changed, trigger repaint by calling setState
-        setState(() {});
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController.dispose();
-    super.dispose();
-  }
-
-  void _jumpToLatestPoint() {
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      _scrollController.jumpTo(_scrollController.position.maxScrollExtent);
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.history.isEmpty) return const SizedBox();
-    return LayoutBuilder(
-      builder: (context, constraints) =>
-          _buildScrollableGraph(context, constraints),
-    );
-  }
-
-  Widget _buildScrollableGraph(
-      BuildContext context, BoxConstraints constraints) {
-    final theme = FlutterFlowTheme.of(context);
-    final scores = widget.history.map((d) => d['score'] as double).toList();
-    final minScore = scores.reduce(math.min);
-    final maxScore = scores.reduce(math.max);
-    final adjustedMax = maxScore == minScore ? minScore + 10.0 : maxScore;
-    final adjustedRange = adjustedMax - minScore;
-    final scaleLabels = _buildScaleLabels(minScore, adjustedRange);
-    const visibleDays = 7.0;
-    final dayWidth = constraints.maxWidth / visibleDays;
-    final totalWidth =
-        math.max(dayWidth * widget.history.length, constraints.maxWidth);
-    final verticalPadding = 8.0; // top + bottom padding
-    final labelAreaHeight = 18.0;
-    final graphHeight = math.max(
-        constraints.maxHeight - labelAreaHeight - verticalPadding, 30.0);
-
-    return Container(
-      decoration: BoxDecoration(
-        color: theme.alternate.withOpacity(0.1),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.symmetric(vertical: 4, horizontal: 4),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.stretch,
-        children: [
-          _buildYAxis(theme, scaleLabels),
-          const SizedBox(width: 6),
-          Expanded(
-            child: SingleChildScrollView(
-              controller: _scrollController,
-              scrollDirection: Axis.horizontal,
-              child: SizedBox(
-                width: totalWidth,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    SizedBox(
-                      height: graphHeight,
-                      child: CustomPaint(
-                        key: ValueKey(
-                          widget.history.isNotEmpty
-                              ? widget.history.last['score'] as double
-                              : 0.0,
-                        ),
-                        painter: CumulativeScoreLinePainter(
-                          data: widget.history,
-                          minScore: minScore,
-                          maxScore: adjustedMax,
-                          scoreRange: adjustedRange,
-                          color: widget.color,
-                        ),
-                      ),
-                    ),
-                    SizedBox(
-                      height: 18,
-                      child:
-                          _buildDateLabels(theme, totalWidth, widget.history),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildYAxis(FlutterFlowTheme theme, List<double> labels) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: labels.reversed
-          .map(
-            (value) => Text(
-              value.toStringAsFixed(0),
-              style: theme.bodySmall.override(
-                fontFamily: 'Readex Pro',
-                fontSize: 9,
-                color: theme.secondaryText,
-              ),
-            ),
-          )
-          .toList(),
-    );
-  }
-
-  List<double> _buildScaleLabels(double minScore, double range) {
-    const count = 4;
-    return List.generate(
-      count,
-      (index) => minScore + (range * index / math.max(count - 1, 1)),
-    );
-  }
-
-  Widget _buildDateLabels(FlutterFlowTheme theme, double width,
-      List<Map<String, dynamic>> history) {
-    final labels = _generateDateLabels(history);
-    return Stack(
-      children: labels.map((label) {
-        final divisor = history.length > 1 ? history.length - 1 : 1;
-        final xPosition = (label.index / divisor) * width;
-        const labelWidth = 36.0;
-        final desiredLeft = xPosition - labelWidth / 2;
-        final clampedLeft = desiredLeft.clamp(0.0, width - labelWidth);
-        return Positioned(
-          left: clampedLeft,
-          child: Text(
-            DateFormat('MM/dd').format(label.date),
-            style: theme.bodySmall.override(
-              fontFamily: 'Readex Pro',
-              fontSize: 8,
-              color: theme.secondaryText,
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-
-  List<_DateLabel> _generateDateLabels(List<Map<String, dynamic>> history) {
-    if (history.isEmpty) return [];
-    final indices = <int>{};
-    final step = 3;
-    final lastIndex = history.length - 1;
-    for (int i = 0; i <= lastIndex; i++) {
-      if (i % step == 0) {
-        indices.add(i);
-      }
-    }
-    indices.add(lastIndex);
-    final labels = indices.toList()..sort();
-    return labels
-        .map((index) => _DateLabel(index, history[index]['date'] as DateTime))
-        .toList();
-  }
-}
-
-class _DateLabel {
-  final int index;
-  final DateTime date;
-  const _DateLabel(this.index, this.date);
 }

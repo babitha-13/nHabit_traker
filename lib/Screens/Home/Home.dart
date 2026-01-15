@@ -1,39 +1,37 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:habit_tracker/Helper/Response/login_response.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/constants.dart';
-import 'package:habit_tracker/Helper/utils/notification_center.dart';
-import 'package:habit_tracker/Helper/backend/goal_service.dart';
+import 'package:habit_tracker/Helper/Helpers/login_response.dart';
+import 'package:habit_tracker/Helper/Helpers/constants.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Screens/Goals/goal_data_service.dart';
 import 'package:habit_tracker/Screens/Goals/goal_onboarding_dialog.dart';
-import 'package:habit_tracker/Screens/Manage%20categories/manage_categories.dart';
-import 'package:habit_tracker/Screens/Essential/essential_templates_page.dart';
-import 'package:habit_tracker/Screens/Routine/routine.dart';
+import 'package:habit_tracker/Screens/Home/home_app_bar.dart';
+import 'package:habit_tracker/Screens/Home/home_bottom_navigation_bar.dart';
+import 'package:habit_tracker/Screens/Home/app_drawer.dart';
+import 'package:habit_tracker/Screens/Categories/manage_categories.dart';
+import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.dart';
+import 'package:habit_tracker/Screens/Routine/routines_page_main.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
-import 'package:habit_tracker/Screens/Timer/timer_page.dart';
-import 'package:habit_tracker/Screens/Calendar/calendar_page.dart';
-import 'package:habit_tracker/Screens/Progress/progress_page.dart';
-import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
+import 'package:habit_tracker/Screens/Calendar/calendar_page_main.dart';
+import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
-import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog.dart';
-import 'package:habit_tracker/Helper/backend/morning_catchup_service.dart';
-import 'package:habit_tracker/Helper/backend/day_end_processor.dart';
-import 'package:habit_tracker/Helper/utils/date_service.dart';
-import 'package:habit_tracker/Screens/Onboarding/notification_onboarding_dialog.dart';
-import 'package:habit_tracker/Screens/Settings/settings_page.dart';
-import 'package:habit_tracker/Screens/Help/faq_page.dart';
-import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
-import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
-import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
-import 'package:habit_tracker/Helper/backend/reminder_scheduler.dart';
-import 'package:habit_tracker/Helper/backend/routine_reminder_scheduler.dart';
+import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog_UI.dart';
+import 'package:habit_tracker/Screens/CatchUp/morning_catchup_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Screens/Settings/notification_onboarding_dialog.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_preferences_service.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/daily_notification_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/engagement_reminder_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
+import 'package:habit_tracker/Screens/Routine/routine_reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/global_floating_timer.dart';
-import 'package:habit_tracker/Helper/utils/search_state_manager.dart';
+import 'package:habit_tracker/Screens/Timer/global_floating_timer.dart';
+import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
@@ -48,9 +46,7 @@ class _HomeState extends State<Home> {
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int currentIndex = 2;
-  // List of all pages - initialized once and cached
   late final List<Widget> _pages;
-  // Map page names to indices for easy lookup
   final Map<String, int> _pageIndexMap = {
     "Tasks": 0,
     "Habits": 1,
@@ -59,14 +55,13 @@ class _HomeState extends State<Home> {
     "Routines": 4,
     "Calendar": 5,
   };
-  // Prevent race conditions in morning catch-up check
   static bool _isCheckingCatchUp = false;
+  Timer? _dayTransitionTimer;
   @override
   void initState() {
     NotificationCenter.addObserver(
         this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
-    // Initialize all pages once - they will be cached in IndexedStack
     _pages = [
       const TaskTab(), // index 0
       const HabitsPage(showCompleted: true), // index 1
@@ -85,24 +80,19 @@ class _HomeState extends State<Home> {
         systemNavigationBarDividerColor: Colors.transparent,
       ),
     );
-    // Check for goal onboarding and morning catch-up after the frame is built
-    // Parallelize independent operations for faster initialization
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      // Run independent operations in parallel
       Future.wait([
         _checkMorningCatchUp(),
         _checkGoalOnboarding(),
         _checkDailyGoal(),
         _initializeNotifications(),
       ]).then((_) {
-        // Check notification onboarding after goal onboarding completes
-        // (it depends on goal onboarding being completed)
-        // Only proceed if widget is still mounted to prevent disposed widget errors
         if (mounted) {
           _checkNotificationOnboarding();
         }
       });
     });
+    _scheduleDayTransitionTimer();
   }
 
   void _onNavigateBottomTab(Object? param) {
@@ -113,6 +103,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    _dayTransitionTimer?.cancel();
     NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
     super.dispose();
@@ -120,274 +111,25 @@ class _HomeState extends State<Home> {
 
   @override
   Widget build(BuildContext context) {
-    final theme = FlutterFlowTheme.of(context);
     return WillPopScope(
       onWillPop: _onWillPop,
       child: Container(
         color: Colors.white,
         child: Scaffold(
           key: scaffoldKey,
-          appBar: AppBar(
-            backgroundColor: FlutterFlowTheme.of(context).primary,
-            flexibleSpace: Container(
-              decoration: BoxDecoration(
-                gradient: FlutterFlowTheme.of(context).headerSheenGradient,
-              ),
-            ),
-            automaticallyImplyLeading: false,
-            leading: IconButton(
-              icon: const Icon(Icons.menu, color: Colors.white),
-              onPressed: () => scaffoldKey.currentState?.openDrawer(),
-            ),
-            title: Text(
-              title,
-              style: FlutterFlowTheme.of(context).headlineMedium.override(
-                    fontFamily: 'Outfit',
-                    color: Colors.white,
-                    fontSize: 22,
-                  ),
-            ),
-            actions: [
-              // Catch-up button - temporary, will be removed later
-              Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: IconButton(
-                  icon: const Icon(Icons.history, color: Colors.white),
-                  onPressed: showCatchUpDialogManually,
-                  tooltip: 'Morning Catch-Up',
-                ),
-              ),
-              // Goals button - always visible
-              Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: Container(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: Colors.white,
-                      width: 1.5,
-                    ),
-                    borderRadius: BorderRadius.circular(8),
-                  ),
-                  child: TextButton(
-                    onPressed: () {
-                      showDialog(
-                        context: context,
-                        builder: (context) => const GoalDialog(),
-                      );
-                    },
-                    style: TextButton.styleFrom(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 12,
-                        vertical: 8,
-                      ),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                    ),
-                    child: Text(
-                      'Goal',
-                      style: FlutterFlowTheme.of(context).bodyLarge.override(
-                            fontFamily: 'Outfit',
-                            color: Colors.white,
-                            fontSize: 16,
-                            fontWeight: FontWeight.w500,
-                          ),
-                    ),
-                  ),
-                ),
-              ),
-              // Timer button - utility tool accessible from AppBar (rightmost position)
-              Padding(
-                padding: const EdgeInsets.only(right: 8.0),
-                child: IconButton(
-                  icon: const Icon(Icons.timer, color: Colors.white),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const TimerPage(),
-                      ),
-                    );
-                  },
-                  tooltip: 'Timer',
-                ),
-              ),
-              Visibility(
-                visible: title == "Tasks",
-                child: PopupMenuButton<String>(
-                  icon: const Icon(Icons.sort, color: Colors.white),
-                  onSelected: (value) {},
-                  itemBuilder: (context) => const [
-                    PopupMenuItem(
-                      value: 'default',
-                      child: ListTile(
-                        leading: const Icon(Icons.sort_by_alpha),
-                        title: const Text('Default sort'),
-                      ),
-                    ),
-                    PopupMenuItem(
-                      value: 'importance',
-                      child: ListTile(
-                        leading: const Icon(Icons.star),
-                        title: const Text('Sort by importance'),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-            centerTitle: false,
-            elevation: 0,
+          appBar: HomeAppBar(
+            title: title,
+            scaffoldKey: scaffoldKey,
           ),
-          drawer: Drawer(
-            child: SafeArea(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.stretch,
-                      children: [
-                        Container(
-                          color: theme.primary,
-                          padding: const EdgeInsets.fromLTRB(16, 24, 16, 24),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Today',
-                                style: theme.headlineSmall.override(
-                                  fontFamily: 'Outfit',
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                currentUserEmail.isNotEmpty
-                                    ? currentUserEmail
-                                    : "email",
-                                style: theme.bodyMedium.override(
-                                  fontFamily: 'Readex Pro',
-                                  color: Colors.white70,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        Expanded(
-                          child: ListView(
-                            children: [
-                              _DrawerItem(
-                                icon: Icons.home,
-                                label: 'Home',
-                                onTap: () {
-                                  loadPage("Queue");
-                                  Navigator.pop(context);
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.category,
-                                label: 'Manage Categories',
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const ManageCategories(),
-                                    ),
-                                  );
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.monitor_heart,
-                                label: 'Essential Activities',
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  loadPage("Essential");
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.trending_up,
-                                label: 'Progress History',
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const ProgressPage(),
-                                    ),
-                                  );
-                                },
-                              ),
-                              // Development/Testing only - show in debug mode
-                              if (kDebugMode) ...[
-                                _DrawerItem(
-                                  icon: Icons.science,
-                                  label: 'Testing Tools',
-                                  onTap: () {
-                                    Navigator.pop(context);
-                                    Navigator.push(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (context) =>
-                                            const SimpleTestingPage(),
-                                      ),
-                                    );
-                                  },
-                                ),
-                              ],
-                              const Divider(),
-                              _DrawerItem(
-                                icon: Icons.settings,
-                                label: 'Settings',
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) =>
-                                          const SettingsPage(),
-                                    ),
-                                  );
-                                },
-                              ),
-                              _DrawerItem(
-                                icon: Icons.help_outline,
-                                label: 'FAQ',
-                                onTap: () {
-                                  Navigator.pop(context);
-                                  Navigator.push(
-                                    context,
-                                    MaterialPageRoute(
-                                      builder: (context) => const FaqPage(),
-                                    ),
-                                  );
-                                },
-                              ),
-                            ],
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  _DrawerItem(
-                    icon: Icons.logout,
-                    label: 'Log Out',
-                    onTap: () {
-                      sharedPref
-                          .remove(SharedPreference.name.sUserDetails)
-                          .then((value) {
-                        setState(() {
-                          users = LoginResponse();
-                          Navigator.pushReplacementNamed(context, login);
-                        });
-                      });
-                    },
-                  ),
-                ],
-              ),
-            ),
+          drawer: AppDrawer(
+            currentUserEmail: currentUserEmail,
+            loadPage: loadPage,
+            onLogout: () {
+              sharedPref.remove(SharedPreference.name.sUserDetails).then((_) {
+                users = LoginResponse();
+                Navigator.pushReplacementNamed(context, login);
+              });
+            },
           ),
           body: SafeArea(
             child: Stack(
@@ -400,70 +142,13 @@ class _HomeState extends State<Home> {
                     children: _pages,
                   ),
                 ),
-                // Global floating timer - appears on all pages when timers are active
                 const GlobalFloatingTimer(),
               ],
             ),
           ),
-          bottomNavigationBar: Container(
-            decoration: BoxDecoration(
-              color: FlutterFlowTheme.of(context).secondaryBackground,
-              border: Border(
-                top: BorderSide(
-                  color: FlutterFlowTheme.of(context).alternate,
-                  width: 1,
-                ),
-              ),
-            ),
-            child: BottomNavigationBar(
-              currentIndex: currentIndex,
-              onTap: (i) {
-                // Map index to page name and load it
-                final pageNames = [
-                  "Tasks",
-                  "Habits",
-                  "Queue",
-                  "Essential",
-                  "Routines",
-                  "Calendar"
-                ];
-                if (i >= 0 && i < pageNames.length) {
-                  loadPage(pageNames[i]);
-                }
-              },
-              type: BottomNavigationBarType.fixed,
-              backgroundColor: FlutterFlowTheme.of(context).secondaryBackground,
-              selectedItemColor: FlutterFlowTheme.of(context).primary,
-              unselectedItemColor: FlutterFlowTheme.of(context).secondaryText,
-              selectedFontSize: 12,
-              unselectedFontSize: 12,
-              items: [
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.assignment),
-                  label: 'Tasks',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.flag),
-                  label: 'Habits',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.queue),
-                  label: 'Queue',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.monitor_heart),
-                  label: 'Essential',
-                ),
-                BottomNavigationBarItem(
-                  icon: const Icon(Icons.playlist_play),
-                  label: 'Routines',
-                ),
-                BottomNavigationBarItem(
-                  icon: Icon(Icons.calendar_today),
-                  label: 'Calendar',
-                ),
-              ],
-            ),
+          bottomNavigationBar: AppBottomNavigationBar(
+            currentIndex: currentIndex,
+            loadPage: loadPage,
           ),
         ),
       ),
@@ -471,12 +156,10 @@ class _HomeState extends State<Home> {
   }
 
   Future<bool> _onWillPop() async {
-    // Priority: If search is open, close it first
     if (SearchStateManager().isSearchOpen) {
       NotificationCenter.post('closeSearch', null);
       return false;
     }
-
     if (title == "Queue") {
       final timeGap = DateTime.now().difference(preBackPress);
       final cantExit = timeGap >= const Duration(seconds: 2);
@@ -505,13 +188,10 @@ class _HomeState extends State<Home> {
   void loadPage(s) {
     if (mounted) {
       setState(() {
-        // Check if this is a main navigation page (in bottom nav)
         if (_pageIndexMap.containsKey(s)) {
           currentIndex = _pageIndexMap[s]!;
           title = s;
         } else {
-          // Handle pages not in bottom navigation (Progress, Manage Categories)
-          // These will be shown as overlays or separate routes
           title = s;
           if (s == "Progress") {
             Navigator.push(
@@ -551,7 +231,6 @@ class _HomeState extends State<Home> {
         );
       }
     } catch (e) {
-      // Silently ignore errors in goal onboarding check - non-critical UI operation
       print('Error checking goal onboarding: $e');
     }
   }
@@ -571,13 +250,30 @@ class _HomeState extends State<Home> {
         );
       }
     } catch (e) {
-      // Silently ignore errors in daily goal check - non-critical UI operation
       print('Error checking daily goal: $e');
     }
   }
 
+  void _scheduleDayTransitionTimer() {
+    _dayTransitionTimer?.cancel();
+    final now = DateTime.now();
+    final nextCheck = DateTime(now.year, now.month, now.day)
+        .add(const Duration(days: 1, minutes: 1));
+    final delay = nextCheck.difference(now);
+    _dayTransitionTimer = Timer(delay, _handleDayTransitionWhileOpen);
+  }
+
+  Future<void> _handleDayTransitionWhileOpen() async {
+    await _runDayEndFlow(showDayTransitionInfo: true);
+    _scheduleDayTransitionTimer();
+  }
+
   Future<void> _checkMorningCatchUp() async {
-    if (_isCheckingCatchUp) return; // Prevent concurrent checks
+    await _runDayEndFlow(showDayTransitionInfo: false);
+  }
+
+  Future<void> _runDayEndFlow({required bool showDayTransitionInfo}) async {
+    if (_isCheckingCatchUp) return;
 
     try {
       _isCheckingCatchUp = true;
@@ -588,12 +284,11 @@ class _HomeState extends State<Home> {
 
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-
-      // Check if we've already processed today
       final prefs = await SharedPreferences.getInstance();
       final lastProcessedDateString =
           prefs.getString('last_end_of_day_processed');
       DateTime? lastProcessedDate;
+      bool alreadyProcessedToday = false;
       if (lastProcessedDateString != null) {
         lastProcessedDate = DateTime.parse(lastProcessedDateString);
         final lastProcessedDateOnly = DateTime(
@@ -601,98 +296,43 @@ class _HomeState extends State<Home> {
           lastProcessedDate.month,
           lastProcessedDate.day,
         );
-
-        // If we've already processed today, just check if dialog should show
-        if (lastProcessedDateOnly.isAtSameMomentAs(today)) {
-          final shouldShow =
-              await MorningCatchUpService.shouldShowDialog(userId);
-          if (shouldShow && mounted) {
-            showDialog(
-              context: context,
-              barrierDismissible: false,
-              builder: (context) => const MorningCatchUpDialog(),
-            );
-          }
-          return;
-        }
+        alreadyProcessedToday = lastProcessedDateOnly.isAtSameMomentAs(today);
       }
 
-      // It's a new day (or first time) - simplified flow:
-      // 1. Do minimal setup: auto-skip expired items before yesterday, ensure instances exist
-      // 2. Check if there are pending items from yesterday (pure check)
-      // 3. If yes: show dialog (dialog will handle finalization after user confirms)
-      // 4. If no: process end-of-day activities immediately (finalize scoring/records)
+      if (!alreadyProcessedToday) {
+        await MorningCatchUpService.runInstanceMaintenanceForDayTransition(
+            userId);
 
-      // Step 1: Minimal setup (auto-skip expired, ensure instances)
-      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
-      await DayEndProcessor.ensurePendingInstancesExist(userId);
-
-      // Step 2: Check for pending items from yesterday (pure check)
-      final hasPendingItems =
-          await MorningCatchUpService.hasPendingItemsFromYesterday(userId);
-
-      if (hasPendingItems) {
-        // There are pending items - show dialog first
-        // Dialog will handle finalization after user confirms item status
-        // Update lastDayValue only (defer finalization to dialog)
-        await DayEndProcessor.updateLastDayValuesOnly(
-            userId, DateService.yesterdayStart);
-
-        // Mark as processed to prevent re-running on same day
-        await prefs.setString(
-            'last_end_of_day_processed', today.toIso8601String());
-
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => const MorningCatchUpDialog(),
-          );
-        }
-      } else {
-        // No pending items - process end-of-day activities immediately
-        // This will finalize scoring and create daily progress records
-        await DayEndProcessor.processDayEnd(
+        // Persist scores in background (non-blocking)
+        unawaited(MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
+            userId: userId));
+        unawaited(MorningCatchUpService.persistScoresForDate(
           userId: userId,
           targetDate: DateService.yesterdayStart,
-          closeInstances: false,
-          ensureInstances: false, // Already ensured above
-        );
+        ));
 
-        // Mark as processed for today
         await prefs.setString(
             'last_end_of_day_processed', today.toIso8601String());
       }
-    } catch (e) {
-      // Error checking morning catch-up
-    } finally {
-      _isCheckingCatchUp = false;
-    }
-  }
 
-  /// Manually trigger the catch-up dialog (for testing/debugging)
-  /// Call this method from Flutter DevTools console or add a button that calls it
-  Future<void> showCatchUpDialogManually() async {
-    try {
-      final userId = users.uid;
-      if (userId == null || userId.isEmpty) {
-        // No user ID available
-        return;
-      }
-      // First, auto-skip all expired items to bring everything up to date
-      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
-      // Reset dialog state to allow showing
-      await MorningCatchUpService.resetDialogState();
-      // Force show the dialog
-      if (mounted) {
+      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+      if (shouldShow && mounted) {
         showDialog(
           context: context,
           barrierDismissible: false,
-          builder: (context) => const MorningCatchUpDialog(),
+          builder: (context) => MorningCatchUpDialog(
+            isDayTransition: showDayTransitionInfo,
+          ),
         );
+      } else if (!alreadyProcessedToday) {
+        // Refresh Queue/Progress views for the new day
+        NotificationCenter.post('loadHabits', null);
+        NotificationCenter.post('loadData', null);
       }
     } catch (e) {
-      // Error showing catch-up dialog manually
+      // Error running day-end flow
+    } finally {
+      _isCheckingCatchUp = false;
     }
   }
 
@@ -745,25 +385,5 @@ class _HomeState extends State<Home> {
     } catch (e) {
       // Error initializing notifications
     }
-  }
-}
-
-class _DrawerItem extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  const _DrawerItem({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-  @override
-  Widget build(BuildContext context) {
-    final theme = FlutterFlowTheme.of(context);
-    return ListTile(
-      leading: Icon(icon, color: theme.primary),
-      title: Text(label, style: theme.bodyLarge),
-      onTap: onTap,
-    );
   }
 }

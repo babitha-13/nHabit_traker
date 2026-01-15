@@ -1,0 +1,352 @@
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+
+/// Centralized instance event management
+/// Provides constants and helper methods for broadcasting instance changes
+class InstanceEvents {
+  // Event constants
+  static const String instanceCreated = 'instanceCreated';
+  static const String instanceUpdated = 'instanceUpdated';
+  static const String instanceDeleted = 'instanceDeleted';
+  static const String progressRecalculated = 'progressRecalculated';
+
+  /// Broadcast when a new instance is created
+  static void broadcastInstanceCreated(ActivityInstanceRecord instance) {
+    NotificationCenter.post(instanceCreated, instance);
+  }
+
+  /// Broadcast when an instance is updated (completed, uncompleted, etc.)
+  static void broadcastInstanceUpdated(ActivityInstanceRecord instance) {
+    NotificationCenter.post(instanceUpdated, instance);
+  }
+
+  /// Broadcast when an instance is deleted
+  static void broadcastInstanceDeleted(ActivityInstanceRecord instance) {
+    NotificationCenter.post(instanceDeleted, instance);
+  }
+
+  /// Broadcast when progress needs to be recalculated
+  static void broadcastProgressRecalculated() {
+    NotificationCenter.post(progressRecalculated, null);
+  }
+
+  // ==================== OPTIMISTIC BROADCAST METHODS ====================
+
+  /// Broadcast optimistic instance update (before backend)
+  static void broadcastInstanceUpdatedOptimistic(
+    ActivityInstanceRecord optimisticInstance,
+    String operationId, // Unique ID for this operation
+  ) {
+    NotificationCenter.post(instanceUpdated, {
+      'instance': optimisticInstance,
+      'isOptimistic': true,
+      'operationId': operationId,
+    });
+  }
+
+  /// Broadcast reconciled instance update (after backend)
+  static void broadcastInstanceUpdatedReconciled(
+    ActivityInstanceRecord actualInstance,
+    String operationId,
+  ) {
+    NotificationCenter.post(instanceUpdated, {
+      'instance': actualInstance,
+      'isOptimistic': false,
+      'operationId': operationId,
+    });
+  }
+
+  /// Broadcast optimistic instance creation (before backend)
+  static void broadcastInstanceCreatedOptimistic(
+    ActivityInstanceRecord optimisticInstance,
+    String operationId,
+  ) {
+    NotificationCenter.post(instanceCreated, {
+      'instance': optimisticInstance,
+      'isOptimistic': true,
+      'operationId': operationId,
+    });
+  }
+
+  /// Broadcast reconciled instance creation (after backend)
+  static void broadcastInstanceCreatedReconciled(
+    ActivityInstanceRecord actualInstance,
+    String operationId,
+  ) {
+    NotificationCenter.post(instanceCreated, {
+      'instance': actualInstance,
+      'isOptimistic': false,
+      'operationId': operationId,
+    });
+  }
+
+  // ==================== OPTIMISTIC INSTANCE BUILDERS ====================
+
+  /// Create optimistic instance for completion
+  static ActivityInstanceRecord createOptimisticCompletedInstance(
+    ActivityInstanceRecord original, {
+    dynamic finalValue,
+    int? finalAccumulatedTime,
+    DateTime? completedAt,
+    List<Map<String, dynamic>>? timeLogSessions,
+    int? totalTimeLogged,
+  }) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = completedAt ?? DateTime.now();
+
+    updatedData['status'] = 'completed';
+    updatedData['completedAt'] = now;
+    updatedData['lastUpdated'] = now;
+
+    // Update progress values if provided
+    if (finalValue != null) {
+      updatedData['currentValue'] = finalValue;
+    }
+    if (finalAccumulatedTime != null) {
+      updatedData['accumulatedTime'] = finalAccumulatedTime;
+    }
+
+    // Include time log sessions if provided (for calendar rendering)
+    if (timeLogSessions != null) {
+      updatedData['timeLogSessions'] = timeLogSessions;
+    }
+    if (totalTimeLogged != null) {
+      updatedData['totalTimeLogged'] = totalTimeLogged;
+    }
+
+    // Clear skipped status if present
+    updatedData['skippedAt'] = null;
+
+    // Mark as optimistic (add metadata flag for tracking)
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for uncompletion
+  static ActivityInstanceRecord createOptimisticUncompletedInstance(
+    ActivityInstanceRecord original,
+  ) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+
+    updatedData['status'] = 'pending';
+    updatedData['completedAt'] = null;
+    updatedData['skippedAt'] = null;
+    updatedData['lastUpdated'] = now;
+
+    // Reset counter to 0 for binary habits when uncompleting
+    if (original.templateTrackingType == 'binary') {
+      updatedData['currentValue'] = 0;
+    }
+    // For quantitative/time-based, preserve currentValue/accumulatedTime
+    // (user might want to keep partial progress)
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for progress update
+  static ActivityInstanceRecord createOptimisticProgressInstance(
+    ActivityInstanceRecord original, {
+    dynamic currentValue,
+    int? accumulatedTime,
+    bool? isTimerActive,
+    DateTime? timerStartTime,
+    List<Map<String, dynamic>>? timeLogSessions,
+    int? totalTimeLogged,
+  }) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+
+    updatedData['lastUpdated'] = now;
+
+    // Update progress values if provided
+    if (currentValue != null) {
+      updatedData['currentValue'] = currentValue;
+    }
+    if (accumulatedTime != null) {
+      updatedData['accumulatedTime'] = accumulatedTime;
+    }
+    if (isTimerActive != null) {
+      updatedData['isTimerActive'] = isTimerActive;
+    }
+    if (timerStartTime != null) {
+      updatedData['timerStartTime'] = timerStartTime;
+    }
+    if (timeLogSessions != null) {
+      updatedData['timeLogSessions'] = timeLogSessions;
+    }
+    if (totalTimeLogged != null) {
+      updatedData['totalTimeLogged'] = totalTimeLogged;
+    }
+
+    // Check if target is met and should auto-complete
+    // This logic matches the backend behavior
+    final target = original.templateTarget;
+    final trackingType = original.templateTrackingType;
+
+    if (trackingType == 'quantitative' &&
+        currentValue != null &&
+        target != null) {
+      final current = (currentValue is num)
+          ? currentValue.toDouble()
+          : (currentValue is String)
+              ? double.tryParse(currentValue) ?? 0.0
+              : 0.0;
+      final targetValue = (target is num)
+          ? target.toDouble()
+          : (target is String)
+              ? double.tryParse(target) ?? 0.0
+              : 0.0;
+
+      if (targetValue > 0 &&
+          current >= targetValue &&
+          original.status != 'completed') {
+        updatedData['status'] = 'completed';
+        updatedData['completedAt'] = now;
+      }
+    } else if (trackingType == 'time' &&
+        accumulatedTime != null &&
+        target != null) {
+      final targetMs = ((target is num
+                  ? target.toDouble()
+                  : (target is String ? double.tryParse(target) ?? 0.0 : 0.0)) *
+              60000)
+          .toInt();
+
+      if (targetMs > 0 &&
+          accumulatedTime >= targetMs &&
+          original.status != 'completed') {
+        updatedData['status'] = 'completed';
+        updatedData['completedAt'] = now;
+      }
+    }
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for skip
+  static ActivityInstanceRecord createOptimisticSkippedInstance(
+    ActivityInstanceRecord original, {
+    String? notes,
+  }) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateTime.now();
+
+    updatedData['status'] = 'skipped';
+    updatedData['skippedAt'] = now;
+    updatedData['lastUpdated'] = now;
+
+    if (notes != null) {
+      updatedData['notes'] = notes;
+    }
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for reschedule
+  static ActivityInstanceRecord createOptimisticRescheduledInstance(
+    ActivityInstanceRecord original, {
+    required DateTime newDueDate,
+    String? newDueTime,
+  }) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+
+    updatedData['dueDate'] = newDueDate;
+    if (newDueTime != null) {
+      updatedData['dueTime'] = newDueTime;
+    }
+    updatedData['lastUpdated'] = now;
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for snooze
+  static ActivityInstanceRecord createOptimisticSnoozedInstance(
+    ActivityInstanceRecord original, {
+    required DateTime snoozedUntil,
+  }) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+
+    updatedData['snoozedUntil'] = snoozedUntil;
+    updatedData['lastUpdated'] = now;
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for unsnooze
+  static ActivityInstanceRecord createOptimisticUnsnoozedInstance(
+    ActivityInstanceRecord original,
+  ) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+
+    updatedData['snoozedUntil'] = null;
+    updatedData['lastUpdated'] = now;
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+
+  /// Create optimistic instance for general property updates (name, dueTime, dueDate, etc.)
+  static ActivityInstanceRecord createOptimisticPropertyUpdateInstance(
+    ActivityInstanceRecord original,
+    Map<String, dynamic> propertyUpdates,
+  ) {
+    final updatedData = Map<String, dynamic>.from(original.snapshotData);
+    final now = DateService.currentDate;
+
+    // Apply all property updates
+    updatedData.addAll(propertyUpdates);
+    updatedData['lastUpdated'] = now;
+
+    // Mark as optimistic
+    updatedData['_optimistic'] = true;
+
+    return ActivityInstanceRecord.getDocumentFromData(
+      updatedData,
+      original.reference,
+    );
+  }
+}

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/notification_preferences_service.dart';
-import 'package:habit_tracker/Helper/utils/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/utils/time_utils.dart';
-import 'package:habit_tracker/Helper/utils/daily_notification_scheduler.dart';
-import 'package:habit_tracker/Helper/utils/notification_service.dart';
-import 'package:habit_tracker/Helper/utils/engagement_reminder_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_preferences_service.dart';
+import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/daily_notification_scheduler.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_service.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/engagement_reminder_scheduler.dart';
 import 'package:habit_tracker/main.dart';
 
 /// Settings page for managing notification preferences
@@ -65,11 +65,13 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
         }
 
         // Calculate notification times for display
-        _calculatedMorningTime = NotificationPreferencesService
-            .calculateMorningNotificationTime(_wakeUpTime);
-        _calculatedEveningTime = NotificationPreferencesService
-            .calculateEveningNotificationTime(_sleepTime);
-        
+        _calculatedMorningTime =
+            NotificationPreferencesService.calculateMorningNotificationTime(
+                _wakeUpTime);
+        _calculatedEveningTime =
+            NotificationPreferencesService.calculateEveningNotificationTime(
+                _sleepTime);
+
         _isLoading = false;
       });
     } catch (e) {
@@ -124,10 +126,12 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       // Recalculate notification times for display
       if (mounted) {
         setState(() {
-          _calculatedMorningTime = NotificationPreferencesService
-              .calculateMorningNotificationTime(_wakeUpTime);
-          _calculatedEveningTime = NotificationPreferencesService
-              .calculateEveningNotificationTime(_sleepTime);
+          _calculatedMorningTime =
+              NotificationPreferencesService.calculateMorningNotificationTime(
+                  _wakeUpTime);
+          _calculatedEveningTime =
+              NotificationPreferencesService.calculateEveningNotificationTime(
+                  _sleepTime);
           _isSaving = false;
         });
       }
@@ -153,7 +157,8 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       await NotificationService.showImmediate(
         id: 'test_notification',
         title: 'Test Notification',
-        body: 'This is a test notification to verify your settings are working!',
+        body:
+            'This is a test notification to verify your settings are working!',
       );
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -183,8 +188,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     if (picked != null) {
       setState(() {
         _wakeUpTime = picked;
-        _calculatedMorningTime = NotificationPreferencesService
-            .calculateMorningNotificationTime(_wakeUpTime);
+        _calculatedMorningTime =
+            NotificationPreferencesService.calculateMorningNotificationTime(
+                _wakeUpTime);
       });
       await _savePreferences();
     }
@@ -198,8 +204,9 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     if (picked != null) {
       setState(() {
         _sleepTime = picked;
-        _calculatedEveningTime = NotificationPreferencesService
-            .calculateEveningNotificationTime(_sleepTime);
+        _calculatedEveningTime =
+            NotificationPreferencesService.calculateEveningNotificationTime(
+                _sleepTime);
       });
       await _savePreferences();
     }
@@ -375,7 +382,8 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                 ),
                 child: Row(
                   children: [
-                    Icon(Icons.info_outline, color: Colors.blue.shade700, size: 20),
+                    Icon(Icons.info_outline,
+                        color: Colors.blue.shade700, size: 20),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Column(
@@ -408,4 +416,3 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
     );
   }
 }
-

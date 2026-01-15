@@ -2,14 +2,14 @@ import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/backend/task_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/utils/sound_helper.dart';
-import 'package:habit_tracker/Helper/utils/TimeManager.dart';
-import 'package:habit_tracker/Screens/Components/manual_time_log_modal.dart';
-import 'package:habit_tracker/Screens/Timer/timer_stop_flow.dart';
+import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
+import 'package:habit_tracker/Screens/Timer/Helpers/TimeManager.dart';
+import 'package:habit_tracker/Screens/Shared/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Timer/Helpers/timer_stop_flow.dart';
 
 class TimerPage extends StatefulWidget {
   final DocumentReference? initialTimerLogRef;

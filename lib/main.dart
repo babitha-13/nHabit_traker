@@ -3,24 +3,23 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
-import 'package:habit_tracker/Helper/Response/login_response.dart';
+import 'package:habit_tracker/Helper/Helpers/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/finalize_habit_data.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-import 'package:habit_tracker/Helper/utils/app_state.dart';
-import 'package:habit_tracker/Helper/utils/constants.dart';
-import 'package:habit_tracker/Helper/utils/engagement_tracker.dart';
-import 'package:habit_tracker/Helper/utils/global_route_observer.dart';
-import 'package:habit_tracker/Helper/utils/notification_service.dart';
-import 'package:habit_tracker/Helper/utils/timer_notification_service.dart';
-import 'package:habit_tracker/Helper/utils/sharedPreference.dart';
-import 'package:habit_tracker/Helper/utils/sound_helper.dart';
+import 'package:habit_tracker/Helper/Helpers/app_state.dart';
+import 'package:habit_tracker/Helper/Helpers/constants.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/engagement_tracker.dart';
+import 'package:habit_tracker/Helper/Helpers/global_route_observer.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_service.dart';
+import 'package:habit_tracker/Screens/Timer/Helpers/timer_notification_service.dart';
+import 'package:habit_tracker/Helper/Helpers/sharedPreference.dart';
+import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
-import 'package:habit_tracker/Screens/Splash/splash.dart';
+import 'package:habit_tracker/Screens/Authentication/splash.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
-import 'Helper/utils/flutter_flow_theme.dart';
+import 'Helper/Helpers/flutter_flow_theme.dart';
 
 SharedPref sharedPref = SharedPref();
 LoginResponse users = LoginResponse();
@@ -79,11 +78,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     WidgetsBinding.instance.addObserver(this);
     userStream = habitTrackerFirebaseUserStream();
     userStream.listen((user) {
-      if (user.uid != null && user.uid!.isNotEmpty) {
-        finalizeActivityData(user.uid!);
-        // Migration removed - all leaks plugged at source
-        // Categories now always created with proper categoryType
-      }
+      // User authentication state changes handled here
+      // Categories are created on signup and on-demand when needed
     });
     jwtTokenStream.listen((_) {});
   }

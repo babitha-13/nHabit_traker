@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:vibration/vibration.dart';
 import 'package:flutter/services.dart';
-import 'package:habit_tracker/Helper/backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Queue/queue_page.dart';
-import 'package:habit_tracker/Screens/Components/snooze_dialog.dart';
-import 'package:habit_tracker/Helper/utils/constants.dart';
+import 'package:habit_tracker/Screens/Notifications%20and%20alarms/snooze_dialog.dart';
+import 'package:habit_tracker/Helper/Helpers/constants.dart';
 import 'package:habit_tracker/main.dart';
 
 class AlarmRingingPage extends StatefulWidget {

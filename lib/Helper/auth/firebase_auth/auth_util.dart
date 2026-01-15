@@ -3,10 +3,10 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
-import 'package:rxdart/rxdart.dart';
 import 'firebase_auth_manager.dart';
 import 'firebase_user_provider.dart';
 export 'firebase_auth_manager.dart';
+
 final _authManager = FirebaseAuthManager();
 FirebaseAuthManager get authManager => _authManager;
 String get currentUserEmail =>
@@ -20,6 +20,7 @@ String get currentPhoneNumber =>
     currentUserDocument?.phoneNumber ?? currentUser?.phoneNumber ?? '';
 String get currentJwtToken => _currentJwtToken ?? '';
 bool get currentUserEmailVerified => currentUser?.emailVerified ?? false;
+
 /// Create a Stream that listens to the current user's JWT Token, since Firebase
 /// generates a new token every hour.
 String? _currentJwtToken;
@@ -33,7 +34,7 @@ UsersRecord? currentUserDocument;
 final authenticatedUserStream = FirebaseAuth.instance
     .authStateChanges()
     .map<String>((user) => user?.uid ?? '')
-    .flatMap(
+    .asyncExpand(
       (uid) => uid.isEmpty
           ? Stream.value(null)
           : UsersRecord.getDocument(UsersRecord.collection.doc(uid))
@@ -61,6 +62,7 @@ void onUserUpdated(User? user) {
     UsersRecord.collection.doc(user.uid).update({'photoUrl': photoUrl});
   }
 }
+
 class AuthUserStreamWidget extends StatelessWidget {
   const AuthUserStreamWidget({super.key, required this.builder});
   final WidgetBuilder builder;
