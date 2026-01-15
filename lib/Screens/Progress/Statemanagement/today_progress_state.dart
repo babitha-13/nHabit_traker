@@ -13,6 +13,8 @@ class TodayProgressState {
   double _dailyPercentage = 0.0;
   double _cumulativeScore = 0.0;
   double _dailyScoreGain = 0.0;
+  double _yesterdayCumulativeScore = 0.0;
+  double _todayScore = 0.0;
   bool _hasLiveScore = false;
   DateTime _lastUpdateDate = DateService.todayStart;
 
@@ -41,6 +43,16 @@ class TodayProgressState {
     return _dailyScoreGain;
   }
 
+  double get yesterdayCumulativeScore {
+    _checkDayTransition();
+    return _yesterdayCumulativeScore;
+  }
+
+  double get todayScore {
+    _checkDayTransition();
+    return _todayScore;
+  }
+
   bool get hasLiveScore {
     _checkDayTransition();
     return _hasLiveScore;
@@ -54,10 +66,11 @@ class TodayProgressState {
       _pointsEarned = 0.0;
       _dailyPercentage = 0.0;
       _dailyScoreGain = 0.0;
+      _todayScore = 0.0;
       _hasLiveScore = false;
+      // Carry forward yesterday's cumulative as baseline for new day
+      _yesterdayCumulativeScore = _cumulativeScore;
       _lastUpdateDate = today;
-      // Note: We don't reset _cumulativeScore as it's carried forward,
-      // but we reset the gain for the new day.
     }
   }
 
@@ -79,18 +92,37 @@ class TodayProgressState {
     NotificationCenter.post('todayProgressUpdated');
   }
 
+  void updateTodayScore({
+    required double cumulativeScore,
+    required double todayScore,
+    required double yesterdayCumulative,
+    required bool hasLiveScore,
+  }) {
+    _checkDayTransition();
+    _cumulativeScore = cumulativeScore;
+    _todayScore = todayScore;
+    _dailyScoreGain = todayScore; // Keep for backward compatibility
+    _yesterdayCumulativeScore = yesterdayCumulative;
+    _hasLiveScore = hasLiveScore;
+    _lastUpdateDate = DateService.todayStart;
+    // Notify other pages about score update
+    NotificationCenter.post('cumulativeScoreUpdated');
+  }
+
+  /// Legacy method for backward compatibility
+  /// Use updateTodayScore() instead
+  @Deprecated('Use updateTodayScore instead')
   void updateCumulativeScore({
     required double cumulativeScore,
     required double dailyGain,
     required bool hasLiveScore,
   }) {
-    _checkDayTransition();
-    _cumulativeScore = cumulativeScore;
-    _dailyScoreGain = dailyGain;
-    _hasLiveScore = hasLiveScore;
-    _lastUpdateDate = DateService.todayStart;
-    // Notify other pages about cumulative score update
-    NotificationCenter.post('cumulativeScoreUpdated');
+    updateTodayScore(
+      cumulativeScore: cumulativeScore,
+      todayScore: dailyGain,
+      yesterdayCumulative: _yesterdayCumulativeScore,
+      hasLiveScore: hasLiveScore,
+    );
   }
 
   Map<String, double> getProgressData() {
@@ -107,7 +139,15 @@ class TodayProgressState {
     return {
       'cumulativeScore': _cumulativeScore,
       'dailyGain': _dailyScoreGain,
+      'todayScore': _todayScore,
+      'yesterdayCumulative': _yesterdayCumulativeScore,
       'hasLiveScore': _hasLiveScore,
     };
+  }
+
+  /// Get yesterday's cumulative score
+  double getYesterdayCumulativeScore() {
+    _checkDayTransition();
+    return _yesterdayCumulativeScore;
   }
 }

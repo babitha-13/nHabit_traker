@@ -61,18 +61,6 @@ class AggregateScoreStatisticsService {
       previousCumulative = cumulativeAtEnd;
     }
 
-    // Filter for 7-day and 30-day periods
-    final last7Days = DailyProgressQueryService.filterLastNDays(
-      records: records,
-      n: 7,
-      referenceDate: referenceDate,
-    );
-    final last30Days = DailyProgressQueryService.filterLastNDays(
-      records: records,
-      n: 30,
-      referenceDate: referenceDate,
-    );
-
     // Calculate averages using effective gains
     final dayData7Days = dayData.where((day) {
       final dayDate = day['date'] as DateTime?;
@@ -316,7 +304,10 @@ class AggregateScoreStatisticsService {
       return !dayDate.isBefore(cutoff7Days) && !dayDate.isAfter(today);
     }).toList();
 
-    final dayData30Days = dayData;
+    final dayData30Days = dayData.where((day) {
+      final dayDate = day['date'] as DateTime;
+      return !dayDate.isBefore(cutoff30Days) && !dayDate.isAfter(today);
+    }).toList();
 
     // Calculate averages using effective gains
     double avg7Day = 0.0;

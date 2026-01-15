@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
 import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_progress_section/cumulative_score_chart.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_progress_section/daily_progress_chart.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_charts_section/cumulative_score_chart.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_charts_section/daily_completion_donut_chart.dart';
 
 /// Helper class for building queue UI components
 class QueueUIBuilders {
@@ -43,7 +43,10 @@ class QueueUIBuilders {
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [
               // Daily Progress Donut Chart
+              // Use key to force rebuild when values change
               DailyProgressChart(
+                key: ValueKey(
+                    '${dailyPercentage}_${pointsEarned}_${dailyTarget}'),
                 dailyPercentage: dailyPercentage,
                 dailyTarget: dailyTarget,
                 pointsEarned: pointsEarned,
@@ -56,6 +59,12 @@ class QueueUIBuilders {
                     width: 120,
                     height: 80,
                     child: CumulativeScoreGraph(
+                      // Use key based on last score to force rebuild when history changes
+                      key: ValueKey(
+                        miniGraphHistory.isNotEmpty
+                            ? miniGraphHistory.last['score'] as double
+                            : 0.0,
+                      ),
                       history: miniGraphHistory,
                       color: FlutterFlowTheme.of(context).primary,
                     ),

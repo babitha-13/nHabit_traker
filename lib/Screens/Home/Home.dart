@@ -1,7 +1,7 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:habit_tracker/Helper/Helpers/login_response.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/constants.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Screens/Goals/goal_data_service.dart';
@@ -14,18 +14,13 @@ import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.da
 import 'package:habit_tracker/Screens/Routine/routines_page_main.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
-import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_page_main.dart';
 import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
-import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Screens/CatchUp/morning_catchup_dialog_UI.dart';
 import 'package:habit_tracker/Screens/CatchUp/morning_catchup_service.dart';
-import 'package:habit_tracker/Screens/CatchUp/day_end_processor.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Screens/Settings/notification_onboarding_dialog.dart';
-import 'package:habit_tracker/Screens/Settings/settings_page.dart';
-import 'package:habit_tracker/Screens/Settings/faq_page.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_preferences_service.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/daily_notification_scheduler.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/Engagement%20Notifications/engagement_reminder_scheduler.dart';
@@ -61,6 +56,7 @@ class _HomeState extends State<Home> {
     "Calendar": 5,
   };
   static bool _isCheckingCatchUp = false;
+  Timer? _dayTransitionTimer;
   @override
   void initState() {
     NotificationCenter.addObserver(
@@ -96,6 +92,7 @@ class _HomeState extends State<Home> {
         }
       });
     });
+    _scheduleDayTransitionTimer();
   }
 
   void _onNavigateBottomTab(Object? param) {
@@ -106,6 +103,7 @@ class _HomeState extends State<Home> {
 
   @override
   void dispose() {
+    _dayTransitionTimer?.cancel();
     NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
     super.dispose();
@@ -256,7 +254,25 @@ class _HomeState extends State<Home> {
     }
   }
 
+  void _scheduleDayTransitionTimer() {
+    _dayTransitionTimer?.cancel();
+    final now = DateTime.now();
+    final nextCheck = DateTime(now.year, now.month, now.day)
+        .add(const Duration(days: 1, minutes: 1));
+    final delay = nextCheck.difference(now);
+    _dayTransitionTimer = Timer(delay, _handleDayTransitionWhileOpen);
+  }
+
+  Future<void> _handleDayTransitionWhileOpen() async {
+    await _runDayEndFlow(showDayTransitionInfo: true);
+    _scheduleDayTransitionTimer();
+  }
+
   Future<void> _checkMorningCatchUp() async {
+    await _runDayEndFlow(showDayTransitionInfo: false);
+  }
+
+  Future<void> _runDayEndFlow({required bool showDayTransitionInfo}) async {
     if (_isCheckingCatchUp) return;
 
     try {
@@ -272,6 +288,7 @@ class _HomeState extends State<Home> {
       final lastProcessedDateString =
           prefs.getString('last_end_of_day_processed');
       DateTime? lastProcessedDate;
+      bool alreadyProcessedToday = false;
       if (lastProcessedDateString != null) {
         lastProcessedDate = DateTime.parse(lastProcessedDateString);
         final lastProcessedDateOnly = DateTime(
@@ -279,51 +296,41 @@ class _HomeState extends State<Home> {
           lastProcessedDate.month,
           lastProcessedDate.day,
         );
-        if (lastProcessedDateOnly.isAtSameMomentAs(today)) {
-          final shouldShow =
-              await MorningCatchUpService.shouldShowDialog(userId);
-          if (shouldShow && mounted) {
-            showDialog(
-              context: context,
-              barrierDismissible: false,
-              builder: (context) => const MorningCatchUpDialog(),
-            );
-          }
-          return;
-        }
+        alreadyProcessedToday = lastProcessedDateOnly.isAtSameMomentAs(today);
       }
 
-      await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
-      await DayEndProcessor.ensurePendingInstancesExist(userId);
+      if (!alreadyProcessedToday) {
+        await MorningCatchUpService.runInstanceMaintenanceForDayTransition(
+            userId);
 
-      final hasPendingItems =
-          await MorningCatchUpService.hasPendingItemsFromYesterday(userId);
-
-      if (hasPendingItems) {
-        await DayEndProcessor.updateLastDayValuesOnly(
-            userId, DateService.yesterdayStart);
-
-        await prefs.setString(
-            'last_end_of_day_processed', today.toIso8601String());
-
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => const MorningCatchUpDialog(),
-          );
-        }
-      } else {
-        await DayEndProcessor.processDayEnd(
+        // Persist scores in background (non-blocking)
+        unawaited(MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
+            userId: userId));
+        unawaited(MorningCatchUpService.persistScoresForDate(
           userId: userId,
           targetDate: DateService.yesterdayStart,
-          closeInstances: false,
-          ensureInstances: false, // Already ensured above
-        );
+        ));
+
         await prefs.setString(
             'last_end_of_day_processed', today.toIso8601String());
       }
+
+      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+      if (shouldShow && mounted) {
+        showDialog(
+          context: context,
+          barrierDismissible: false,
+          builder: (context) => MorningCatchUpDialog(
+            isDayTransition: showDayTransitionInfo,
+          ),
+        );
+      } else if (!alreadyProcessedToday) {
+        // Refresh Queue/Progress views for the new day
+        NotificationCenter.post('loadHabits', null);
+        NotificationCenter.post('loadData', null);
+      }
     } catch (e) {
+      // Error running day-end flow
     } finally {
       _isCheckingCatchUp = false;
     }

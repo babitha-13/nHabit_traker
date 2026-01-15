@@ -9,9 +9,10 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_cen
 import 'package:habit_tracker/Screens/Progress/Pages/progress_breakdown_dialog.dart';
 import 'package:habit_tracker/Screens/Progress/backend/progress_page_data_service.dart';
 import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
 import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
-import 'package:habit_tracker/Screens/Shared/cumulative_score_line_painter.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_charts_section/cumulative_score_line_painter.dart';
 import 'package:habit_tracker/Screens/Progress/Pages/habit_statistics_tab.dart';
 import 'package:habit_tracker/Screens/Progress/Pages/category_statistics_tab.dart';
 import 'package:flutter/foundation.dart';
@@ -63,13 +64,14 @@ class _ProgressPageState extends State<ProgressPage> {
   double _worstDailyScoreGain = 0.0;
   int _positiveDaysCount7Day = 0;
   int _positiveDaysCount30Day = 0;
-  double _scoreGrowthRate7Day = 0.0;
-  double _scoreGrowthRate30Day = 0.0;
   double _averageCumulativeScore7Day = 0.0;
   double _averageCumulativeScore30Day = 0.0;
+  DateTime?
+      _lastKnownDate; // Track last known date for day transition detection
   @override
   void initState() {
     super.initState();
+    _lastKnownDate = DateService.todayStart;
     _loadProgressHistory();
     // Listen for today's progress updates from Queue page
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
@@ -80,11 +82,11 @@ class _ProgressPageState extends State<ProgressPage> {
           _todayEarned = data['earned']!;
           _todayPercentage = data['percentage']!;
         });
-        // Recalculate projected score when today's progress updates
-        _updateProjectedScore();
+        // Recalculate today's score when completion points update
+        _updateTodayScore();
       }
     });
-    // Listen for cumulative score updates from Queue page (shared state as source of truth)
+    // Listen for score updates from Queue page (shared state as source of truth)
     NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
       if (mounted) {
         setState(() {
@@ -93,8 +95,10 @@ class _ProgressPageState extends State<ProgressPage> {
           _projectedCumulativeScore =
               data['cumulativeScore'] as double? ?? _projectedCumulativeScore;
           _projectedDailyGain =
-              data['dailyGain'] as double? ?? _projectedDailyGain;
+              data['todayScore'] as double? ?? _projectedDailyGain;
         });
+        // Update history with live score
+        _updateHistoryWithTodayScore();
       }
     });
     // Load initial today's progress
@@ -107,6 +111,26 @@ class _ProgressPageState extends State<ProgressPage> {
   void dispose() {
     NotificationCenter.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // Check for day transition when page becomes visible
+    _checkDayTransition();
+  }
+
+  void _checkDayTransition() {
+    final today = DateService.todayStart;
+    if (_lastKnownDate != null && !_isSameDay(_lastKnownDate!, today)) {
+      // Day has changed - reload all data
+      _lastKnownDate = today;
+      _loadProgressHistory();
+      _loadInitialTodayProgress();
+      _loadCumulativeScore();
+    } else if (_lastKnownDate == null) {
+      _lastKnownDate = today;
+    }
   }
 
   void _showProgressBreakdown(BuildContext context, DateTime date) {
@@ -314,39 +338,60 @@ class _ProgressPageState extends State<ProgressPage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      final userStats = await CumulativeScoreService.getCumulativeScore(userId);
-      if (userStats != null && mounted) {
-        setState(() {
-          _cumulativeScore = userStats.cumulativeScore;
+      // Check shared state first - if queue page already calculated today's score, use it
+      final sharedScoreData = TodayProgressState().getCumulativeScoreData();
+      final hasLiveScore = sharedScoreData['hasLiveScore'] as bool? ?? false;
 
-          // Check if the last calculation was today
-          final today = DateService.todayStart;
-          final lastCalc = userStats.lastCalculationDate;
-          final isLastCalcToday = lastCalc != null &&
-              lastCalc.year == today.year &&
-              lastCalc.month == today.month &&
-              lastCalc.day == today.day;
+      if (hasLiveScore) {
+        // Use live score from shared state (calculated by queue page)
+        if (mounted) {
+          setState(() {
+            _projectedCumulativeScore =
+                (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
+            _projectedDailyGain =
+                (sharedScoreData['todayScore'] as double?) ?? 0.0;
+            _hasProjection = true;
+          });
+        }
+      } else {
+        // No live score available, load from backend
+        final userStats =
+            await CumulativeScoreService.getCumulativeScore(userId);
+        if (userStats != null && mounted) {
+          setState(() {
+            _cumulativeScore = userStats.cumulativeScore;
 
-          // If last calculation wasn't today, today's gain is 0 initially,
-          // but will be overwritten by _updateProjectedScore() below
-          _dailyScoreGain = isLastCalcToday ? userStats.lastDailyGain : 0.0;
+            // Check if the last calculation was today
+            final today = DateService.todayStart;
+            final lastCalc = userStats.lastCalculationDate;
+            final isLastCalcToday = lastCalc != null &&
+                lastCalc.year == today.year &&
+                lastCalc.month == today.month &&
+                lastCalc.day == today.day;
 
-          // Load aggregate statistics
-          _averageDailyScore7Day = userStats.averageDailyScore7Day;
-          _averageDailyScore30Day = userStats.averageDailyScore30Day;
-          _bestDailyScoreGain = userStats.bestDailyScoreGain;
-          _worstDailyScoreGain = userStats.worstDailyScoreGain;
-          _positiveDaysCount7Day = userStats.positiveDaysCount7Day;
-          _positiveDaysCount30Day = userStats.positiveDaysCount30Day;
-          _scoreGrowthRate7Day = userStats.scoreGrowthRate7Day;
-          _scoreGrowthRate30Day = userStats.scoreGrowthRate30Day;
-          _averageCumulativeScore7Day = userStats.averageCumulativeScore7Day;
-          _averageCumulativeScore30Day = userStats.averageCumulativeScore30Day;
-        });
+            // If last calculation wasn't today, today's gain is 0 initially,
+            // but will be overwritten by _updateTodayScore() below
+            _dailyScoreGain = isLastCalcToday ? userStats.lastDailyGain : 0.0;
+
+            // Load aggregate statistics
+            _averageDailyScore7Day = userStats.averageDailyScore7Day;
+            _averageDailyScore30Day = userStats.averageDailyScore30Day;
+            _bestDailyScoreGain = userStats.bestDailyScoreGain;
+            _worstDailyScoreGain = userStats.worstDailyScoreGain;
+            _positiveDaysCount7Day = userStats.positiveDaysCount7Day;
+            _positiveDaysCount30Day = userStats.positiveDaysCount30Day;
+            _averageCumulativeScore7Day = userStats.averageCumulativeScore7Day;
+            _averageCumulativeScore30Day =
+                userStats.averageCumulativeScore30Day;
+          });
+        }
+
+        // Only calculate if we don't have live score from queue page
+        // This avoids duplicate calculations and ensures consistency
+        if (!hasLiveScore && _todayPercentage > 0) {
+          await _updateTodayScore();
+        }
       }
-
-      // Always calculate/update projected score for today (handles midnight reset correctly)
-      await _updateProjectedScore();
 
       // Load cumulative score history
       await _loadCumulativeScoreHistory();
@@ -358,50 +403,65 @@ class _ProgressPageState extends State<ProgressPage> {
     }
   }
 
-  Future<void> _updateProjectedScore() async {
+  Future<void> _updateTodayScore() async {
     try {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      // Always show projection based on today's current progress (even if 0)
-      final projectionData =
-          await CumulativeScoreService.calculateProjectedDailyScore(
-        userId,
-        _todayPercentage,
-        _todayEarned,
-      );
+      // Check shared state first - queue page may have already calculated the score
+      final sharedScoreData = TodayProgressState().getCumulativeScoreData();
+      final hasLiveScore = sharedScoreData['hasLiveScore'] as bool? ?? false;
 
-      if (mounted) {
+      if (hasLiveScore) {
+        // Use live score from shared state (calculated by queue page with full data)
+        // This ensures consistency and avoids duplicate calculations
+        if (!mounted) return;
         setState(() {
           _projectedCumulativeScore =
-              projectionData['projectedCumulative'] ?? 0.0;
-          _projectedDailyGain = projectionData['projectedGain'] ?? 0.0;
+              (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
+          _projectedDailyGain =
+              (sharedScoreData['todayScore'] as double?) ?? 0.0;
           _hasProjection = true;
-          // Store breakdown components for tooltip
-          _dailyScore =
-              (projectionData['dailyScore'] as num?)?.toDouble() ?? 0.0;
-          _consistencyBonus =
-              (projectionData['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
-          _recoveryBonus =
-              (projectionData['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
-          _decayPenalty =
-              (projectionData['decayPenalty'] as num?)?.toDouble() ?? 0.0;
-          _categoryNeglectPenalty =
-              0.0; // Not included in projected score calculation
         });
-
-        // Publish cumulative score to shared state
-        TodayProgressState().updateCumulativeScore(
-          cumulativeScore: _projectedCumulativeScore,
-          dailyGain: _projectedDailyGain,
-          hasLiveScore: true,
-        );
-
-        // Update today's entry in history if available
-        _updateTodayInHistory();
+        // Update history with live score
+        _updateHistoryWithTodayScore();
+        return;
       }
+
+      // No live score available, calculate it ourselves
+      // Note: This is a fallback - normally queue page should calculate it first
+      // We skip category penalty here since we don't have instances/categories
+      // The queue page calculation (with full data) takes precedence via shared state
+
+      final result = await CumulativeScoreCalculator.updateTodayScore(
+        userId: userId,
+        completionPercentage: _todayPercentage,
+        pointsEarned: _todayEarned,
+        categories: null, // Skip category penalty (would need instances)
+        habitInstances: null,
+        includeBreakdown: true,
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _projectedCumulativeScore =
+            (result['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+        _projectedDailyGain = (result['todayScore'] as num?)?.toDouble() ?? 0.0;
+        _hasProjection = true;
+
+        _dailyScore = (result['dailyScore'] as num?)?.toDouble() ?? 0.0;
+        _consistencyBonus =
+            (result['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
+        _recoveryBonus = (result['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
+        _decayPenalty = (result['decayPenalty'] as num?)?.toDouble() ?? 0.0;
+        _categoryNeglectPenalty =
+            (result['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
+      });
+
+      // Update history with live score
+      _updateHistoryWithTodayScore();
     } catch (e) {
-      // Error updating projected score
+      // Error updating today's score
     }
   }
 
@@ -410,16 +470,35 @@ class _ProgressPageState extends State<ProgressPage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      // Use service to fetch cumulative score history (encapsulates Firestore access)
-      final history = await ProgressPageDataService.fetchCumulativeScoreHistory(
+      // Check shared state first - use live score from queue page if available
+      final sharedScoreData = TodayProgressState().getCumulativeScoreData();
+      final hasLiveScore = sharedScoreData['hasLiveScore'] as bool? ?? false;
+
+      double? cumulativeScore;
+      double? todayScore;
+
+      if (hasLiveScore) {
+        // Use live score from shared state (calculated by queue page)
+        cumulativeScore = (sharedScoreData['cumulativeScore'] as double?);
+        todayScore = (sharedScoreData['todayScore'] as double?);
+      } else if (_hasProjection) {
+        // Fallback to local projection if no shared state
+        cumulativeScore = _projectedCumulativeScore;
+        todayScore = _projectedDailyGain;
+      }
+
+      // Load history based on current toggle state (7 or 30 days)
+      final daysToLoad = _show30Days ? 30 : 7;
+      final historyResult =
+          await CumulativeScoreCalculator.loadCumulativeScoreHistory(
         userId: userId,
-        projectedCumulativeScore:
-            _hasProjection ? _projectedCumulativeScore : null,
-        projectedDailyGain: _hasProjection ? _projectedDailyGain : null,
-        cumulativeScore: _cumulativeScore > 0 ? _cumulativeScore : null,
-        dailyScoreGain: _dailyScoreGain,
-        hasProjection: _hasProjection,
+        days: daysToLoad,
+        cumulativeScore: cumulativeScore,
+        todayScore: todayScore,
       );
+      final history =
+          (historyResult['history'] as List?)?.cast<Map<String, dynamic>>() ??
+              [];
 
       if (mounted) {
         setState(() {
@@ -431,37 +510,19 @@ class _ProgressPageState extends State<ProgressPage> {
     }
   }
 
-  void _updateTodayInHistory() {
-    if (_cumulativeScoreHistory.isEmpty) return;
+  void _updateHistoryWithTodayScore() {
+    if (!_hasProjection) return;
 
-    final today = DateService.currentDate;
-    final lastItem = _cumulativeScoreHistory.last;
-    final lastDate = lastItem['date'] as DateTime;
+    final changed = CumulativeScoreCalculator.updateHistoryWithTodayScore(
+      _cumulativeScoreHistory,
+      _projectedDailyGain,
+      _projectedCumulativeScore,
+    );
 
-    if (lastDate.year == today.year &&
-        lastDate.month == today.month &&
-        lastDate.day == today.day) {
-      // Always use projected score for today if available (matches Queue page behavior)
-      // This ensures the graph shows today's live progress, even if score is 0 or negative
-      if (_hasProjection) {
-        _cumulativeScoreHistory[_cumulativeScoreHistory.length - 1] = {
-          'date': lastDate,
-          'score': _projectedCumulativeScore,
-          'gain': _projectedDailyGain,
-        };
-      } else if (_cumulativeScore > 0) {
-        // Fallback to snapshot score only if projection not available
-        _cumulativeScoreHistory[_cumulativeScoreHistory.length - 1] = {
-          'date': lastDate,
-          'score': _cumulativeScore,
-          'gain': _dailyScoreGain,
-        };
-      }
-      if (mounted) {
-        setState(() {
-          // Trigger rebuild
-        });
-      }
+    if (changed && mounted) {
+      setState(() {
+        // Trigger rebuild
+      });
     }
   }
 
@@ -495,8 +556,6 @@ class _ProgressPageState extends State<ProgressPage> {
           _worstDailyScoreGain = stats['worstDailyScoreGain'] as double;
           _positiveDaysCount7Day = stats['positiveDaysCount7Day'] as int;
           _positiveDaysCount30Day = stats['positiveDaysCount30Day'] as int;
-          _scoreGrowthRate7Day = stats['scoreGrowthRate7Day'] as double;
-          _scoreGrowthRate30Day = stats['scoreGrowthRate30Day'] as double;
           _averageCumulativeScore7Day =
               stats['averageCumulativeScore7Day'] as double;
           _averageCumulativeScore30Day =
@@ -742,29 +801,6 @@ class _ProgressPageState extends State<ProgressPage> {
                 '$_positiveDaysCount30Day/30',
                 Icons.check_circle_outline,
                 _positiveDaysCount30Day >= 20 ? Colors.green : Colors.orange,
-              ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 12),
-        // Growth Rate Row
-        Row(
-          children: [
-            Expanded(
-              child: _buildAggregateStatCard(
-                'Growth Rate (7d)',
-                '${_scoreGrowthRate7Day >= 0 ? '+' : ''}${_scoreGrowthRate7Day.toStringAsFixed(2)}',
-                Icons.show_chart,
-                _scoreGrowthRate7Day >= 0 ? Colors.green : Colors.red,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: _buildAggregateStatCard(
-                'Growth Rate (30d)',
-                '${_scoreGrowthRate30Day >= 0 ? '+' : ''}${_scoreGrowthRate30Day.toStringAsFixed(2)}',
-                Icons.timeline,
-                _scoreGrowthRate30Day >= 0 ? Colors.green : Colors.red,
               ),
             ),
           ],
@@ -1342,12 +1378,9 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   Widget _buildCumulativeScoreGraph() {
-    final displayData = _show30Days
-        ? _cumulativeScoreHistory
-        : _cumulativeScoreHistory.length > 7
-            ? _cumulativeScoreHistory
-                .sublist(_cumulativeScoreHistory.length - 7)
-            : _cumulativeScoreHistory;
+    // History is already loaded with the correct number of days based on _show30Days
+    // Just use it directly - no need to filter
+    final displayData = _cumulativeScoreHistory;
 
     if (displayData.isEmpty) {
       return Container(
@@ -1392,6 +1425,8 @@ class _ProgressPageState extends State<ProgressPage> {
                   setState(() {
                     _show30Days = !_show30Days;
                   });
+                  // Reload history with the new day range
+                  _loadCumulativeScoreHistory();
                 },
                 child: Container(
                   padding:

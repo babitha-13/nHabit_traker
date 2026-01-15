@@ -11,7 +11,12 @@ import 'package:intl/intl.dart';
 /// Morning catch-up dialog for handling yesterday's incomplete items
 /// UI-only component - business logic is in MorningCatchUpDialogLogic
 class MorningCatchUpDialog extends StatefulWidget {
-  const MorningCatchUpDialog({super.key});
+  const MorningCatchUpDialog({
+    super.key,
+    this.isDayTransition = false,
+  });
+
+  final bool isDayTransition;
 
   @override
   State<MorningCatchUpDialog> createState() => _MorningCatchUpDialogState();
@@ -142,7 +147,14 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     setState(() {});
 
     try {
-      final result = await _logic.skipAllRemaining();
+      final result = await _logic.skipAllRemaining(
+        onProgressUpdate: () {
+          // Rebuild UI during processing to show progress updates
+          if (mounted) {
+            setState(() {});
+          }
+        },
+      );
 
       if (mounted) {
         if (result.success) {
@@ -192,7 +204,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-                'You\'ll be reminded on your next app open${result.reminderCount >= 2 ? ' (${result.newReminderCount} of ${MorningCatchUpService.maxReminderCount} reminders)' : ''}'),
+                'You\'ll be reminded on your next app open${result.newReminderCount >= MorningCatchUpService.maxReminderCount ? ' (${result.newReminderCount} of ${MorningCatchUpService.maxReminderCount} reminders)' : ''}'),
           ),
         );
         await _closeDialogAndRefresh();
@@ -300,7 +312,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                       child: Text(
-                        'You have incomplete items from yesterday. Review them and mark them individually as completed/skipped or reschedule them for later.',
+                        widget.isDayTransition
+                            ? 'A new day just started. Please review yesterday\'s items and update anything you missed.'
+                            : 'You have incomplete items from yesterday. Review them and mark them individually as completed/skipped or reschedule them for later.',
                         style: theme.bodySmall.override(
                           fontFamily: 'Readex Pro',
                           color: Colors.white,
@@ -517,7 +531,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      // Only show "Remind Me Later" if reminder count < 3
+                      // Only show "Remind Me Later" if reminder count is below the limit
                       if (_logic.reminderCount <
                           MorningCatchUpService.maxReminderCount)
                         SizedBox(

@@ -230,12 +230,15 @@ class DailyProgressCalculator {
   /// Calculate daily progress optimistically from local instances (no Firestore queries)
   /// Use this for instant UI updates after instance changes
   /// Returns: {target, earned, percentage}
-  static Future<Map<String, dynamic>> calculateTodayProgressOptimistic({
+  /// Calculate today's progress instantly using only cached instance data
+  /// No Firestore queries - like an Excel sheet calculation
+  /// Returns immediately with synchronous calculation
+  static Map<String, dynamic> calculateTodayProgressOptimistic({
     required String userId,
     required List<ActivityInstanceRecord> allInstances,
     required List<CategoryRecord> categories,
     List<ActivityInstanceRecord> taskInstances = const [],
-  }) async {
+  }) {
     final today = DateService.currentDate;
     final normalizedDate = DateTime(today.year, today.month, today.day);
 
@@ -282,19 +285,18 @@ class DailyProgressCalculator {
       return false;
     }).toList();
 
-    // OPTIMISTIC CALCULATION: Use synchronous method without Firestore queries
-    // This uses cached template data from instances instead of querying Firestore
+    // INSTANT CALCULATION: Use synchronous method without ANY Firestore queries
+    // This uses ONLY cached template data from instances - like an Excel sheet
     final habitTargetPoints =
         PointsService.calculateTotalDailyTarget(allForMath);
     final habitEarnedPoints =
-        await PointsService.calculateTotalPointsEarned(earnedSet, userId);
+        PointsService.calculateTotalPointsEarnedSync(earnedSet);
 
-    // Calculate task points using unified PointsService method
+    // Calculate task points using unified PointsService method (synchronous)
     final taskTargetPoints =
         _calculateTaskTargetFromActivityInstances(allTasksForMath);
     final taskEarnedPoints =
-        await PointsService.calculatePointsFromActivityInstances(
-            allTasksForMath, userId);
+        PointsService.calculatePointsFromActivityInstancesSync(allTasksForMath);
 
     // Combine habit and task points
     final totalTargetPoints = habitTargetPoints + taskTargetPoints;

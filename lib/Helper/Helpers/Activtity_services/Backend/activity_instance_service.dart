@@ -2103,6 +2103,194 @@ class ActivityInstanceService {
     }
   }
 
+  /// Batch skip multiple habit instances at once
+  /// Uses Firestore batch writes for efficient processing
+  /// Generates next instances for all skipped habits in the same batch
+  static Future<void> batchSkipInstances({
+    required List<ActivityInstanceRecord> instances,
+    required DateTime skippedAt,
+    required String userId,
+  }) async {
+    if (instances.isEmpty) return;
+
+    final firestore = FirebaseFirestore.instance;
+    const maxBatchSize = 500; // Firestore batch limit
+    final now = DateService.currentDate;
+
+    // Group instances by template to fetch templates efficiently
+    final templateIds = instances.map((i) => i.templateId).toSet().toList();
+    final templateMap = <String, ActivityRecord>{};
+
+    // Fetch all templates in parallel
+    final templateFutures = templateIds.map((templateId) async {
+      final templateRef =
+          ActivityRecord.collectionForUser(userId).doc(templateId);
+      final templateDoc = await templateRef.get();
+      if (templateDoc.exists) {
+        final template = ActivityRecord.fromSnapshot(templateDoc);
+        return MapEntry(templateId, template);
+      }
+      return null;
+    });
+
+    final templateEntries = await Future.wait(templateFutures);
+    for (final entry in templateEntries) {
+      if (entry != null) {
+        templateMap[entry.key] = entry.value;
+      }
+    }
+
+    // Pre-calculate all next instance data in parallel (before batching)
+    final nextInstanceDataList = <Map<String, dynamic>>[];
+    final nextInstanceRefs = <DocumentReference>[];
+
+    final nextInstanceFutures = instances
+        .where((instance) =>
+            instance.templateCategoryType == 'habit' &&
+            instance.windowEndDate != null)
+        .map((instance) async {
+      try {
+        final template = templateMap[instance.templateId];
+        if (template == null || !template.isActive) return null;
+
+        final nextBelongsToDate =
+            instance.windowEndDate!.add(const Duration(days: 1));
+        final nextWindowDuration = await _calculateAdaptiveWindowDuration(
+          template: template,
+          userId: userId,
+          currentDate: nextBelongsToDate,
+        );
+
+        if (nextWindowDuration <= 0) return null;
+
+        final nextWindowEndDate =
+            nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
+
+        // Get order from previous instance (in parallel)
+        int? queueOrder;
+        int? habitsOrder;
+        int? tasksOrder;
+        try {
+          queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+              instance.templateId, 'queue', userId);
+          habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+              instance.templateId, 'habits', userId);
+          tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+              instance.templateId, 'tasks', userId);
+        } catch (e) {
+          // Continue with null values if order lookup fails
+        }
+
+        // Create next instance data
+        final nextInstanceData = createActivityInstanceRecordData(
+          templateId: instance.templateId,
+          dueDate: nextBelongsToDate,
+          dueTime: instance.templateDueTime,
+          status: 'pending',
+          createdTime: now,
+          lastUpdated: now,
+          isActive: true,
+          templateName: instance.templateName,
+          templateCategoryId: instance.templateCategoryId,
+          templateCategoryName: instance.templateCategoryName,
+          templateCategoryType: instance.templateCategoryType,
+          templatePriority: instance.templatePriority,
+          templateTrackingType: instance.templateTrackingType,
+          templateTarget: instance.templateTarget,
+          templateUnit: instance.templateUnit,
+          templateDescription: instance.templateDescription,
+          templateTimeEstimateMinutes: instance.templateTimeEstimateMinutes,
+          templateShowInFloatingTimer: instance.templateShowInFloatingTimer,
+          templateIsRecurring: instance.templateIsRecurring,
+          templateEveryXValue: instance.templateEveryXValue,
+          templateEveryXPeriodType: instance.templateEveryXPeriodType,
+          templateTimesPerPeriod: instance.templateTimesPerPeriod,
+          templatePeriodType: instance.templatePeriodType,
+          dayState: 'open',
+          belongsToDate: nextBelongsToDate,
+          windowEndDate: nextWindowEndDate,
+          windowDuration: nextWindowDuration,
+          queueOrder: queueOrder,
+          habitsOrder: habitsOrder,
+          tasksOrder: tasksOrder,
+        );
+
+        final nextInstanceRef =
+            ActivityInstanceRecord.collectionForUser(userId).doc();
+        return MapEntry(nextInstanceRef, nextInstanceData);
+      } catch (e) {
+        // If next instance generation fails for one, continue with others
+        print('Error generating next instance for ${instance.templateId}: $e');
+        return null;
+      }
+    });
+
+    final nextInstanceResults = await Future.wait(nextInstanceFutures);
+    for (final result in nextInstanceResults) {
+      if (result != null) {
+        nextInstanceRefs.add(result.key);
+        nextInstanceDataList.add(result.value);
+      }
+    }
+
+    // Now batch all operations together
+    int skipOperationCount = 0;
+    int nextInstanceIndex = 0;
+
+    for (int batchStart = 0;
+        batchStart < instances.length ||
+            nextInstanceIndex < nextInstanceRefs.length;
+        batchStart += maxBatchSize) {
+      final batch = firestore.batch();
+      int operationsInBatch = 0;
+
+      // Add skip operations for this batch
+      final batchEnd = (batchStart + maxBatchSize < instances.length)
+          ? batchStart + maxBatchSize
+          : instances.length;
+
+      for (int i = batchStart;
+          i < batchEnd && operationsInBatch < maxBatchSize;
+          i++) {
+        final instance = instances[i];
+        final instanceRef = instance.reference;
+        batch.update(instanceRef, {
+          'status': 'skipped',
+          'skippedAt': skippedAt,
+          'lastUpdated': now,
+        });
+        operationsInBatch++;
+        skipOperationCount++;
+      }
+
+      // Add next instance creations (up to batch limit)
+      while (nextInstanceIndex < nextInstanceRefs.length &&
+          operationsInBatch < maxBatchSize) {
+        batch.set(nextInstanceRefs[nextInstanceIndex],
+            nextInstanceDataList[nextInstanceIndex]);
+        nextInstanceIndex++;
+        operationsInBatch++;
+      }
+
+      // Commit batch if it has operations
+      if (operationsInBatch > 0) {
+        await batch.commit();
+      }
+    }
+
+    // Cancel reminders for all skipped instances (non-blocking, in parallel)
+    final reminderFutures = instances.map((instance) async {
+      try {
+        await ReminderScheduler.cancelReminderForInstance(
+            instance.reference.id);
+      } catch (e) {
+        // Log but don't fail - reminder cancellation is non-critical
+        print('Error canceling reminder for ${instance.reference.id}: $e');
+      }
+    });
+    await Future.wait(reminderFutures);
+  }
+
   /// Efficiently skip expired instances using batch writes
   /// Always skips expired instances up to day before yesterday
   /// Creates yesterday instance as PENDING if it exists, otherwise creates next valid instance

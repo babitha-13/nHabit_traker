@@ -11,7 +11,7 @@ Future<void> showCatchUpDialogManually(BuildContext context) async {
     }
 
     // Bring everything up to date
-    await MorningCatchUpService.autoSkipExpiredItemsBeforeYesterday(userId);
+    await MorningCatchUpService.runInstanceMaintenanceForDayTransition(userId);
 
     // Reset dialog state
     await MorningCatchUpService.resetDialogState();
@@ -22,7 +22,9 @@ Future<void> showCatchUpDialogManually(BuildContext context) async {
     showDialog(
       context: context,
       barrierDismissible: false,
-      builder: (context) => const MorningCatchUpDialog(),
+      builder: (context) => const MorningCatchUpDialog(
+        isDayTransition: false,
+      ),
     );
   } catch (e) {
     // optionally log error

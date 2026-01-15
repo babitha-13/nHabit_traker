@@ -260,6 +260,11 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     if (_selectedType == 'task') {
       _selectedCategory = _allCategories.firstWhereOrNull(
           (c) => c.name == 'Inbox' && c.categoryType == 'task');
+    } else if (_selectedType == 'habit') {
+      // For habits, set to null initially - user must select from existing habit categories
+      // Or find the first habit category as a default
+      _selectedCategory =
+          _allCategories.firstWhereOrNull((c) => c.categoryType == 'habit');
     } else if (_selectedType == 'essential') {
       _selectedCategory = _allCategories.firstWhereOrNull((c) =>
           (c.name == 'Others' || c.name == 'Other') &&
@@ -1239,6 +1244,19 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     final dropdownCategories =
         filteredCategories.isNotEmpty ? filteredCategories : _allCategories;
 
+    // Ensure the selected category exists in the dropdown items
+    // If not, set it to null to avoid assertion errors
+    CategoryRecord? validSelectedCategory = _selectedCategory;
+    if (!isLocked &&
+        validSelectedCategory != null &&
+        dropdownCategories.isNotEmpty) {
+      final existsInItems = dropdownCategories.any((category) =>
+          category.reference.id == validSelectedCategory!.reference.id);
+      if (!existsInItems) {
+        validSelectedCategory = null;
+      }
+    }
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10),
       decoration: BoxDecoration(
@@ -1251,7 +1269,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButtonFormField<CategoryRecord>(
-          value: _selectedCategory,
+          value: validSelectedCategory,
           decoration: const InputDecoration(
             border: InputBorder.none,
             isDense: true,

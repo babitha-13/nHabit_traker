@@ -2,10 +2,12 @@ import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_servic
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Screens/Shared/daily_progress_calculator.dart';
-import 'package:habit_tracker/Screens/Progress/backend/cumulative_score_service.dart';
-import 'package:habit_tracker/Screens/Progress/toasts/bonus_notification_formatter.dart';
-import 'package:habit_tracker/Screens/Progress/toasts/milestone_toast_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/daily_points_calculator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
+import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/Screens/toasts/bonus_notification_formatter.dart';
+import 'package:habit_tracker/Screens/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
@@ -391,23 +393,84 @@ class DayEndProcessor {
             [];
     final taskBreakdown =
         calculationResult['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
-    // Calculate category neglect penalty
-    final categoryNeglectPenalty =
-        CumulativeScoreService.calculateCategoryNeglectPenalty(
-      categories,
-      allForMath,
-      normalizedDate,
-    );
-
-    // Calculate cumulative score
+    // Calculate score for the target date (yesterday) and cumulative at end of day
+    double dailyScoreGain = 0.0;
+    double cumulativeScoreAtEndOfDay = 0.0;
     Map<String, dynamic> cumulativeScoreData = {};
+
     try {
+      // Calculate score for target date using TodayScoreCalculator
+      final scoreData = await TodayScoreCalculator.calculateTodayScore(
+        userId: userId,
+        completionPercentage: completionPercentage,
+        pointsEarned: earnedPoints,
+        categories: categories,
+        habitInstances: allForMath,
+      );
+      dailyScoreGain = (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
+
+      // Get cumulative score at START of target day (end of day before)
+      final dayBeforeTarget = normalizedDate.subtract(const Duration(days: 1));
+      final dayBeforeRecords =
+          await DailyProgressQueryService.queryDailyProgress(
+        userId: userId,
+        startDate: dayBeforeTarget,
+        endDate: dayBeforeTarget,
+        orderDescending: false,
+      );
+      double cumulativeAtStartOfTargetDay = 0.0;
+      if (dayBeforeRecords.isNotEmpty) {
+        final dayBeforeRecord = dayBeforeRecords.first;
+        if (dayBeforeRecord.cumulativeScoreSnapshot > 0) {
+          cumulativeAtStartOfTargetDay =
+              dayBeforeRecord.cumulativeScoreSnapshot;
+        } else if (dayBeforeRecord.hasDailyScoreGain()) {
+          // Calculate backwards if no snapshot
+          final dayBeforeThat =
+              dayBeforeTarget.subtract(const Duration(days: 1));
+          final dayBeforeThatRecords =
+              await DailyProgressQueryService.queryDailyProgress(
+            userId: userId,
+            startDate: dayBeforeThat,
+            endDate: dayBeforeThat,
+            orderDescending: false,
+          );
+          if (dayBeforeThatRecords.isNotEmpty) {
+            final dayBeforeThatRecord = dayBeforeThatRecords.first;
+            if (dayBeforeThatRecord.cumulativeScoreSnapshot > 0) {
+              cumulativeAtStartOfTargetDay =
+                  dayBeforeThatRecord.cumulativeScoreSnapshot +
+                      dayBeforeRecord.dailyScoreGain;
+            }
+          }
+        }
+      }
+
+      // If still zero, try UserProgressStats as fallback
+      if (cumulativeAtStartOfTargetDay == 0.0) {
+        final userStats =
+            await CumulativeScoreService.getCumulativeScore(userId);
+        if (userStats != null && userStats.cumulativeScore > 0) {
+          // Subtract today's gain to get baseline
+          cumulativeAtStartOfTargetDay =
+              (userStats.cumulativeScore - userStats.lastDailyGain)
+                  .clamp(0.0, double.infinity);
+        }
+      }
+
+      // Calculate cumulative at end of target day
+      cumulativeScoreAtEndOfDay =
+          (cumulativeAtStartOfTargetDay + dailyScoreGain)
+              .clamp(0.0, double.infinity);
+
+      // Also update UserProgressStatsRecord for consistency
       cumulativeScoreData = await CumulativeScoreService.updateCumulativeScore(
         userId,
         completionPercentage,
         normalizedDate,
         earnedPoints,
-        categoryNeglectPenalty: categoryNeglectPenalty,
+        categoryNeglectPenalty:
+            (scoreData['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0,
       );
 
       // Show bonus notifications
@@ -422,6 +485,17 @@ class DayEndProcessor {
       }
     } catch (e) {
       // Continue without cumulative score if calculation fails
+      // Use fallback: calculate from UserProgressStats if available
+      try {
+        final userStats =
+            await CumulativeScoreService.getCumulativeScore(userId);
+        if (userStats != null) {
+          cumulativeScoreAtEndOfDay = userStats.cumulativeScore;
+          dailyScoreGain = userStats.lastDailyGain;
+        }
+      } catch (_) {
+        // If all fails, use zeros
+      }
     }
 
     // Create the daily progress record
@@ -444,8 +518,8 @@ class DayEndProcessor {
       categoryBreakdown: categoryBreakdown,
       habitBreakdown: habitBreakdown,
       taskBreakdown: taskBreakdown,
-      cumulativeScoreSnapshot: cumulativeScoreData['cumulativeScore'] ?? 0.0,
-      dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
+      cumulativeScoreSnapshot: cumulativeScoreAtEndOfDay,
+      dailyScoreGain: dailyScoreGain,
       createdAt: DateTime.now(),
     );
     await DailyProgressRecord.collectionForUser(userId).add(progressData);

@@ -4,13 +4,13 @@ import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dar
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Screens/Shared/daily_progress_calculator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/daily_points_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Progress/backend/cumulative_score_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
 import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
-import 'package:habit_tracker/Screens/Progress/toasts/bonus_notification_formatter.dart';
-import 'package:habit_tracker/Screens/Progress/toasts/milestone_toast_service.dart';
+import 'package:habit_tracker/Screens/toasts/bonus_notification_formatter.dart';
+import 'package:habit_tracker/Screens/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/Screens/CatchUp/day_end_processor.dart';
 
 /// Service for managing morning catch-up dialog
@@ -21,7 +21,7 @@ class MorningCatchUpService {
   static const String _reminderCountKey = 'morning_catchup_reminder_count';
   static const String _reminderCountDateKey =
       'morning_catchup_reminder_count_date';
-  static const int maxReminderCount = 3;
+  static const int maxReminderCount = 2;
 
   /// Pure check: Does the user have pending items from yesterday?
   /// This method has NO side effects - it only queries and returns a boolean
@@ -35,35 +35,12 @@ class MorningCatchUpService {
   }
 
   /// Check if the catch-up dialog should be shown
-  /// This includes UI state checks (shown date, snooze, reminder count)
-  /// NOTE: This method may have side effects (auto-skip, ensure instances) for backward compatibility
-  /// For new code, use hasPendingItemsFromYesterday() for pure checks
+  /// Includes UI state checks (shown date, snooze)
+  /// Keeps side effects minimal to avoid mixing instance handling and scoring
   static Future<bool> shouldShowDialog(String userId) async {
     try {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
-
-      // Check if it's after midnight - but allow dialog if there are incomplete items
-      // This handles cases where user opens app in first hour but has items to handle
-      if (now.hour == 0) {
-        // Still in first hour - check if there are incomplete items (pure check)
-        final hasIncompleteItems = await hasPendingItemsFromYesterday(userId);
-        if (!hasIncompleteItems) {
-          return false; // No items, don't show
-        }
-        // Has items, show dialog even in first hour
-      } else if (now.hour < 1) {
-        // This shouldn't happen, but handle it gracefully
-        return false;
-      }
-
-      // First, auto-skip all items expired before yesterday to bring everything up to date
-      await autoSkipExpiredItemsBeforeYesterday(userId);
-
-      // Ensure all active habits have pending instances (fixes stuck instances from the past)
-      // This must happen BEFORE checking for incomplete items, so missing instances are generated
-      await ensurePendingInstancesExist(userId);
-
       final prefs = await SharedPreferences.getInstance();
 
       // Check if dialog was already shown today
@@ -74,60 +51,29 @@ class MorningCatchUpService {
         final shownDate = DateTime.parse(shownDateString);
         final shownDateOnly =
             DateTime(shownDate.year, shownDate.month, shownDate.day);
-        if (shownDateOnly.isAtSameMomentAs(today)) {
-          // Dialog was shown today
-          if (snoozeUntilString != null) {
-            // User clicked "remind me later" - don't show again today
-            return false;
-          }
-          // Dialog was shown and dismissed/completed - don't show again today
+        if (shownDateOnly.isAtSameMomentAs(today) &&
+            snoozeUntilString == null) {
+          // Dialog was shown and completed - don't show again today
           return false;
         }
       }
 
-      // If snooze key exists and we're on a new day, clear it and show dialog
       if (snoozeUntilString != null) {
         // "Remind me later" was clicked - show on next app open (which is now)
         await prefs.remove(_snoozeUntilKey);
       }
 
-      // Check reminder count - if >= 3, force skip all remaining items
-      final reminderCount = await getReminderCount();
-      if (reminderCount >= maxReminderCount) {
-        // Force skip all remaining items from yesterday
-        await _forceSkipAllRemainingItems(userId);
-        // Reset reminder count after forcing skip
-        await resetReminderCount();
-        return false; // Don't show dialog after forcing skip
-      }
-
       // Check if there are incomplete items from yesterday (pure check)
       final hasIncompleteItems = await hasPendingItemsFromYesterday(userId);
 
-      // Ensure record exists even if dialog will be shown
-      if (hasIncompleteItems) {
-        // Create record proactively when dialog will be shown
-        try {
-          await createDailyProgressRecordForDate(
-            userId: userId,
-            targetDate: DateService.yesterdayStart,
-          );
-        } catch (e) {
-          // Continue even if record creation fails
-        }
+      if (!hasIncompleteItems) {
+        // Clear reminder count if there is nothing to process
+        await resetReminderCount();
+        return false;
       }
 
-      return hasIncompleteItems;
+      return true;
     } catch (e) {
-      // Attempt to create record anyway as fallback
-      try {
-        await createDailyProgressRecordForDate(
-          userId: userId,
-          targetDate: DateService.yesterdayStart,
-        );
-      } catch (recordError) {
-        // Failed to create record in error handler
-      }
       return false; // Don't show dialog on error
     }
   }
@@ -480,10 +426,6 @@ class MorningCatchUpService {
         // }
       }
 
-      // Create records for all missed days between last record and yesterday
-      // This ensures continuity even when user hasn't opened app for days
-      await createRecordsForMissedDays(userId: userId);
-
       // After skipping expired instances with batch writes, yesterday's instances remain pending
       // for manual user confirmation via the morning catch-up dialog
     } catch (e) {
@@ -498,83 +440,22 @@ class MorningCatchUpService {
   }
 
   /// Process all end-of-day activities for yesterday
-  /// This should be called after midnight (12 AM) when a new day starts
-  ///
-  /// Flow:
-  /// 1. Auto-skip expired items before yesterday (brings everything up to date)
-  /// 2. Ensure all active habits have pending instances (but respects yesterday-pending)
-  /// 3. Check if there are pending items from yesterday (pure check)
-  /// 4. If NO pending items: finalize immediately (update lastDayValue + create daily progress record)
-  /// 5. If YES pending items: only update lastDayValue (defer finalization to dialog)
+  /// This keeps instance handling and score persistence separate
   static Future<void> processEndOfDayActivities(String userId) async {
     try {
       final yesterday = DateService.yesterdayStart;
 
-      // Step 1: Auto-skip expired items before yesterday
-      // This brings everything up to date and creates records for missed days
-      await autoSkipExpiredItemsBeforeYesterday(userId);
+      await runInstanceMaintenanceForDayTransition(userId);
 
-      // Step 2: Ensure all active habits have pending instances
-      // This respects yesterday-pending instances (won't auto-skip them)
-      await DayEndProcessor.ensurePendingInstancesExist(userId);
+      // Persist scores for yesterday even if pending items exist
+      await persistScoresForDate(userId: userId, targetDate: yesterday);
 
-      // Step 3: Pure check - are there pending items from yesterday?
-      final hasPendingItems = await hasPendingItemsFromYesterday(userId);
-
-      if (!hasPendingItems) {
-        // No pending items - safe to finalize now
-        // Update lastDayValue and create daily progress record
-        await DayEndProcessor.processDayEnd(
-          userId: userId,
-          targetDate: yesterday,
-          closeInstances: false, // Don't auto-close, user handles via dialog
-          ensureInstances: false, // Already ensured above
-        );
-        // DayEndProcessor.processDayEnd() will create the daily progress record
-      } else {
-        // There ARE pending items - do NOT finalize yet
-        // Only update lastDayValue (without creating daily progress record)
-        // The dialog will handle finalization after user confirms item status
-
-        // Update lastDayValue separately (without creating daily progress record)
-        await DayEndProcessor.updateLastDayValuesOnly(userId, yesterday);
-
-        // Do NOT create daily progress record - dialog will handle it after user actions
-      }
+      // Ensure any missed days are created (safe no-op if already present)
+      await persistScoresForMissedDaysIfNeeded(userId: userId);
     } catch (e) {
       // Error processing end-of-day activities
       // Log but don't throw - this is a background operation
       print('Error processing end-of-day activities: $e');
-    }
-  }
-
-  /// Force skip all remaining items from yesterday (when reminder count >= 3)
-  static Future<void> _forceSkipAllRemainingItems(String userId) async {
-    try {
-      final yesterday = DateService.yesterdayStart;
-      final yesterdayEnd =
-          DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
-      final items = await getIncompleteItemsFromYesterday(userId);
-
-      for (final item in items) {
-        await ActivityInstanceService.skipInstance(
-          instanceId: item.reference.id,
-          skippedAt: yesterdayEnd,
-        );
-      }
-
-      if (items.isNotEmpty) {
-        // Wait a moment to ensure all database updates are committed
-        await Future.delayed(const Duration(milliseconds: 500));
-
-        // Create daily progress record for yesterday using new method with full breakdown
-        await createDailyProgressRecordForDate(
-          userId: userId,
-          targetDate: yesterday,
-        );
-      }
-    } catch (e) {
-      // Error force skipping remaining items
     }
   }
 
@@ -634,6 +515,41 @@ class MorningCatchUpService {
     } catch (e) {
       // Error resetting reminder count
     }
+  }
+
+  /// Instance handling for day transition (no scoring/persistence)
+  static Future<void> runInstanceMaintenanceForDayTransition(
+      String userId) async {
+    final yesterday = DateService.yesterdayStart;
+    await autoSkipExpiredItemsBeforeYesterday(userId);
+    await DayEndProcessor.ensurePendingInstancesExist(userId);
+    await DayEndProcessor.updateLastDayValuesOnly(userId, yesterday);
+  }
+
+  /// Persist points/scores for a specific date
+  /// If [overwriteExisting] is true, existing records are recalculated
+  static Future<void> persistScoresForDate({
+    required String userId,
+    required DateTime targetDate,
+    bool overwriteExisting = false,
+  }) async {
+    if (overwriteExisting) {
+      await recalculateDailyProgressRecordForDate(
+        userId: userId,
+        targetDate: targetDate,
+      );
+      return;
+    }
+    await createDailyProgressRecordForDate(
+      userId: userId,
+      targetDate: targetDate,
+    );
+  }
+
+  /// Persist points/scores for missed days up to yesterday
+  static Future<void> persistScoresForMissedDaysIfNeeded(
+      {required String userId}) async {
+    await createRecordsForMissedDays(userId: userId);
   }
 
   /// Recalculate and update daily progress record for a specific date

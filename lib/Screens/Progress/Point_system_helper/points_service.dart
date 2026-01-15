@@ -114,6 +114,140 @@ class PointsService {
     return 1.0;
   }
 
+  /// Calculate points earned for a single habit instance (SYNCHRONOUS - no Firestore queries)
+  /// Uses only cached instance data for instant calculation
+  /// This is the fast path for UI updates - uses templateTimeEstimateMinutes from instance
+  static double calculatePointsEarnedSync(
+    ActivityInstanceRecord instance,
+  ) {
+    // Skip Essential Activities - they don't earn points
+    if (instance.templateCategoryType == 'essential') {
+      return 0.0;
+    }
+    final habitPriority = instance.templatePriority.toDouble();
+    double earnedPoints = 0.0;
+
+    switch (instance.templateTrackingType) {
+      case 'binary':
+        // Binary habits: use counter if available, otherwise status
+        final countValue = PointsValueHelper.currentValue(instance);
+
+        // Some "binary" items (e.g., timer tasks) store time (milliseconds) in currentValue.
+        // In those cases, do NOT treat currentValue as a counter, or points will explode.
+        final isTimeLikeUnit =
+            BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
+
+        // A "timer task" is one where currentValue matches the logged time (in MS)
+        final isTimerTaskValue = countValue > 0 &&
+            (countValue == instance.accumulatedTime.toDouble() ||
+                countValue == instance.totalTimeLogged.toDouble());
+
+        if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
+          // Has counter: calculate proportional points (counter / target), allowing over-completion
+          final target = instance.templateTarget ?? 1;
+          earnedPoints = (countValue / target) * habitPriority;
+        } else if (instance.status == 'completed') {
+          // No counter but completed: base points
+          earnedPoints = habitPriority;
+        } else {
+          earnedPoints = 0.0;
+        }
+
+        // Add time bonus if enabled and time is logged (SYNCHRONOUS - uses cached data)
+        final timeMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+        if (timeMinutes != null && earnedPoints > 0) {
+          final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+          if (timeBonusEnabled && timeMinutes >= 30.0) {
+            // Award bonus for every 30-minute block beyond the first 30 minutes
+            final excessMinutes = timeMinutes - 30.0;
+            final bonusBlocks = (excessMinutes / 30.0).floor();
+            earnedPoints += bonusBlocks * habitPriority;
+          }
+        }
+
+        return earnedPoints;
+      case 'quantitative':
+        // Quantitative habits: points based on progress, allowing over-completion
+        // Use normalized value to handle cases where timers store MS in currentValue
+        final currentValue = PointsValueHelper.normalizedCurrentValue(instance);
+        final target = PointsValueHelper.targetValue(instance);
+        if (target <= 0) {
+          earnedPoints = 0.0;
+        } else {
+          // For windowed habits, use differential progress (today's contribution)
+          if (instance.templateCategoryType == 'habit' &&
+              instance.windowDuration > 1) {
+            final lastDayValue = PointsValueHelper.lastDayValue(instance);
+            final normalizedLastDayValue =
+                PointsValueHelper.normalizeValue(instance, lastDayValue);
+            final todayContribution = currentValue - normalizedLastDayValue;
+            // For windowed habits, calculate progress as fraction of total target, allowing over-completion
+            final progressFraction = todayContribution / target;
+            earnedPoints = progressFraction * habitPriority;
+          } else {
+            // For non-windowed habits, use total progress, allowing over-completion
+            final completionFraction = currentValue / target;
+            earnedPoints = completionFraction * habitPriority;
+          }
+        }
+
+        return earnedPoints;
+      case 'time':
+        // Time-based habits: scoring depends on Time Bonus setting
+        final accumulatedTime = instance.accumulatedTime;
+        final accumulatedMinutes =
+            accumulatedTime / 60000.0; // Convert ms to minutes
+
+        // Check if Time Bonus (effort mode) is enabled
+        final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+
+        if (timeBonusEnabled) {
+          // Effort mode:
+          // - Reward proportionally until the time target is met
+          // - Once the target is met, reward in 30-minute blocks
+          if (accumulatedMinutes <= 0) {
+            earnedPoints = 0.0;
+          } else {
+            final targetMinutes = PointsValueHelper.targetValue(instance);
+            if (targetMinutes > 0 && accumulatedMinutes < targetMinutes) {
+              earnedPoints =
+                  (accumulatedMinutes / targetMinutes) * habitPriority;
+            } else {
+              final blocks = (accumulatedMinutes / 30.0).floor();
+              earnedPoints = (blocks > 0 ? blocks : 1) * habitPriority;
+            }
+          }
+        } else {
+          // Goal/progress mode: Points scale proportionally with accumulated time vs target
+          // If 2x time is logged, get 2x points (allowing over-completion)
+          final targetMinutes = PointsValueHelper.targetValue(instance);
+          final targetMs =
+              targetMinutes * 60000; // Convert minutes to milliseconds
+          if (targetMs <= 0) {
+            earnedPoints = 0.0;
+          } else {
+            // For windowed habits, use differential progress (today's contribution)
+            if (instance.templateCategoryType == 'habit' &&
+                instance.windowDuration > 1) {
+              final lastDayValue = PointsValueHelper.lastDayValue(instance);
+              final todayContribution = accumulatedTime - lastDayValue;
+              // For windowed habits, calculate progress as fraction of total target, allowing over-completion
+              final progressFraction = todayContribution / targetMs;
+              earnedPoints = progressFraction * habitPriority;
+            } else {
+              // For non-windowed habits, use total progress, allowing over-completion
+              final completionFraction = accumulatedTime / targetMs;
+              earnedPoints = completionFraction * habitPriority;
+            }
+          }
+        }
+
+        return earnedPoints;
+      default:
+        return 0.0;
+    }
+  }
+
   /// Calculate points earned for a single habit instance
   /// Returns fractional points based on completion percentage
   static Future<double> calculatePointsEarned(
@@ -297,6 +431,22 @@ class PointsService {
     return totalTarget;
   }
 
+  /// Calculate total points earned for all habit instances (SYNCHRONOUS - no Firestore queries)
+  /// Uses only cached instance data for instant calculation
+  static double calculateTotalPointsEarnedSync(
+    List<ActivityInstanceRecord> instances,
+  ) {
+    double totalPoints = 0.0;
+    for (final instance in instances) {
+      if (instance.templateCategoryType != 'habit') continue;
+      // Skip Essential Activities
+      if (instance.templateCategoryType == 'essential') continue;
+      final points = calculatePointsEarnedSync(instance);
+      totalPoints += points;
+    }
+    return totalPoints;
+  }
+
   /// Calculate total points earned for all habit instances
   static Future<double> calculateTotalPointsEarned(
     List<ActivityInstanceRecord> instances,
@@ -308,6 +458,22 @@ class PointsService {
       // Skip Essential Activities
       if (instance.templateCategoryType == 'essential') continue;
       final points = await calculatePointsEarned(instance, userId);
+      totalPoints += points;
+    }
+    return totalPoints;
+  }
+
+  /// Calculate total points earned for all activity instances (SYNCHRONOUS - no Firestore queries)
+  /// Works for any ActivityInstanceRecord type and includes time bonuses when enabled
+  /// Uses only cached instance data for instant calculation
+  static double calculatePointsFromActivityInstancesSync(
+    List<ActivityInstanceRecord> instances,
+  ) {
+    double totalPoints = 0.0;
+    for (final instance in instances) {
+      // Skip Essential Activities
+      if (instance.templateCategoryType == 'essential') continue;
+      final points = calculatePointsEarnedSync(instance);
       totalPoints += points;
     }
     return totalPoints;

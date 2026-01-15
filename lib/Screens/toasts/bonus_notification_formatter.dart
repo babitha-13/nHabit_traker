@@ -1,10 +1,10 @@
-import 'package:habit_tracker/Screens/Progress/toasts/score_bonus_toast_service.dart';
+import 'package:habit_tracker/Screens/toasts/score_bonus_toast_service.dart';
 
 /// Helper to format and display bonus/penalty notifications from score data
 /// Separates UI formatting concerns from backend calculation logic
 class BonusNotificationFormatter {
   /// Format and show bonus notifications from cumulative score data
-  /// Takes structured data from CumulativeScoreService and formats it for display
+  /// Takes structured data from score calculation services and formats it for display
   static void showBonusNotifications(Map<String, dynamic> scoreData) {
     final notifications = _formatNotifications(scoreData);
     if (notifications.isNotEmpty) {
@@ -64,8 +64,7 @@ class BonusNotificationFormatter {
     // Category neglect penalty notification
     final categoryPenalty = scoreData['categoryNeglectPenalty'] ?? 0.0;
     if (categoryPenalty > 0) {
-      const categoryNeglectPenalty =
-          0.4; // From CumulativeScoreService constant
+      const categoryNeglectPenalty = 0.4; // From ScoreFormulas constant
       final ignoredCategories =
           (categoryPenalty / categoryNeglectPenalty).round();
       notifications.add({

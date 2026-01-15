@@ -10,7 +10,7 @@ import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_st
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
-import 'package:habit_tracker/Screens/Queue/weekly_view.dart';
+import 'package:habit_tracker/Screens/Queue/Weekly_view/weekly_view.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart'
     show QueueFilterState, QueueFilterStateManager;
@@ -22,10 +22,12 @@ import 'package:habit_tracker/Screens/Queue/Helpers/queue_bucket_service.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_page_refresh.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_reorder_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_logic.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_calculator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/today_points_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_progress_section/queue_progress_section.dart';
+import 'package:habit_tracker/Screens/Queue/Queue_charts_section/queue_charts_section.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
+import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'dart:async';
 
 class QueuePage extends StatefulWidget {
@@ -70,6 +72,9 @@ class _QueuePageState extends State<QueuePage> {
   bool _pendingLiveScoreUpdate = false;
   double? _pendingHistoryScore;
   double? _pendingHistoryGain;
+  bool _isCalculatingProgress = false;
+  int _progressCalculationVersion =
+      0; // Track calculation order to prevent overwriting newer values
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
   bool _isSearchBarVisible = false;
@@ -87,9 +92,12 @@ class _QueuePageState extends State<QueuePage> {
   bool _hasAppliedInitialFocus = false;
   String? _highlightedInstanceId;
   Timer? _highlightTimer;
+  DateTime?
+      _lastKnownDate; // Track last known date for day transition detection
   @override
   void initState() {
     super.initState();
+    _lastKnownDate = DateService.todayStart;
     _pendingFocusTemplateId = widget.focusTemplateId;
     _pendingFocusInstanceId = widget.focusInstanceId;
     _loadExpansionState();
@@ -114,16 +122,18 @@ class _QueuePageState extends State<QueuePage> {
       final data = TodayProgressState().getCumulativeScoreData();
       final updatedScore =
           (data['cumulativeScore'] as double?) ?? _cumulativeScore;
-      final updatedGain = (data['dailyGain'] as double?) ?? _dailyScoreGain;
+      final updatedTodayScore =
+          (data['todayScore'] as double?) ?? _dailyScoreGain;
       setState(() {
         _cumulativeScore = updatedScore;
-        _dailyScoreGain = updatedGain;
+        _dailyScoreGain = updatedTodayScore;
       });
-      _queueHistoryOverlay(updatedScore, updatedGain);
+      _queueHistoryOverlay(updatedScore, updatedTodayScore);
     });
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
       if (!mounted) return;
-      _refreshLiveCumulativeScore();
+      // When completion points update, recalculate today's score
+      _updateTodayScore();
     });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
@@ -201,6 +211,8 @@ class _QueuePageState extends State<QueuePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
+    // Check for day transition when page becomes visible
+    _checkDayTransition();
     if (_didInitialDependencies) {
       final route = ModalRoute.of(context);
       if (route != null && route.isCurrent && _shouldReloadOnReturn) {
@@ -210,6 +222,23 @@ class _QueuePageState extends State<QueuePage> {
     } else {
       _didInitialDependencies = true;
     }
+  }
+
+  void _checkDayTransition() {
+    final today = DateService.todayStart;
+    if (_lastKnownDate != null && !_isSameDay(_lastKnownDate!, today)) {
+      // Day has changed - reload all data
+      _lastKnownDate = today;
+      _loadData();
+      _loadCumulativeScoreHistory(forceReload: true);
+      _calculateProgress();
+    } else if (_lastKnownDate == null) {
+      _lastKnownDate = today;
+    }
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
   @override
@@ -306,7 +335,10 @@ class _QueuePageState extends State<QueuePage> {
               _maybeApplyPendingFocus();
             }
           });
-          _calculateProgress();
+          // Fast UI update using local instances
+          _calculateProgress(optimistic: true);
+          // Reconcile with backend in background
+          Future.microtask(() => _calculateProgress(optimistic: false));
           _ignoreInstanceEvents = false;
           try {
             await InstanceOrderService.initializeOrderValues(
@@ -384,31 +416,68 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   void _calculateProgress({bool optimistic = false}) async {
-    final progressData = await QueueScoreManager.calculateProgress(
-      instances: _instances,
-      categories: _categories,
-      userId: currentUserUid,
-      optimistic: optimistic,
-    );
-    if (mounted) {
-      setState(() {
-        _dailyTarget = progressData['target'] as double;
-        _pointsEarned = progressData['earned'] as double;
-        _dailyPercentage = progressData['percentage'] as double;
-      });
-    }
+    // Increment version to track calculation order
+    final calculationVersion = ++_progressCalculationVersion;
+
     if (optimistic) {
-      _updateCumulativeScoreLiveOptimistic();
+      // INSTANT calculation - synchronous, no Firestore queries
+      // Like an Excel sheet - calculates from instances already in memory
+      final progressData =
+          TodayCompletionPointsService.calculateTodayCompletionPointsSync(
+        userId: currentUserUid,
+        instances: _instances,
+        categories: _categories,
+      );
+
+      // Only update UI if this is still the latest calculation
+      // (no newer calculation has started since we began)
+      if (mounted && calculationVersion == _progressCalculationVersion) {
+        setState(() {
+          _dailyTarget = progressData['target'] as double;
+          _pointsEarned = progressData['earned'] as double;
+          _dailyPercentage = progressData['percentage'] as double;
+        });
+      }
+
+      // Update score in background - don't block UI
+      Future.microtask(() => _updateTodayScore());
     } else {
-      _updateCumulativeScoreLive();
+      // Prevent concurrent non-optimistic calculations
+      if (_isCalculatingProgress) {
+        return; // Skip if already calculating
+      }
+
+      _isCalculatingProgress = true;
+
+      try {
+        // BACKEND RECONCILIATION: Use full calculation with Firestore
+        final progressData =
+            await TodayCompletionPointsService.calculateTodayCompletionPoints(
+          userId: currentUserUid,
+          instances: _instances,
+          categories: _categories,
+          optimistic: false,
+        );
+
+        // Only update UI if this is still the latest calculation
+        // (no newer calculation has started since we began)
+        if (mounted && calculationVersion == _progressCalculationVersion) {
+          setState(() {
+            _dailyTarget = progressData['target'] as double;
+            _pointsEarned = progressData['earned'] as double;
+            _dailyPercentage = progressData['percentage'] as double;
+          });
+
+          // For non-optimistic, await to ensure accuracy
+          await _updateTodayScore();
+        }
+      } finally {
+        _isCalculatingProgress = false;
+      }
     }
   }
 
-  Future<void> _updateCumulativeScoreLiveOptimistic() async {
-    await _updateCumulativeScoreLive();
-  }
-
-  Future<void> _updateCumulativeScoreLive() async {
+  Future<void> _updateTodayScore() async {
     if (_isUpdatingLiveScore) {
       _pendingLiveScoreUpdate = true;
       return;
@@ -420,56 +489,40 @@ class _QueuePageState extends State<QueuePage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      final scoreData = await QueueScoreManager.updateCumulativeScoreLive(
-        dailyPercentage: _dailyPercentage,
-        pointsEarned: _pointsEarned,
+      // Get habit instances for category neglect penalty calculation
+      final habitInstances = _instances
+          .where((inst) => inst.templateCategoryType == 'habit')
+          .toList();
+
+      final scoreData = await CumulativeScoreCalculator.updateTodayScore(
         userId: userId,
+        completionPercentage: _dailyPercentage,
+        pointsEarned: _pointsEarned,
+        categories: _categories,
+        habitInstances: habitInstances,
+        includeBreakdown: false,
       );
       if (mounted) {
         setState(() {
-          _cumulativeScore = scoreData['cumulativeScore'] as double;
-          _dailyScoreGain = scoreData['dailyGain'] as double;
+          _cumulativeScore =
+              (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+          _dailyScoreGain =
+              (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
         });
       }
 
       _queueHistoryOverlay(
-        scoreData['cumulativeScore'] as double,
-        scoreData['dailyGain'] as double,
+        (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0,
+        (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0,
       );
     } catch (e) {
     } finally {
       _isUpdatingLiveScore = false;
       if (_pendingLiveScoreUpdate) {
         _pendingLiveScoreUpdate = false;
-        Future.microtask(_refreshLiveCumulativeScore);
+        Future.microtask(_updateTodayScore);
       }
     }
-  }
-
-  Future<void> _refreshLiveCumulativeScore() async {
-    try {
-      final scoreData = QueueScoreManager.refreshLiveCumulativeScore(
-        currentCumulativeScore: _cumulativeScore,
-        currentDailyScoreGain: _dailyScoreGain,
-      );
-
-      if (scoreData['needsUpdate'] == 1.0) {
-        await _updateCumulativeScoreLive();
-        return;
-      }
-
-      if (mounted) {
-        setState(() {
-          _cumulativeScore = scoreData['cumulativeScore'] as double;
-          _dailyScoreGain = scoreData['dailyGain'] as double;
-        });
-      }
-
-      _queueHistoryOverlay(
-        scoreData['cumulativeScore'] as double,
-        scoreData['dailyGain'] as double,
-      );
-    } catch (e) {}
   }
 
   Future<void> _loadCumulativeScoreHistory({bool forceReload = false}) async {
@@ -488,13 +541,18 @@ class _QueuePageState extends State<QueuePage> {
         return;
       }
 
-      final result = await QueueScoreManager.loadCumulativeScoreHistory(
+      // Load 30 days of history for the scrollable graph
+      final result = await CumulativeScoreCalculator.loadCumulativeScoreHistory(
         userId: userId,
+        days: 30,
       );
 
-      final currentCumulativeScore = result['cumulativeScore'] as double;
-      final currentDailyGain = result['dailyGain'] as double;
-      final history = result['history'] as List<Map<String, dynamic>>;
+      final currentCumulativeScore =
+          (result['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+      final currentTodayScore =
+          (result['todayScore'] as num?)?.toDouble() ?? 0.0;
+      final history =
+          (result['history'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
       final bool isNewHistoryValid =
           history.any((h) => (h['score'] as double) > 0);
@@ -508,13 +566,13 @@ class _QueuePageState extends State<QueuePage> {
       if (mounted) {
         setState(() {
           _cumulativeScore = currentCumulativeScore;
-          _dailyScoreGain = currentDailyGain;
+          _dailyScoreGain = currentTodayScore;
           _cumulativeScoreHistory = history;
           _historyLoaded = true;
         });
       } else {
         _cumulativeScore = currentCumulativeScore;
-        _dailyScoreGain = currentDailyGain;
+        _dailyScoreGain = currentTodayScore;
         _cumulativeScoreHistory = history;
         _historyLoaded = true;
       }
@@ -539,23 +597,37 @@ class _QueuePageState extends State<QueuePage> {
     return List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
   }
 
-  bool _applyLiveScoreToHistory(double score, double gain) {
-    return QueueScoreManager.applyLiveScoreToHistory(
-      _cumulativeScoreHistory,
-      score,
-      gain,
-    );
-  }
-
-  void _queueHistoryOverlay(double score, double gain) {
+  void _queueHistoryOverlay(double cumulativeScore, double todayScore) {
     if (_historyLoaded) {
-      final changed = _applyLiveScoreToHistory(score, gain);
+      // Create a copy of the list to ensure Flutter detects the change
+      final historyCopy =
+          List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
+      final changed = CumulativeScoreCalculator.updateHistoryWithTodayScore(
+        historyCopy,
+        todayScore,
+        cumulativeScore,
+      );
       if (changed && mounted) {
-        setState(() {});
+        setState(() {
+          // Assign new list reference to trigger widget rebuild
+          _cumulativeScoreHistory = historyCopy;
+        });
       }
     } else {
-      _pendingHistoryScore = score;
-      _pendingHistoryGain = gain;
+      _pendingHistoryScore = cumulativeScore;
+      _pendingHistoryGain = todayScore;
+      if (mounted) {
+        // Show a quick one-point history while real history loads
+        setState(() {
+          _cumulativeScoreHistory = [
+            {
+              'date': DateService.todayStart,
+              'score': cumulativeScore,
+              'gain': todayScore,
+            },
+          ];
+        });
+      }
     }
   }
 
@@ -950,7 +1022,7 @@ class _QueuePageState extends State<QueuePage> {
         await _loadData();
         if (mounted) {
           await _loadCumulativeScoreHistory(forceReload: true);
-          await _refreshLiveCumulativeScore();
+          await _updateTodayScore();
         }
       },
       child: CustomScrollView(
@@ -1005,7 +1077,8 @@ class _QueuePageState extends State<QueuePage> {
       _cachedBucketedItems = null;
     });
     _calculateProgress(optimistic: true);
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
   void _removeInstanceFromLocalState(
@@ -1018,7 +1091,8 @@ class _QueuePageState extends State<QueuePage> {
       _cachedBucketedItems = null;
     });
     _calculateProgress(optimistic: true);
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
@@ -1027,7 +1101,8 @@ class _QueuePageState extends State<QueuePage> {
       _cachedBucketedItems = null;
     });
     _calculateProgress(optimistic: true);
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
   void _handleInstanceUpdated(dynamic param) {
@@ -1059,7 +1134,8 @@ class _QueuePageState extends State<QueuePage> {
     }
     _calculateProgress(optimistic: true);
     if (!isOptimistic) {
-      _calculateProgress(optimistic: false);
+      // Schedule non-optimistic in background to avoid race condition
+      Future.microtask(() => _calculateProgress(optimistic: false));
     }
   }
 
@@ -1110,7 +1186,8 @@ class _QueuePageState extends State<QueuePage> {
       _cachedBucketedItems = null;
     });
     _calculateProgress(optimistic: true);
-    _calculateProgress(optimistic: false);
+    // Schedule non-optimistic in background to avoid race condition
+    Future.microtask(() => _calculateProgress(optimistic: false));
   }
 
   Future<void> _silentRefreshInstances() async {
@@ -1125,7 +1202,10 @@ class _QueuePageState extends State<QueuePage> {
           _categories = result.categories;
           _cachedBucketedItems = null;
         });
-        _calculateProgress();
+        // Fast UI update using local instances
+        _calculateProgress(optimistic: true);
+        // Reconcile with backend in background
+        Future.microtask(() => _calculateProgress(optimistic: false));
       }
     } catch (e) {}
   }

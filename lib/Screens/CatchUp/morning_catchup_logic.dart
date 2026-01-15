@@ -1,3 +1,4 @@
+import 'package:flutter/material.dart';
 import 'package:habit_tracker/Screens/CatchUp/morning_catchup_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -285,7 +286,9 @@ class MorningCatchUpDialogLogic {
   }
 
   /// Skip all remaining habits
-  Future<SkipAllResult> skipAllRemaining() async {
+  /// [onProgressUpdate] - Optional callback to notify UI to rebuild during processing
+  Future<SkipAllResult> skipAllRemaining(
+      {VoidCallback? onProgressUpdate}) async {
     final remainingHabits = items
         .where((item) =>
             !processedItemIds.contains(item.reference.id) &&
@@ -301,44 +304,53 @@ class MorningCatchUpDialogLogic {
     totalToProcess = remainingHabits.length;
     processedCount = 0;
     processingStatus = 'Preparing to skip habits...';
+    onProgressUpdate?.call();
 
     try {
       final yesterday = DateService.yesterdayStart;
       final yesterdayEnd =
           DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
 
-      // Skip all remaining habits with progress updates
-      for (int i = 0; i < remainingHabits.length; i++) {
-        final item = remainingHabits[i];
-        processingStatus =
-            'Skipping ${item.templateName} (${i + 1}/${remainingHabits.length})...';
+      // Batch skip all remaining habits at once
+      processingStatus =
+          'Skipping ${remainingHabits.length} habit${remainingHabits.length == 1 ? '' : 's'}...';
+      onProgressUpdate?.call();
 
-        await ActivityInstanceService.skipInstance(
-          instanceId: item.reference.id,
-          skippedAt: yesterdayEnd,
-        );
+      await ActivityInstanceService.batchSkipInstances(
+        instances: remainingHabits,
+        skippedAt: yesterdayEnd,
+        userId: currentUserUid,
+      );
+
+      // Mark all as processed
+      for (final item in remainingHabits) {
         processedItemIds.add(item.reference.id);
-        processedCount = i + 1;
       }
+      processedCount = remainingHabits.length;
+      onProgressUpdate?.call();
 
       // Ensure all active habits have pending instances (fixes stuck instances issue)
       processingStatus = 'Ensuring all habits have current instances...';
+      onProgressUpdate?.call();
       await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
 
       // Wait a moment to ensure all database updates are committed
       processingStatus = 'Finalizing...';
+      onProgressUpdate?.call();
       await Future.delayed(const Duration(milliseconds: 500));
 
       // Reload items to reflect the new instances that were generated
       processingStatus = 'Refreshing...';
+      onProgressUpdate?.call();
       await loadItems();
 
       // Broadcast progress recalculated to refresh other parts of UI
       InstanceEvents.broadcastProgressRecalculated();
 
-      // Create daily progress record for yesterday using new method with full breakdown
-      processingStatus = 'Creating daily progress record...';
-      await MorningCatchUpService.createDailyProgressRecordForDate(
+      // Recalculate daily progress record for yesterday to reflect changes
+      processingStatus = 'Updating daily progress record...';
+      onProgressUpdate?.call();
+      await MorningCatchUpService.recalculateDailyProgressRecordForDate(
         userId: currentUserUid,
         targetDate: yesterday,
       );
@@ -364,6 +376,7 @@ class MorningCatchUpDialogLogic {
       processingStatus = '';
       processedCount = 0;
       totalToProcess = 0;
+      onProgressUpdate?.call();
     }
   }
 
