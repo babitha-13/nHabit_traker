@@ -8,6 +8,7 @@ import 'package:habit_tracker/Screens/Timer/Helpers/TimeManager.dart';
 import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class ItemTimeControlsHelper {
@@ -575,6 +576,32 @@ class ItemTimeControlsHelper {
     final accumulated = instance.accumulatedTime;
     final targetMs = (target * 60000).toInt();
     if (accumulated >= targetMs) {
+      // Generate operation ID for tracking
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      
+      // Create optimistic completed instance IMMEDIATELY for instant UI update
+      final optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+        instance,
+        finalAccumulatedTime: accumulated,
+      );
+      
+      // Track the optimistic operation
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instance.reference.id,
+        operationType: 'complete',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
+      
+      // IMMEDIATE UI UPDATE: Broadcast optimistic update and update local state
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+        optimisticInstance,
+        operationId,
+      );
+      // Update page immediately
+      onInstanceUpdated(optimisticInstance);
+      
       try {
         await ActivityInstanceService.completeInstance(
           instanceId: instance.reference.id,
@@ -585,12 +612,27 @@ class ItemTimeControlsHelper {
             const SnackBar(content: Text('Task completed! Target reached.')),
           );
         }
+        
+        // Get actual instance from backend and reconcile
         final completedInstance =
             await ActivityInstanceService.getUpdatedInstance(
           instanceId: instance.reference.id,
         );
+        
+        // Reconcile optimistic update with actual backend data
+        OptimisticOperationTracker.reconcileOperation(
+          operationId,
+          completedInstance,
+        );
+        
+        // Update with actual instance (in case there are any differences)
         onInstanceUpdated(completedInstance);
       } catch (e) {
+        // Rollback optimistic update on error
+        OptimisticOperationTracker.rollbackOperation(operationId);
+        
+        // Restore original instance
+        onInstanceUpdated(instance);
         // Log error but don't fail - instance update callback is non-critical
       }
     }

@@ -4,6 +4,13 @@ class NotificationCenter {
   static final NotificationCenter _default = NotificationCenter();
   final Map<String, void Function(Object?)?> _observerMap = {};
   final _segmentKey = '-888-';
+  static void reset() {
+    NotificationCenter._default._observerMap.clear();
+  }
+
+  static int observerCount() {
+    return NotificationCenter._default._observerMap.length;
+  }
   static void post(String? name, [Object? param]) {
     if (name == null) return;
     NotificationCenter._default._observerMap.forEach((key, value) {

@@ -299,23 +299,27 @@ class _HomeState extends State<Home> {
         alreadyProcessedToday = lastProcessedDateOnly.isAtSameMomentAs(today);
       }
 
+      // Check if dialog should be shown before processing
+      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+
       if (!alreadyProcessedToday) {
         await MorningCatchUpService.runInstanceMaintenanceForDayTransition(
             userId);
 
         // Persist scores in background (non-blocking)
+        // Suppress toasts if catch-up dialog will be shown (toasts will show after dialog closes)
         unawaited(MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
             userId: userId));
         unawaited(MorningCatchUpService.persistScoresForDate(
           userId: userId,
           targetDate: DateService.yesterdayStart,
+          suppressToasts: shouldShow, // Suppress toasts if dialog will be shown
         ));
 
         await prefs.setString(
             'last_end_of_day_processed', today.toIso8601String());
       }
 
-      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
       if (shouldShow && mounted) {
         showDialog(
           context: context,

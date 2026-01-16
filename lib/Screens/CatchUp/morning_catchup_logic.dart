@@ -44,6 +44,17 @@ class MorningCatchUpDialogLogic {
     }
   }
 
+  /// Ensure instances exist in background (after dialog closes)
+  /// Doesn't reload items since dialog is already closed
+  Future<void> ensureInstancesExistInBackground() async {
+    try {
+      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
+    } catch (e) {
+      print('Error ensuring instances exist in background: $e');
+      // Silent error - don't block user
+    }
+  }
+
   /// Ensure daily progress record is created
   Future<void> ensureRecordCreated() async {
     try {
@@ -252,32 +263,52 @@ class MorningCatchUpDialogLogic {
   }
 
   /// Save state on dispose - recalculates record if items were processed
+  /// Recalculates with suppressToasts: true to store updated toast data
+  /// Toasts will be shown after this completes via showPendingToasts()
+  /// This runs in background after dialog closes
   Future<void> saveStateOnDispose() async {
     try {
+      // Ensure all active habits have pending instances (background operation)
+      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
+      
+      // Reload items to reflect any new instances that were generated
+      await loadItems();
+      
+      // Broadcast progress recalculated to refresh other parts of UI
+      InstanceEvents.broadcastProgressRecalculated();
+      
       // If items were processed, recalculate the record to ensure cumulative score is updated
       if (processedItemIds.isNotEmpty) {
+        // Recalculate with suppressToasts: true to store updated toast data
+        // The updated data will overwrite the initial pending toast data
         await MorningCatchUpService.recalculateDailyProgressRecordForDate(
           userId: currentUserUid,
           targetDate: DateService.yesterdayStart,
+          suppressToasts: true, // Store updated toast data, don't show yet
         );
       } else if (items.isNotEmpty) {
         // If dialog is closed without action, ensure record exists
+        // Use suppressToasts: true to maintain consistency
         await MorningCatchUpService.createDailyProgressRecordForDate(
           userId: currentUserUid,
           targetDate: DateService.yesterdayStart,
+          suppressToasts: true,
         );
       }
     } catch (e) {
-      print('Error in dispose: $e');
+      print('Error in background saveStateOnDispose: $e');
+      // Silent error - don't affect user experience
     }
   }
 
   /// Recalculate daily progress record in background
+  /// Uses suppressToasts: true to store updated toast data
   Future<void> recalculateProgressRecord() async {
     if (processedItemIds.isNotEmpty) {
       MorningCatchUpService.recalculateDailyProgressRecordForDate(
         userId: currentUserUid,
         targetDate: DateService.yesterdayStart,
+        suppressToasts: true, // Store updated toast data, don't show yet
       ).catchError((error) {
         // Silent error handling - recalculation failure shouldn't block dialog close
         print('Background recalculation error on close (non-critical): $error');
@@ -329,37 +360,16 @@ class MorningCatchUpDialogLogic {
       processedCount = remainingHabits.length;
       onProgressUpdate?.call();
 
-      // Ensure all active habits have pending instances (fixes stuck instances issue)
-      processingStatus = 'Ensuring all habits have current instances...';
+      // Mark processing as complete - dialog can close now
+      // Background operations (ensuring instances, recalculating) will happen after dialog closes
+      processingStatus = 'Complete';
       onProgressUpdate?.call();
-      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
-
-      // Wait a moment to ensure all database updates are committed
-      processingStatus = 'Finalizing...';
-      onProgressUpdate?.call();
-      await Future.delayed(const Duration(milliseconds: 500));
-
-      // Reload items to reflect the new instances that were generated
-      processingStatus = 'Refreshing...';
-      onProgressUpdate?.call();
-      await loadItems();
-
-      // Broadcast progress recalculated to refresh other parts of UI
-      InstanceEvents.broadcastProgressRecalculated();
-
-      // Recalculate daily progress record for yesterday to reflect changes
-      processingStatus = 'Updating daily progress record...';
-      onProgressUpdate?.call();
-      await MorningCatchUpService.recalculateDailyProgressRecordForDate(
-        userId: currentUserUid,
-        targetDate: yesterday,
-      );
 
       // Reset reminder count when user skips all items
       await MorningCatchUpService.resetReminderCount();
       await MorningCatchUpService.markDialogAsShown();
 
-      // Check if there are still remaining items after reload
+      // Check if there are still remaining items (tasks remain even after skipping habits)
       final updatedRemainingItems = items
           .where((item) => !processedItemIds.contains(item.reference.id))
           .toList();
@@ -398,14 +408,22 @@ class MorningCatchUpDialogLogic {
     applyOptimisticState(deletedInstance);
   }
 
-  /// Check if all items are processed (for auto-close)
+  /// Check if all habits are processed (for auto-close)
+  /// Only checks habits, not tasks, since tasks cannot be skipped via the dialog
   Future<bool> checkAndAutoClose() async {
     final remainingAfterUpdate = getRemainingItems();
-    if (remainingAfterUpdate.isEmpty) {
+    // Only check if habits are processed, ignore tasks
+    final remainingHabits = remainingAfterUpdate
+        .where((item) => item.templateCategoryType == 'habit')
+        .toList();
+    if (remainingHabits.isEmpty) {
       // Wait a brief moment for any final state updates
       await Future.delayed(const Duration(milliseconds: 500));
       final finalRemaining = getRemainingItems();
-      if (finalRemaining.isEmpty) {
+      final finalRemainingHabits = finalRemaining
+          .where((item) => item.templateCategoryType == 'habit')
+          .toList();
+      if (finalRemainingHabits.isEmpty) {
         await MorningCatchUpService.markDialogAsShown();
         return true;
       }

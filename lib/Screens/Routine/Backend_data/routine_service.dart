@@ -8,6 +8,8 @@ import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dar
 import 'package:habit_tracker/Screens/Routine/routine_reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 class RoutineService {
   /// Check if instance is due today or overdue (mirrors Queue page logic)
@@ -57,21 +59,29 @@ class RoutineService {
     final uid = userId ?? currentUser?.uid ?? '';
     // Get next order index for the new routine
     final listOrder = await RoutineOrderService.getNextOrderIndex(userId: uid);
-    // Get item names and types from the item IDs
+    // Get item names and types from the item IDs - batch read for efficiency
     final itemNames = <String>[];
     final itemTypes = <String>[];
-    for (final itemId in itemIds) {
-      try {
-        final activityDoc =
-            await ActivityRecord.collectionForUser(uid).doc(itemId).get();
-        if (activityDoc.exists) {
-          final activityData = activityDoc.data() as Map<String, dynamic>?;
-          if (activityData != null) {
-            itemNames.add(activityData['name'] ?? 'Unknown Item');
-            itemTypes.add(activityData['categoryType'] ?? 'habit');
-          }
+    try {
+      // Batch read all templates at once
+      final templates = await BatchReadService.batchGetTemplates(
+        templateIds: itemIds,
+        userId: uid,
+        useCache: true,
+      );
+      for (final itemId in itemIds) {
+        final template = templates[itemId];
+        if (template != null) {
+          itemNames.add(template.name);
+          itemTypes.add(template.categoryType);
+        } else {
+          itemNames.add('Unknown Item');
+          itemTypes.add('habit');
         }
-      } catch (e) {
+      }
+    } catch (e) {
+      // Fallback: add unknown items
+      for (final _ in itemIds) {
         itemNames.add('Unknown Item');
         itemTypes.add('habit');
       }
@@ -141,21 +151,29 @@ class RoutineService {
     if (description != null) updateData['description'] = description;
     if (itemIds != null) {
       updateData['itemIds'] = itemIds;
-      // Update cached names and types
+      // Update cached names and types - batch read for efficiency
       final itemNames = <String>[];
       final itemTypes = <String>[];
-      for (final itemId in itemIds) {
-        try {
-          final activityDoc =
-              await ActivityRecord.collectionForUser(uid).doc(itemId).get();
-          if (activityDoc.exists) {
-            final activityData = activityDoc.data() as Map<String, dynamic>?;
-            if (activityData != null) {
-              itemNames.add(activityData['name'] ?? 'Unknown Item');
-              itemTypes.add(activityData['categoryType'] ?? 'habit');
-            }
+      try {
+        // Batch read all templates at once
+        final templates = await BatchReadService.batchGetTemplates(
+          templateIds: itemIds,
+          userId: uid,
+          useCache: true,
+        );
+        for (final itemId in itemIds) {
+          final template = templates[itemId];
+          if (template != null) {
+            itemNames.add(template.name);
+            itemTypes.add(template.categoryType);
+          } else {
+            itemNames.add('Unknown Item');
+            itemTypes.add('habit');
           }
-        } catch (e) {
+        }
+      } catch (e) {
+        // Fallback: add unknown items
+        for (final _ in itemIds) {
           itemNames.add('Unknown Item');
           itemTypes.add('habit');
         }
@@ -376,13 +394,18 @@ class RoutineService {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = userId ?? currentUser?.uid ?? '';
     try {
-      // Get the activity template
-      final activityDoc =
-          await ActivityRecord.collectionForUser(uid).doc(itemId).get();
-      if (!activityDoc.exists) {
-        return null;
+      // Get the activity template - check cache first
+      final cache = FirestoreCacheService();
+      ActivityRecord? template = cache.getCachedTemplate(itemId);
+      if (template == null) {
+        final activityDoc =
+            await ActivityRecord.collectionForUser(uid).doc(itemId).get();
+        if (!activityDoc.exists) {
+          return null;
+        }
+        template = ActivityRecord.fromSnapshot(activityDoc);
+        cache.cacheTemplate(itemId, template);
       }
-      final template = ActivityRecord.fromSnapshot(activityDoc);
 
       // For Essential Activities, return null - UI should show time log dialog
       if (template.categoryType == 'essential') {

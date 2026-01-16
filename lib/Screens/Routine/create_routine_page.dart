@@ -48,34 +48,75 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
   @override
   void initState() {
     super.initState();
-    // Fetch latest routine from Firestore if editing
+    // Fetch latest routine from Firestore if editing, load in parallel with activities
     if (widget.existingRoutine != null) {
-      _fetchLatestRoutine();
+      _fetchLatestRoutineAndLoadActivities();
     } else {
       _loadActivities();
     }
   }
 
-  /// Fetch the latest routine document from Firestore to avoid stale data
-  Future<void> _fetchLatestRoutine() async {
+  /// Fetch the latest routine document and load activities in parallel
+  Future<void> _fetchLatestRoutineAndLoadActivities() async {
     try {
       final userId = currentUserUid;
-      if (userId.isEmpty || widget.existingRoutine == null) return;
-
-      // Fetch the latest routine document (uses cache first, then server)
-      final routineRef = RoutineRecord.collectionForUser(userId)
-          .doc(widget.existingRoutine!.reference.id);
-      final latestRoutine = await RoutineRecord.getDocumentOnce(routineRef);
-
-      if (mounted) {
-        setState(() {
-          _currentRoutine = latestRoutine;
-        });
-        // Initialize form from latest routine
-        _initializeFromRoutine(latestRoutine);
-        // Now load activities (which will load existing items)
+      if (userId.isEmpty || widget.existingRoutine == null) {
         _loadActivities();
+        return;
       }
+
+      // Load routine and activities in parallel for faster initialization
+      final results = await Future.wait([
+        RoutineRecord.collectionForUser(userId)
+            .doc(widget.existingRoutine!.reference.id)
+            .get()
+            .then((doc) => doc.exists
+                ? RoutineRecord.fromSnapshot(doc)
+                : widget.existingRoutine!),
+        queryActivitiesRecordOnce(
+          userId: userId,
+          includeEssentialItems: true,
+        ),
+      ]);
+
+      if (!mounted) return;
+
+      final latestRoutine = results[0] as RoutineRecord;
+      final activities = results[1] as List<ActivityRecord>;
+
+      // Filter activities
+      final filteredActivities = activities.where((activity) {
+        // Keep all habits (always recurring)
+        if (activity.categoryType == 'habit') return true;
+        // Keep all Essential Activities
+        if (activity.categoryType == 'essential') return true;
+        // For tasks: exclude completed/skipped one-time tasks
+        if (activity.categoryType == 'task') {
+          // Keep recurring tasks (regardless of status)
+          if (activity.isRecurring) return true;
+          // For one-time tasks:
+          // - Exclude if inactive (completed tasks get marked inactive)
+          // - Exclude if status is explicitly 'complete' or 'skipped'
+          if (!activity.isActive) return false;
+          return activity.status != 'complete' &&
+              activity.status != 'skipped';
+        }
+        // Keep everything else by default
+        return true;
+      }).toList();
+
+      // Batch all state updates
+      setState(() {
+        _currentRoutine = latestRoutine;
+        _allActivities = filteredActivities;
+        _filteredActivities = filteredActivities;
+        _isLoading = false;
+      });
+
+      // Initialize form from latest routine
+      _initializeFromRoutine(latestRoutine);
+      // Load existing items from current routine
+      _loadExistingItems();
     } catch (e) {
       // Fallback to widget.existingRoutine if fetch fails
       if (mounted) {
@@ -87,6 +128,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
       }
     }
   }
+
 
   /// Initialize form state from a routine record
   void _initializeFromRoutine(RoutineRecord routine) {
@@ -116,9 +158,13 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
   }
 
   Future<void> _loadActivities() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (!mounted) return;
+    // Only set loading state if it's not already true
+    if (!_isLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
@@ -127,6 +173,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
           userId: userId,
           includeEssentialItems: true,
         );
+        if (!mounted) return;
+        
         // Filter out completed/skipped one-time tasks (keep recurring tasks, habits, and Essential Activities)
         final filteredActivities = activities.where((activity) {
           // Keep all habits (always recurring)
@@ -147,20 +195,34 @@ class _CreateRoutinePageState extends State<CreateRoutinePage> {
           // Keep everything else by default
           return true;
         }).toList();
-        setState(() {
-          _allActivities = filteredActivities;
-          _filteredActivities = filteredActivities;
-          _isLoading = false;
-        });
-        // If editing, load existing items from current routine
-        if (_currentRoutine != null) {
-          _loadExistingItems();
+        
+        // Batch state updates
+        if (mounted) {
+          setState(() {
+            _allActivities = filteredActivities;
+            _filteredActivities = filteredActivities;
+            _isLoading = false;
+          });
+          // If editing, load existing items from current routine
+          if (_currentRoutine != null) {
+            _loadExistingItems();
+          }
+        }
+      } else {
+        // Batch state updates for empty user case
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
         }
       }
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      // Batch state updates for error case
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

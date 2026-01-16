@@ -7,7 +7,6 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_cen
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
-import 'package:habit_tracker/Screens/Shared/queue_progress_calculator.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
@@ -29,6 +28,7 @@ import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_charts_section/queue_charts_section.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
 import 'dart:async';
 
 class QueuePage extends StatefulWidget {
@@ -82,8 +82,10 @@ class _QueuePageState extends State<QueuePage> {
   QueueFilterState _currentFilter = QueueFilterState();
   QueueSortState _currentSort = QueueSortState();
   Map<String, List<ActivityInstanceRecord>>? _cachedBucketedItems;
-  int _instancesHashCode = 0;
-  int _categoriesHashCode = 0;
+  int _instancesHashCode = 0; // Current hash of instances
+  int _categoriesHashCode = 0; // Current hash of categories
+  int _lastCachedInstancesHash = 0; // Hash used when cache was built
+  int _lastCachedCategoriesHash = 0; // Hash used when cache was built
   String _lastSearchQuery = '';
   QueueFilterState? _lastFilter;
   QueueSortState? _lastSort;
@@ -102,21 +104,32 @@ class _QueuePageState extends State<QueuePage> {
     _pendingFocusTemplateId = widget.focusTemplateId;
     _pendingFocusInstanceId = widget.focusInstanceId;
     _loadExpansionState();
-    _loadFilterAndSortState().then((_) {
-      _loadData().then((_) {
+    // Load filter/sort state and data in parallel for faster initialization
+    Future.wait([
+      _loadFilterAndSortState(),
+      _loadData(),
+    ]).then((_) async {
+      // Wait for progress calculation and score update to complete
+      // This ensures shared state is updated before loading history
+      // Fixes race condition where _loadCumulativeScoreHistory() was called
+      // before _updateTodayScore() completed
+      if (mounted) {
+        // Wait for non-optimistic calculation to complete (reconciles with backend)
+        await _calculateProgress(optimistic: false);
+        // _updateTodayScore() is called from _calculateProgress(optimistic: false)
+        // and awaited, so it's already complete at this point
+        // Now safe to load history with updated shared state
+        if (mounted) {
+          _loadCumulativeScoreHistory();
+        }
+      }
+      if (widget.expandCompleted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
-            _loadCumulativeScoreHistory();
+            NotificationCenter.post('expandQueueSection', 'Completed');
           }
         });
-        if (widget.expandCompleted) {
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            if (mounted) {
-              NotificationCenter.post('expandQueueSection', 'Completed');
-            }
-          });
-        }
-      });
+      }
     });
     NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
       if (!mounted) return;
@@ -125,11 +138,15 @@ class _QueuePageState extends State<QueuePage> {
           (data['cumulativeScore'] as double?) ?? _cumulativeScore;
       final updatedTodayScore =
           (data['todayScore'] as double?) ?? _dailyScoreGain;
-      setState(() {
-        _cumulativeScore = updatedScore;
-        _dailyScoreGain = updatedTodayScore;
-      });
-      _queueHistoryOverlay(updatedScore, updatedTodayScore);
+      // Only update if values actually changed
+      if (updatedScore != _cumulativeScore ||
+          updatedTodayScore != _dailyScoreGain) {
+        setState(() {
+          _cumulativeScore = updatedScore;
+          _dailyScoreGain = updatedTodayScore;
+        });
+        _queueHistoryOverlay(updatedScore, updatedTodayScore);
+      }
     });
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
       if (!mounted) return;
@@ -138,9 +155,8 @@ class _QueuePageState extends State<QueuePage> {
     });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
-        setState(() {
-          _loadData();
-        });
+        // Don't wrap async call in setState - call directly
+        _loadData();
       }
     });
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
@@ -212,16 +228,19 @@ class _QueuePageState extends State<QueuePage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    // Check for day transition when page becomes visible
-    _checkDayTransition();
-    if (_didInitialDependencies) {
+    // Only check day transition and load data after initial dependencies are set
+    // This prevents multiple calls during hot restart on web
+    if (!_didInitialDependencies) {
+      _didInitialDependencies = true;
+      // Check for day transition when page becomes visible
+      _checkDayTransition();
+    } else {
       final route = ModalRoute.of(context);
       if (route != null && route.isCurrent && _shouldReloadOnReturn) {
         _shouldReloadOnReturn = false;
+        _checkDayTransition();
         _loadData();
       }
-    } else {
-      _didInitialDependencies = true;
     }
   }
 
@@ -230,6 +249,8 @@ class _QueuePageState extends State<QueuePage> {
     if (_lastKnownDate != null && !_isSameDay(_lastKnownDate!, today)) {
       // Day has changed - reload all data
       _lastKnownDate = today;
+      // Invalidate daily progress cache since historical data may have changed
+      DailyProgressQueryService.invalidateUserCache(currentUserUid);
       _loadData();
       _loadCumulativeScoreHistory(forceReload: true);
       _calculateProgress();
@@ -295,9 +316,12 @@ class _QueuePageState extends State<QueuePage> {
       _isSearchBarVisible = isVisible;
       return;
     }
-    setState(() {
-      _isSearchBarVisible = isVisible;
-    });
+    // Only update if value actually changed
+    if (_isSearchBarVisible != isVisible) {
+      setState(() {
+        _isSearchBarVisible = isVisible;
+      });
+    }
   }
 
   Future<void> _loadData() async {
@@ -305,7 +329,10 @@ class _QueuePageState extends State<QueuePage> {
     if (!mounted) return;
     _isLoadingData = true;
     _ignoreInstanceEvents = true; // Temporarily ignore events during load
-    setState(() => _isLoading = true);
+    // Only set loading state if it's not already true
+    if (!_isLoading) {
+      setState(() => _isLoading = true);
+    }
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
@@ -319,6 +346,13 @@ class _QueuePageState extends State<QueuePage> {
         );
 
         if (mounted) {
+          // Calculate hash codes when data changes (not in getter)
+          final newInstancesHash =
+              QueueBucketService.calculateInstancesHash(result.instances);
+          final newCategoriesHash =
+              QueueBucketService.calculateCategoriesHash(result.categories);
+
+          // Batch all state updates into single setState
           setState(() {
             _instances = result.instances;
             _categories = result.categories;
@@ -330,6 +364,9 @@ class _QueuePageState extends State<QueuePage> {
             _currentFilter = updatedFilter;
             _isLoading = false;
             _isLoadingData = false;
+            // Update hash codes when data changes
+            _instancesHashCode = newInstancesHash;
+            _categoriesHashCode = newCategoriesHash;
           });
           WidgetsBinding.instance.addPostFrameCallback((_) {
             if (mounted) {
@@ -350,17 +387,27 @@ class _QueuePageState extends State<QueuePage> {
           _ignoreInstanceEvents = false;
         }
       } else {
+        // Batch state updates for empty user case
         if (mounted) {
-          setState(() => _isLoading = false);
+          setState(() {
+            _isLoading = false;
+            _isLoadingData = false;
+          });
+        } else {
+          _isLoadingData = false;
         }
-        _isLoadingData = false;
         _ignoreInstanceEvents = false;
       }
     } catch (e) {
+      // Batch state updates for error case
       if (mounted) {
-        setState(() => _isLoading = false);
+        setState(() {
+          _isLoading = false;
+          _isLoadingData = false;
+        });
+      } else {
+        _isLoadingData = false;
       }
-      _isLoadingData = false;
       _ignoreInstanceEvents = false;
     }
   }
@@ -416,7 +463,7 @@ class _QueuePageState extends State<QueuePage> {
     });
   }
 
-  void _calculateProgress({bool optimistic = false}) async {
+  Future<void> _calculateProgress({bool optimistic = false}) async {
     // Increment version to track calculation order
     final calculationVersion = ++_progressCalculationVersion;
 
@@ -433,15 +480,24 @@ class _QueuePageState extends State<QueuePage> {
       // Only update UI if this is still the latest calculation
       // (no newer calculation has started since we began)
       if (mounted && calculationVersion == _progressCalculationVersion) {
-        setState(() {
-          _dailyTarget = progressData['target'] as double;
-          _pointsEarned = progressData['earned'] as double;
-          _dailyPercentage = progressData['percentage'] as double;
-        });
+        final newTarget = progressData['target'] as double;
+        final newEarned = progressData['earned'] as double;
+        final newPercentage = progressData['percentage'] as double;
+        // Only update if values actually changed
+        if (newTarget != _dailyTarget ||
+            newEarned != _pointsEarned ||
+            newPercentage != _dailyPercentage) {
+          setState(() {
+            _dailyTarget = newTarget;
+            _pointsEarned = newEarned;
+            _dailyPercentage = newPercentage;
+          });
+        }
       }
 
-      // Update score in background - don't block UI
-      Future.microtask(() => _updateTodayScore());
+      // Don't update score from optimistic calculation - wait for non-optimistic
+      // to ensure we use reconciled values from backend
+      // Score will be updated by _calculateProgress(optimistic: false) which awaits _updateTodayScore()
     } else {
       // Prevent concurrent non-optimistic calculations
       if (_isCalculatingProgress) {
@@ -463,11 +519,19 @@ class _QueuePageState extends State<QueuePage> {
         // Only update UI if this is still the latest calculation
         // (no newer calculation has started since we began)
         if (mounted && calculationVersion == _progressCalculationVersion) {
-          setState(() {
-            _dailyTarget = progressData['target'] as double;
-            _pointsEarned = progressData['earned'] as double;
-            _dailyPercentage = progressData['percentage'] as double;
-          });
+          final newTarget = progressData['target'] as double;
+          final newEarned = progressData['earned'] as double;
+          final newPercentage = progressData['percentage'] as double;
+          // Only update if values actually changed
+          if (newTarget != _dailyTarget ||
+              newEarned != _pointsEarned ||
+              newPercentage != _dailyPercentage) {
+            setState(() {
+              _dailyTarget = newTarget;
+              _pointsEarned = newEarned;
+              _dailyPercentage = newPercentage;
+            });
+          }
 
           // For non-optimistic, await to ensure accuracy
           await _updateTodayScore();
@@ -504,12 +568,18 @@ class _QueuePageState extends State<QueuePage> {
         includeBreakdown: false,
       );
       if (mounted) {
-        setState(() {
-          _cumulativeScore =
-              (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
-          _dailyScoreGain =
-              (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
-        });
+        final newCumulativeScore =
+            (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+        final newDailyScoreGain =
+            (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
+        // Only update if values actually changed
+        if (newCumulativeScore != _cumulativeScore ||
+            newDailyScoreGain != _dailyScoreGain) {
+          setState(() {
+            _cumulativeScore = newCumulativeScore;
+            _dailyScoreGain = newDailyScoreGain;
+          });
+        }
       }
 
       _queueHistoryOverlay(
@@ -564,14 +634,20 @@ class _QueuePageState extends State<QueuePage> {
         _isLoadingHistory = false;
         return;
       }
-      if (mounted) {
+      // Only update if values actually changed
+      final scoreChanged = currentCumulativeScore != _cumulativeScore ||
+          currentTodayScore != _dailyScoreGain;
+      final historyChanged =
+          history.length != _cumulativeScoreHistory.length || !_historyLoaded;
+
+      if (mounted && (scoreChanged || historyChanged)) {
         setState(() {
           _cumulativeScore = currentCumulativeScore;
           _dailyScoreGain = currentTodayScore;
           _cumulativeScoreHistory = history;
           _historyLoaded = true;
         });
-      } else {
+      } else if (!mounted) {
         _cumulativeScore = currentCumulativeScore;
         _dailyScoreGain = currentTodayScore;
         _cumulativeScoreHistory = history;
@@ -608,6 +684,7 @@ class _QueuePageState extends State<QueuePage> {
         todayScore,
         cumulativeScore,
       );
+      // Only update if history actually changed
       if (changed && mounted) {
         setState(() {
           // Assign new list reference to trigger widget rebuild
@@ -615,32 +692,34 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     } else {
-      _pendingHistoryScore = cumulativeScore;
-      _pendingHistoryGain = todayScore;
-      if (mounted) {
-        // Show a quick one-point history while real history loads
-        setState(() {
-          _cumulativeScoreHistory = [
-            {
-              'date': DateService.todayStart,
-              'score': cumulativeScore,
-              'gain': todayScore,
-            },
-          ];
-        });
+      // Only update pending values if they're different
+      if (_pendingHistoryScore != cumulativeScore ||
+          _pendingHistoryGain != todayScore) {
+        _pendingHistoryScore = cumulativeScore;
+        _pendingHistoryGain = todayScore;
+        if (mounted) {
+          // Show a quick one-point history while real history loads
+          setState(() {
+            _cumulativeScoreHistory = [
+              {
+                'date': DateService.todayStart,
+                'score': cumulativeScore,
+                'gain': todayScore,
+              },
+            ];
+          });
+        }
       }
     }
   }
 
   Map<String, List<ActivityInstanceRecord>> get _bucketedItems {
-    final currentInstancesHash =
-        QueueBucketService.calculateInstancesHash(_instances);
-    final currentCategoriesHash =
-        QueueBucketService.calculateCategoriesHash(_categories);
-
+    // Hash codes are now calculated when data changes, not in getter
+    // This avoids expensive hash calculations on every build
+    // Compare current hash codes with cached ones to detect data changes
     final cacheInvalid = _cachedBucketedItems == null ||
-        currentInstancesHash != _instancesHashCode ||
-        currentCategoriesHash != _categoriesHashCode ||
+        _instancesHashCode != _lastCachedInstancesHash ||
+        _categoriesHashCode != _lastCachedCategoriesHash ||
         _searchQuery != _lastSearchQuery ||
         !QueueUtils.filtersEqual(_currentFilter, _lastFilter) ||
         !QueueUtils.sortsEqual(_currentSort, _lastSort) ||
@@ -667,8 +746,9 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
     _cachedBucketedItems = buckets;
-    _instancesHashCode = currentInstancesHash;
-    _categoriesHashCode = currentCategoriesHash;
+    // Store the hash codes that were used to build this cache
+    _lastCachedInstancesHash = _instancesHashCode;
+    _lastCachedCategoriesHash = _categoriesHashCode;
     _lastSearchQuery = _searchQuery;
     _lastFilter = QueueFilterState(
       allTasks: _currentFilter.allTasks,
@@ -821,12 +901,15 @@ class _QueuePageState extends State<QueuePage> {
 
   Widget _buildProgressCharts() {
     final miniGraphHistory = _getMiniGraphHistory();
-    return QueueUIBuilders.buildProgressCharts(
-      context: context,
-      dailyPercentage: _dailyPercentage,
-      dailyTarget: _dailyTarget,
-      pointsEarned: _pointsEarned,
-      miniGraphHistory: miniGraphHistory,
+    // Wrap expensive chart widgets in RepaintBoundary to isolate repaints
+    return RepaintBoundary(
+      child: QueueUIBuilders.buildProgressCharts(
+        context: context,
+        dailyPercentage: _dailyPercentage,
+        dailyTarget: _dailyTarget,
+        pointsEarned: _pointsEarned,
+        miniGraphHistory: miniGraphHistory,
+      ),
     );
   }
 
@@ -996,6 +1079,8 @@ class _QueuePageState extends State<QueuePage> {
               );
             },
             itemCount: items.length,
+            itemExtent:
+                85.0, // Approximate item height for better scroll performance
             onReorder: (oldIndex, newIndex) =>
                 _handleReorder(oldIndex, newIndex, key),
           ),
@@ -1028,6 +1113,8 @@ class _QueuePageState extends State<QueuePage> {
       },
       child: CustomScrollView(
         controller: _scrollController,
+        cacheExtent:
+            500.0, // Cache 500px worth of items above/below viewport for better scroll performance
         slivers: bodySlivers,
       ),
     );
@@ -1070,12 +1157,17 @@ class _QueuePageState extends State<QueuePage> {
 
   void _updateInstanceInLocalState(
       ActivityInstanceRecord updatedInstance) async {
+    // Recalculate hash codes when instances change
+    QueueInstanceHandlers.updateInstanceInLocalState(
+      _instances,
+      updatedInstance,
+    );
+    final newInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+
     setState(() {
-      QueueInstanceHandlers.updateInstanceInLocalState(
-        _instances,
-        updatedInstance,
-      );
       _cachedBucketedItems = null;
+      _instancesHashCode = newInstancesHash;
     });
     _calculateProgress(optimistic: true);
     // Schedule non-optimistic in background to avoid race condition
@@ -1084,12 +1176,17 @@ class _QueuePageState extends State<QueuePage> {
 
   void _removeInstanceFromLocalState(
       ActivityInstanceRecord deletedInstance) async {
+    // Recalculate hash codes when instances change
+    QueueInstanceHandlers.removeInstanceFromLocalState(
+      _instances,
+      deletedInstance,
+    );
+    final newInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+
     setState(() {
-      QueueInstanceHandlers.removeInstanceFromLocalState(
-        _instances,
-        deletedInstance,
-      );
       _cachedBucketedItems = null;
+      _instancesHashCode = newInstancesHash;
     });
     _calculateProgress(optimistic: true);
     // Schedule non-optimistic in background to avoid race condition
@@ -1097,9 +1194,14 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
+    // Recalculate hash codes when instances change
+    QueueInstanceHandlers.handleInstanceCreated(_instances, instance);
+    final newInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+
     setState(() {
-      QueueInstanceHandlers.handleInstanceCreated(_instances, instance);
       _cachedBucketedItems = null;
+      _instancesHashCode = newInstancesHash;
     });
     _calculateProgress(optimistic: true);
     // Schedule non-optimistic in background to avoid race condition
@@ -1120,14 +1222,19 @@ class _QueuePageState extends State<QueuePage> {
       }
     }
 
+    // Recalculate hash codes when instances change
+    QueueInstanceHandlers.handleInstanceUpdated(
+      _instances,
+      param,
+      _reorderingInstanceIds,
+      _optimisticOperations,
+    );
+    final newInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+
     setState(() {
-      QueueInstanceHandlers.handleInstanceUpdated(
-        _instances,
-        param,
-        _reorderingInstanceIds,
-        _optimisticOperations,
-      );
       _cachedBucketedItems = null;
+      _instancesHashCode = newInstancesHash;
     });
     bool isOptimistic = false;
     if (param is Map) {
@@ -1148,13 +1255,18 @@ class _QueuePageState extends State<QueuePage> {
           param['originalInstance'] as ActivityInstanceRecord?;
       if (operationId != null &&
           _optimisticOperations.containsKey(operationId)) {
+        // Recalculate hash codes when instances change
+        QueueInstanceHandlers.handleRollback(
+          _instances,
+          param,
+          _optimisticOperations,
+        );
+        final newInstancesHash =
+            QueueBucketService.calculateInstancesHash(_instances);
+
         setState(() {
-          QueueInstanceHandlers.handleRollback(
-            _instances,
-            param,
-            _optimisticOperations,
-          );
           _cachedBucketedItems = null;
+          _instancesHashCode = newInstancesHash;
         });
         if (originalInstance == null && instanceId != null) {
           _revertOptimisticUpdate(instanceId);
@@ -1169,22 +1281,32 @@ class _QueuePageState extends State<QueuePage> {
     final updatedInstance =
         await QueueInstanceHandlers.revertOptimisticUpdate(instanceId);
     if (updatedInstance != null) {
-      setState(() {
-        final index =
-            _instances.indexWhere((inst) => inst.reference.id == instanceId);
-        if (index != -1) {
-          _instances[index] = updatedInstance;
+      final index =
+          _instances.indexWhere((inst) => inst.reference.id == instanceId);
+      if (index != -1) {
+        // Recalculate hash codes when instances change
+        _instances[index] = updatedInstance;
+        final newInstancesHash =
+            QueueBucketService.calculateInstancesHash(_instances);
+
+        setState(() {
           _cachedBucketedItems = null;
-        }
-      });
+          _instancesHashCode = newInstancesHash;
+        });
+      }
       _calculateProgress(optimistic: false);
     }
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
+    // Recalculate hash codes when instances change
+    QueueInstanceHandlers.handleInstanceDeleted(_instances, instance);
+    final newInstancesHash =
+        QueueBucketService.calculateInstancesHash(_instances);
+
     setState(() {
-      QueueInstanceHandlers.handleInstanceDeleted(_instances, instance);
       _cachedBucketedItems = null;
+      _instancesHashCode = newInstancesHash;
     });
     _calculateProgress(optimistic: true);
     // Schedule non-optimistic in background to avoid race condition
@@ -1198,10 +1320,18 @@ class _QueuePageState extends State<QueuePage> {
       final result =
           await QueueDataService.silentRefreshInstances(userId: userId);
       if (mounted) {
+        // Calculate hash codes when data changes
+        final newInstancesHash =
+            QueueBucketService.calculateInstancesHash(result.instances);
+        final newCategoriesHash =
+            QueueBucketService.calculateCategoriesHash(result.categories);
+
         setState(() {
           _instances = result.instances;
           _categories = result.categories;
           _cachedBucketedItems = null;
+          _instancesHashCode = newInstancesHash;
+          _categoriesHashCode = newCategoriesHash;
         });
         // Fast UI update using local instances
         _calculateProgress(optimistic: true);

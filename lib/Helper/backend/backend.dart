@@ -15,6 +15,7 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
 Future<int> queryUsersRecordCount({
@@ -119,6 +120,62 @@ Future<List<T>> queryCollectionOnce<T>(
 Filter filterIn(String field, List? list) => (list?.isEmpty ?? true)
     ? Filter(field, whereIn: null)
     : Filter(field, whereIn: list);
+
+/// Helper function to detect and log Firestore missing index errors
+/// Extracts the index creation link from error messages and logs it clearly
+void logFirestoreIndexError(
+  dynamic error,
+  String queryDescription,
+  String collectionName,
+) {
+  if (error == null) return;
+
+  final errorString = error.toString();
+  final errorMessage = error is Exception ? error.toString() : errorString;
+
+  // Check if this is a missing index error
+  final isIndexError = errorMessage.contains('index') ||
+      errorMessage.contains('requires an index') ||
+      errorMessage.contains('https://console.firebase.google.com');
+
+  if (!isIndexError) return;
+
+  // Extract the index creation URL from the error message
+  String? indexUrl;
+  final urlPattern = RegExp(r'https://console\.firebase\.google\.com[^\s\)]+');
+  final match = urlPattern.firstMatch(errorMessage);
+  if (match != null) {
+    indexUrl = match.group(0);
+  }
+
+  // Log the error with clear formatting
+  print('');
+  print('═══════════════════════════════════════════════════════════');
+  print('❌ FIRESTORE MISSING INDEX ERROR');
+  print('═══════════════════════════════════════════════════════════');
+  print('Query: $queryDescription');
+  print('Collection: $collectionName');
+  print('');
+  if (indexUrl != null) {
+    print('🔗 INDEX CREATION LINK:');
+    print('   $indexUrl');
+    print('');
+    print('📋 INSTRUCTIONS:');
+    print('   1. Click the link above to open Firebase Console');
+    print('   2. Click "Create Index" button');
+    print('   3. Wait for the index to build (may take a few minutes)');
+    print('   4. The calendar page should work after the index is ready');
+  } else {
+    print('⚠️  Could not extract index creation link from error');
+    print('   Check Firebase Console for missing indexes');
+  }
+  print('');
+  print('Full error details:');
+  print('   $errorMessage');
+  print('═══════════════════════════════════════════════════════════');
+  print('');
+}
+
 Filter filterArrayContainsAny(String field, List? list) =>
     (list?.isEmpty ?? true)
         ? Filter(field, arrayContainsAny: null)
@@ -291,52 +348,8 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
   String callerTag = 'queryCategoriesRecordOnce',
 }) async {
   try {
-    // TEMPORARY: Log caller info to debug hot reload hang
-    try {
-      final stackTrace = StackTrace.current;
-      final stackLines = stackTrace.toString().split('\n');
-      // Find the first line that references a screen/widget file
-      String? callerInfo;
-      for (final line in stackLines) {
-        // Try to match packages/habit_tracker path format
-        if (line.contains('packages/habit_tracker/')) {
-          final match =
-              RegExp(r'packages/habit_tracker/([^:]+):(\d+):').firstMatch(line);
-          if (match != null) {
-            final path = match.group(1)!;
-            final lineNum = match.group(2)!;
-            // Extract just the filename
-            final fileName = path.split('/').last;
-            callerInfo = '$fileName:$lineNum';
-            break;
-          }
-        }
-        // Also try lib/ path format
-        if (line.contains('lib/Screens/') ||
-            line.contains('lib/Helper/') ||
-            line.contains('lib/main.dart')) {
-          final match = RegExp(r'([^/]+\.dart):(\d+):').firstMatch(line);
-          if (match != null) {
-            callerInfo = '${match.group(1)}:${match.group(2)}';
-            break;
-          }
-        }
-      }
-      print(
-          '🔍 queryCategoriesRecordOnce called from tag "$callerTag", stack hints: ${callerInfo ?? 'unknown'}');
-      if (callerInfo == null && stackLines.length > 2) {
-        // Print relevant stack lines for debugging
-        final relevantLines = stackLines
-            .where((l) =>
-                l.contains('packages/habit_tracker') || l.contains('lib/'))
-            .take(3);
-        if (relevantLines.isNotEmpty) {
-          print('   Stack hints: ${relevantLines.join(' | ')}');
-        }
-      }
-    } catch (e) {
-      print('🔍 queryCategoriesRecordOnce: Error logging caller: $e');
-    }
+    // Simplified logging
+    print('🔍 queryCategoriesRecordOnce called from tag "$callerTag"');
 
     // Use simple query without orderBy to avoid Firestore composite index requirements
     final query = CategoryRecord.collectionForUser(userId)
@@ -353,11 +366,18 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
 }
 
 /// Query to get habit categories for a specific user
+/// Uses cache to reduce redundant Firestore reads
 Future<List<CategoryRecord>> queryHabitCategoriesOnce({
   required String userId,
   String callerTag = 'queryHabitCategoriesOnce',
 }) async {
   try {
+    final cache = FirestoreCacheService();
+    // Check cache first
+    final cached = cache.getCachedHabitCategories();
+    if (cached != null) {
+      return cached;
+    }
     // Use simple query and filter in memory to avoid Firestore composite index requirements
     final allCategories = await queryCategoriesRecordOnce(
       userId: userId,
@@ -368,6 +388,8 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
         allCategories.where((c) => c.categoryType == 'habit').toList();
     // Sort in memory
     habitCategories.sort((a, b) => a.name.compareTo(b.name));
+    // Update cache
+    cache.cacheHabitCategories(habitCategories);
     return habitCategories;
   } catch (e) {
     return []; // Return empty list on error
@@ -375,11 +397,18 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
 }
 
 /// Query to get task categories for a specific user
+/// Uses cache to reduce redundant Firestore reads
 Future<List<CategoryRecord>> queryTaskCategoriesOnce({
   required String userId,
   String callerTag = 'queryTaskCategoriesOnce',
 }) async {
   try {
+    final cache = FirestoreCacheService();
+    // Check cache first
+    final cached = cache.getCachedTaskCategories();
+    if (cached != null) {
+      return cached;
+    }
     // Use simple query and filter in memory to avoid Firestore composite index requirements
     final allCategories = await queryCategoriesRecordOnce(
       userId: userId,
@@ -390,6 +419,8 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
         allCategories.where((c) => c.categoryType == 'task').toList();
     // Sort in memory
     taskCategories.sort((a, b) => a.name.compareTo(b.name));
+    // Update cache
+    cache.cacheTaskCategories(taskCategories);
     return taskCategories;
   } catch (e) {
     return []; // Return empty list on error
@@ -432,11 +463,23 @@ Future<List<ActivityInstanceRecord>> queryTaskInstances({
 }
 
 /// Query to get all task instances (active and completed) for Recent Completions
+/// Uses cache to reduce redundant Firestore reads
 Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
   required String userId,
 }) async {
   try {
-    return await ActivityInstanceService.getAllTaskInstances(userId: userId);
+    final cache = FirestoreCacheService();
+    // Check cache first
+    final cached = cache.getCachedTaskInstances();
+    if (cached != null) {
+      return cached;
+    }
+    // Fetch from Firestore if cache miss
+    final instances =
+        await ActivityInstanceService.getAllTaskInstances(userId: userId);
+    // Update cache
+    cache.cacheTaskInstances(instances);
+    return instances;
   } catch (e) {
     return []; // Return empty list on error
   }
@@ -471,11 +514,23 @@ Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
 
 /// Query to get all habit instances for Habits page (all dates and statuses)
 /// Shows complete view of all habits regardless of window or status
+/// Uses cache to reduce redundant Firestore reads
 Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
   required String userId,
 }) async {
   try {
-    return await ActivityInstanceService.getAllHabitInstances(userId: userId);
+    final cache = FirestoreCacheService();
+    // Check cache first
+    final cached = cache.getCachedHabitInstances();
+    if (cached != null) {
+      return cached;
+    }
+    // Fetch from Firestore if cache miss
+    final instances =
+        await ActivityInstanceService.getAllHabitInstances(userId: userId);
+    // Update cache
+    cache.cacheHabitInstances(instances);
+    return instances;
   } catch (e) {
     return []; // Return empty list on error
   }
@@ -483,23 +538,106 @@ Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
 
 /// Query to get latest habit instance per template for Habits page
 /// Returns one instance per habit template - the next upcoming/actionable instance
+/// Uses cache to reduce redundant Firestore reads
 Future<List<ActivityInstanceRecord>> queryLatestHabitInstances({
   required String userId,
 }) async {
   try {
-    return await ActivityInstanceService.getLatestHabitInstancePerTemplate(
-        userId: userId);
+    final cache = FirestoreCacheService();
+    // Check cache first - if we have cached habit instances, compute "latest per template" from cache
+    final cached = cache.getCachedHabitInstances();
+    if (cached != null) {
+      // Compute "latest per template" from cached instances (no Firestore read needed)
+      return _computeLatestHabitInstancePerTemplate(cached);
+    }
+    // Cache miss - fetch all habit instances, cache them, then compute
+    final allInstances =
+        await ActivityInstanceService.getAllHabitInstances(userId: userId);
+    // Update cache
+    cache.cacheHabitInstances(allInstances);
+    // Compute "latest per template" from fetched instances
+    return _computeLatestHabitInstancePerTemplate(allInstances);
   } catch (e) {
     return []; // Return empty list on error
   }
 }
 
+/// Helper function to compute latest habit instance per template from a list of instances
+/// This logic is extracted from ActivityInstanceService.getLatestHabitInstancePerTemplate
+/// to allow computation from cached data without re-fetching from Firestore
+List<ActivityInstanceRecord> _computeLatestHabitInstancePerTemplate(
+    List<ActivityInstanceRecord> allHabitInstances) {
+  // Group instances by templateId
+  final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
+  for (final instance in allHabitInstances) {
+    final templateId = instance.templateId;
+    (instancesByTemplate[templateId] ??= []).add(instance);
+  }
+  final List<ActivityInstanceRecord> latestInstances = [];
+  for (final templateId in instancesByTemplate.keys) {
+    final instances = instancesByTemplate[templateId]!;
+    // Sort instances by due date (earliest first, nulls last)
+    instances.sort((a, b) {
+      if (a.dueDate == null && b.dueDate == null) return 0;
+      if (a.dueDate == null) return 1;
+      if (b.dueDate == null) return -1;
+      return a.dueDate!.compareTo(b.dueDate!);
+    });
+    // Find the latest instance for this template
+    ActivityInstanceRecord? latestInstance;
+    // First, try to find the earliest pending instance (next upcoming)
+    for (final instance in instances) {
+      if (instance.status == 'pending') {
+        latestInstance = instance;
+        break;
+      }
+    }
+    // If no pending instance found, use the latest completed instance
+    if (latestInstance == null) {
+      // Find the most recent completed/skipped instance
+      for (final instance in instances.reversed) {
+        if (instance.status == 'completed' || instance.status == 'skipped') {
+          latestInstance = instance;
+          break;
+        }
+      }
+    }
+    // If still no instance found, use the first one (fallback)
+    if (latestInstance == null && instances.isNotEmpty) {
+      latestInstance = instances.first;
+    }
+    if (latestInstance != null) {
+      latestInstances.add(latestInstance);
+    }
+  }
+  // Sort final list by due date (earliest first, nulls last)
+  latestInstances.sort((a, b) {
+    if (a.dueDate == null && b.dueDate == null) return 0;
+    if (a.dueDate == null) return 1;
+    if (b.dueDate == null) return -1;
+    return a.dueDate!.compareTo(b.dueDate!);
+  });
+  return latestInstances;
+}
+
 /// Query to get all today's instances (current and overdue tasks and habits)
+/// Uses cache to reduce redundant Firestore reads
 Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,
 }) async {
   try {
-    return await ActivityInstanceService.getAllActiveInstances(userId: userId);
+    final cache = FirestoreCacheService();
+    // Check cache first
+    final cached = cache.getCachedAllInstances();
+    if (cached != null) {
+      return cached;
+    }
+    // Fetch from Firestore if cache miss
+    final instances =
+        await ActivityInstanceService.getAllActiveInstances(userId: userId);
+    // Update cache
+    cache.cacheAllInstances(instances);
+    return instances;
   } catch (e) {
     return []; // Return empty list on error
   }
@@ -526,6 +664,12 @@ Future<List<RoutineRecord>> queryRoutineRecordOnce({
     });
     return routines;
   } catch (e) {
+    // Log index error if present
+    logFirestoreIndexError(
+      e,
+      'Get routines (isActive + orderBy listOrder + orderBy name)',
+      'routines',
+    );
     if (e is FirebaseException) {
       // If orderBy fails (e.g., no index), fallback to local sort
       try {
@@ -641,6 +785,10 @@ Future<DocumentReference> createActivity({
     // Surface instance creation errors so UI can display them
     rethrow;
   }
+  // Invalidate template cache
+  final cache = FirestoreCacheService();
+  cache.invalidateTemplateCache(habitRef.id);
+
   ActivityTemplateEvents.broadcastTemplateUpdated(
     templateId: habitRef.id,
     context: {
@@ -689,7 +837,12 @@ Future<DocumentReference> createCategory({
     categoryType: categoryType,
     isSystemCategory: isSystemCategory,
   );
-  return await CategoryRecord.collectionForUser(uid).add(categoryData);
+  final categoryRef =
+      await CategoryRecord.collectionForUser(uid).add(categoryData);
+  // Invalidate categories cache
+  final cache = FirestoreCacheService();
+  cache.invalidateCategoriesCache();
+  return categoryRef;
 }
 
 /// Get or create the inbox category for a user
@@ -995,6 +1148,9 @@ Future<void> updateCategory({
   if (isActive != null) updateData['isActive'] = isActive;
   if (categoryType != null) updateData['categoryType'] = categoryType;
   await categoryRef.update(updateData);
+  // Invalidate categories cache
+  final cache = FirestoreCacheService();
+  cache.invalidateCategoriesCache();
 }
 
 /// Delete a category (soft delete by setting isActive to false)
@@ -1006,6 +1162,9 @@ Future<void> deleteCategory(String categoryId, {String? userId}) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
+  // Invalidate categories cache
+  final cache = FirestoreCacheService();
+  cache.invalidateCategoriesCache();
 }
 
 /// Update a routine
@@ -1329,6 +1488,7 @@ Future<void> updateCategoryCascade({
     final List<String> templateIds = [];
 
     // 2. Update all templates
+    final cache = FirestoreCacheService();
     for (final templateDoc in templates) {
       templateIds.add(templateDoc.id);
       try {
@@ -1339,6 +1499,8 @@ Future<void> updateCategoryCascade({
           updateData['categoryName'] = newCategoryName;
         }
         await templateDoc.reference.update(updateData);
+        // Invalidate template cache
+        cache.invalidateTemplateCache(templateDoc.id);
       } catch (e) {
         // Log error but continue with other templates - individual template update failures are non-critical
         print('Error updating template category metadata: $e');
@@ -1392,6 +1554,9 @@ Future<void> updateCategoryCascade({
         print('Error updating instances for chunk: $e');
       }
     }
+
+    // Invalidate categories cache
+    cache.invalidateCategoriesCache();
 
     // Notify all pages that categories have been updated
     final payload = <String, dynamic>{

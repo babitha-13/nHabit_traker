@@ -1,7 +1,7 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/Helper/Helpers/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -14,6 +14,9 @@ import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_
 import 'package:habit_tracker/Screens/Timer/Helpers/timer_notification_service.dart';
 import 'package:habit_tracker/Helper/Helpers/sharedPreference.dart';
 import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/Screens/Authentication/authentication.dart';
 import 'package:habit_tracker/Screens/Home/Home.dart';
 import 'package:habit_tracker/Screens/Authentication/splash.dart';
@@ -27,18 +30,48 @@ LoginResponse users = LoginResponse();
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Ensure stale observers/optimistic ops/caches are cleared on hot restart.
+  NotificationCenter.reset();
+  OptimisticOperationTracker.clearAll();
+  FirestoreCacheService().invalidateAllCache();
   // Only initialize Android-specific services when not running on web
   if (!kIsWeb) {
     await AndroidAlarmManager.initialize();
   }
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+
+  // Initialize Firebase with error handling for hot restart on web
+  // On web, hot restart keeps Firebase initialized, so reinitialization fails
+  // This is expected and non-fatal - just continue with existing Firebase instance
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+    print('Firebase initialized successfully');
+  } catch (e) {
+    // Expected on hot restart - Firebase is already initialized from first run
+    print(
+        'Firebase init skipped (already initialized from previous session): ${e.toString().substring(0, 100)}...');
+    // Verify Firebase is actually available
+    try {
+      final app = Firebase.app();
+      print('✓ Firebase app available: ${app.name}');
+    } catch (e2) {
+      print('✗ WARNING: Firebase not available: $e2');
+      // This is a real problem - rethrow
+      rethrow;
+    }
+  }
+
   await FlutterFlowTheme.initialize();
   final appState = FFAppState(); // Initialize FFAppState
   await appState.initializePersistedState();
-  // Initialize sound helper
-  await SoundHelper().initialize();
+
+  // Initialize sound helper with error handling for hot restart
+  try {
+    await SoundHelper().initialize();
+  } catch (e) {
+    print('Sound helper init warning: $e');
+  }
   // Initialize notification service only on mobile platforms
   if (!kIsWeb) {
     await NotificationService.initialize();
@@ -72,23 +105,75 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   ThemeMode themeMode = FlutterFlowTheme.themeMode;
   late Stream<BaseAuthUser> userStream;
+  StreamSubscription<BaseAuthUser>? _userStreamSub;
+  StreamSubscription? _jwtStreamSub;
+  Timer? _diagnosticTimer;
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     userStream = habitTrackerFirebaseUserStream();
-    userStream.listen((user) {
+    _userStreamSub = userStream.listen((user) {
       // User authentication state changes handled here
       // Categories are created on signup and on-demand when needed
     });
-    jwtTokenStream.listen((_) {});
+    _jwtStreamSub = jwtTokenStream.listen((_) {});
+    // Temporarily disabled diagnostic timer to troubleshoot OOM issue
+    // _logDiagnostics('startup');
+    // _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    //   // Only log if widget is still mounted to prevent disposed view errors
+    //   if (mounted) {
+    //     _logDiagnostics();
+    //   }
+    // });
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _userStreamSub?.cancel();
+    _jwtStreamSub?.cancel();
+    _diagnosticTimer?.cancel();
     super.dispose();
   }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Hot reload hook for diagnostics and cleanup on web.
+    debugPrint('diag:reassemble start');
+
+    // Cancel existing timer to prevent disposed view errors
+    _diagnosticTimer?.cancel();
+
+    NotificationCenter.reset();
+    OptimisticOperationTracker.clearAll();
+    FirestoreCacheService().invalidateAllCache();
+
+    // Temporarily disabled diagnostic logging to troubleshoot OOM issue
+    // _logDiagnostics('reassemble');
+    // _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+    //   if (mounted) {
+    //     _logDiagnostics();
+    //   }
+    // });
+    // WidgetsBinding.instance.addPostFrameCallback((_) {
+    //   if (mounted) {
+    //     _logDiagnostics('postFrame');
+    //   }
+    // });
+  }
+
+  // Diagnostic logging temporarily disabled to troubleshoot OOM issue
+  // void _logDiagnostics([String tag = 'tick']) {
+  //   if (!mounted) return;
+  //   final cache = FirestoreCacheService().debugCounts();
+  //   debugPrint(
+  //     'diag:$tag observers=${NotificationCenter.observerCount()} '
+  //     'pendingOps=${OptimisticOperationTracker.pendingCount()} '
+  //     'cache=$cache',
+  //   );
+  // }
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

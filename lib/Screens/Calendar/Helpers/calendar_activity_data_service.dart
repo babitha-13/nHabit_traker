@@ -72,6 +72,7 @@ class CalendarQueueService {
 
   /// Get planned tasks/habits due on date (pending status)
   /// Returns list of ActivityInstanceRecord that are due on date and not completed
+  /// Optimized: Uses Firestore date queries when possible instead of loading all instances
   static Future<List<ActivityInstanceRecord>> getPlannedItems({
     String? userId,
     DateTime? date,
@@ -80,29 +81,73 @@ class CalendarQueueService {
     if (uid.isEmpty) return [];
 
     final targetDate = _startOfDay(date);
+    final todayStart = DateService.todayStart;
+    final isTargetToday = targetDate.isAtSameMomentAs(todayStart);
 
     try {
-      // Get all instances
-      final allInstances = await queryAllInstances(userId: uid);
+      List<ActivityInstanceRecord> instances;
+      
+      // Optimize: Use Firestore query by dueDate when possible
+      // For tasks on a specific date, we can query by dueDate
+      // For habits, we need to check window logic, so fallback to loading all
+      if (!isTargetToday) {
+        // For non-today dates, try querying by dueDate (exact match)
+        try {
+          final query = ActivityInstanceRecord.collectionForUser(uid)
+              .where('status', isEqualTo: 'pending')
+              .where('dueDate', isEqualTo: targetDate);
+          final result = await query.get();
+          instances = result.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((instance) => instance.isActive)
+              .toList();
+        } catch (e) {
+          // Log index error if present
+          logFirestoreIndexError(
+            e,
+            'Get planned items for specific date (status=pending, dueDate=date)',
+            'activity_instances',
+          );
+          // Fallback to loading all if query fails (e.g., no index)
+          instances = await queryAllInstances(userId: uid);
+        }
+      } else {
+        // For today, we need to include overdue, so query is more complex
+        // Try querying dueDate <= today OR dueDate == today
+        try {
+          // Query for items due today or earlier
+          final query = ActivityInstanceRecord.collectionForUser(uid)
+              .where('status', isEqualTo: 'pending')
+              .where('dueDate', isLessThanOrEqualTo: targetDate);
+          final result = await query.get();
+          instances = result.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((instance) => instance.isActive)
+              .toList();
+        } catch (e) {
+          // Log index error if present
+          logFirestoreIndexError(
+            e,
+            'Get planned items for today (status=pending, dueDate<=today)',
+            'activity_instances',
+          );
+          // Fallback to loading all if query fails
+          instances = await queryAllInstances(userId: uid);
+        }
+      }
 
       // Filter for items due on targetDate that are pending
-      final plannedItems = allInstances.where((instance) {
-        // Must be active
-        if (!instance.isActive) return false;
-
-        // Must be pending (not completed or skipped)
+      final plannedItems = instances.where((instance) {
+        // Must be pending (already filtered in query, but double-check)
         if (instance.status != 'pending') return false;
 
         // Must be due on targetDate (or overdue if targetDate is today)
+        // This handles habit window logic and edge cases
         if (!_isDueOnDate(instance, targetDate)) return false;
 
-        // Skip snoozed instances (only if snoozed until AFTER target date?)
-        // If viewing past, snoozed status might be irrelevant or we assume it was snoozed.
-        // But logic relies on current state.
+        // Skip snoozed instances
         if (instance.snoozedUntil != null &&
             DateTime.now().isBefore(instance.snoozedUntil!)) {
-          // If snoozed until future, don't show?
-          // Existing logic: hide if snoozed.
           return false;
         }
 
@@ -111,12 +156,38 @@ class CalendarQueueService {
 
       return plannedItems;
     } catch (e) {
-      // Error getting planned items
-      return [];
+      // Log any unexpected errors
+      logFirestoreIndexError(
+        e,
+        'Get planned items (unexpected error)',
+        'activity_instances',
+      );
+      // Error getting planned items - fallback to original method
+      try {
+        final allInstances = await queryAllInstances(userId: uid);
+        return allInstances.where((instance) {
+          if (!instance.isActive) return false;
+          if (instance.status != 'pending') return false;
+          if (!_isDueOnDate(instance, targetDate)) return false;
+          if (instance.snoozedUntil != null &&
+              DateTime.now().isBefore(instance.snoozedUntil!)) {
+            return false;
+          }
+          return true;
+        }).toList();
+      } catch (e2) {
+        logFirestoreIndexError(
+          e2,
+          'Get planned items fallback (queryAllInstances)',
+          'activity_instances',
+        );
+        return [];
+      }
     }
   }
 
   /// Get completed tasks/habits that were completed on date
+  /// Optimized: Uses Firestore completedAt query when possible
   static Future<List<ActivityInstanceRecord>> getCompletedItems({
     String? userId,
     DateTime? date,
@@ -125,14 +196,56 @@ class CalendarQueueService {
     if (uid.isEmpty) return [];
 
     final targetDate = _startOfDay(date);
+    final targetDateEnd = targetDate.add(const Duration(days: 1));
 
     try {
-      // Get all instances
-      final allInstances = await queryAllInstances(userId: uid);
+      List<ActivityInstanceRecord> instances;
+      
+      // Optimize: Query by completedAt field at Firestore level
+      try {
+        // Query for items completed on targetDate (completedAt >= start of day AND < end of day)
+        final query = ActivityInstanceRecord.collectionForUser(uid)
+            .where('status', isEqualTo: 'completed')
+            .where('completedAt', isGreaterThanOrEqualTo: targetDate)
+            .where('completedAt', isLessThan: targetDateEnd);
+        final result = await query.get();
+        instances = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) => instance.isActive)
+            .toList();
+      } catch (e) {
+        // Log index error if present
+        logFirestoreIndexError(
+          e,
+          'Get completed items (status=completed, completedAt range query)',
+          'activity_instances',
+        );
+        // Fallback: If composite query fails (e.g., no index), use simple query
+        try {
+          final query = ActivityInstanceRecord.collectionForUser(uid)
+              .where('status', isEqualTo: 'completed')
+              .where('completedAt', isGreaterThanOrEqualTo: targetDate)
+              .where('completedAt', isLessThan: targetDateEnd);
+          final result = await query.get();
+          instances = result.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((instance) => instance.isActive)
+              .toList();
+        } catch (e2) {
+          // Log second error too
+          logFirestoreIndexError(
+            e2,
+            'Get completed items fallback query',
+            'activity_instances',
+          );
+          // Final fallback: Load all and filter in memory
+          instances = await queryAllInstances(userId: uid);
+        }
+      }
 
-      // Filter for items completed on targetDate
-      final completedItems = allInstances.where((instance) {
-        // Must be active
+      // Filter for items completed on targetDate (verify date match)
+      final completedItems = instances.where((instance) {
+        // Must be active (already filtered, but double-check)
         if (!instance.isActive) return false;
 
         // Must be completed on targetDate
@@ -141,8 +254,27 @@ class CalendarQueueService {
 
       return completedItems;
     } catch (e) {
-      // Error getting completed items
-      return [];
+      // Log any unexpected errors
+      logFirestoreIndexError(
+        e,
+        'Get completed items (unexpected error)',
+        'activity_instances',
+      );
+      // Error getting completed items - fallback to original method
+      try {
+        final allInstances = await queryAllInstances(userId: uid);
+        return allInstances.where((instance) {
+          if (!instance.isActive) return false;
+          return _wasCompletedOnDate(instance, targetDate);
+        }).toList();
+      } catch (e2) {
+        logFirestoreIndexError(
+          e2,
+          'Get completed items fallback (queryAllInstances)',
+          'activity_instances',
+        );
+        return [];
+      }
     }
   }
 

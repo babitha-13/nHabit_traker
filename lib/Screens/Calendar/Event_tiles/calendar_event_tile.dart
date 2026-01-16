@@ -14,13 +14,46 @@ class CalendarEventTileBuilder {
   final Set<String> plannedOverlappedEventIds;
   final Function(CalendarEventMetadata) onEditEntry;
 
+  // Cache for label offsets to avoid recalculating on every build
+  Map<String, double> _labelOffsetCache = {};
+  String? _lastCompletedEventsHash;
+  String? _lastPlannedEventsHash;
+
   CalendarEventTileBuilder({
     required this.calculateHeightPerMinute,
     required this.plannedOverlappedEventIds,
     required this.onEditEntry,
   });
 
+  /// Generate hash of event list to detect changes
+  String _generateEventsHash(List<CalendarEventData> events) {
+    if (events.isEmpty) return '';
+    // Create hash from event IDs and order
+    return events.map((e) {
+      final eventId = CalendarOverlapCalculator.stableEventId(e);
+      return eventId ?? '${e.startTime?.millisecondsSinceEpoch}_${e.endTime?.millisecondsSinceEpoch}';
+    }).join('|');
+  }
+
+  /// Invalidate label offset cache if event list has changed
+  void _invalidateCacheIfNeeded(
+    List<CalendarEventData> completedEvents,
+    List<CalendarEventData> plannedEvents,
+  ) {
+    final completedHash = _generateEventsHash(completedEvents);
+    final plannedHash = _generateEventsHash(plannedEvents);
+
+    // Only clear cache if event order changed
+    if (completedHash != _lastCompletedEventsHash ||
+        plannedHash != _lastPlannedEventsHash) {
+      _labelOffsetCache.clear();
+      _lastCompletedEventsHash = completedHash;
+      _lastPlannedEventsHash = plannedHash;
+    }
+  }
+
   /// Calculate label offset for event positioning
+  /// Uses cache to avoid recalculating on every build
   double calculateLabelOffset(
     CalendarEventData event,
     List<CalendarEventData> sortedEvents,
@@ -28,8 +61,21 @@ class CalendarEventTileBuilder {
   ) {
     if (event.startTime == null || event.endTime == null) return 0.0;
 
+    // Generate cache key for this event
+    final eventId = CalendarOverlapCalculator.stableEventId(event) ??
+        '${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
+    final cacheKey = '${isCompletedList ? 'completed' : 'planned'}_$eventId';
+
+    // Check cache first
+    if (_labelOffsetCache.containsKey(cacheKey)) {
+      return _labelOffsetCache[cacheKey]!;
+    }
+
     final index = sortedEvents.indexOf(event);
-    if (index <= 0) return 0.0;
+    if (index <= 0) {
+      _labelOffsetCache[cacheKey] = 0.0;
+      return 0.0;
+    }
 
     final laneFreeY = <double>[];
     final heightPerMinute = calculateHeightPerMinute();
@@ -70,12 +116,13 @@ class CalendarEventTileBuilder {
         laneFreeY[assignedLane] = occupiedBottom;
       }
       if (i == index) {
-        if (hasFloatingLabel) {
-          return assignedLane * 80.0;
-        }
-        return 0.0;
+        final offset = hasFloatingLabel ? assignedLane * 80.0 : 0.0;
+        // Cache the result
+        _labelOffsetCache[cacheKey] = offset;
+        return offset;
       }
     }
+    _labelOffsetCache[cacheKey] = 0.0;
     return 0.0;
   }
 
@@ -89,6 +136,10 @@ class CalendarEventTileBuilder {
     if (event.startTime == null || event.endTime == null) {
       return const SizedBox.shrink();
     }
+    
+    // Invalidate cache if event lists have changed
+    _invalidateCacheIfNeeded(sortedCompletedEvents, sortedPlannedEvents);
+    
     final eventList = isCompleted ? sortedCompletedEvents : sortedPlannedEvents;
     final labelOffset = calculateLabelOffset(event, eventList, isCompleted);
     final duration = event.endTime!.difference(event.startTime!);
@@ -134,8 +185,25 @@ class CalendarEventTileBuilder {
       child: timeBox,
     );
 
+    // Generate stable key for widget to prevent unnecessary rebuilds
+    String? widgetKey;
+    if (eventId != null) {
+      // Use stable event ID, append sessionIndex for completed events to ensure uniqueness
+      if (isCompleted && metadata != null && metadata.sessionIndex >= 0) {
+        widgetKey = '${eventId}_session_${metadata.sessionIndex}';
+      } else {
+        widgetKey = eventId;
+      }
+    } else if (event.startTime != null && event.endTime != null) {
+      // Fallback key based on time if no event ID
+      widgetKey = 'event_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
+    }
+
+    final keyedWidget = widgetKey != null ? Key(widgetKey) : null;
+
     if (isThinLine) {
       return OverflowBox(
+        key: keyedWidget,
         minHeight: 0,
         maxHeight: double.infinity,
         alignment: Alignment.centerLeft,
@@ -161,6 +229,7 @@ class CalendarEventTileBuilder {
     }
 
     return OverflowBox(
+      key: keyedWidget,
       minHeight: 0,
       maxHeight: double.infinity,
       alignment: Alignment.topLeft,

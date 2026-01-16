@@ -2,6 +2,7 @@ import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Calendar/calender_page_ui.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
@@ -473,15 +474,40 @@ class _CalendarPageState extends State<CalendarPage> {
       }
     }
     if (affectsPlannedSection) {
+      // Find and remove the event(s) for this instance
+      CalendarEventData? removedEvent;
       _plannedEventController.removeWhere((e) {
         final metadata = CalendarEventMetadata.fromMap(e.event);
-        return metadata?.instanceId == instanceId;
+        if (metadata?.instanceId == instanceId) {
+          removedEvent = e;
+          return true;
+        }
+        return false;
       });
+      
+      final removedEventId = removedEvent != null ? CalendarOverlapCalculator.stableEventId(removedEvent!) : null;
       _sortedPlannedEvents.removeWhere((e) {
         final metadata = CalendarEventMetadata.fromMap(e.event);
         return metadata?.instanceId == instanceId;
       });
-      final overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
+      
+      // Use incremental overlap update if possible
+      PlannedOverlapInfo overlapInfo;
+      if (removedEventId != null && _plannedOverlapPairCount > 0) {
+        overlapInfo = CalendarOverlapCalculator.updateOverlapsAfterRemoval(
+          removedEventId,
+          _sortedPlannedEvents,
+          PlannedOverlapInfo(
+            pairCount: _plannedOverlapPairCount,
+            overlappedIds: _plannedOverlappedEventIds,
+            groups: _plannedOverlapGroups,
+          ),
+        );
+      } else {
+        // Fallback to full recompute
+        overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
+      }
+      
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
         ..clear()
@@ -514,6 +540,29 @@ class _CalendarPageState extends State<CalendarPage> {
               final metadata = CalendarEventMetadata.fromMap(e.event);
               return metadata?.instanceId == instanceId;
             });
+            
+            // Use incremental overlap update if possible
+            if (_sortedPlannedEvents.isNotEmpty) {
+              final removedEventId = instanceId;
+              final overlapInfo = CalendarOverlapCalculator.updateOverlapsAfterRemoval(
+                removedEventId,
+                _sortedPlannedEvents,
+                PlannedOverlapInfo(
+                  pairCount: _plannedOverlapPairCount,
+                  overlappedIds: _plannedOverlappedEventIds,
+                  groups: _plannedOverlapGroups,
+                ),
+              );
+              _plannedOverlapPairCount = overlapInfo.pairCount;
+              _plannedOverlappedEventIds
+                ..clear()
+                ..addAll(overlapInfo.overlappedIds);
+              _plannedOverlapGroups = overlapInfo.groups;
+            } else {
+              _plannedOverlapPairCount = 0;
+              _plannedOverlappedEventIds.clear();
+              _plannedOverlapGroups = [];
+            }
           }
         });
         _loadEvents();
@@ -631,7 +680,28 @@ class _CalendarPageState extends State<CalendarPage> {
         return a.startTime!.compareTo(b.startTime!);
       });
       _plannedEventController.add(newEvent);
-      final overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
+      
+      // Use incremental overlap update if possible
+      PlannedOverlapInfo overlapInfo;
+      if (_plannedOverlapPairCount == 0 && _sortedPlannedEvents.length == 1) {
+        // No overlaps possible with just one event
+        overlapInfo = PlannedOverlapInfo(
+          pairCount: 0,
+          overlappedIds: {},
+          groups: [],
+        );
+      } else {
+        overlapInfo = CalendarOverlapCalculator.updateOverlapsAfterAdd(
+          newEvent,
+          _sortedPlannedEvents,
+          PlannedOverlapInfo(
+            pairCount: _plannedOverlapPairCount,
+            overlappedIds: _plannedOverlappedEventIds,
+            groups: _plannedOverlapGroups,
+          ),
+        );
+      }
+      
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
         ..clear()
@@ -641,6 +711,72 @@ class _CalendarPageState extends State<CalendarPage> {
     } catch (e) {
       _loadEvents();
     }
+  }
+
+  /// Helper to get stable event ID for comparison
+  String? _getEventId(CalendarEventData event) {
+    return CalendarOverlapCalculator.stableEventId(event);
+  }
+
+  /// Efficiently update event controllers by comparing old and new events
+  /// This minimizes rebuilds by only updating changed events
+  void _updateEventControllers(
+    List<CalendarEventData> newCompletedEvents,
+    List<CalendarEventData> newPlannedEvents,
+  ) {
+    // Build maps of new events by ID for quick lookup
+    final newCompletedMap = <String, CalendarEventData>{};
+    final newPlannedMap = <String, CalendarEventData>{};
+    
+    for (final event in newCompletedEvents) {
+      final id = _getEventId(event);
+      if (id != null) newCompletedMap[id] = event;
+    }
+    
+    for (final event in newPlannedEvents) {
+      final id = _getEventId(event);
+      if (id != null) newPlannedMap[id] = event;
+    }
+
+    // Build maps of current events
+    final currentCompletedMap = <String, CalendarEventData>{};
+    final currentPlannedMap = <String, CalendarEventData>{};
+    
+    for (final event in _completedEventController.events) {
+      final id = _getEventId(event);
+      if (id != null) currentCompletedMap[id] = event;
+    }
+    
+    for (final event in _plannedEventController.events) {
+      final id = _getEventId(event);
+      if (id != null) currentPlannedMap[id] = event;
+    }
+
+    // Only update if events actually changed (by ID)
+    final completedChanged = !_mapsEqual(currentCompletedMap, newCompletedMap);
+    final plannedChanged = !_mapsEqual(currentPlannedMap, newPlannedMap);
+
+    if (completedChanged || plannedChanged) {
+      // Batch all controller updates before setState
+      if (completedChanged) {
+        _completedEventController.removeWhere((e) => true);
+        _completedEventController.addAll(newCompletedEvents);
+      }
+      
+      if (plannedChanged) {
+        _plannedEventController.removeWhere((e) => true);
+        _plannedEventController.addAll(newPlannedEvents);
+      }
+    }
+  }
+
+  /// Compare two event maps for equality by ID
+  bool _mapsEqual(Map<String, CalendarEventData> map1, Map<String, CalendarEventData> map2) {
+    if (map1.length != map2.length) return false;
+    for (final key in map1.keys) {
+      if (!map2.containsKey(key)) return false;
+    }
+    return true;
   }
 
   Future<void> _loadEvents() async {
@@ -665,11 +801,34 @@ class _CalendarPageState extends State<CalendarPage> {
         ..clear()
         ..addAll(overlapInfo.overlappedIds);
       _plannedOverlapGroups = overlapInfo.groups;
-      _completedEventController.removeWhere((e) => true);
-      _plannedEventController.removeWhere((e) => true);
-      _completedEventController.addAll(result.completedEvents);
-      _plannedEventController.addAll(result.plannedEvents);
+      
+      // Use optimized update method instead of clear/addAll
+      _updateEventControllers(result.completedEvents, result.plannedEvents);
+      
       if (mounted) setState(() {});
+    } catch (e, stackTrace) {
+      // Log errors, especially index errors
+      print('❌ Calendar page error loading events:');
+      print('   Error: $e');
+      print('   Stack trace: $stackTrace');
+      
+      // Check if it's an index error and log it
+      logFirestoreIndexError(
+        e,
+        'Calendar page loadEvents (multiple queries)',
+        'activity_instances',
+      );
+      
+      // Show empty state on error (events will be empty)
+      if (mounted) {
+        _sortedCompletedEvents = [];
+        _sortedPlannedEvents = [];
+        _plannedOverlapPairCount = 0;
+        _plannedOverlappedEventIds.clear();
+        _plannedOverlapGroups = [];
+        _updateEventControllers([], []);
+        setState(() {});
+      }
     } finally {
       if (mounted) {
         setState(() {

@@ -30,18 +30,12 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
   @override
   void didUpdateWidget(covariant CumulativeScoreGraph oldWidget) {
     super.didUpdateWidget(oldWidget);
-    // Check if history length changed
+    // Check if history length changed - scroll to latest point
     if (widget.history.length != oldWidget.history.length) {
       _jumpToLatestPoint();
-    } else if (widget.history.isNotEmpty && oldWidget.history.isNotEmpty) {
-      // Check if the last item's score changed (for live updates)
-      final lastScore = widget.history.last['score'] as double;
-      final oldLastScore = oldWidget.history.last['score'] as double;
-      if (lastScore != oldLastScore) {
-        // Data changed, trigger repaint by calling setState
-        setState(() {});
-      }
     }
+    // Note: We don't need setState here - the widget already rebuilds with new data
+    // The custom painter's shouldRepaint method will efficiently handle repainting
   }
 
   @override
@@ -94,8 +88,8 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
     final scaleLabels = _buildScaleLabels(minScore, adjustedRange);
     const visibleDays = 7.0;
     final dayWidth = constraints.maxWidth / visibleDays;
-    final totalWidth =
-        math.max(dayWidth * widget.history.length, constraints.maxWidth);
+    // Ensure width is enough for 7 data points even if history has fewer
+    final totalWidth = dayWidth * math.max(widget.history.length, visibleDays);
     const verticalPadding = 8.0; // top + bottom padding
     const labelAreaHeight = 18.0;
     final graphHeight = math.max(
@@ -123,19 +117,11 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                   children: [
                     SizedBox(
                       height: graphHeight,
-                      child: CustomPaint(
-                        key: ValueKey(
-                          widget.history.isNotEmpty
-                              ? widget.history.last['score'] as double
-                              : 0.0,
-                        ),
-                        painter: CumulativeScoreLinePainter(
-                          data: widget.history,
-                          minScore: minScore,
-                          maxScore: adjustedMax,
-                          scoreRange: adjustedRange,
-                          color: widget.color,
-                        ),
+                      child: _buildOptimizedChart(
+                        minScore: minScore,
+                        maxScore: adjustedMax,
+                        scoreRange: adjustedRange,
+                        graphHeight: graphHeight,
                       ),
                     ),
                     SizedBox(
@@ -207,19 +193,69 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
 
   List<_DateLabel> _generateDateLabels(List<Map<String, dynamic>> history) {
     if (history.isEmpty) return [];
-    final indices = <int>{};
-    const step = 3;
+    // Only show today's label (last point)
     final lastIndex = history.length - 1;
-    for (int i = 0; i <= lastIndex; i++) {
-      if (i % step == 0) {
-        indices.add(i);
-      }
+    return [_DateLabel(lastIndex, history[lastIndex]['date'] as DateTime)];
+  }
+
+  /// Build optimized chart with split painters for better performance
+  /// Historical data (static) and current day (dynamic) are painted separately
+  Widget _buildOptimizedChart({
+    required double minScore,
+    required double maxScore,
+    required double scoreRange,
+    required double graphHeight,
+  }) {
+    if (widget.history.isEmpty) {
+      return const SizedBox.shrink();
     }
-    indices.add(lastIndex);
-    final labels = indices.toList()..sort();
-    return labels
-        .map((index) => _DateLabel(index, history[index]['date'] as DateTime))
-        .toList();
+
+    // Split data: historical (all but last) and current day (last)
+    final historicalData = widget.history.length > 1
+        ? widget.history.sublist(0, widget.history.length - 1)
+        : <Map<String, dynamic>>[];
+    final currentDayData = widget.history.last;
+    final previousDayData = widget.history.length > 1
+        ? widget.history[widget.history.length - 2]
+        : null;
+
+    return Stack(
+      children: [
+        // Historical data painter (static - rarely repaints)
+        // Wrap in RepaintBoundary for extra isolation
+        if (historicalData.isNotEmpty)
+          RepaintBoundary(
+            child: CustomPaint(
+              size: Size(double.infinity, graphHeight),
+              painter: CumulativeScoreHistoricalPainter(
+                historicalData: historicalData,
+                minScore: minScore,
+                maxScore: maxScore,
+                scoreRange: scoreRange,
+                color: widget.color,
+                totalDataPoints: widget.history.length,
+              ),
+            ),
+          ),
+        // Current day painter (dynamic - repaints frequently)
+        // Only this repaints when score updates, not the entire chart
+        CustomPaint(
+          key: ValueKey(
+            'current_${currentDayData['score'] as double}',
+          ),
+          size: Size(double.infinity, graphHeight),
+          painter: CumulativeScoreCurrentDayPainter(
+            previousDayData: previousDayData,
+            currentDayData: currentDayData,
+            minScore: minScore,
+            maxScore: maxScore,
+            scoreRange: scoreRange,
+            color: widget.color,
+            totalDataPoints: widget.history.length,
+          ),
+        ),
+      ],
+    );
   }
 }
 

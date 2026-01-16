@@ -55,7 +55,8 @@ class _TaskPageState extends State<TaskPage> {
   final SearchStateManager _searchManager = SearchStateManager();
   // Cache for bucketed items to avoid recalculation on every build
   Map<String, List<dynamic>>? _cachedBucketedItems;
-  int _taskInstancesHashCode = 0;
+  int _taskInstancesHashCode = 0; // Current hash of instances
+  int _lastCachedTaskInstancesHash = 0; // Hash used when cache was built
   String _lastSearchQuery = '';
   int _lastCompletionTimeFrame = 2;
   String? _lastCategoryName;
@@ -72,8 +73,11 @@ class _TaskPageState extends State<TaskPage> {
     _quickHoursController.text = _quickTargetDuration.inHours.toString();
     _quickMinutesController.text =
         (_quickTargetDuration.inMinutes % 60).toString();
-    _loadExpansionState();
-    _loadData();
+    // Load expansion state and data in parallel for faster initialization
+    Future.wait([
+      _loadExpansionState(),
+      _loadData(),
+    ]);
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
     // Listen for instance events
@@ -145,11 +149,14 @@ class _TaskPageState extends State<TaskPage> {
 
   void _onSearchChanged(String query) {
     if (mounted) {
-      setState(() {
-        _searchQuery = query;
-        // Invalidate cache when search query changes
-        _cachedBucketedItems = null;
-      });
+      // Only update if value actually changed
+      if (_searchQuery != query) {
+        setState(() {
+          _searchQuery = query;
+          // Invalidate cache when search query changes
+          _cachedBucketedItems = null;
+        });
+      }
     }
   }
 
@@ -163,6 +170,7 @@ class _TaskPageState extends State<TaskPage> {
               RefreshIndicator(
                 onRefresh: _loadData,
                 child: CustomScrollView(
+                  cacheExtent: 500.0, // Cache 500px worth of items above/below viewport for better scroll performance
                   slivers: [
                     ..._buildSections(),
                   ],
@@ -172,6 +180,7 @@ class _TaskPageState extends State<TaskPage> {
                 right: 16,
                 bottom: 16,
                 child: FloatingActionButton(
+                  heroTag: 'fab_add_task',
                   onPressed: _showQuickAddBottomSheet,
                   backgroundColor: theme.primary,
                   child: const Icon(Icons.add, color: Colors.white),
@@ -185,7 +194,10 @@ class _TaskPageState extends State<TaskPage> {
 
   Future<void> _loadData() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    // Only set loading state if it's not already true
+    if (!_isLoading) {
+      setState(() => _isLoading = true);
+    }
     try {
       final uid = currentUserUid;
       if (uid.isEmpty) {
@@ -194,8 +206,19 @@ class _TaskPageState extends State<TaskPage> {
         }
         return;
       }
-      final instances = await queryAllTaskInstances(userId: uid);
+      // Load instances and categories in parallel for faster data loading
+      final results = await Future.wait([
+        queryAllTaskInstances(userId: uid),
+        queryTaskCategoriesOnce(
+          userId: uid,
+          callerTag: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
+        ),
+      ]);
       if (!mounted) return;
+      
+      final instances = results[0] as List<ActivityInstanceRecord>;
+      final categories = results[1] as List<CategoryRecord>;
+      
       final categoryFiltered = instances.where((inst) {
         final matches = (widget.categoryName == null ||
             inst.templateCategoryName == widget.categoryName);
@@ -203,19 +226,21 @@ class _TaskPageState extends State<TaskPage> {
       }).toList();
       final sortedInstances =
           InstanceOrderService.sortInstancesByOrder(categoryFiltered, 'tasks');
-      final categories = await queryTaskCategoriesOnce(
-        userId: uid,
-        callerTag: 'TaskPage._loadDataSilently.${widget.categoryName ?? 'all'}',
-      );
       if (!mounted) return;
 
       if (mounted) {
+        // Calculate hash code when data changes (not in getter)
+        final newHash = sortedInstances.length.hashCode ^
+            sortedInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        
         setState(() {
           _categories = categories;
           // Store all instances
           _taskInstances = sortedInstances;
           // Invalidate cache when instances change
           _cachedBucketedItems = null;
+          // Update hash code when data changes
+          _taskInstancesHashCode = newHash;
           if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
             final currentCategory = _resolveQuickAddCategory(categories);
             _selectedQuickCategoryId = currentCategory.reference.id;
@@ -230,8 +255,9 @@ class _TaskPageState extends State<TaskPage> {
             sortedInstances, 'tasks');
       } catch (_) {}
     } catch (e) {
-      setState(() => _isLoading = false);
+      // Batch state updates for error case
       if (mounted) {
+        setState(() => _isLoading = false);
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error loading tasks: $e')),
         );
@@ -412,13 +438,25 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Map<String, List<dynamic>> get _bucketedItems {
+    // Hash codes are now calculated when data changes, not in getter
+    // This avoids expensive hash calculations on every build
+    // Compare current hash code with cached one to detect data changes
+    final cacheInvalid = _cachedBucketedItems == null ||
+        _taskInstancesHashCode != _lastCachedTaskInstancesHash ||
+        _searchQuery != _lastSearchQuery ||
+        _completionTimeFrame != _lastCompletionTimeFrame ||
+        widget.categoryName != _lastCategoryName;
+
+    if (!cacheInvalid && _cachedBucketedItems != null) {
+      return _cachedBucketedItems!;
+    }
 
     final result = TaskBucketingLogicHelper.getBucketedItems(
       taskInstances: _taskInstances,
       searchQuery: _searchQuery,
       completionTimeFrame: _completionTimeFrame,
       categoryName: widget.categoryName,
-      cachedBucketedItems: _cachedBucketedItems,
+      cachedBucketedItems: null, // Always recalculate if cache invalid
       taskInstancesHashCode: _taskInstancesHashCode,
       lastSearchQuery: _lastSearchQuery,
       lastCompletionTimeFrame: _lastCompletionTimeFrame,
@@ -431,11 +469,9 @@ class _TaskPageState extends State<TaskPage> {
       expandedSections: _expandedSections,
     );
 
-    // Update cache state
-    final newHash = _taskInstances.length.hashCode ^
-        _taskInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    // Update cache state - hash codes are already updated when data changes
     _cachedBucketedItems = result;
-    _taskInstancesHashCode = newHash;
+    _lastCachedTaskInstancesHash = _taskInstancesHashCode;
     _lastSearchQuery = _searchQuery;
     _lastCompletionTimeFrame = _completionTimeFrame;
     _lastCategoryName = widget.categoryName;
@@ -475,15 +511,22 @@ class _TaskPageState extends State<TaskPage> {
       updatedInstance: updatedInstance,
       taskInstances: _taskInstances,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
       loadDataSilently: _loadDataSilently,
     );
@@ -494,15 +537,22 @@ class _TaskPageState extends State<TaskPage> {
       deletedInstance: deletedInstance,
       taskInstances: _taskInstances,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
     );
   }
@@ -524,11 +574,15 @@ class _TaskPageState extends State<TaskPage> {
       final sortedInstances =
           InstanceOrderService.sortInstancesByOrder(categoryFiltered, 'tasks');
       if (mounted) {
+        // Calculate hash code when data changes
+        final newHash = sortedInstances.length.hashCode ^
+            sortedInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _categories = categories;
           _taskInstances = sortedInstances;
           // Invalidate cache when instances change
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       }
       // Best-effort initialize missing order values (safe, caught).
@@ -556,9 +610,13 @@ class _TaskPageState extends State<TaskPage> {
       taskInstances: _taskInstances,
       optimisticOperations: _optimisticOperations,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onOptimisticOperationsUpdate: (updated) {
@@ -568,9 +626,12 @@ class _TaskPageState extends State<TaskPage> {
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
     );
   }
@@ -583,9 +644,13 @@ class _TaskPageState extends State<TaskPage> {
       reorderingInstanceIds: _reorderingInstanceIds,
       optimisticOperations: _optimisticOperations,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onOptimisticOperationsUpdate: (updated) {
@@ -595,9 +660,12 @@ class _TaskPageState extends State<TaskPage> {
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
     );
   }
@@ -608,9 +676,13 @@ class _TaskPageState extends State<TaskPage> {
       taskInstances: _taskInstances,
       optimisticOperations: _optimisticOperations,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onOptimisticOperationsUpdate: (updated) {
@@ -620,9 +692,12 @@ class _TaskPageState extends State<TaskPage> {
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
       revertOptimisticUpdate: (instanceId) {
         TaskEventHandlersHelper.revertOptimisticUpdate(
@@ -650,15 +725,22 @@ class _TaskPageState extends State<TaskPage> {
       categoryName: widget.categoryName,
       taskInstances: _taskInstances,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
     );
   }
@@ -674,9 +756,13 @@ class _TaskPageState extends State<TaskPage> {
       taskInstances: _taskInstances,
       reorderingInstanceIds: _reorderingInstanceIds,
       onTaskInstancesUpdate: (updated) {
+        // Recalculate hash code when instances change
+        final newHash = updated.length.hashCode ^
+            updated.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _taskInstances = updated;
           _cachedBucketedItems = null;
+          _taskInstancesHashCode = newHash;
         });
       },
       onReorderingInstanceIdsUpdate: (updated) {
@@ -685,9 +771,12 @@ class _TaskPageState extends State<TaskPage> {
         });
       },
       onCacheInvalidate: () {
-        setState(() {
-          _cachedBucketedItems = null;
-        });
+        // Only invalidate if cache exists
+        if (_cachedBucketedItems != null) {
+          setState(() {
+            _cachedBucketedItems = null;
+          });
+        }
       },
       loadData: _loadData,
       context: context,

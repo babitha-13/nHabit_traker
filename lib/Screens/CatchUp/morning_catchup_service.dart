@@ -22,6 +22,9 @@ class MorningCatchUpService {
   static const String _reminderCountDateKey =
       'morning_catchup_reminder_count_date';
   static const int maxReminderCount = 2;
+  
+  // Store pending toast data to show after catch-up dialog closes
+  static Map<String, dynamic>? _pendingToastData;
 
   /// Pure check: Does the user have pending items from yesterday?
   /// This method has NO side effects - it only queries and returns a boolean
@@ -124,19 +127,117 @@ class MorningCatchUpService {
         return true;
       }
 
-      // Check for task instances due specifically on yesterday (not older)
+      // Tasks are not checked - dialog only shows for habits
+      // Tasks cannot be skipped via the dialog, so they shouldn't trigger it
+      return false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  /// Get incomplete items from yesterday ONLY (not older items)
+  /// Optimized to run habit and task queries in parallel
+  static Future<List<ActivityInstanceRecord>> getIncompleteItemsFromYesterday(
+      String userId) async {
+    try {
+      final yesterday = DateService.yesterdayStart;
+      final today = DateService.todayStart;
+      final List<ActivityInstanceRecord> items = [];
+
+      // Run habit and task queries in parallel for better performance
+      final results = await Future.wait([
+        _getHabitItemsFromYesterday(userId, yesterday, today),
+        _getTaskItemsFromYesterday(userId, yesterday, today),
+      ]);
+
+      items.addAll(results[0]); // Habit items
+      items.addAll(results[1]); // Task items
+
+      return items;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Get habit instances from yesterday (helper method for parallel execution)
+  static Future<List<ActivityInstanceRecord>> _getHabitItemsFromYesterday(
+      String userId, DateTime yesterday, DateTime today) async {
+    try {
+      final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('status', isEqualTo: 'pending')
+          .where('windowEndDate', isLessThanOrEqualTo: today)
+          .orderBy('windowEndDate', descending: false);
+      final habitSnapshot = await habitQuery.get();
+      // Filter to ONLY yesterday's items: belongsToDate is yesterday OR windowEndDate is yesterday
+      final habitItems = habitSnapshot.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .where((item) {
+        if (item.status != 'pending' || item.skippedAt != null) {
+          return false; // Exclude skipped/completed items
+        }
+        // Check if this item belongs to yesterday
+        if (item.belongsToDate != null) {
+          final belongsToDateOnly = DateTime(
+            item.belongsToDate!.year,
+            item.belongsToDate!.month,
+            item.belongsToDate!.day,
+          );
+          if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
+            return true; // This habit belongs to yesterday
+          }
+        }
+        // Also check windowEndDate - if it's yesterday, the habit window ended yesterday
+        if (item.windowEndDate != null) {
+          final windowEndDateOnly = DateTime(
+            item.windowEndDate!.year,
+            item.windowEndDate!.month,
+            item.windowEndDate!.day,
+          );
+          if (windowEndDateOnly.isAtSameMomentAs(yesterday)) {
+            return true; // This habit's window ended yesterday
+          }
+        }
+        return false; // Not from yesterday
+      }).toList();
+      return habitItems;
+    } catch (e) {
+      print(
+          '❌ MISSING INDEX: getIncompleteItemsFromYesterday habitQuery needs Index 2');
+      print(
+          'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+      print('Collection: activity_instances');
+      print('Full error: $e');
+      if (e.toString().contains('index') ||
+          e.toString().contains('https://')) {
+        print(
+            '📋 Look for the Firestore index creation link in the error message above!');
+        print('   Click the link to create the index automatically.');
+      }
+      // Return empty list on error, continue with tasks
+      return [];
+    }
+  }
+
+  /// Get task instances from yesterday (helper method for parallel execution)
+  static Future<List<ActivityInstanceRecord>> _getTaskItemsFromYesterday(
+      String userId, DateTime yesterday, DateTime today) async {
+    try {
       final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'task')
           .where('status', isEqualTo: 'pending')
           .where('dueDate', isGreaterThanOrEqualTo: yesterday)
           .where('dueDate', isLessThanOrEqualTo: today)
-          .limit(50); // Get more to filter client-side
+          .orderBy('dueDate', descending: false);
       final taskSnapshot = await taskQuery.get();
-      // Filter to ONLY yesterday's tasks
-      final yesterdayTasks = taskSnapshot.docs
+      // Filter to ONLY yesterday's tasks: dueDate is exactly yesterday
+      final taskItems = taskSnapshot.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((item) {
-        if (item.skippedAt != null) return false;
+        if (item.status != 'pending' || item.skippedAt != null) {
+          return false; // Exclude skipped/completed items
+        }
+        // Check if dueDate is exactly yesterday
         if (item.dueDate != null) {
           final dueDateOnly = DateTime(
             item.dueDate!.year,
@@ -146,128 +247,22 @@ class MorningCatchUpService {
           return dueDateOnly.isAtSameMomentAs(yesterday);
         }
         return false;
-      });
-      if (yesterdayTasks.isNotEmpty) {
-        return true;
-      }
-
-      return false;
+      }).toList();
+      return taskItems;
     } catch (e) {
-      return false;
-    }
-  }
-
-  /// Get incomplete items from yesterday ONLY (not older items)
-  static Future<List<ActivityInstanceRecord>> getIncompleteItemsFromYesterday(
-      String userId) async {
-    try {
-      final yesterday = DateService.yesterdayStart;
-      final today = DateService.todayStart;
-      final List<ActivityInstanceRecord> items = [];
-
-      // Get habit instances that belong to yesterday specifically
-      // For habits, check if belongsToDate is yesterday OR windowEndDate is yesterday
-      try {
-        final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateCategoryType', isEqualTo: 'habit')
-            .where('status', isEqualTo: 'pending')
-            .where('windowEndDate', isLessThanOrEqualTo: today)
-            .orderBy('windowEndDate', descending: false);
-        final habitSnapshot = await habitQuery.get();
-        // Filter to ONLY yesterday's items: belongsToDate is yesterday OR windowEndDate is yesterday
-        final habitItems = habitSnapshot.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((item) {
-          if (item.status != 'pending' || item.skippedAt != null) {
-            return false; // Exclude skipped/completed items
-          }
-          // Check if this item belongs to yesterday
-          if (item.belongsToDate != null) {
-            final belongsToDateOnly = DateTime(
-              item.belongsToDate!.year,
-              item.belongsToDate!.month,
-              item.belongsToDate!.day,
-            );
-            if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
-              return true; // This habit belongs to yesterday
-            }
-          }
-          // Also check windowEndDate - if it's yesterday, the habit window ended yesterday
-          if (item.windowEndDate != null) {
-            final windowEndDateOnly = DateTime(
-              item.windowEndDate!.year,
-              item.windowEndDate!.month,
-              item.windowEndDate!.day,
-            );
-            if (windowEndDateOnly.isAtSameMomentAs(yesterday)) {
-              return true; // This habit's window ended yesterday
-            }
-          }
-          return false; // Not from yesterday
-        }).toList();
-        items.addAll(habitItems);
-      } catch (e) {
+      print(
+          '❌ MISSING INDEX: getIncompleteItemsFromYesterday taskQuery needs Index 2');
+      print(
+          'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
+      print('Collection: activity_instances');
+      print('Full error: $e');
+      if (e.toString().contains('index') ||
+          e.toString().contains('https://')) {
         print(
-            '❌ MISSING INDEX: getIncompleteItemsFromYesterday habitQuery needs Index 2');
-        print(
-            'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
-        print('Collection: activity_instances');
-        print('Full error: $e');
-        if (e.toString().contains('index') ||
-            e.toString().contains('https://')) {
-          print(
-              '📋 Look for the Firestore index creation link in the error message above!');
-          print('   Click the link to create the index automatically.');
-        }
-        // Continue with tasks even if habits query fails
+            '📋 Look for the Firestore index creation link in the error message above!');
+        print('   Click the link to create the index automatically.');
       }
-
-      // Get task instances that are due specifically on yesterday (not older)
-      try {
-        final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateCategoryType', isEqualTo: 'task')
-            .where('status', isEqualTo: 'pending')
-            .where('dueDate', isGreaterThanOrEqualTo: yesterday)
-            .where('dueDate', isLessThanOrEqualTo: today)
-            .orderBy('dueDate', descending: false);
-        final taskSnapshot = await taskQuery.get();
-        // Filter to ONLY yesterday's tasks: dueDate is exactly yesterday
-        final taskItems = taskSnapshot.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((item) {
-          if (item.status != 'pending' || item.skippedAt != null) {
-            return false; // Exclude skipped/completed items
-          }
-          // Check if dueDate is exactly yesterday
-          if (item.dueDate != null) {
-            final dueDateOnly = DateTime(
-              item.dueDate!.year,
-              item.dueDate!.month,
-              item.dueDate!.day,
-            );
-            return dueDateOnly.isAtSameMomentAs(yesterday);
-          }
-          return false;
-        }).toList();
-        items.addAll(taskItems);
-      } catch (e) {
-        print(
-            '❌ MISSING INDEX: getIncompleteItemsFromYesterday taskQuery needs Index 2');
-        print(
-            'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
-        print('Collection: activity_instances');
-        print('Full error: $e');
-        if (e.toString().contains('index') ||
-            e.toString().contains('https://')) {
-          print(
-              '📋 Look for the Firestore index creation link in the error message above!');
-          print('   Click the link to create the index automatically.');
-        }
-        // Return items collected so far
-      }
-
-      return items;
-    } catch (e) {
+      // Return empty list on error
       return [];
     }
   }
@@ -517,6 +512,31 @@ class MorningCatchUpService {
     }
   }
 
+  /// Show pending toasts that were stored when suppressToasts was true
+  /// This should be called after the catch-up dialog closes and scores are recalculated
+  static void showPendingToasts() {
+    if (_pendingToastData != null) {
+      // Show bonus notifications
+      BonusNotificationFormatter.showBonusNotifications(_pendingToastData!);
+
+      // Show milestone achievements
+      final newMilestones =
+          _pendingToastData!['newMilestones'] as List<dynamic>? ?? [];
+      if (newMilestones.isNotEmpty) {
+        final milestoneValues = newMilestones.map((m) => m as int).toList();
+        MilestoneToastService.showMultipleMilestones(milestoneValues);
+      }
+
+      // Clear pending data after showing
+      _pendingToastData = null;
+    }
+  }
+
+  /// Clear pending toast data (useful for cleanup)
+  static void clearPendingToasts() {
+    _pendingToastData = null;
+  }
+
   /// Instance handling for day transition (no scoring/persistence)
   static Future<void> runInstanceMaintenanceForDayTransition(
       String userId) async {
@@ -528,21 +548,25 @@ class MorningCatchUpService {
 
   /// Persist points/scores for a specific date
   /// If [overwriteExisting] is true, existing records are recalculated
+  /// [suppressToasts] - If true, toasts will be stored and shown later via showPendingToasts()
   static Future<void> persistScoresForDate({
     required String userId,
     required DateTime targetDate,
     bool overwriteExisting = false,
+    bool suppressToasts = false,
   }) async {
     if (overwriteExisting) {
       await recalculateDailyProgressRecordForDate(
         userId: userId,
         targetDate: targetDate,
+        suppressToasts: suppressToasts,
       );
       return;
     }
     await createDailyProgressRecordForDate(
       userId: userId,
       targetDate: targetDate,
+      suppressToasts: suppressToasts,
     );
   }
 
@@ -555,9 +579,11 @@ class MorningCatchUpService {
   /// Recalculate and update daily progress record for a specific date
   /// This deletes the existing record (if any) and creates a new one with updated data
   /// Used when user completes items in morning catch-up dialog to ensure cumulative score is recalculated
+  /// [suppressToasts] - If true, toasts will be stored and shown later via showPendingToasts()
   static Future<void> recalculateDailyProgressRecordForDate({
     required String userId,
     required DateTime targetDate,
+    bool suppressToasts = false,
   }) async {
     try {
       final normalizedDate =
@@ -580,6 +606,7 @@ class MorningCatchUpService {
       await createDailyProgressRecordForDate(
         userId: userId,
         targetDate: targetDate,
+        suppressToasts: suppressToasts,
       );
     } catch (e) {
       // Error recalculating record - log but don't throw
@@ -594,12 +621,14 @@ class MorningCatchUpService {
   /// [allInstances] - Optional: Pre-fetched habit instances to avoid redundant queries
   /// [allTaskInstances] - Optional: Pre-fetched task instances to avoid redundant queries
   /// [categories] - Optional: Pre-fetched categories to avoid redundant queries
+  /// [suppressToasts] - If true, toasts will be stored and shown later via showPendingToasts()
   static Future<void> createDailyProgressRecordForDate({
     required String userId,
     required DateTime targetDate,
     List<ActivityInstanceRecord>? allInstances,
     List<ActivityInstanceRecord>? allTaskInstances,
     List<CategoryRecord>? categories,
+    bool suppressToasts = false,
   }) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
@@ -796,16 +825,22 @@ class MorningCatchUpService {
             categoryNeglectPenalty: categoryNeglectPenalty,
           );
 
-          // Show bonus notifications
-          BonusNotificationFormatter.showBonusNotifications(
-              cumulativeScoreData);
+          // Show bonus notifications or store them for later
+          if (suppressToasts) {
+            // Store toast data to show after catch-up dialog closes
+            _pendingToastData = cumulativeScoreData;
+          } else {
+            // Show toasts immediately
+            BonusNotificationFormatter.showBonusNotifications(
+                cumulativeScoreData);
 
-          // Show milestone achievements
-          final newMilestones =
-              cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
-          if (newMilestones.isNotEmpty) {
-            final milestoneValues = newMilestones.map((m) => m as int).toList();
-            MilestoneToastService.showMultipleMilestones(milestoneValues);
+            // Show milestone achievements
+            final newMilestones =
+                cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
+            if (newMilestones.isNotEmpty) {
+              final milestoneValues = newMilestones.map((m) => m as int).toList();
+              MilestoneToastService.showMultipleMilestones(milestoneValues);
+            }
           }
         } catch (e) {
           // Error calculating cumulative score

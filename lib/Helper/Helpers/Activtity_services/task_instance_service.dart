@@ -17,6 +17,9 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/timer_activities
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/recurrence_calculator.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/habit_tracking_util.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/template_sync_helper.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -209,12 +212,20 @@ class TaskInstanceService {
         OptimisticOperationTracker.reconcileOperation(
             operationId, updatedInstance);
 
-        // Get the template to check if it's recurring
-        final templateRef =
-            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-        final templateDoc = await templateRef.get();
-        if (templateDoc.exists) {
-          final template = ActivityRecord.fromSnapshot(templateDoc);
+        // Get the template to check if it's recurring - check cache first
+        final cache = FirestoreCacheService();
+        ActivityRecord? template = cache.getCachedTemplate(instance.templateId);
+        if (template == null) {
+          final templateRef =
+              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+          final templateDoc = await templateRef.get();
+          if (templateDoc.exists) {
+            template = ActivityRecord.fromSnapshot(templateDoc);
+            cache.cacheTemplate(instance.templateId, template);
+          }
+        }
+        if (template != null) {
+          final templateRef = template.reference;
           // Generate next instance if task is recurring and still active
           if (template.isRecurring &&
               template.isActive &&
@@ -285,12 +296,20 @@ class TaskInstanceService {
         'notes': notes ?? instance.notes,
         'lastUpdated': now,
       });
-      // Get the template to check if it's recurring
-      final templateRef =
-          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-      final templateDoc = await templateRef.get();
-      if (templateDoc.exists) {
-        final template = ActivityRecord.fromSnapshot(templateDoc);
+      // Get the template to check if it's recurring - check cache first
+      final cache = FirestoreCacheService();
+      ActivityRecord? template = cache.getCachedTemplate(instance.templateId);
+      if (template == null) {
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+        final templateDoc = await templateRef.get();
+        if (templateDoc.exists) {
+          template = ActivityRecord.fromSnapshot(templateDoc);
+          cache.cacheTemplate(instance.templateId, template);
+        }
+      }
+      if (template != null) {
+        final templateRef = template.reference;
         // Generate next instance if task is recurring
         if (template.isRecurring &&
             template.frequencyType.isNotEmpty &&
@@ -359,17 +378,22 @@ class TaskInstanceService {
             instance.dueDate!.isAtSameMomentAs(today);
       }).toList();
       // Filter instances based on template date boundaries
+      // Batch read all templates first for efficiency
+      final templateIds =
+          instances.map((inst) => inst.templateId).toSet().toList();
+      final templates = await BatchReadService.batchGetTemplates(
+        templateIds: templateIds,
+        userId: uid,
+        useCache: true,
+      );
+
       final activeInstances = <habit_schema.HabitInstanceRecord>[];
       for (final instance in instances) {
         try {
-          // Get the template to check date boundaries
-          final templateRef =
-              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-          final templateDoc = await templateRef.get();
-          if (!templateDoc.exists) {
+          final template = templates[instance.templateId];
+          if (template == null) {
             continue; // Skip if template doesn't exist
           }
-          final template = ActivityRecord.fromSnapshot(templateDoc);
           // Check if habit is active based on date boundaries
           if (HabitTrackingUtil.isHabitActiveByDate(template, today)) {
             activeInstances.add(instance);
@@ -1219,6 +1243,22 @@ class TaskInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
+      // Optimize: If querying a single date, use the optimized method
+      if (startDate != null && endDate != null) {
+        final normalizedStartDate =
+            DateService.normalizeToStartOfDay(startDate);
+        final normalizedEndDate = DateService.normalizeToStartOfDay(endDate);
+
+        // If querying a single day, use the optimized single-date method
+        if (normalizedStartDate
+            .add(const Duration(days: 1))
+            .isAtSameMomentAs(normalizedEndDate)) {
+          return getTimeLoggedTasksForDate(
+              userId: uid, date: normalizedStartDate);
+        }
+      }
+
+      // For date ranges or no date filter, use original logic
       final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('totalTimeLogged', isGreaterThan: 0);
       final result = await query.get();
@@ -1262,6 +1302,7 @@ class TaskInstanceService {
   }
 
   /// Get all essential instances with time logs for calendar display
+  /// Optimized version that uses belongsToDate when available for better performance
   static Future<List<ActivityInstanceRecord>> getessentialInstances({
     String? userId,
     DateTime? startDate,
@@ -1269,15 +1310,64 @@ class TaskInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      final query = ActivityInstanceRecord.collectionForUser(uid)
+      Query query = ActivityInstanceRecord.collectionForUser(uid)
           .where('templateCategoryType', isEqualTo: 'essential')
           .where('totalTimeLogged', isGreaterThan: 0);
+
+      // Optimize: Use belongsToDate field if we have a single date (calendar view)
+      if (startDate != null && endDate != null) {
+        final normalizedStartDate =
+            DateService.normalizeToStartOfDay(startDate);
+        final normalizedEndDate = DateService.normalizeToStartOfDay(endDate);
+
+        // If querying a single day, try using belongsToDate field
+        if (normalizedStartDate
+            .add(const Duration(days: 1))
+            .isAtSameMomentAs(normalizedEndDate)) {
+          // Try to query by belongsToDate first (much faster)
+          try {
+            final dateQuery = ActivityInstanceRecord.collectionForUser(uid)
+                .where('templateCategoryType', isEqualTo: 'essential')
+                .where('totalTimeLogged', isGreaterThan: 0)
+                .where('belongsToDate', isEqualTo: normalizedStartDate);
+            final dateResult = await dateQuery.get();
+            final dateInstances = dateResult.docs
+                .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+                .where((instance) =>
+                    instance.isActive && instance.timeLogSessions.isNotEmpty)
+                .toList();
+
+            // Verify sessions are actually on this date
+            return dateInstances.where((instance) {
+              final sessions = instance.timeLogSessions;
+              return sessions.any((session) {
+                final sessionStart = session['startTime'] as DateTime;
+                final normalizedSessionStart =
+                    DateService.normalizeToStartOfDay(sessionStart);
+                return normalizedSessionStart
+                    .isAtSameMomentAs(normalizedStartDate);
+              });
+            }).toList();
+          } catch (e) {
+            // Log index error if present
+            logFirestoreIndexError(
+              e,
+              'Get essential instances by belongsToDate (templateCategoryType + totalTimeLogged + belongsToDate)',
+              'activity_instances',
+            );
+            // Fallback to original query if belongsToDate query fails
+          }
+        }
+      }
+
+      // Fallback: Load all and filter in memory
       final result = await query.get();
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) =>
               instance.isActive && instance.timeLogSessions.isNotEmpty)
           .toList();
+
       // Filter by date range if provided
       if (startDate != null || endDate != null) {
         final normalizedStartDate = startDate != null
@@ -1308,6 +1398,57 @@ class TaskInstanceService {
         }).toList();
       }
       return instances;
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Optimized method to get time-logged tasks for a specific date
+  /// Uses belongsToDate field when available for better query performance
+  static Future<List<ActivityInstanceRecord>> getTimeLoggedTasksForDate({
+    String? userId,
+    required DateTime date,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final normalizedDate = DateService.normalizeToStartOfDay(date);
+
+      // Try to query by belongsToDate first (much faster than loading all)
+      try {
+        final dateQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('totalTimeLogged', isGreaterThan: 0)
+            .where('belongsToDate', isEqualTo: normalizedDate);
+        final dateResult = await dateQuery.get();
+        final dateInstances = dateResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) =>
+                instance.isActive && instance.timeLogSessions.isNotEmpty)
+            .toList();
+
+        // Verify sessions are actually on this date
+        return dateInstances.where((instance) {
+          final sessions = instance.timeLogSessions;
+          return sessions.any((session) {
+            final sessionStart = session['startTime'] as DateTime;
+            final normalizedSessionStart =
+                DateService.normalizeToStartOfDay(sessionStart);
+            return normalizedSessionStart.isAtSameMomentAs(normalizedDate);
+          });
+        }).toList();
+      } catch (e) {
+        // Log index error if present
+        logFirestoreIndexError(
+          e,
+          'Get time logged tasks by belongsToDate (totalTimeLogged + belongsToDate)',
+          'activity_instances',
+        );
+        // Fallback to original method if belongsToDate query fails
+        return getTimeLoggedTasks(
+          userId: uid,
+          startDate: normalizedDate,
+          endDate: normalizedDate.add(const Duration(days: 1)),
+        );
+      }
     } catch (e) {
       return [];
     }
@@ -1399,18 +1540,11 @@ class TaskInstanceService {
                       .limit(1);
               final allInstancesResult =
                   await allInstancesQuery.get().catchError((e) {
-                print(
-                    '❌ MISSING INDEX: addTimeLogSession allInstancesQuery needs Index 4');
-                print(
-                    'Required Index: isActive (ASC) + templateId (ASC) + lastUpdated (DESC)');
-                print('Collection: activity_instances');
-                print('Full error: $e');
-                if (e.toString().contains('index') ||
-                    e.toString().contains('https://')) {
-                  print(
-                      '📋 Look for the Firestore index creation link in the error message above!');
-                  print('   Click the link to create the index automatically.');
-                }
+                logFirestoreIndexError(
+                  e,
+                  'Find instance by templateId (isActive + templateId + lastUpdated)',
+                  'activity_instances',
+                );
                 throw e;
               });
               if (allInstancesResult.docs.isNotEmpty) {

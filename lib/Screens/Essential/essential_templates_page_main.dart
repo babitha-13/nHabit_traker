@@ -41,6 +41,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
   Map<String, int> _todayCounts = {};
   Map<String, int> _todayMinutes = {};
   int? _defaultTimeEstimateMinutes;
+  bool _isLoadingData = false; // Guard against concurrent loads
 
   @override
   void initState() {
@@ -93,7 +94,8 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
     }
   }
 
-  Future<void> _loadTodayStats() async {
+  /// Load today's stats and return the data (for parallel loading)
+  Future<Map<String, dynamic>> _loadTodayStatsData() async {
     try {
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
@@ -117,14 +119,23 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
         }
       }
 
-      if (mounted) {
-        setState(() {
-          _todayCounts = counts;
-          _todayMinutes = minutes;
-        });
-      }
+      return {
+        'counts': counts,
+        'minutes': minutes,
+      };
     } catch (e) {
       print('Error loading today stats: $e');
+      return {'counts': <String, int>{}, 'minutes': <String, int>{}};
+    }
+  }
+
+  Future<void> _loadTodayStats() async {
+    final data = await _loadTodayStatsData();
+    if (mounted) {
+      setState(() {
+        _todayCounts = data['counts'] as Map<String, int>;
+        _todayMinutes = data['minutes'] as Map<String, int>;
+      });
     }
   }
 
@@ -176,13 +187,9 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
   }
 
   Map<String, List<ActivityRecord>> get groupedByCategory {
-    // Check if cache is still valid
-    final currentTemplatesHash = _templates.length.hashCode ^
-        _templates.fold(
-            0, (sum, template) => sum ^ template.reference.id.hashCode);
-
+    // Check if cache is still valid (hash is calculated when data changes, not here)
     final cacheInvalid = _cachedGroupedByCategory == null ||
-        currentTemplatesHash != _templatesHashCode ||
+        _templatesHashCode == 0 || // Hash not calculated yet
         _searchQuery != _lastSearchQuery;
 
     if (!cacheInvalid && _cachedGroupedByCategory != null) {
@@ -211,7 +218,6 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
 
     // Update cache
     _cachedGroupedByCategory = grouped;
-    _templatesHashCode = currentTemplatesHash;
     _lastSearchQuery = _searchQuery;
 
     return grouped;
@@ -231,32 +237,59 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
   }
 
   Future<void> _loadTemplates() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (!mounted) return;
+    // Guard against concurrent loads
+    if (_isLoadingData) return;
+    _isLoadingData = true;
+    
+    // Only set loading state if it's not already true
+    if (!_isLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     try {
-      // Load default time estimate from preferences
+      // Load default time estimate from preferences first (needed for quick log)
       _defaultTimeEstimateMinutes =
           await TimeLoggingPreferencesService.getDefaultDurationMinutes(
               currentUserUid);
 
-      final templates = await essentialService.getessentialTemplates(
-        userId: currentUserUid,
-      );
-      final categories = await queryEssentialCategoriesOnce(
-        userId: currentUserUid,
-        callerTag: 'essentialTemplatesPage._loadTemplates',
-      );
-
-      // Load today's stats in parallel or sequential
-      await _loadTodayStats();
-
+      // Load templates, categories, and today stats in parallel for faster data loading
+      final results = await Future.wait([
+        essentialService.getessentialTemplates(
+          userId: currentUserUid,
+        ),
+        queryEssentialCategoriesOnce(
+          userId: currentUserUid,
+          callerTag: 'essentialTemplatesPage._loadTemplates',
+        ),
+        _loadTodayStatsData(),
+      ]);
+      if (!mounted) {
+        _isLoadingData = false;
+        return;
+      }
+      
+      final templates = results[0] as List<ActivityRecord>;
+      final categories = results[1] as List<CategoryRecord>;
+      final statsData = results[2] as Map<String, dynamic>;
+      final todayCounts = statsData['counts'] as Map<String, int>;
+      final todayMinutes = statsData['minutes'] as Map<String, int>;
+      
+      // Calculate hash code when data changes (not in getter)
+      final newHash = templates.length.hashCode ^
+          templates.fold(0, (sum, t) => sum ^ t.reference.id.hashCode);
+      
       if (mounted) {
         setState(() {
           _templates = templates;
           _categories = categories;
+          _todayCounts = todayCounts;
+          _todayMinutes = todayMinutes;
           // Invalidate cache when data changes
           _cachedGroupedByCategory = null;
+          // Update hash code when data changes
+          _templatesHashCode = newHash;
           _isLoading = false;
         });
         // Auto-expand first category only on initial load if no sections are expanded
@@ -276,11 +309,14 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
           });
         }
       }
+      _isLoadingData = false;
     } catch (e) {
-      setState(() {
-        _isLoading = false;
-      });
+      _isLoadingData = false;
+      // Batch state updates for error case
       if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error loading templates: $e'),
@@ -976,6 +1012,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage> {
               right: 16,
               bottom: 16,
               child: FloatingActionButton(
+                heroTag: 'fab_add_essential',
                 onPressed: _showCreateDialog,
                 child: const Icon(Icons.add),
                 tooltip: 'Create Essential Template',

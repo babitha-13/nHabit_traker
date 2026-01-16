@@ -20,6 +20,8 @@ class _SearchFABState extends State<SearchFAB> with RouteAware {
   bool _isDisposed = false;
   ModalRoute<dynamic>? _subscribedRoute;
   bool _isSearchOpen = false;
+  // Store stable identifier for hero tag to ensure uniqueness per widget instance
+  late final String _stableIdentifier;
 
   void _updateSearchOpenState(bool value) {
     _isSearchOpen = value;
@@ -108,6 +110,9 @@ class _SearchFABState extends State<SearchFAB> with RouteAware {
   @override
   void initState() {
     super.initState();
+    // Use a static counter combined with object identity for stability during hot reload
+    // This ensures each widget instance gets a unique tag even during hot reload
+    _stableIdentifier = '${widget.hashCode}_${Object.hash(widget.key, runtimeType)}';
     NotificationCenter.addObserver(this, 'closeSearch', (_) {
       if (_isSearchOpen && mounted) {
         _closeBottomSheet();
@@ -167,8 +172,10 @@ class _SearchFABState extends State<SearchFAB> with RouteAware {
     }
 
     final theme = FlutterFlowTheme.of(context);
-    // Use hashCode to ensure unique heroTag per instance to avoid conflicts during navigation
-    final uniqueHeroTag = widget.heroTag ?? 'search_fab_${hashCode}';
+    // Use provided heroTag directly if available (should be unique per page)
+    // Otherwise use stable identifier to ensure uniqueness
+    // During hot reload, the widget's hash may change, but the provided heroTag remains stable
+    final uniqueHeroTag = widget.heroTag ?? 'search_fab_$_stableIdentifier';
     return Positioned(
       left: 16,
       bottom: 16,

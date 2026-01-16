@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 /// Service to manage Essential Activities (sleep, travel, rest, etc.)
 /// These items track time but don't earn points
@@ -97,13 +98,18 @@ class essentialService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-    // Get template to cache data
-    final templateRef = ActivityRecord.collectionForUser(uid).doc(templateId);
-    final templateDoc = await templateRef.get();
-    if (!templateDoc.exists) {
-      throw Exception('Template not found');
+    // Get template - check cache first, then Firestore
+    final cache = FirestoreCacheService();
+    ActivityRecord? template = cache.getCachedTemplate(templateId);
+    if (template == null) {
+      final templateRef = ActivityRecord.collectionForUser(uid).doc(templateId);
+      final templateDoc = await templateRef.get();
+      if (!templateDoc.exists) {
+        throw Exception('Template not found');
+      }
+      template = ActivityRecord.fromSnapshot(templateDoc);
+      cache.cacheTemplate(templateId, template);
     }
-    final template = ActivityRecord.fromSnapshot(templateDoc);
     if (template.categoryType != 'essential') {
       throw Exception('Template is not a essential item');
     }
@@ -207,13 +213,20 @@ class essentialService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      final instanceRef =
-          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
-      final instanceDoc = await instanceRef.get();
-      if (!instanceDoc.exists) {
-        throw Exception('Instance not found');
+      final cache = FirestoreCacheService();
+      // Check cache first
+      ActivityInstanceRecord? instance =
+          cache.getCachedInstanceById(instanceId);
+      if (instance == null) {
+        final instanceRef =
+            ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+        final instanceDoc = await instanceRef.get();
+        if (!instanceDoc.exists) {
+          throw Exception('Instance not found');
+        }
+        instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+        cache.cacheInstance(instance);
       }
-      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       // Validate it's a essential instance
       if (instance.templateCategoryType != 'essential') {
         throw Exception('Instance is not a essential item');
@@ -234,6 +247,8 @@ class essentialService {
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
       // Update instance
+      final instanceRef =
+          ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
       await instanceRef.update({
         'timeLogSessions': existingSessions,
         'totalTimeLogged': totalTime,
@@ -269,6 +284,9 @@ class essentialService {
         'isActive': false,
         'lastUpdated': DateTime.now(),
       });
+      // Invalidate template cache
+      final cache = FirestoreCacheService();
+      cache.invalidateTemplateCache(templateId);
       // Optionally: mark all instances as inactive
       final instancesQuery = ActivityInstanceRecord.collectionForUser(uid)
           .where('templateId', isEqualTo: templateId);
@@ -304,15 +322,23 @@ class essentialService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      final templateRef = ActivityRecord.collectionForUser(uid).doc(templateId);
-      final templateDoc = await templateRef.get();
-      if (!templateDoc.exists) {
-        throw Exception('Template not found');
+      // Check cache first
+      final cache = FirestoreCacheService();
+      ActivityRecord? template = cache.getCachedTemplate(templateId);
+      if (template == null) {
+        final templateRef =
+            ActivityRecord.collectionForUser(uid).doc(templateId);
+        final templateDoc = await templateRef.get();
+        if (!templateDoc.exists) {
+          throw Exception('Template not found');
+        }
+        template = ActivityRecord.fromSnapshot(templateDoc);
+        cache.cacheTemplate(templateId, template);
       }
-      final template = ActivityRecord.fromSnapshot(templateDoc);
       if (template.categoryType != 'essential') {
         throw Exception('Template is not a essential item');
       }
+      final templateRef = ActivityRecord.collectionForUser(uid).doc(templateId);
       final updateData = <String, dynamic>{
         'lastUpdated': DateTime.now(),
       };
@@ -341,6 +367,9 @@ class essentialService {
       if (specificDays != null) updateData['specificDays'] = specificDays;
 
       await templateRef.update(updateData);
+
+      // Invalidate template cache
+      cache.invalidateTemplateCache(templateId);
 
       // Cascade updates to instances
       final instanceUpdates = <String, dynamic>{};
@@ -377,6 +406,9 @@ class essentialService {
               false, // essential usually doesn't need historical updates
         );
       }
+      // Invalidate template cache
+      cache.invalidateTemplateCache(templateId);
+
       ActivityTemplateEvents.broadcastTemplateUpdated(
         templateId: templateId,
         context: {

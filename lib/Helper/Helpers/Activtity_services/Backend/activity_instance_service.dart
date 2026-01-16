@@ -262,19 +262,72 @@ class ActivityInstanceService {
     }
   }
 
-  /// Get all task instances (active and completed) for Recent Completions
+  /// Get all task instances (active and completed) for Tasks page
+  /// Fetches:
+  /// - All PENDING instances (to show in tasks list)
+  /// - COMPLETED instances from last 2 days only (for recent completions)
+  /// For older history, use `getTaskInstancesHistory()` when user requests it
   static Future<List<ActivityInstanceRecord>> getAllTaskInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'task');
-      final result = await query.get();
-      final allInstances = result.docs
+      // Fetch pending instances
+      final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'task')
+          .where('status', isEqualTo: 'pending')
+          .limit(200); // Safety limit
+      final pendingResult = await pendingQuery.get();
+      final pendingInstances = pendingResult.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
+
+      // Fetch completed instances from last 2 days only
+      final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+      final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'task')
+          .where('status', isEqualTo: 'completed')
+          .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+          .orderBy('completedAt', descending: true)
+          .limit(100); // Safety limit for recent completions
+      final completedResult = await completedQuery.get();
+      final completedInstances = completedResult.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      // Combine both lists
+      final allInstances = [...pendingInstances, ...completedInstances];
       return InstanceOrderService.sortInstancesByOrder(allInstances, 'tasks');
+    } catch (e) {
+      return [];
+    }
+  }
+
+  /// Get older task instances history (for "Load More" functionality)
+  /// Fetches completed instances from specified number of days ago
+  static Future<List<ActivityInstanceRecord>> getTaskInstancesHistory({
+    required int daysAgo,
+    required int daysToLoad,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final startDate =
+          DateTime.now().subtract(Duration(days: daysAgo + daysToLoad));
+      final endDate = DateTime.now().subtract(Duration(days: daysAgo));
+
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateCategoryType', isEqualTo: 'task')
+          .where('status', isEqualTo: 'completed')
+          .where('completedAt', isGreaterThanOrEqualTo: startDate)
+          .where('completedAt', isLessThan: endDate)
+          .orderBy('completedAt', descending: true)
+          .limit(100); // Safety limit per load
+
+      final result = await query.get();
+      return result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
     } catch (e) {
       return [];
     }
@@ -413,15 +466,20 @@ class ActivityInstanceService {
     }
   }
 
-  /// Get all habit instances for the Habits page (no date/status filtering)
-  /// Shows all instances regardless of window dates or status
+  /// Get all habit instances for the Habits page
+  /// ONLY fetches PENDING instances to prevent OOM (completed history not needed)
   static Future<List<ActivityInstanceRecord>> getAllHabitInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
+      // CRITICAL: Only fetch pending/incomplete instances
+      // Completed history is not displayed on Habits page
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit');
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('status', isEqualTo: 'pending')
+          .orderBy('lastUpdated', descending: true)
+          .limit(200); // Safety limit (should be ~50-100 habits)
       final result = await query.get();
       final allHabitInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
@@ -441,15 +499,19 @@ class ActivityInstanceService {
 
   /// Get latest habit instance per template for the Habits page
   /// Returns one instance per habit template - the next upcoming/actionable instance
-  /// No date filtering - shows even future instances
+  /// ONLY fetches PENDING instances to prevent OOM
   static Future<List<ActivityInstanceRecord>>
       getLatestHabitInstancePerTemplate({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
+      // CRITICAL: Only fetch pending/incomplete instances
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit');
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('status', isEqualTo: 'pending')
+          .orderBy('lastUpdated', descending: true)
+          .limit(200); // Safety limit
       final result = await query.get();
       final allHabitInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
@@ -581,18 +643,38 @@ class ActivityInstanceService {
   }
 
   /// Get all active instances for a user (tasks and habits)
+  /// OPTIMIZED: Only fetches pending + completed from last 2 days to prevent OOM
   static Future<List<ActivityInstanceRecord>> getAllActiveInstances({
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      // Fetch ALL instances regardless of status to include completed/skipped/snoozed
-      // The calculator and UI will filter appropriately
-      final query = ActivityInstanceRecord.collectionForUser(uid);
-      final result = await query.get();
-      final allInstances = result.docs
+      // CRITICAL: Fetch only pending instances and recent completions (last 2 days)
+      // This prevents OOM from loading thousands of old completed instances
+
+      // Fetch all pending instances
+      final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('status', isEqualTo: 'pending')
+          .limit(300); // Safety limit
+      final pendingResult = await pendingQuery.get();
+      final pendingInstances = pendingResult.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
+
+      // Fetch completed instances from last 2 days only
+      final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+      final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('status', isEqualTo: 'completed')
+          .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+          .orderBy('completedAt', descending: true)
+          .limit(200); // Safety limit for recent completions
+      final completedResult = await completedQuery.get();
+      final completedInstances = completedResult.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+
+      // Combine both lists
+      final allInstances = [...pendingInstances, ...completedInstances];
 
       // Debug: Log status breakdown
       final statusCounts = <String, int>{};

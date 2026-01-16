@@ -32,6 +32,10 @@ class _RoutinesState extends State<Routines> {
   final SearchStateManager _searchManager = SearchStateManager();
   // Track routines being reordered to prevent stale updates
   Set<String> _reorderingRoutineIds = {};
+  // Cache for filtered routines to avoid recalculation on every build
+  List<RoutineRecord>? _cachedFilteredRoutines;
+  int _routinesHashCode = 0; // Current hash of routines
+  String _lastSearchQuery = '';
 
   @override
   void initState() {
@@ -57,48 +61,105 @@ class _RoutinesState extends State<Routines> {
     if (mounted) {
       setState(() {
         _searchQuery = query;
+        // Invalidate cache when search query changes
+        _cachedFilteredRoutines = null;
       });
     }
   }
 
   List<RoutineRecord> get _filteredRoutines {
-    if (_searchQuery.isEmpty) {
-      return _routines;
+    // Check if cache is still valid
+    final currentRoutinesHash = _routines.length.hashCode ^
+        _routines.fold(0, (sum, r) => sum ^ r.reference.id.hashCode);
+    
+    final cacheInvalid = _cachedFilteredRoutines == null ||
+        currentRoutinesHash != _routinesHashCode ||
+        _searchQuery != _lastSearchQuery;
+    
+    if (!cacheInvalid && _cachedFilteredRoutines != null) {
+      return _cachedFilteredRoutines!;
     }
-    final query = _searchQuery.toLowerCase();
-    return _routines.where((routine) {
-      final nameMatch = routine.name.toLowerCase().contains(query);
-      final descriptionMatch =
-          routine.description.toLowerCase().contains(query);
-      return nameMatch || descriptionMatch;
-    }).toList();
+    
+    // Recalculate filtered list
+    List<RoutineRecord> filtered;
+    if (_searchQuery.isEmpty) {
+      filtered = _routines;
+    } else {
+      final query = _searchQuery.toLowerCase();
+      filtered = _routines.where((routine) {
+        final nameMatch = routine.name.toLowerCase().contains(query);
+        final descriptionMatch =
+            routine.description.toLowerCase().contains(query);
+        return nameMatch || descriptionMatch;
+      }).toList();
+    }
+    
+    // Update cache
+    _cachedFilteredRoutines = filtered;
+    _routinesHashCode = currentRoutinesHash;
+    _lastSearchQuery = _searchQuery;
+    
+    return filtered;
   }
 
   Future<void> _loadData() async {
-    setState(() {
-      _isLoading = true;
-    });
+    if (!mounted) return;
+    // Only set loading state if it's not already true
+    if (!_isLoading) {
+      setState(() {
+        _isLoading = true;
+      });
+    }
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final routines = await queryRoutineRecordOnce(userId: userId);
-        final habits = await queryActivitiesRecordOnce(userId: userId);
+        // Load routines and habits in parallel for faster data loading
+        final results = await Future.wait([
+          queryRoutineRecordOnce(userId: userId),
+          queryActivitiesRecordOnce(userId: userId),
+        ]);
+        if (!mounted) return;
+        
+        final routines = results[0] as List<RoutineRecord>;
+        final habits = results[1] as List<ActivityRecord>;
+        
         // Sort routines by order to ensure consistent display
         final sortedRoutines =
             RoutineOrderService.sortRoutinesByOrder(routines);
-        setState(() {
-          _routines = sortedRoutines;
-          _habits = habits;
-          _isLoading = false;
-        });
+        
+        // Calculate hash code when data changes (not in getter)
+        final newHash = sortedRoutines.length.hashCode ^
+            sortedRoutines.fold(0, (sum, r) => sum ^ r.reference.id.hashCode);
+        
+        if (mounted) {
+          setState(() {
+            _routines = sortedRoutines;
+            _habits = habits;
+            // Invalidate cache when data changes
+            _cachedFilteredRoutines = null;
+            // Update hash code when data changes
+            _routinesHashCode = newHash;
+            _isLoading = false;
+          });
+        }
         // Initialize order values for routines that don't have them
         RoutineOrderService.initializeOrderValues(_routines);
-      } else {}
+      } else {
+        // Batch state updates for empty user case
+        if (mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
+      }
     } catch (e) {
       if (e is FirebaseException) {}
-      setState(() {
-        _isLoading = false;
-      });
+      // Batch state updates for error case
+      if (mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     }
   }
 

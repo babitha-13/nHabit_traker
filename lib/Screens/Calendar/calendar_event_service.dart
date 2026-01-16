@@ -10,15 +10,23 @@ import 'package:habit_tracker/Screens/Calendar/Helpers/planned_duration_resolver
 import 'package:habit_tracker/Screens/Routine/Backend_data/routine_planned_calendar_service.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_formatting_utils.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 /// Service class for loading and processing calendar events
 class CalendarEventService {
   /// Load and process calendar events for a given date
+  /// Uses caching to avoid redundant queries when navigating between dates
   static Future<CalendarEventsResult> loadEvents({
     required String userId,
     required DateTime selectedDate,
     required Map<String, ActivityInstanceRecord> optimisticInstances,
   }) async {
+    // Check cache first
+    final cache = FirestoreCacheService();
+    final cached = cache.getCachedCalendarEvents(selectedDate);
+    if (cached != null) {
+      return cached;
+    }
     final selectedDateStart = DateTime(
       selectedDate.year,
       selectedDate.month,
@@ -28,35 +36,47 @@ class CalendarEventService {
       0,
     );
     final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
-    final results = await Future.wait([
-      queryHabitCategoriesOnce(
-        userId: userId,
-        callerTag: 'CalendarPage._loadEvents.habits',
-      ),
-      queryTaskCategoriesOnce(
-        userId: userId,
-        callerTag: 'CalendarPage._loadEvents.tasks',
-      ),
-      CalendarQueueService.getCompletedItems(
-        userId: userId,
-        date: selectedDate,
-      ),
-      TaskInstanceService.getTimeLoggedTasks(
-        userId: userId,
-        startDate: selectedDateStart,
-        endDate: selectedDateEnd,
-      ),
-      TaskInstanceService.getessentialInstances(
-        userId: userId,
-        startDate: selectedDateStart,
-        endDate: selectedDateEnd,
-      ),
-      CalendarQueueService.getQueueItems(
-        userId: userId,
-        date: selectedDate,
-      ),
-      queryRoutineRecordOnce(userId: userId),
-    ]);
+    List<dynamic> results;
+    try {
+      results = await Future.wait([
+        queryHabitCategoriesOnce(
+          userId: userId,
+          callerTag: 'CalendarPage._loadEvents.habits',
+        ),
+        queryTaskCategoriesOnce(
+          userId: userId,
+          callerTag: 'CalendarPage._loadEvents.tasks',
+        ),
+        CalendarQueueService.getCompletedItems(
+          userId: userId,
+          date: selectedDate,
+        ),
+        TaskInstanceService.getTimeLoggedTasks(
+          userId: userId,
+          startDate: selectedDateStart,
+          endDate: selectedDateEnd,
+        ),
+        TaskInstanceService.getessentialInstances(
+          userId: userId,
+          startDate: selectedDateStart,
+          endDate: selectedDateEnd,
+        ),
+        CalendarQueueService.getQueueItems(
+          userId: userId,
+          date: selectedDate,
+        ),
+        queryRoutineRecordOnce(userId: userId),
+      ]);
+    } catch (e) {
+      // Log any errors from Future.wait (e.g., index errors from routine query)
+      logFirestoreIndexError(
+        e,
+        'CalendarEventService.loadEvents (Future.wait - multiple queries)',
+        'multiple collections',
+      );
+      // Re-throw to be handled by caller
+      rethrow;
+    }
 
     final habitCategories = results[0] as List<CategoryRecord>;
     final taskCategories = results[1] as List<CategoryRecord>;
@@ -66,6 +86,14 @@ class CalendarEventService {
     final essentialInstances = results[4] as List<ActivityInstanceRecord>;
     final queueItems = results[5] as Map<String, dynamic>;
     final routines = results[6] as List<RoutineRecord>;
+
+    // Optimize: Create category lookup maps once (O(1) lookup instead of O(n) firstWhere)
+    final categoryById = <String, CategoryRecord>{};
+    final categoryByName = <String, CategoryRecord>{};
+    for (final category in allCategories) {
+      categoryById[category.reference.id] = category;
+      categoryByName[category.name] = category;
+    }
 
     final allItemsMap = <String, ActivityInstanceRecord>{};
     for (final item in completedItems) {
@@ -91,18 +119,9 @@ class CalendarEventService {
           categoryColor = Colors.blue;
         }
       } else {
-        CategoryRecord? category;
-        try {
-          category = allCategories.firstWhere(
-            (c) => c.reference.id == item.templateCategoryId,
-          );
-        } catch (e) {
-          try {
-            category = allCategories.firstWhere(
-              (c) => c.name == item.templateCategoryName,
-            );
-          } catch (e2) {}
-        }
+        // Use map lookup instead of firstWhere (O(1) vs O(n))
+        CategoryRecord? category = categoryById[item.templateCategoryId] ??
+            categoryByName[item.templateCategoryName];
         if (category != null) {
           categoryColor = CalendarFormattingUtils.parseColor(category.color);
         } else {
@@ -193,18 +212,9 @@ class CalendarEventService {
               String? categoryColorHex;
               if (item.templateCategoryType == 'habit' ||
                   item.templateCategoryType == 'task') {
-                CategoryRecord? category;
-                try {
-                  category = allCategories.firstWhere(
-                    (c) => c.reference.id == item.templateCategoryId,
-                  );
-                } catch (e) {
-                  try {
-                    category = allCategories.firstWhere(
-                      (c) => c.name == item.templateCategoryName,
-                    );
-                  } catch (e2) {}
-                }
+                // Use map lookup instead of firstWhere (O(1) vs O(n))
+                CategoryRecord? category = categoryById[item.templateCategoryId] ??
+                    categoryByName[item.templateCategoryName];
                 if (category != null) {
                   categoryColorHex = category.color;
                 } else if (item.templateCategoryColor.isNotEmpty) {
@@ -247,6 +257,8 @@ class CalendarEventService {
       }
     }
 
+    // Optimize: Sort once and process cascading efficiently
+    // Sort by end time descending, then start time descending
     completedEvents.sort((a, b) {
       if (a.endTime == null || b.endTime == null) return 0;
       final endCompare = b.endTime!.compareTo(a.endTime!);
@@ -255,21 +267,29 @@ class CalendarEventService {
       return b.startTime!.compareTo(a.startTime!);
     });
 
+    // Optimize cascading calculation: filter valid events first, then process
+    final validEvents = completedEvents.where((e) =>
+        e.startTime != null && e.endTime != null).toList();
+    
     DateTime? earliestStartTime;
     final cascadedEvents = <CalendarEventData>[];
-    for (final event in completedEvents) {
-      if (event.startTime == null || event.endTime == null) continue;
-
+    
+    // Process events in order (latest end time first)
+    // This allows cascading to work correctly by pushing earlier events back
+    for (final event in validEvents) {
       DateTime startTime = event.startTime!;
       DateTime endTime = event.endTime!;
       final duration = endTime.difference(startTime);
+      
       if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
         endTime = earliestStartTime;
         startTime = endTime.subtract(duration);
       }
+      
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
         earliestStartTime = startTime;
       }
+      
       cascadedEvents.add(CalendarEventData(
         date: selectedDate,
         startTime: startTime,
@@ -280,7 +300,12 @@ class CalendarEventService {
         event: event.event,
       ));
     }
-    cascadedEvents.sort((a, b) => a.startTime!.compareTo(b.startTime!));
+    
+    // Sort by start time ascending for final display order
+    cascadedEvents.sort((a, b) {
+      if (a.startTime == null || b.startTime == null) return 0;
+      return a.startTime!.compareTo(b.startTime!);
+    });
 
     final plannedItems =
         List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
@@ -331,18 +356,9 @@ class CalendarEventService {
           categoryColor = Colors.blue;
         }
       } else {
-        CategoryRecord? category;
-        try {
-          category = allCategories.firstWhere(
-            (c) => c.reference.id == item.templateCategoryId,
-          );
-        } catch (e) {
-          try {
-            category = allCategories.firstWhere(
-              (c) => c.name == item.templateCategoryName,
-            );
-          } catch (e2) {}
-        }
+        // Use map lookup instead of firstWhere (O(1) vs O(n))
+        CategoryRecord? category = categoryById[item.templateCategoryId] ??
+            categoryByName[item.templateCategoryName];
         if (category != null) {
           categoryColor = CalendarFormattingUtils.parseColor(category.color);
         } else {
@@ -447,10 +463,15 @@ class CalendarEventService {
       return a.startTime!.compareTo(b.startTime!);
     });
 
-    return CalendarEventsResult(
+    final result = CalendarEventsResult(
       completedEvents: cascadedEvents,
       plannedEvents: plannedEvents,
     );
+
+    // Cache the result
+    cache.cacheCalendarEvents(selectedDate, result);
+
+    return result;
   }
 }
 

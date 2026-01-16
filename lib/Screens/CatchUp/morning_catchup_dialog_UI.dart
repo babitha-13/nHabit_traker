@@ -49,16 +49,44 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
   @override
   void dispose() {
-    // Save state on dispose
-    _logic.saveStateOnDispose();
+    // Note: saveStateOnDispose is called explicitly in _closeDialogAndRefresh
+    // and other close paths to ensure recalculation completes before showing toasts
     super.dispose();
   }
 
   /// Close dialog and trigger refresh of habit and queue pages
+  /// Closes immediately, runs background operations after dismissal
   Future<void> _closeDialogAndRefresh() async {
-    await _logic.prepareForClose();
+    // Close dialog immediately - don't wait for background operations
     if (mounted) {
       Navigator.of(context).pop();
+    }
+    
+    // Run all background operations after dialog is dismissed
+    // This allows user to continue using the app while these complete
+    _runBackgroundOperations();
+  }
+
+  /// Run background operations after dialog closes
+  /// Includes: ensuring instances exist, saving progress, showing toasts
+  Future<void> _runBackgroundOperations() async {
+    try {
+      // Ensure all instances exist (background operation)
+      await _logic.ensureInstancesExistInBackground();
+      
+      // Save state and recalculate progress (background operation)
+      await _logic.saveStateOnDispose();
+      
+      // Prepare for close (triggers refresh notifications)
+      await _logic.prepareForClose();
+      
+      // Show pending toasts after all background operations complete
+      MorningCatchUpService.showPendingToasts();
+    } catch (e) {
+      // Silent error handling - background operations shouldn't affect user experience
+      print('Error in background operations after dialog close: $e');
+      // Still try to show toasts even if other operations failed
+      MorningCatchUpService.showPendingToasts();
     }
   }
 
@@ -76,6 +104,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       if (mounted) {
         final shouldAutoClose = await _logic.checkAndAutoClose();
         if (shouldAutoClose) {
+          // Close immediately, background operations run after
           await _closeDialogAndRefresh();
         }
       }
@@ -167,7 +196,8 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
           );
 
           if (!result.hasRemainingItems) {
-            // All items processed, close dialog
+            // All items processed, close dialog immediately
+            // Background operations will run after dismissal
             await _closeDialogAndRefresh();
           } else {
             // Still have items, update UI to show them
@@ -207,6 +237,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                 'You\'ll be reminded on your next app open${result.newReminderCount >= MorningCatchUpService.maxReminderCount ? ' (${result.newReminderCount} of ${MorningCatchUpService.maxReminderCount} reminders)' : ''}'),
           ),
         );
+        // Close immediately, background operations run after
         await _closeDialogAndRefresh();
       }
     } catch (e) {
@@ -257,10 +288,13 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       onWillPop: () async {
         // Allow dismissal if all items are processed (including optimistic ones)
         if (_logic.canCloseDialog()) {
-          // Start recalculation in background before closing (non-blocking)
-          _logic.recalculateProgressRecord();
+          // Mark dialog as shown immediately
           await MorningCatchUpService.markDialogAsShown();
-          await _logic.prepareForClose();
+          // Return true to allow dismissal - background operations will run after
+          // Schedule background operations to run after dialog closes
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            _runBackgroundOperations();
+          });
           return true;
         }
         // Prevent dismissing - user must choose skip or remind me later
@@ -499,10 +533,10 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed: () async {
-                            // Start recalculation in background before closing (non-blocking)
-                            _logic.recalculateProgressRecord();
+                            // Mark dialog as shown immediately
                             await MorningCatchUpService.markDialogAsShown();
                             if (mounted) {
+                              // Close immediately, background operations run after
                               await _closeDialogAndRefresh();
                             }
                           },

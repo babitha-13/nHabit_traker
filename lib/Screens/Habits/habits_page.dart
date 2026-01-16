@@ -44,7 +44,8 @@ class _HabitsPageState extends State<HabitsPage> {
   final SearchStateManager _searchManager = SearchStateManager();
   // Cache for groupedByCategory to avoid recalculation on every build
   Map<String, List<ActivityInstanceRecord>>? _cachedGroupedByCategory;
-  int _habitInstancesHashCode = 0;
+  int _habitInstancesHashCode = 0; // Current hash of instances
+  int _lastCachedHabitInstancesHash = 0; // Hash used when cache was built
   String _lastSearchQuery = '';
   bool _lastShowCompleted = false;
   Set<String> _reorderingInstanceIds =
@@ -56,24 +57,29 @@ class _HabitsPageState extends State<HabitsPage> {
   void initState() {
     super.initState();
     _showCompleted = widget.showCompleted;
-    _loadExpansionState();
-    _loadHabits();
+    // Load expansion state and habits in parallel for faster initialization
+    Future.wait([
+      _loadExpansionState(),
+      _loadHabits(),
+    ]);
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
-        setState(() {
-          _showCompleted = param;
-          // Invalidate cache when showCompleted changes
-          _cachedGroupedByCategory = null;
-        });
+        // Only update if value actually changed
+        if (_showCompleted != param) {
+          setState(() {
+            _showCompleted = param;
+            // Invalidate cache when showCompleted changes
+            _cachedGroupedByCategory = null;
+          });
+        }
       }
     });
     NotificationCenter.addObserver(this, 'loadHabits', (param) {
       if (mounted) {
-        setState(() {
-          _loadHabits();
-        });
+        // Don't wrap async call in setState - call directly
+        _loadHabits();
       }
     });
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
@@ -155,32 +161,33 @@ class _HabitsPageState extends State<HabitsPage> {
 
   void _onSearchChanged(String query) {
     if (mounted) {
-      setState(() {
-        _searchQuery = query;
-        // Invalidate cache when search query changes
-        _cachedGroupedByCategory = null;
-        // Auto-expand categories with results when searching
-        if (_searchQuery.isNotEmpty) {
-          final grouped = groupedByCategory;
-          // Expand all categories with results
-          for (final key in grouped.keys) {
-            if (grouped[key]!.isNotEmpty) {
-              _expandedCategories.add(key);
+      // Only update if value actually changed
+      if (_searchQuery != query) {
+        setState(() {
+          _searchQuery = query;
+          // Invalidate cache when search query changes
+          _cachedGroupedByCategory = null;
+          // Auto-expand categories with results when searching
+          if (query.isNotEmpty) {
+            final grouped = groupedByCategory;
+            // Expand all categories with results
+            for (final key in grouped.keys) {
+              if (grouped[key]!.isNotEmpty) {
+                _expandedCategories.add(key);
+              }
             }
           }
-        }
-      });
+        });
+      }
     }
   }
 
   Map<String, List<ActivityInstanceRecord>> get groupedByCategory {
-    // Check if cache is still valid
-    final currentInstancesHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
+    // Hash codes are now calculated when data changes, not in getter
+    // This avoids expensive hash calculations on every build
+    // Compare current hash code with cached one to detect data changes
     final cacheInvalid = _cachedGroupedByCategory == null ||
-        currentInstancesHash != _habitInstancesHashCode ||
+        _habitInstancesHashCode != _lastCachedHabitInstancesHash ||
         _searchQuery != _lastSearchQuery ||
         _showCompleted != _lastShowCompleted;
 
@@ -214,9 +221,9 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     }
 
-    // Update cache
+    // Update cache - hash codes are already updated when data changes
     _cachedGroupedByCategory = grouped;
-    _habitInstancesHashCode = currentInstancesHash;
+    _lastCachedHabitInstancesHash = _habitInstancesHashCode;
     _lastSearchQuery = _searchQuery;
     _lastShowCompleted = _showCompleted;
 
@@ -262,27 +269,43 @@ class _HabitsPageState extends State<HabitsPage> {
 
   Future<void> _loadHabits() async {
     if (!mounted) return;
-    setState(() => _isLoading = true);
+    // Only set loading state if it's not already true
+    if (!_isLoading) {
+      setState(() => _isLoading = true);
+    }
     try {
       final userId = currentUserUid;
       if (userId.isNotEmpty) {
-        final instances = await queryLatestHabitInstances(userId: userId);
+        // Load instances and categories in parallel for faster data loading
+        final results = await Future.wait([
+          queryLatestHabitInstances(userId: userId),
+          queryHabitCategoriesOnce(
+            userId: userId,
+            callerTag: 'HabitsPage._loadHabits',
+          ),
+        ]);
         if (!mounted) return;
+        
+        final instances = results[0] as List<ActivityInstanceRecord>;
+        final categories = results[1] as List<CategoryRecord>;
+        
         // Initialize missing order values during load (avoid DB writes during build/getters).
         // Best-effort: if something was deleted concurrently, we don't want to crash UI.
         try {
           await InstanceOrderService.initializeOrderValues(instances, 'habits');
         } catch (_) {}
-        final categories = await queryHabitCategoriesOnce(
-          userId: userId,
-          callerTag: 'HabitsPage._loadHabits',
-        );
         if (mounted) {
+          // Calculate hash code when data changes (not in getter)
+          final newHash = instances.length.hashCode ^
+              instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+          
           setState(() {
             _habitInstances = instances;
             _categories = categories;
             // Invalidate cache when data changes
             _cachedGroupedByCategory = null;
+            // Update hash code when data changes
+            _habitInstancesHashCode = newHash;
             _isLoading = false;
           });
           // Auto-expand first category only on initial load if no sections are expanded
@@ -303,11 +326,13 @@ class _HabitsPageState extends State<HabitsPage> {
           }
         }
       } else {
+        // Batch state updates for empty user case
         if (mounted) {
           setState(() => _isLoading = false);
         }
       }
     } catch (e) {
+      // Batch state updates for error case
       if (mounted) {
         setState(() => _isLoading = false);
       }
@@ -454,6 +479,7 @@ class _HabitsPageState extends State<HabitsPage> {
               );
             },
             itemCount: sortedHabits.length,
+            itemExtent: 85.0, // Approximate item height for better scroll performance
             onReorder: (oldIndex, newIndex) =>
                 _handleReorder(oldIndex, newIndex, categoryName),
           ),
@@ -464,6 +490,7 @@ class _HabitsPageState extends State<HabitsPage> {
       onRefresh: _loadHabits,
       child: CustomScrollView(
         controller: _scrollController,
+        cacheExtent: 500.0, // Cache 500px worth of items above/below viewport for better scroll performance
         slivers: [
           ...slivers,
           const SliverToBoxAdapter(
@@ -641,30 +668,44 @@ class _HabitsPageState extends State<HabitsPage> {
   }
 
   void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
-    setState(() {
-      final index = _habitInstances.indexWhere(
+    // Update instance first
+    final index = _habitInstances.indexWhere(
+        (inst) => inst.reference.id == updatedInstance.reference.id);
+    if (index != -1) {
+      _habitInstances[index] = updatedInstance;
+    }
+    // Remove from list if completed and not showing completed
+    if (!_showCompleted && updatedInstance.status == 'completed') {
+      _habitInstances.removeWhere(
           (inst) => inst.reference.id == updatedInstance.reference.id);
-      if (index != -1) {
-        _habitInstances[index] = updatedInstance;
-        // Invalidate cache when instance is updated
-        _cachedGroupedByCategory = null;
-      }
-      // Remove from list if completed and not showing completed
-      if (!_showCompleted && updatedInstance.status == 'completed') {
-        _habitInstances.removeWhere(
-            (inst) => inst.reference.id == updatedInstance.reference.id);
-      }
+    }
+    
+    // Recalculate hash code when instances change
+    final newHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
+    setState(() {
+      // Invalidate cache when instance is updated
+      _cachedGroupedByCategory = null;
+      _habitInstancesHashCode = newHash;
     });
     // Background refresh to sync with server
     _loadHabitsSilently();
   }
 
   void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
+    // Remove instance first
+    _habitInstances.removeWhere(
+        (inst) => inst.reference.id == deletedInstance.reference.id);
+    
+    // Recalculate hash code when instances change
+    final newHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
     setState(() {
-      _habitInstances.removeWhere(
-          (inst) => inst.reference.id == deletedInstance.reference.id);
       // Invalidate cache when instance is removed
       _cachedGroupedByCategory = null;
+      _habitInstancesHashCode = newHash;
     });
     // Background refresh to sync with server
     _loadHabitsSilently();
@@ -676,10 +717,14 @@ class _HabitsPageState extends State<HabitsPage> {
       if (userId.isNotEmpty) {
         final instances = await queryCurrentHabitInstances(userId: userId);
         if (mounted) {
+          // Calculate hash code when data changes
+          final newHash = instances.length.hashCode ^
+              instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
           setState(() {
             _habitInstances = instances;
             // Invalidate cache when instances change
             _cachedGroupedByCategory = null;
+            _habitInstancesHashCode = newHash;
           });
         }
       }
@@ -742,10 +787,17 @@ class _HabitsPageState extends State<HabitsPage> {
 
   // Event handlers for live updates (habit instances only)
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
+    // Add instance first
+    _habitInstances.add(instance);
+    
+    // Recalculate hash code when instances change
+    final newHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
     setState(() {
-      _habitInstances.add(instance);
       // Invalidate cache when instance is added
       _cachedGroupedByCategory = null;
+      _habitInstancesHashCode = newHash;
     });
   }
 
@@ -771,37 +823,43 @@ class _HabitsPageState extends State<HabitsPage> {
       return;
     }
 
-    setState(() {
-      final index = _habitInstances
-          .indexWhere((inst) => inst.reference.id == instance.reference.id);
+    // Update instances first
+    final index = _habitInstances
+        .indexWhere((inst) => inst.reference.id == instance.reference.id);
 
-      if (index != -1) {
-        if (isOptimistic) {
-          // Store optimistic state with operation ID for later reconciliation
-          _habitInstances[index] = instance;
-          if (operationId != null) {
-            _optimisticOperations[operationId] = instance.reference.id;
-          }
-        } else {
-          // Reconciled update - replace optimistic state
-          _habitInstances[index] = instance;
-          if (operationId != null) {
-            _optimisticOperations.remove(operationId);
-          }
+    if (index != -1) {
+      if (isOptimistic) {
+        // Store optimistic state with operation ID for later reconciliation
+        _habitInstances[index] = instance;
+        if (operationId != null) {
+          _optimisticOperations[operationId] = instance.reference.id;
         }
-        // Invalidate cache when instance is updated
-        _cachedGroupedByCategory = null;
-
-        // Remove from list if completed and not showing completed
-        if (!_showCompleted && instance.status == 'completed') {
-          _habitInstances.removeWhere(
-              (inst) => inst.reference.id == instance.reference.id);
+      } else {
+        // Reconciled update - replace optimistic state
+        _habitInstances[index] = instance;
+        if (operationId != null) {
+          _optimisticOperations.remove(operationId);
         }
-      } else if (!isOptimistic) {
-        // New instance from backend (not optimistic) - add it
-        _habitInstances.add(instance);
-        _cachedGroupedByCategory = null;
       }
+
+      // Remove from list if completed and not showing completed
+      if (!_showCompleted && instance.status == 'completed') {
+        _habitInstances.removeWhere(
+            (inst) => inst.reference.id == instance.reference.id);
+      }
+    } else if (!isOptimistic) {
+      // New instance from backend (not optimistic) - add it
+      _habitInstances.add(instance);
+    }
+    
+    // Recalculate hash code when instances change
+    final newHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
+    setState(() {
+      // Invalidate cache when instance is updated
+      _cachedGroupedByCategory = null;
+      _habitInstancesHashCode = newHash;
     });
   }
 
@@ -814,20 +872,27 @@ class _HabitsPageState extends State<HabitsPage> {
 
       if (operationId != null &&
           _optimisticOperations.containsKey(operationId)) {
-        setState(() {
-          _optimisticOperations.remove(operationId);
-          if (originalInstance != null) {
-            // Restore from original state
-            final index = _habitInstances
-                .indexWhere((inst) => inst.reference.id == instanceId);
-            if (index != -1) {
-              _habitInstances[index] = originalInstance;
-              _cachedGroupedByCategory = null;
-            }
-          } else if (instanceId != null) {
-            // Fallback to reloading from backend
-            _revertOptimisticUpdate(instanceId);
+        _optimisticOperations.remove(operationId);
+        if (originalInstance != null) {
+          // Restore from original state
+          final index = _habitInstances
+              .indexWhere((inst) => inst.reference.id == instanceId);
+          if (index != -1) {
+            _habitInstances[index] = originalInstance;
           }
+        } else if (instanceId != null) {
+          // Fallback to reloading from backend
+          _revertOptimisticUpdate(instanceId);
+          return; // _revertOptimisticUpdate will handle setState
+        }
+        
+        // Recalculate hash code when instances change
+        final newHash = _habitInstances.length.hashCode ^
+            _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        
+        setState(() {
+          _cachedGroupedByCategory = null;
+          _habitInstancesHashCode = newHash;
         });
       }
     }
@@ -838,25 +903,38 @@ class _HabitsPageState extends State<HabitsPage> {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instanceId,
       );
-      setState(() {
-        final index = _habitInstances
-            .indexWhere((inst) => inst.reference.id == instanceId);
-        if (index != -1) {
-          _habitInstances[index] = updatedInstance;
+      final index = _habitInstances
+          .indexWhere((inst) => inst.reference.id == instanceId);
+      if (index != -1) {
+        _habitInstances[index] = updatedInstance;
+        
+        // Recalculate hash code when instances change
+        final newHash = _habitInstances.length.hashCode ^
+            _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        
+        setState(() {
           _cachedGroupedByCategory = null;
-        }
-      });
+          _habitInstancesHashCode = newHash;
+        });
+      }
     } catch (e) {
       // Error reverting - non-critical, will be fixed on next data load
     }
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
+    // Remove instance first
+    _habitInstances
+        .removeWhere((inst) => inst.reference.id == instance.reference.id);
+    
+    // Recalculate hash code when instances change
+    final newHash = _habitInstances.length.hashCode ^
+        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    
     setState(() {
-      _habitInstances
-          .removeWhere((inst) => inst.reference.id == instance.reference.id);
       // Invalidate cache when instance is deleted
       _cachedGroupedByCategory = null;
+      _habitInstancesHashCode = newHash;
     });
   }
 

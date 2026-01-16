@@ -151,6 +151,10 @@ class OptimisticOperationTracker {
   static List<OptimisticOperation> getAllPendingOperations() {
     return _pendingOperations.values.toList();
   }
+
+  static int pendingCount() {
+    return _pendingOperations.length;
+  }
 }
 
 /// Represents an optimistic operation
