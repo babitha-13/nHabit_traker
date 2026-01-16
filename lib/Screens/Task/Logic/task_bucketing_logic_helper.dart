@@ -18,8 +18,7 @@ class TaskBucketingLogicHelper {
   }) {
     // Check if cache is still valid
     final currentInstancesHash = taskInstances.length.hashCode ^
-        taskInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        taskInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
 
     final cacheInvalid = cachedBucketedItems == null ||
         currentInstancesHash != taskInstancesHashCode ||

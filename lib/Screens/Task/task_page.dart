@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
@@ -113,6 +114,15 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   @override
+  void reassemble() {
+    super.reassemble();
+    // Clean up observers on hot reload to prevent accumulation
+    NotificationCenter.removeObserver(this);
+    // Reset flag to prevent didChangeDependencies from triggering reload after hot reload
+    _didInitialDependencies = false;
+  }
+
+  @override
   void dispose() {
     NotificationCenter.removeObserver(this);
     _searchManager.removeListener(_onSearchChanged);
@@ -129,11 +139,24 @@ class _TaskPageState extends State<TaskPage> {
     super.didChangeDependencies();
     if (_didInitialDependencies) {
       final route = ModalRoute.of(context);
-      if (route != null && route.isCurrent) {
-        _loadData();
+      if (route != null && route.isCurrent && !_isLoading) {
+        // Only reload if category actually changed
+        if (widget.categoryName != _lastCategoryName) {
+          _loadData();
+        }
       }
     } else {
       _didInitialDependencies = true;
+      // After hot reload, ensure data is loaded if we don't have any
+      // Use addPostFrameCallback to avoid race with initState() on initial mount
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          final route = ModalRoute.of(context);
+          if (route != null && route.isCurrent && !_isLoading && _taskInstances.isEmpty) {
+            _loadData();
+          }
+        }
+      });
     }
   }
 
@@ -170,7 +193,8 @@ class _TaskPageState extends State<TaskPage> {
               RefreshIndicator(
                 onRefresh: _loadData,
                 child: CustomScrollView(
-                  cacheExtent: 500.0, // Cache 500px worth of items above/below viewport for better scroll performance
+                  cacheExtent:
+                      500.0, // Cache 500px worth of items above/below viewport for better scroll performance
                   slivers: [
                     ..._buildSections(),
                   ],
@@ -213,12 +237,14 @@ class _TaskPageState extends State<TaskPage> {
           userId: uid,
           callerTag: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
         ),
-      ]);
+      ]).timeout(const Duration(seconds: 15), onTimeout: () {
+        throw TimeoutException('Data loading timed out');
+      });
       if (!mounted) return;
-      
+
       final instances = results[0] as List<ActivityInstanceRecord>;
       final categories = results[1] as List<CategoryRecord>;
-      
+
       final categoryFiltered = instances.where((inst) {
         final matches = (widget.categoryName == null ||
             inst.templateCategoryName == widget.categoryName);
@@ -231,8 +257,9 @@ class _TaskPageState extends State<TaskPage> {
       if (mounted) {
         // Calculate hash code when data changes (not in getter)
         final newHash = sortedInstances.length.hashCode ^
-            sortedInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-        
+            sortedInstances.fold(
+                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
         setState(() {
           _categories = categories;
           // Store all instances
@@ -462,8 +489,13 @@ class _TaskPageState extends State<TaskPage> {
       lastCompletionTimeFrame: _lastCompletionTimeFrame,
       lastCategoryName: _lastCategoryName,
       onExpandedSectionsUpdate: (newSections) {
-        setState(() {
-          _expandedSections = newSections;
+        // Defer setState to after build completes
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _expandedSections != newSections) {
+            setState(() {
+              _expandedSections = newSections;
+            });
+          }
         });
       },
       expandedSections: _expandedSections,
@@ -576,7 +608,8 @@ class _TaskPageState extends State<TaskPage> {
       if (mounted) {
         // Calculate hash code when data changes
         final newHash = sortedInstances.length.hashCode ^
-            sortedInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+            sortedInstances.fold(
+                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
         setState(() {
           _categories = categories;
           _taskInstances = sortedInstances;

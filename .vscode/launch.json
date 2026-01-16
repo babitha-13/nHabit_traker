@@ -11,7 +11,8 @@
             "name": "nHabit_traker-main",
             "request": "launch",
             "type": "dart",
-            "deviceId": "chrome"
+            "deviceId": "chrome",
+            "args": []
         },
         {
             "name": "nHabit_traker-main (profile mode)",

@@ -1,6 +1,7 @@
 import 'package:collection/collection.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/habit_instance_record.dart'
@@ -19,7 +20,6 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/habit_tr
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/template_sync_helper.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 
 /// Service to manage task and habit instances
 /// Handles the creation, completion, and scheduling of recurring tasks/habits
@@ -410,7 +410,13 @@ class TaskInstanceService {
         return a.dueDate!.compareTo(b.dueDate!);
       });
       return activeInstances;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getTodaysHabitInstances (HabitInstanceRecord)',
+        collectionName: 'habit_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -1063,7 +1069,13 @@ class TaskInstanceService {
         }
       }
       return allInstances.values.toList();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getTimerTaskInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -1296,7 +1308,13 @@ class TaskInstanceService {
         }).toList();
       }
       return tasks;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getTimeLoggedTasks',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -1398,7 +1416,13 @@ class TaskInstanceService {
         }).toList();
       }
       return instances;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getessentialInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -1449,7 +1473,13 @@ class TaskInstanceService {
           endDate: normalizedDate.add(const Duration(days: 1)),
         );
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getTimeLoggedTasksForDate',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -1852,7 +1882,13 @@ class TaskInstanceService {
 
         await templateRef.update(templateUpdateData);
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'logManualTimeEntry',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       // Re-throw to be handled by UI
       rethrow;
     }

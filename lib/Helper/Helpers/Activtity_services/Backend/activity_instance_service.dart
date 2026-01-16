@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
@@ -11,6 +13,29 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/time_estimate_resolver.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/recurrence_calculator.dart';
+import 'package:habit_tracker/debug_log_stub.dart'
+    if (dart.library.io) 'package:habit_tracker/debug_log_io.dart'
+    if (dart.library.html) 'package:habit_tracker/debug_log_web.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
+
+// #region agent log
+void _logInstanceServiceDebug(String location, Map<String, dynamic> data) {
+  try {
+    final logEntry = {
+      'id': 'log_${DateTime.now().millisecondsSinceEpoch}_instances',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'location': 'activity_instance_service.dart:$location',
+      'message': data['event'] ?? 'debug',
+      'data': data,
+      'sessionId': 'debug-session',
+      'runId': 'run3',
+    };
+    writeDebugLog(jsonEncode(logEntry));
+  } catch (_) {
+    // Silently fail
+  }
+}
+// #endregion
 
 /// Result of calculating stacked session times
 class StackedSessionTimes {
@@ -208,6 +233,114 @@ class ActivityInstanceService {
   }
 
   // ==================== INSTANCE QUERYING ====================
+
+  /// Safely query instances without triggering composite index errors
+  /// Fetches broad datasets (all pending, recent completed) and relies on in-memory filtering
+  static Future<List<ActivityInstanceRecord>> _querySafeInstances({
+    required String uid,
+    bool includePending = true,
+    bool includeRecentCompleted = false,
+  }) async {
+    final List<ActivityInstanceRecord> allInstances = [];
+
+    // #region agent log
+    _logInstanceServiceDebug('_querySafeInstances', {
+      'hypothesisId': 'P',
+      'event': 'start',
+      'includePending': includePending,
+      'includeRecentCompleted': includeRecentCompleted,
+    });
+    // #endregion
+
+    // Add distinct try-catch blocks for each query to identify which one fails/hangs
+    if (includePending) {
+      try {
+        _logInstanceServiceDebug(
+            '_querySafeInstances', {'event': 'pending_query_start'});
+        final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('status', isEqualTo: 'pending')
+            .limit(500); // Increased limit to ensure we catch everything
+
+        // Add timeout to prevent infinite hang
+        final pendingResult = await pendingQuery.get().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            _logInstanceServiceDebug(
+                '_querySafeInstances', {'event': 'pending_query_timeout'});
+            throw TimeoutException('Pending query timed out');
+          },
+        );
+
+        final docs = pendingResult.docs;
+        _logInstanceServiceDebug('_querySafeInstances',
+            {'event': 'pending_query_done', 'count': docs.length});
+
+        allInstances.addAll(
+            docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
+      } catch (e) {
+        _logInstanceServiceDebug('_querySafeInstances',
+            {'event': 'pending_query_error', 'error': e.toString()});
+        // Continue even if this fails, so we might at least get completed ones
+      }
+    }
+
+    if (includeRecentCompleted) {
+      try {
+        _logInstanceServiceDebug(
+            '_querySafeInstances', {'event': 'completed_query_start'});
+        final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+        final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+            .orderBy('completedAt', descending: true)
+            .limit(200);
+
+        // Add timeout
+        final completedResult = await completedQuery.get().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            _logInstanceServiceDebug(
+                '_querySafeInstances', {'event': 'completed_query_timeout'});
+            throw TimeoutException('Completed query timed out');
+          },
+        );
+
+        final docs = completedResult.docs;
+        _logInstanceServiceDebug('_querySafeInstances',
+            {'event': 'completed_query_done', 'count': docs.length});
+
+        // Filter strictly for completed (query is inclusive of greaterThanOrEqualTo)
+        // and ensure status is explicitly completed
+        allInstances.addAll(docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((inst) => inst.status == 'completed'));
+      } catch (e) {
+        _logInstanceServiceDebug('_querySafeInstances',
+            {'event': 'completed_query_error', 'error': e.toString()});
+      }
+    }
+
+    // Debug: Log category type distribution
+    final typeCounts = <String, int>{};
+    for (final inst in allInstances) {
+      final type = inst.templateCategoryType;
+      typeCounts[type] = (typeCounts[type] ?? 0) + 1;
+    }
+    _logInstanceServiceDebug('_querySafeInstances', {
+      'event': 'type_distribution',
+      'counts': typeCounts,
+      'total': allInstances.length,
+      'sample_types': allInstances
+          .take(5)
+          .map((e) => '${e.templateName}:${e.templateCategoryType}')
+          .toList(),
+    });
+
+    _logInstanceServiceDebug('_querySafeInstances',
+        {'event': 'finish', 'totalCount': allInstances.length});
+
+    return allInstances;
+  }
+
   /// Get active task instances for the user
   /// This is the core method for Phase 2 - displaying instances
   /// It returns only the earliest pending instance for each task template
@@ -257,7 +390,13 @@ class ActivityInstanceService {
         return a.dueDate!.compareTo(b.dueDate!);
       });
       return finalInstanceList;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getActiveTaskInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -272,33 +411,26 @@ class ActivityInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      // Fetch pending instances
-      final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'task')
-          .where('status', isEqualTo: 'pending')
-          .limit(200); // Safety limit
-      final pendingResult = await pendingQuery.get();
-      final pendingInstances = pendingResult.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+      // Use safe query to avoid missing index errors
+      final allRawInstances = await _querySafeInstances(
+        uid: uid,
+        includePending: true,
+        includeRecentCompleted: true,
+      );
+
+      // Filter for tasks in memory
+      final allInstances = allRawInstances
+          .where((inst) => inst.templateCategoryType == 'task')
           .toList();
 
-      // Fetch completed instances from last 2 days only
-      final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-      final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'task')
-          .where('status', isEqualTo: 'completed')
-          .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-          .orderBy('completedAt', descending: true)
-          .limit(100); // Safety limit for recent completions
-      final completedResult = await completedQuery.get();
-      final completedInstances = completedResult.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
-
-      // Combine both lists
-      final allInstances = [...pendingInstances, ...completedInstances];
       return InstanceOrderService.sortInstancesByOrder(allInstances, 'tasks');
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getAllTaskInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -473,26 +605,32 @@ class ActivityInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      // CRITICAL: Only fetch pending/incomplete instances
-      // Completed history is not displayed on Habits page
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit')
-          .where('status', isEqualTo: 'pending')
-          .orderBy('lastUpdated', descending: true)
-          .limit(200); // Safety limit (should be ~50-100 habits)
-      final result = await query.get();
-      final allHabitInstances = result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+      // Use safe query (pending only for habits page)
+      final allRawInstances = await _querySafeInstances(
+        uid: uid,
+        includePending: true,
+        includeRecentCompleted: false,
+      );
+
+      // Filter for habits
+      final allHabitInstances = allRawInstances
+          .where((inst) => inst.templateCategoryType == 'habit')
           .toList();
-      // Sort by due date (earliest first, nulls last)
+
+      // Sort by lastUpdated descending (in-memory)
       allHabitInstances.sort((a, b) {
-        if (a.dueDate == null && b.dueDate == null) return 0;
-        if (a.dueDate == null) return 1;
-        if (b.dueDate == null) return -1;
-        return a.dueDate!.compareTo(b.dueDate!);
+        return (b.lastUpdated ?? DateTime(0))
+            .compareTo(a.lastUpdated ?? DateTime(0));
       });
+
       return allHabitInstances;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getAllHabitInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -506,16 +644,18 @@ class ActivityInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      // CRITICAL: Only fetch pending/incomplete instances
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit')
-          .where('status', isEqualTo: 'pending')
-          .orderBy('lastUpdated', descending: true)
-          .limit(200); // Safety limit
-      final result = await query.get();
-      final allHabitInstances = result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+      // Use safe query (pending only)
+      final allRawInstances = await _querySafeInstances(
+        uid: uid,
+        includePending: true,
+        includeRecentCompleted: false,
+      );
+
+      // Filter for habits
+      final allHabitInstances = allRawInstances
+          .where((inst) => inst.templateCategoryType == 'habit')
           .toList();
+
       // Group instances by templateId
       final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
       for (final instance in allHabitInstances) {
@@ -569,7 +709,13 @@ class ActivityInstanceService {
       });
 
       return latestInstances;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getLatestHabitInstancePerTemplate',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -649,38 +795,37 @@ class ActivityInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
+      // #region agent log
+      _logInstanceServiceDebug('getAllActiveInstances', {
+        'hypothesisId': 'P',
+        'event': 'fetch_start',
+        'uidLength': uid.length,
+      });
+      // #endregion
       // CRITICAL: Fetch only pending instances and recent completions (last 2 days)
       // This prevents OOM from loading thousands of old completed instances
 
-      // Fetch all pending instances
-      final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
-          .where('status', isEqualTo: 'pending')
-          .limit(300); // Safety limit
-      final pendingResult = await pendingQuery.get();
-      final pendingInstances = pendingResult.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
-
-      // Fetch completed instances from last 2 days only
-      final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-      final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
-          .where('status', isEqualTo: 'completed')
-          .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-          .orderBy('completedAt', descending: true)
-          .limit(200); // Safety limit for recent completions
-      final completedResult = await completedQuery.get();
-      final completedInstances = completedResult.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
-
-      // Combine both lists
-      final allInstances = [...pendingInstances, ...completedInstances];
+      // Use safe query
+      final allInstances = await _querySafeInstances(
+        uid: uid,
+        includePending: true,
+        includeRecentCompleted: true,
+      );
 
       // Debug: Log status breakdown
       final statusCounts = <String, int>{};
       for (final inst in allInstances) {
         statusCounts[inst.status] = (statusCounts[inst.status] ?? 0) + 1;
       }
+      // #region agent log
+      _logInstanceServiceDebug('getAllActiveInstances', {
+        'hypothesisId': 'P',
+        'event': 'fetch_counts',
+        'pendingCount': statusCounts['pending'] ?? 0,
+        'completedCount': statusCounts['completed'] ?? 0,
+        'totalCount': allInstances.length,
+      });
+      // #endregion
       // Separate tasks and habits for different filtering logic
       // Exclude essentials from normal queries
       // Also filter out inactive instances to match tasks page behavior
@@ -784,7 +929,22 @@ class ActivityInstanceService {
         return a.dueDate!.compareTo(b.dueDate!);
       });
       return finalInstanceList;
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getAllActiveInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
+      // #region agent log
+      _logInstanceServiceDebug('getAllActiveInstances', {
+        'hypothesisId': 'P',
+        'event': 'fetch_error',
+        'errorType': e.runtimeType.toString(),
+        'errorCode': e is FirebaseException ? e.code : null,
+        'messageLength': e is FirebaseException ? (e.message?.length ?? 0) : 0,
+      });
+      // #endregion
       return [];
     }
   }
@@ -826,11 +986,14 @@ class ActivityInstanceService {
       return result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getInstancesForTemplate ($templateId)',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       print('❌ Error in getInstancesForTemplate: $e');
-      if (e.toString().contains('index')) {
-        print('📋 This query requires an index. Check the link above!');
-      }
       rethrow; // Re-throw to let the caller handle/log it excessively if needed
     }
   }
@@ -847,7 +1010,13 @@ class ActivityInstanceService {
       return result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getAllInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       return [];
     }
   }
@@ -865,7 +1034,13 @@ class ActivityInstanceService {
       for (final doc in instances.docs) {
         await doc.reference.delete();
       }
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'deleteInstancesForTemplate ($templateId)',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       rethrow;
     }
   }
@@ -886,7 +1061,13 @@ class ActivityInstanceService {
         throw Exception('Activity instance not found');
       }
       return ActivityInstanceRecord.fromSnapshot(instanceDoc);
-    } catch (e) {
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getUpdatedInstance ($instanceId)',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
       rethrow;
     }
   }

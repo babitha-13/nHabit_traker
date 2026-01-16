@@ -24,12 +24,25 @@ import 'package:habit_tracker/Screens/Queue/Helpers/queue_reorder_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_logic.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/today_points_service.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_history_service.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_charts_section/queue_charts_section.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/Screens/Progress/backend/activity_template_service.dart';
+import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
 import 'dart:async';
+// import 'dart:convert';
+// import 'package:habit_tracker/debug_log_stub.dart'
+//     if (dart.library.io) 'package:habit_tracker/debug_log_io.dart'
+//     if (dart.library.html) 'package:habit_tracker/debug_log_web.dart';
+
+// #region agent log
+void _logQueueCrashDebug(String location, Map<String, dynamic> data) {
+  // Disabled to prevent OOM
+}
+// #endregion
 
 class QueuePage extends StatefulWidget {
   final bool expandCompleted;
@@ -76,6 +89,8 @@ class _QueuePageState extends State<QueuePage> {
   bool _isCalculatingProgress = false;
   int _progressCalculationVersion =
       0; // Track calculation order to prevent overwriting newer values
+  bool _isInitialLoadComplete =
+      false; // Track if initial load is done (use incremental after this)
   String _searchQuery = '';
   final SearchStateManager _searchManager = SearchStateManager();
   bool _isSearchBarVisible = false;
@@ -150,6 +165,10 @@ class _QueuePageState extends State<QueuePage> {
     });
     NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
       if (!mounted) return;
+      // GUARD: Don't trigger if we're already calculating (prevents infinite loop)
+      if (_isCalculatingProgress || _isUpdatingLiveScore) {
+        return;
+      }
       // When completion points update, recalculate today's score
       _updateTodayScore();
     });
@@ -213,6 +232,13 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     });
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Clean up observers on hot reload to prevent accumulation
+    NotificationCenter.removeObserver(this);
   }
 
   @override
@@ -376,7 +402,11 @@ class _QueuePageState extends State<QueuePage> {
           // Fast UI update using local instances
           _calculateProgress(optimistic: true);
           // Reconcile with backend in background
-          Future.microtask(() => _calculateProgress(optimistic: false));
+          Future.microtask(() async {
+            await _calculateProgress(optimistic: false);
+            // Mark initial load as complete - use incremental updates from now on
+            _isInitialLoadComplete = true;
+          });
           _ignoreInstanceEvents = false;
           try {
             await InstanceOrderService.initializeOrderValues(
@@ -507,6 +537,16 @@ class _QueuePageState extends State<QueuePage> {
       _isCalculatingProgress = true;
 
       try {
+        // #region agent log
+        _logQueueCrashDebug('_calculateProgress', {
+          'hypothesisId': 'Q',
+          'event': 'calc_start',
+          'optimistic': false,
+          'instanceCount': _instances.length,
+          'categoryCount': _categories.length,
+          'version': calculationVersion,
+        });
+        // #endregion
         // BACKEND RECONCILIATION: Use full calculation with Firestore
         final progressData =
             await TodayCompletionPointsService.calculateTodayCompletionPoints(
@@ -515,6 +555,16 @@ class _QueuePageState extends State<QueuePage> {
           categories: _categories,
           optimistic: false,
         );
+        // #region agent log
+        _logQueueCrashDebug('_calculateProgress', {
+          'hypothesisId': 'Q',
+          'event': 'calc_result',
+          'target': progressData['target'],
+          'earned': progressData['earned'],
+          'percentage': progressData['percentage'],
+          'version': calculationVersion,
+        });
+        // #endregion
 
         // Only update UI if this is still the latest calculation
         // (no newer calculation has started since we began)
@@ -536,6 +586,15 @@ class _QueuePageState extends State<QueuePage> {
           // For non-optimistic, await to ensure accuracy
           await _updateTodayScore();
         }
+      } catch (e) {
+        // #region agent log
+        _logQueueCrashDebug('_calculateProgress', {
+          'hypothesisId': 'Q',
+          'event': 'calc_error',
+          'errorType': e.runtimeType.toString(),
+        });
+        // #endregion
+        rethrow;
       } finally {
         _isCalculatingProgress = false;
       }
@@ -551,6 +610,14 @@ class _QueuePageState extends State<QueuePage> {
     _isUpdatingLiveScore = true;
 
     try {
+      // #region agent log
+      _logQueueCrashDebug('_updateTodayScore', {
+        'hypothesisId': 'Q',
+        'event': 'score_start',
+        'instanceCount': _instances.length,
+        'categoryCount': _categories.length,
+      });
+      // #endregion
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
@@ -582,17 +649,123 @@ class _QueuePageState extends State<QueuePage> {
         }
       }
 
-      _queueHistoryOverlay(
-        (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0,
-        (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0,
-      );
+      final finalCumulativeScore =
+          (scoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+      final finalTodayScore =
+          (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
+
+      _queueHistoryOverlay(finalCumulativeScore, finalTodayScore);
+
+      // Update single document history (non-blocking)
+      unawaited(ScoreHistoryService.updateScoreHistoryDocument(
+        userId: userId,
+        cumulativeScore: finalCumulativeScore,
+        todayScore: finalTodayScore,
+      ));
     } catch (e) {
+      // #region agent log
+      _logQueueCrashDebug('_updateTodayScore', {
+        'hypothesisId': 'Q',
+        'event': 'score_error',
+        'errorType': e.runtimeType.toString(),
+      });
+      // #endregion
+      rethrow;
     } finally {
       _isUpdatingLiveScore = false;
       if (_pendingLiveScoreUpdate) {
         _pendingLiveScoreUpdate = false;
         Future.microtask(_updateTodayScore);
       }
+    }
+  }
+
+  /// Calculate target contribution for a single instance
+  /// Used for incremental progress updates (only queries template for this instance)
+  Future<double> _getInstanceTargetContribution(
+      ActivityInstanceRecord instance) async {
+    if (instance.templateCategoryType != 'habit' ||
+        instance.templateCategoryType == 'essential') {
+      return 0.0;
+    }
+
+    // Fetch template only for this one instance (1 read)
+    final template = await ActivityTemplateService.getTemplateById(
+      userId: currentUserUid,
+      templateId: instance.templateId,
+    );
+    if (template != null) {
+      return PointsService.calculateDailyTargetWithTemplate(instance, template);
+    }
+    // Fallback to basic calculation if template fetch fails
+    return PointsService.calculateDailyTarget(instance);
+  }
+
+  /// Calculate earned points contribution for a single instance
+  /// Used for incremental progress updates
+  Future<double> _getInstanceEarnedContribution(
+      ActivityInstanceRecord instance) async {
+    if (instance.templateCategoryType == 'essential') {
+      return 0.0;
+    }
+    return await PointsService.calculatePointsEarned(instance, currentUserUid);
+  }
+
+  /// Calculate progress incrementally by applying delta from instance change
+  /// Only calculates contribution for the changed instance instead of all instances
+  Future<void> _calculateProgressIncremental({
+    required ActivityInstanceRecord? oldInstance,
+    required ActivityInstanceRecord? newInstance,
+  }) async {
+    // Prevent concurrent calculations
+    if (_isCalculatingProgress) {
+      return;
+    }
+
+    _isCalculatingProgress = true;
+    final calculationVersion = ++_progressCalculationVersion;
+
+    try {
+      // Calculate old contribution (if instance existed)
+      double oldTarget = 0.0;
+      double oldEarned = 0.0;
+      if (oldInstance != null) {
+        oldTarget = await _getInstanceTargetContribution(oldInstance);
+        oldEarned = await _getInstanceEarnedContribution(oldInstance);
+      }
+
+      // Calculate new contribution (if instance exists)
+      double newTarget = 0.0;
+      double newEarned = 0.0;
+      if (newInstance != null) {
+        newTarget = await _getInstanceTargetContribution(newInstance);
+        newEarned = await _getInstanceEarnedContribution(newInstance);
+      }
+
+      // Apply delta
+      final updatedTarget = _dailyTarget - oldTarget + newTarget;
+      final updatedEarned = _pointsEarned - oldEarned + newEarned;
+      final updatedPercentage = PointsService.calculateDailyPerformancePercent(
+          updatedEarned, updatedTarget);
+
+      // Only update UI if this is still the latest calculation
+      if (mounted && calculationVersion == _progressCalculationVersion) {
+        // Only update if values actually changed
+        if (updatedTarget != _dailyTarget ||
+            updatedEarned != _pointsEarned ||
+            updatedPercentage != _dailyPercentage) {
+          setState(() {
+            _dailyTarget = updatedTarget;
+            _pointsEarned = updatedEarned;
+            _dailyPercentage = updatedPercentage;
+          });
+        }
+
+        // Update score after progress calculation
+        await _updateTodayScore();
+      }
+    } finally {
+      _isCalculatingProgress = false;
     }
   }
 
@@ -605,6 +778,13 @@ class _QueuePageState extends State<QueuePage> {
     }
 
     try {
+      // #region agent log
+      _logQueueCrashDebug('_loadCumulativeScoreHistory', {
+        'hypothesisId': 'Q',
+        'event': 'history_start',
+        'forceReload': forceReload,
+      });
+      // #endregion
       _isLoadingHistory = true;
       final userId = currentUserUid;
       if (userId.isEmpty) {
@@ -612,10 +792,12 @@ class _QueuePageState extends State<QueuePage> {
         return;
       }
 
-      // Load 30 days of history for the scrollable graph
-      final result = await CumulativeScoreCalculator.loadCumulativeScoreHistory(
+      // Load 30 days of history from single document (optimized - 1 read instead of 30+)
+      final result = await ScoreHistoryService.loadScoreHistoryFromSingleDoc(
         userId: userId,
         days: 30,
+        cumulativeScore: _cumulativeScore > 0 ? _cumulativeScore : null,
+        todayScore: _dailyScoreGain > 0 ? _dailyScoreGain : null,
       );
 
       final currentCumulativeScore =
@@ -660,6 +842,13 @@ class _QueuePageState extends State<QueuePage> {
       _pendingHistoryScore = null;
       _pendingHistoryGain = null;
     } catch (e) {
+      // #region agent log
+      _logQueueCrashDebug('_loadCumulativeScoreHistory', {
+        'hypothesisId': 'Q',
+        'event': 'history_error',
+        'errorType': e.runtimeType.toString(),
+      });
+      // #endregion
     } finally {
       _isLoadingHistory = false;
       if (_pendingHistoryReload) {
@@ -1061,11 +1250,13 @@ class _QueuePageState extends State<QueuePage> {
                     subtitle: _getSubtitle(item, key),
                     instance: item,
                     categoryColorHex: _getCategoryColor(item),
-                    onRefresh: _refreshWithoutFlicker,
+                    onRefresh:
+                        () async {}, // No-op - updates handled via NotificationCenter
                     onInstanceUpdated: _updateInstanceInLocalState,
                     onInstanceDeleted: _removeInstanceFromLocalState,
                     onHabitUpdated: (updated) => {},
-                    onHabitDeleted: (deleted) async => _refreshWithoutFlicker(),
+                    onHabitDeleted:
+                        (deleted) {}, // No-op - instance deletions handled via NotificationCenter
                     isHabit: isHabit,
                     showTypeIcon: true,
                     showRecurringIcon: true,
@@ -1203,9 +1394,20 @@ class _QueuePageState extends State<QueuePage> {
       _cachedBucketedItems = null;
       _instancesHashCode = newInstancesHash;
     });
-    _calculateProgress(optimistic: true);
-    // Schedule non-optimistic in background to avoid race condition
-    Future.microtask(() => _calculateProgress(optimistic: false));
+
+    // Use incremental update if initial load is complete
+    if (_isInitialLoadComplete) {
+      // Incremental update: add new instance's contribution
+      Future.microtask(() => _calculateProgressIncremental(
+            oldInstance: null,
+            newInstance: instance,
+          ));
+    } else {
+      // Full calculation for initial load
+      _calculateProgress(optimistic: true);
+      // Schedule non-optimistic in background to avoid race condition
+      Future.microtask(() => _calculateProgress(optimistic: false));
+    }
   }
 
   void _handleInstanceUpdated(dynamic param) {
@@ -1219,6 +1421,16 @@ class _QueuePageState extends State<QueuePage> {
     } else if (param is ActivityInstanceRecord) {
       if (_reorderingInstanceIds.contains(param.reference.id)) {
         return;
+      }
+    }
+
+    // Get old instance before updating for incremental calculation
+    ActivityInstanceRecord? oldInstance;
+    if (instance != null) {
+      final oldIndex = _instances
+          .indexWhere((inst) => inst.reference.id == instance!.reference.id);
+      if (oldIndex != -1) {
+        oldInstance = _instances[oldIndex];
       }
     }
 
@@ -1240,10 +1452,21 @@ class _QueuePageState extends State<QueuePage> {
     if (param is Map) {
       isOptimistic = param['isOptimistic'] as bool? ?? false;
     }
-    _calculateProgress(optimistic: true);
-    if (!isOptimistic) {
-      // Schedule non-optimistic in background to avoid race condition
-      Future.microtask(() => _calculateProgress(optimistic: false));
+
+    // Use incremental update if initial load is complete, otherwise use full calculation
+    if (_isInitialLoadComplete && !isOptimistic && instance != null) {
+      // Incremental update: only calculate contribution for changed instance
+      Future.microtask(() => _calculateProgressIncremental(
+            oldInstance: oldInstance,
+            newInstance: instance,
+          ));
+    } else {
+      // Full calculation for initial load or optimistic updates
+      _calculateProgress(optimistic: true);
+      if (!isOptimistic) {
+        // Schedule non-optimistic in background to avoid race condition
+        Future.microtask(() => _calculateProgress(optimistic: false));
+      }
     }
   }
 
@@ -1308,9 +1531,20 @@ class _QueuePageState extends State<QueuePage> {
       _cachedBucketedItems = null;
       _instancesHashCode = newInstancesHash;
     });
-    _calculateProgress(optimistic: true);
-    // Schedule non-optimistic in background to avoid race condition
-    Future.microtask(() => _calculateProgress(optimistic: false));
+
+    // Use incremental update if initial load is complete
+    if (_isInitialLoadComplete) {
+      // Incremental update: subtract deleted instance's contribution
+      Future.microtask(() => _calculateProgressIncremental(
+            oldInstance: instance,
+            newInstance: null,
+          ));
+    } else {
+      // Full calculation for initial load
+      _calculateProgress(optimistic: true);
+      // Schedule non-optimistic in background to avoid race condition
+      Future.microtask(() => _calculateProgress(optimistic: false));
+    }
   }
 
   Future<void> _silentRefreshInstances() async {
@@ -1339,10 +1573,6 @@ class _QueuePageState extends State<QueuePage> {
         Future.microtask(() => _calculateProgress(optimistic: false));
       }
     } catch (e) {}
-  }
-
-  Future<void> _refreshWithoutFlicker() async {
-    await _silentRefreshInstances();
   }
 
   Future<void> _handleReorder(

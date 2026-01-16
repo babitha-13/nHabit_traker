@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_activity_data_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
@@ -213,8 +214,9 @@ class CalendarEventService {
               if (item.templateCategoryType == 'habit' ||
                   item.templateCategoryType == 'task') {
                 // Use map lookup instead of firstWhere (O(1) vs O(n))
-                CategoryRecord? category = categoryById[item.templateCategoryId] ??
-                    categoryByName[item.templateCategoryName];
+                CategoryRecord? category =
+                    categoryById[item.templateCategoryId] ??
+                        categoryByName[item.templateCategoryName];
                 if (category != null) {
                   categoryColorHex = category.color;
                 } else if (item.templateCategoryColor.isNotEmpty) {
@@ -268,28 +270,29 @@ class CalendarEventService {
     });
 
     // Optimize cascading calculation: filter valid events first, then process
-    final validEvents = completedEvents.where((e) =>
-        e.startTime != null && e.endTime != null).toList();
-    
+    final validEvents = completedEvents
+        .where((e) => e.startTime != null && e.endTime != null)
+        .toList();
+
     DateTime? earliestStartTime;
     final cascadedEvents = <CalendarEventData>[];
-    
+
     // Process events in order (latest end time first)
     // This allows cascading to work correctly by pushing earlier events back
     for (final event in validEvents) {
       DateTime startTime = event.startTime!;
       DateTime endTime = event.endTime!;
       final duration = endTime.difference(startTime);
-      
+
       if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
         endTime = earliestStartTime;
         startTime = endTime.subtract(duration);
       }
-      
+
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
         earliestStartTime = startTime;
       }
-      
+
       cascadedEvents.add(CalendarEventData(
         date: selectedDate,
         startTime: startTime,
@@ -300,7 +303,7 @@ class CalendarEventService {
         event: event.event,
       ));
     }
-    
+
     // Sort by start time ascending for final display order
     cascadedEvents.sort((a, b) {
       if (a.startTime == null || b.startTime == null) return 0;

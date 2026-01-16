@@ -16,6 +16,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/Helper/Helpers/resource_tracker.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).
 Future<int> queryUsersRecordCount({
@@ -51,10 +53,18 @@ Future<List<UsersRecord>> queryUsersRecordOnce({
       limit: limit,
       singleRecord: singleRecord,
     );
+String _getQueryCollectionName(Query query) {
+  if (query is CollectionReference) {
+    return query.path;
+  }
+  return query.toString();
+}
+
 Future<int> queryCollectionCount(
   Query collection, {
   Query Function(Query)? queryBuilder,
   int limit = -1,
+  String? queryDescription,
 }) async {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
@@ -64,7 +74,13 @@ Future<int> queryCollectionCount(
   try {
     final snapshot = await query.count().get();
     return snapshot.count ?? 0;
-  } catch (err) {
+  } catch (err, stackTrace) {
+    logFirestoreQueryError(
+      err,
+      queryDescription: queryDescription ?? 'queryCollectionCount',
+      collectionName: _getQueryCollectionName(query),
+      stackTrace: stackTrace,
+    );
     return 0;
   }
 }
@@ -75,13 +91,27 @@ Stream<List<T>> queryCollection<T>(
   Query Function(Query)? queryBuilder,
   int limit = -1,
   bool singleRecord = false,
+  String? queryDescription,
 }) {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0 || singleRecord) {
     query = query.limit(singleRecord ? 1 : limit);
   }
-  return query.snapshots().handleError((err) {}).map((s) => s.docs
+  // #region agent log - Track Firestore listener creation
+  ResourceTracker.incrementFirestoreListener();
+  // #endregion
+  return query.snapshots().handleError((err, stackTrace) {
+    // #region agent log
+    ResourceTracker.decrementFirestoreListener();
+    // #endregion
+    logFirestoreQueryError(
+      err,
+      queryDescription: queryDescription ?? 'queryCollection',
+      collectionName: _getQueryCollectionName(query),
+      stackTrace: stackTrace,
+    );
+  }).map((s) => s.docs
       .map(
         (d) => safeGet(
           () => recordBuilder(d),
@@ -99,82 +129,39 @@ Future<List<T>> queryCollectionOnce<T>(
   Query Function(Query)? queryBuilder,
   int limit = -1,
   bool singleRecord = false,
+  String? queryDescription,
 }) {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection);
   if (limit > 0 || singleRecord) {
     query = query.limit(singleRecord ? 1 : limit);
   }
-  return query.get().then((s) => s.docs
-      .map(
-        (d) => safeGet(
-          () => recordBuilder(d),
-          (e) {},
-        ),
-      )
-      .where((d) => d != null)
-      .map((d) => d!)
-      .toList());
+  return query
+      .get()
+      .then((s) => s.docs
+          .map(
+            (d) => safeGet(
+              () => recordBuilder(d),
+              (e) {},
+            ),
+          )
+          .where((d) => d != null)
+          .map((d) => d!)
+          .toList())
+      .catchError((err, stackTrace) {
+    logFirestoreQueryError(
+      err,
+      queryDescription: queryDescription ?? 'queryCollectionOnce',
+      collectionName: _getQueryCollectionName(query),
+      stackTrace: stackTrace,
+    );
+    return <T>[];
+  });
 }
 
 Filter filterIn(String field, List? list) => (list?.isEmpty ?? true)
     ? Filter(field, whereIn: null)
     : Filter(field, whereIn: list);
-
-/// Helper function to detect and log Firestore missing index errors
-/// Extracts the index creation link from error messages and logs it clearly
-void logFirestoreIndexError(
-  dynamic error,
-  String queryDescription,
-  String collectionName,
-) {
-  if (error == null) return;
-
-  final errorString = error.toString();
-  final errorMessage = error is Exception ? error.toString() : errorString;
-
-  // Check if this is a missing index error
-  final isIndexError = errorMessage.contains('index') ||
-      errorMessage.contains('requires an index') ||
-      errorMessage.contains('https://console.firebase.google.com');
-
-  if (!isIndexError) return;
-
-  // Extract the index creation URL from the error message
-  String? indexUrl;
-  final urlPattern = RegExp(r'https://console\.firebase\.google\.com[^\s\)]+');
-  final match = urlPattern.firstMatch(errorMessage);
-  if (match != null) {
-    indexUrl = match.group(0);
-  }
-
-  // Log the error with clear formatting
-  print('');
-  print('═══════════════════════════════════════════════════════════');
-  print('❌ FIRESTORE MISSING INDEX ERROR');
-  print('═══════════════════════════════════════════════════════════');
-  print('Query: $queryDescription');
-  print('Collection: $collectionName');
-  print('');
-  if (indexUrl != null) {
-    print('🔗 INDEX CREATION LINK:');
-    print('   $indexUrl');
-    print('');
-    print('📋 INSTRUCTIONS:');
-    print('   1. Click the link above to open Firebase Console');
-    print('   2. Click "Create Index" button');
-    print('   3. Wait for the index to build (may take a few minutes)');
-    print('   4. The calendar page should work after the index is ready');
-  } else {
-    print('⚠️  Could not extract index creation link from error');
-    print('   Check Firebase Console for missing indexes');
-  }
-  print('');
-  print('Full error details:');
-  print('   $errorMessage');
-  print('═══════════════════════════════════════════════════════════');
-  print('');
-}
 
 Filter filterArrayContainsAny(String field, List? list) =>
     (list?.isEmpty ?? true)
@@ -208,34 +195,46 @@ Future<FFFirestorePage<T>> queryCollectionPage<T>(
   DocumentSnapshot? nextPageMarker,
   required int pageSize,
   required bool isStream,
+  String? queryDescription,
 }) async {
   final builder = queryBuilder ?? (q) => q;
   var query = builder(collection).limit(pageSize);
   if (nextPageMarker != null) {
     query = query.startAfterDocument(nextPageMarker);
   }
-  Stream<QuerySnapshot>? docSnapshotStream;
-  QuerySnapshot docSnapshot;
-  if (isStream) {
-    docSnapshotStream = query.snapshots();
-    docSnapshot = await docSnapshotStream.first;
-  } else {
-    docSnapshot = await query.get();
+  try {
+    Stream<QuerySnapshot>? docSnapshotStream;
+    QuerySnapshot docSnapshot;
+    if (isStream) {
+      docSnapshotStream = query.snapshots();
+      docSnapshot = await docSnapshotStream.first;
+    } else {
+      docSnapshot = await query.get();
+    }
+    getDocs(QuerySnapshot s) => s.docs
+        .map(
+          (d) => safeGet(
+            () => recordBuilder(d),
+            (e) {},
+          ),
+        )
+        .where((d) => d != null)
+        .map((d) => d!)
+        .toList();
+    final data = getDocs(docSnapshot);
+    final dataStream = docSnapshotStream?.map(getDocs);
+    final nextPageToken =
+        docSnapshot.docs.isEmpty ? null : docSnapshot.docs.last;
+    return FFFirestorePage(data, dataStream, nextPageToken);
+  } catch (err, stackTrace) {
+    logFirestoreQueryError(
+      err,
+      queryDescription: queryDescription ?? 'queryCollectionPage',
+      collectionName: _getQueryCollectionName(query),
+      stackTrace: stackTrace,
+    );
+    return FFFirestorePage(<T>[], null, null);
   }
-  getDocs(QuerySnapshot s) => s.docs
-      .map(
-        (d) => safeGet(
-          () => recordBuilder(d),
-          (e) {},
-        ),
-      )
-      .where((d) => d != null)
-      .map((d) => d!)
-      .toList();
-  final data = getDocs(docSnapshot);
-  final dataStream = docSnapshotStream?.map(getDocs);
-  final nextPageToken = docSnapshot.docs.isEmpty ? null : docSnapshot.docs.last;
-  return FFFirestorePage(data, dataStream, nextPageToken);
 }
 
 // Creates a Firestore document representing the logged in user if it doesn't yet exist
@@ -337,7 +336,13 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
     // Sort in memory instead of in query
     activeHabits.sort((a, b) => b.createdTime!.compareTo(a.createdTime!));
     return activeHabits;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryActivitiesRecordOnce',
+      collectionName: 'activities',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -360,7 +365,13 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
     // Sort in memory instead of in query
     categories.sort((a, b) => a.name.compareTo(b.name));
     return categories;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryCategoriesRecordOnce ($callerTag)',
+      collectionName: 'categories',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -391,7 +402,13 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
     // Update cache
     cache.cacheHabitCategories(habitCategories);
     return habitCategories;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryHabitCategoriesOnce',
+      collectionName: 'categories',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -422,7 +439,13 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
     // Update cache
     cache.cacheTaskCategories(taskCategories);
     return taskCategories;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryTaskCategoriesOnce',
+      collectionName: 'categories',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -444,7 +467,13 @@ Future<List<CategoryRecord>> queryEssentialCategoriesOnce({
     // Sort in memory
     essentialCategories.sort((a, b) => a.name.compareTo(b.name));
     return essentialCategories;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryEssentialCategoriesOnce',
+      collectionName: 'categories',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -457,7 +486,13 @@ Future<List<ActivityInstanceRecord>> queryTaskInstances({
 }) async {
   try {
     return await ActivityInstanceService.getActiveTaskInstances(userId: userId);
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryTaskInstances',
+      collectionName: 'activity_instances',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -480,7 +515,13 @@ Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
     // Update cache
     cache.cacheTaskInstances(instances);
     return instances;
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryAllTaskInstances',
+      collectionName: 'activity_instances',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -494,7 +535,13 @@ Future<List<ActivityInstanceRecord>> queryTodaysHabitInstances({
   try {
     return await ActivityInstanceService.getActiveHabitInstances(
         userId: userId);
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryTodaysHabitInstances',
+      collectionName: 'activity_instances',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }
@@ -507,7 +554,13 @@ Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
   try {
     return await ActivityInstanceService.getCurrentHabitInstances(
         userId: userId);
-  } catch (e) {
+  } catch (e, stackTrace) {
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'queryCurrentHabitInstances',
+      collectionName: 'activity_instances',
+      stackTrace: stackTrace,
+    );
     return []; // Return empty list on error
   }
 }

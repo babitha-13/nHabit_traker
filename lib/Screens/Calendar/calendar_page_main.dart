@@ -2,7 +2,7 @@ import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Calendar/calender_page_ui.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
@@ -484,13 +484,15 @@ class _CalendarPageState extends State<CalendarPage> {
         }
         return false;
       });
-      
-      final removedEventId = removedEvent != null ? CalendarOverlapCalculator.stableEventId(removedEvent!) : null;
+
+      final removedEventId = removedEvent != null
+          ? CalendarOverlapCalculator.stableEventId(removedEvent!)
+          : null;
       _sortedPlannedEvents.removeWhere((e) {
         final metadata = CalendarEventMetadata.fromMap(e.event);
         return metadata?.instanceId == instanceId;
       });
-      
+
       // Use incremental overlap update if possible
       PlannedOverlapInfo overlapInfo;
       if (removedEventId != null && _plannedOverlapPairCount > 0) {
@@ -507,7 +509,7 @@ class _CalendarPageState extends State<CalendarPage> {
         // Fallback to full recompute
         overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
       }
-      
+
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
         ..clear()
@@ -540,11 +542,12 @@ class _CalendarPageState extends State<CalendarPage> {
               final metadata = CalendarEventMetadata.fromMap(e.event);
               return metadata?.instanceId == instanceId;
             });
-            
+
             // Use incremental overlap update if possible
             if (_sortedPlannedEvents.isNotEmpty) {
               final removedEventId = instanceId;
-              final overlapInfo = CalendarOverlapCalculator.updateOverlapsAfterRemoval(
+              final overlapInfo =
+                  CalendarOverlapCalculator.updateOverlapsAfterRemoval(
                 removedEventId,
                 _sortedPlannedEvents,
                 PlannedOverlapInfo(
@@ -680,7 +683,7 @@ class _CalendarPageState extends State<CalendarPage> {
         return a.startTime!.compareTo(b.startTime!);
       });
       _plannedEventController.add(newEvent);
-      
+
       // Use incremental overlap update if possible
       PlannedOverlapInfo overlapInfo;
       if (_plannedOverlapPairCount == 0 && _sortedPlannedEvents.length == 1) {
@@ -701,7 +704,7 @@ class _CalendarPageState extends State<CalendarPage> {
           ),
         );
       }
-      
+
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
         ..clear()
@@ -727,12 +730,12 @@ class _CalendarPageState extends State<CalendarPage> {
     // Build maps of new events by ID for quick lookup
     final newCompletedMap = <String, CalendarEventData>{};
     final newPlannedMap = <String, CalendarEventData>{};
-    
+
     for (final event in newCompletedEvents) {
       final id = _getEventId(event);
       if (id != null) newCompletedMap[id] = event;
     }
-    
+
     for (final event in newPlannedEvents) {
       final id = _getEventId(event);
       if (id != null) newPlannedMap[id] = event;
@@ -741,12 +744,12 @@ class _CalendarPageState extends State<CalendarPage> {
     // Build maps of current events
     final currentCompletedMap = <String, CalendarEventData>{};
     final currentPlannedMap = <String, CalendarEventData>{};
-    
+
     for (final event in _completedEventController.events) {
       final id = _getEventId(event);
       if (id != null) currentCompletedMap[id] = event;
     }
-    
+
     for (final event in _plannedEventController.events) {
       final id = _getEventId(event);
       if (id != null) currentPlannedMap[id] = event;
@@ -762,7 +765,7 @@ class _CalendarPageState extends State<CalendarPage> {
         _completedEventController.removeWhere((e) => true);
         _completedEventController.addAll(newCompletedEvents);
       }
-      
+
       if (plannedChanged) {
         _plannedEventController.removeWhere((e) => true);
         _plannedEventController.addAll(newPlannedEvents);
@@ -771,7 +774,8 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   /// Compare two event maps for equality by ID
-  bool _mapsEqual(Map<String, CalendarEventData> map1, Map<String, CalendarEventData> map2) {
+  bool _mapsEqual(Map<String, CalendarEventData> map1,
+      Map<String, CalendarEventData> map2) {
     if (map1.length != map2.length) return false;
     for (final key in map1.keys) {
       if (!map2.containsKey(key)) return false;
@@ -780,6 +784,10 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   Future<void> _loadEvents() async {
+    // GUARD: Prevent concurrent loads that could cause cascading calls
+    if (_isLoadingEvents) {
+      return;
+    }
     if (mounted) {
       setState(() {
         _isLoadingEvents = true;
@@ -787,6 +795,10 @@ class _CalendarPageState extends State<CalendarPage> {
     }
     try {
       final userId = currentUserUid;
+      // GUARD: Don't query Firestore if user is not authenticated yet
+      if (userId.isEmpty) {
+        return;
+      }
       final result = await CalendarEventService.loadEvents(
         userId: userId,
         selectedDate: _selectedDate,
@@ -801,24 +813,24 @@ class _CalendarPageState extends State<CalendarPage> {
         ..clear()
         ..addAll(overlapInfo.overlappedIds);
       _plannedOverlapGroups = overlapInfo.groups;
-      
+
       // Use optimized update method instead of clear/addAll
       _updateEventControllers(result.completedEvents, result.plannedEvents);
-      
+
       if (mounted) setState(() {});
     } catch (e, stackTrace) {
       // Log errors, especially index errors
       print('❌ Calendar page error loading events:');
       print('   Error: $e');
       print('   Stack trace: $stackTrace');
-      
+
       // Check if it's an index error and log it
       logFirestoreIndexError(
         e,
         'Calendar page loadEvents (multiple queries)',
         'activity_instances',
       );
-      
+
       // Show empty state on error (events will be empty)
       if (mounted) {
         _sortedCompletedEvents = [];
@@ -987,6 +999,13 @@ class _CalendarPageState extends State<CalendarPage> {
   void _onScaleEnd(ScaleEndDetails details) {
     _initialZoomOnGestureStart = null;
     _initialScaleOnGestureStart = null;
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Clean up observers on hot reload to prevent accumulation
+    NotificationCenter.removeObserver(this);
   }
 
   @override

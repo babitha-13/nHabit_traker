@@ -18,7 +18,11 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance
 import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:intl/intl.dart';
+import '../../debug_log_stub.dart'
+    if (dart.library.io) '../../debug_log_io.dart'
+    if (dart.library.html) '../../debug_log_web.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
@@ -126,6 +130,42 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     });
   }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // #region agent log
+    _logReassemble('called');
+    // #endregion
+    // Clean up observers on hot reload to prevent accumulation
+    NotificationCenter.removeObserver(this);
+    // #region agent log
+    _logReassemble('complete');
+    // #endregion
+  }
+  
+  // #region agent log
+  void _logReassemble(String stage) {
+    try {
+      writeDebugLog(jsonEncode({
+        'id': 'log_${DateTime.now().millisecondsSinceEpoch}_habits',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'location': 'habits_page.dart:reassemble',
+        'message': 'reassemble_$stage',
+        'data': {
+          'hypothesisId': 'J',
+          'event': 'reassemble_$stage',
+          'instanceHash': hashCode,
+          'observerCount': NotificationCenter.observerCount(),
+        },
+        'sessionId': 'debug-session',
+        'runId': 'run1',
+      }));
+    } catch (e) {
+      // Silently fail
+    }
+  }
+  // #endregion
 
   @override
   void dispose() {
