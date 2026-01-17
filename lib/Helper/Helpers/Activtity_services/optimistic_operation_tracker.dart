@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
@@ -8,6 +9,8 @@ class OptimisticOperationTracker {
   static final Map<String, OptimisticOperation> _pendingOperations = {};
   static final Random _random = Random();
   static const Duration _operationTimeout = Duration(seconds: 30);
+  static const Duration _cleanupInterval = Duration(seconds: 10); // Check every 10 seconds
+  static Timer? _cleanupTimer;
 
   /// Generate unique operation ID
   static String generateOperationId() {
@@ -29,10 +32,23 @@ class OptimisticOperationTracker {
       ['complete', 'skip'],
       ['uncomplete', 'complete'],
       ['skip', 'complete'],
+      ['create', 'create'], // Duplicate creation operations conflict
     ];
     return conflictingPairs.any((pair) =>
         (pair[0] == type1 && pair[1] == type2) ||
         (pair[0] == type2 && pair[1] == type1));
+  }
+
+  /// Check if there's a pending creation operation for the same template
+  /// This prevents duplicate optimistic creations of the same instance
+  static OptimisticOperation? getPendingCreationForTemplate(String templateId) {
+    for (final operation in _pendingOperations.values) {
+      if (operation.operationType == 'create' &&
+          operation.optimisticInstance.templateId == templateId) {
+        return operation;
+      }
+    }
+    return null;
   }
 
   /// Clean up operations that are older than timeout
@@ -52,27 +68,55 @@ class OptimisticOperationTracker {
     }
   }
 
+  /// Start periodic cleanup timer to proactively clean up stale operations
+  /// This prevents memory leaks when operations don't complete or reconcile
+  static void startPeriodicCleanup() {
+    // Cancel existing timer if any
+    _cleanupTimer?.cancel();
+    
+    // Start new periodic timer
+    _cleanupTimer = Timer.periodic(_cleanupInterval, (_) {
+      cleanupStaleOperations();
+    });
+  }
+
+  /// Stop periodic cleanup timer
+  static void stopPeriodicCleanup() {
+    _cleanupTimer?.cancel();
+    _cleanupTimer = null;
+  }
+
   /// Track an optimistic operation
   static void trackOperation(
     String operationId, {
     required String instanceId,
     required String
-        operationType, // 'complete', 'uncomplete', 'progress', 'skip', 'reschedule', 'snooze', 'unsnooze'
+        operationType, // 'complete', 'uncomplete', 'progress', 'skip', 'reschedule', 'snooze', 'unsnooze', 'create'
     required ActivityInstanceRecord optimisticInstance,
     required ActivityInstanceRecord originalInstance,
   }) {
     // Clean up stale operations before tracking new one
     cleanupStaleOperations();
 
-    // Check for existing operation on same instance
-    final existingOperation = getPendingOperation(instanceId);
-    if (existingOperation != null) {
-      // If operations conflict, cancel old operation
-      if (_areOperationsConflicting(
-          existingOperation.operationType, operationType)) {
-        rollbackOperation(existingOperation.operationId);
+    // For creation operations, check for duplicate creations of same template
+    if (operationType == 'create') {
+      final existingCreation = getPendingCreationForTemplate(
+          optimisticInstance.templateId);
+      if (existingCreation != null) {
+        // Cancel previous creation operation to prevent duplicates
+        rollbackOperation(existingCreation.operationId);
       }
-      // If compatible (e.g., progress updates), allow both but old one will be superseded
+    } else {
+      // For other operations, check for existing operation on same instance
+      final existingOperation = getPendingOperation(instanceId);
+      if (existingOperation != null) {
+        // If operations conflict, cancel old operation
+        if (_areOperationsConflicting(
+            existingOperation.operationType, operationType)) {
+          rollbackOperation(existingOperation.operationId);
+        }
+        // If compatible (e.g., progress updates), allow both but old one will be superseded
+      }
     }
 
     _pendingOperations[operationId] = OptimisticOperation(
@@ -118,11 +162,13 @@ class OptimisticOperationTracker {
     final operation = _pendingOperations.remove(operationId);
     if (operation != null) {
       // Broadcast rollback event with original instance for restoration
+      // Include optimistic instance for creation rollbacks (to identify temp instances)
       NotificationCenter.post('instanceUpdateRollback', {
         'operationId': operationId,
         'instanceId': operation.instanceId,
         'operationType': operation.operationType,
         'originalInstance': operation.originalInstance,
+        'optimisticInstance': operation.optimisticInstance, // Help identify temp instances
       });
     }
   }

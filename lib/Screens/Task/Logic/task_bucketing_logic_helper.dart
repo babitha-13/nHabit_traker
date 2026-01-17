@@ -16,13 +16,10 @@ class TaskBucketingLogicHelper {
     required Function(Set<String>) onExpandedSectionsUpdate,
     Set<String> expandedSections = const {},
   }) {
-    // Check if cache is still valid
-    final currentInstancesHash = taskInstances.length.hashCode ^
-        taskInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
+    // Cache validity is already checked by caller using taskInstancesHashCode
+    // No need to recalculate hash here - rely on hash passed from caller
     final cacheInvalid = cachedBucketedItems == null ||
-        currentInstancesHash != taskInstancesHashCode ||
+        taskInstancesHashCode == null ||
         searchQuery != (lastSearchQuery ?? '') ||
         completionTimeFrame != (lastCompletionTimeFrame ?? 2) ||
         categoryName != lastCategoryName;

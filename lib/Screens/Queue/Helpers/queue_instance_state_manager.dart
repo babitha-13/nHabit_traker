@@ -76,6 +76,17 @@ class QueueInstanceHandlers {
           optimisticOperations[operationId] = instance.reference.id;
         }
       } else {
+        // Ignore stale non-optimistic updates that are older than the currently held instance
+        final existing = instances[index];
+        final incomingLastUpdated = instance.lastUpdated;
+        final existingLastUpdated = existing.lastUpdated;
+        if (incomingLastUpdated != null &&
+            existingLastUpdated != null &&
+            incomingLastUpdated.isBefore(existingLastUpdated)) {
+          // This is a stale update - ignore it
+          return;
+        }
+
         // Reconciled update - replace optimistic state
         instances[index] = instance;
         if (operationId != null) {

@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/main.dart';
 import 'package:habit_tracker/Screens/Queue/queue_page.dart';
@@ -520,6 +521,8 @@ class NotificationService {
     DateTimeComponents? matchDateTimeComponents,
     List<AndroidNotificationAction>? actions,
   }) async {
+    // Web does not support local notifications in this app setup
+    if (kIsWeb) return;
     try {
       // Ensure timezone is initialized before using tz.local
       _ensureTimezoneInitialized();
@@ -605,6 +608,7 @@ class NotificationService {
 
   /// Cancel a specific notification
   static Future<void> cancelNotification(String id) async {
+    if (kIsWeb) return;
     try {
       await _notificationsPlugin.cancel(id.hashCode);
     } catch (e) {
@@ -615,6 +619,7 @@ class NotificationService {
 
   /// Cancel all notifications
   static Future<void> cancelAllNotifications() async {
+    if (kIsWeb) return;
     try {
       await _notificationsPlugin.cancelAll();
     } catch (e) {
@@ -626,6 +631,7 @@ class NotificationService {
   /// Get pending notifications
   static Future<List<PendingNotificationRequest>>
       getPendingNotifications() async {
+    if (kIsWeb) return [];
     try {
       return await _notificationsPlugin.pendingNotificationRequests();
     } catch (e) {
@@ -635,6 +641,7 @@ class NotificationService {
 
   /// Check if we have notification permissions
   static Future<bool> checkPermissions() async {
+    if (kIsWeb) return false;
     try {
       final androidPlugin =
           _notificationsPlugin.resolvePlatformSpecificImplementation<

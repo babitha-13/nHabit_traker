@@ -32,6 +32,8 @@ import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Timer/global_floating_timer.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/Helper/Helpers/resource_tracker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
@@ -59,6 +61,16 @@ class _HomeState extends State<Home> {
   Timer? _dayTransitionTimer;
   @override
   void initState() {
+    // CRITICAL: Reset observers on hot reload BEFORE widgets start adding new ones
+    // Home creates all page widgets, so this is the best place to detect hot reload
+    final observerCountBefore = NotificationCenter.observerCount();
+    if (observerCountBefore > 6) {
+      // More than just FirestoreCacheService observers - likely a hot reload
+      // Reset all observers to prevent accumulation from previous hot reloads
+      NotificationCenter.reset();
+      FirestoreCacheService.resetListenersSetup();
+      ResourceTracker.reset();
+    }
     NotificationCenter.addObserver(
         this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
@@ -80,6 +92,7 @@ class _HomeState extends State<Home> {
         systemNavigationBarDividerColor: Colors.transparent,
       ),
     );
+
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.wait([
         _checkMorningCatchUp(),
@@ -99,6 +112,15 @@ class _HomeState extends State<Home> {
     if (param is String) {
       loadPage(param);
     }
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Clean up observers on hot reload to prevent accumulation
+    NotificationCenter.removeObserver(this);
+    NotificationCenter.addObserver(
+        this, 'navigateBottomTab', _onNavigateBottomTab);
   }
 
   @override

@@ -1,5 +1,6 @@
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 
@@ -86,7 +87,7 @@ class CalendarQueueService {
 
     try {
       List<ActivityInstanceRecord> instances;
-      
+
       // Optimize: Use Firestore query by dueDate when possible
       // For tasks on a specific date, we can query by dueDate
       // For habits, we need to check window logic, so fallback to loading all
@@ -200,7 +201,7 @@ class CalendarQueueService {
 
     try {
       List<ActivityInstanceRecord> instances;
-      
+
       // Optimize: Query by completedAt field at Firestore level
       try {
         // Query for items completed on targetDate (completedAt >= start of day AND < end of day)

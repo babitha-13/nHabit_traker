@@ -5,6 +5,10 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_event_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'dart:convert';
+import '../../../debug_log_stub.dart'
+    if (dart.library.io) '../../../debug_log_io.dart'
+    if (dart.library.html) '../../../debug_log_web.dart';
 
 /// Centralized cache service for Firestore data
 /// Reduces redundant reads by caching frequently accessed data
@@ -13,8 +17,42 @@ class FirestoreCacheService {
       FirestoreCacheService._internal();
   factory FirestoreCacheService() => _instance;
   FirestoreCacheService._internal() {
+    // #region agent log
+    _logDebug('_internal', {
+      'hypothesisId': 'A',
+      'event': 'cacheService_created',
+      'instanceHash': hashCode,
+      'observerCount_before': NotificationCenter.observerCount()
+    });
+    // #endregion
     _setupCacheInvalidationListeners();
+    // #region agent log
+    _logDebug('_internal', {
+      'hypothesisId': 'A',
+      'event': 'listeners_setup',
+      'observerCount_after': NotificationCenter.observerCount()
+    });
+    // #endregion
   }
+
+  // #region agent log
+  void _logDebug(String location, Map<String, dynamic> data) {
+    try {
+      final logEntry = {
+        'id': 'log_${DateTime.now().millisecondsSinceEpoch}_${hashCode}',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'location': 'firestore_cache_service.dart:$location',
+        'message': data['event'] ?? 'debug',
+        'data': data,
+        'sessionId': 'debug-session',
+        'runId': 'run1',
+      };
+      writeDebugLog(jsonEncode(logEntry));
+    } catch (e) {
+      // Silently fail
+    }
+  }
+  // #endregion
 
   // Cache storage
   List<ActivityInstanceRecord>? _cachedAllInstances;
@@ -45,13 +83,36 @@ class FirestoreCacheService {
       60; // 60 seconds for calendar events (current/future dates)
   static const int _calendarPastDateCacheTTL =
       86400 * 7; // 7 days for past dates (never change)
-  
+
   // Cache size limits to prevent OOM on web
-  static const int _maxHabitInstancesCache = 500; // Limit habit instances to 500
+  static const int _maxHabitInstancesCache =
+      500; // Limit habit instances to 500
   static const int _maxInstancesByIdCache = 300; // Limit instancesById to 300
+
+  // Track if listeners are already set up to prevent duplicates on hot restart
+  static bool _listenersSetup = false;
 
   /// Setup listeners for cache invalidation
   void _setupCacheInvalidationListeners() {
+    // #region agent log
+    _logDebug('_setupCacheInvalidationListeners', {
+      'hypothesisId': 'A',
+      'event': 'setup_start',
+      'observerCount_before': NotificationCenter.observerCount(),
+      'listenersAlreadySetup': _listenersSetup
+    });
+    // #endregion
+    // CRITICAL FIX: Only set up listeners once per app lifecycle
+    // On hot restart, static variables are reset, but NotificationCenter might still have observers
+    // So we check observer count - if there are already observers for these events, skip setup
+    // This prevents duplicate observers from accumulating
+    if (_listenersSetup) {
+      // #region agent log
+      _logDebug('_setupCacheInvalidationListeners',
+          {'hypothesisId': 'A', 'event': 'setup_skipped_already_setup'});
+      // #endregion
+      return;
+    }
     // Invalidate instances cache when instances are created/updated/deleted
     NotificationCenter.addObserver(
       this,
@@ -122,6 +183,26 @@ class FirestoreCacheService {
       'categoryUpdated',
       (_) => invalidateCategoriesCache(),
     );
+    _listenersSetup = true;
+    // #region agent log
+    _logDebug('_setupCacheInvalidationListeners', {
+      'hypothesisId': 'A',
+      'event': 'setup_complete',
+      'observerCount_after': NotificationCenter.observerCount()
+    });
+    // #endregion
+  }
+
+  /// Ensure listeners are set up (can be called from main.dart on reassemble)
+  void ensureListenersSetup() {
+    // Only setup if not already setup (handled inside _setupCacheInvalidationListeners via flag check)
+    // But first, if this is called explicitly, we might want to force it if the flag was reset
+    _setupCacheInvalidationListeners();
+  }
+
+  /// Reset the listeners setup flag (called when NotificationCenter is reset)
+  static void resetListenersSetup() {
+    _listenersSetup = false;
   }
 
   /// Check if cache is still valid based on TTL
@@ -353,6 +434,11 @@ class FirestoreCacheService {
 
   /// Cache calendar events for a date
   void cacheCalendarEvents(DateTime date, CalendarEventsResult events) {
+    // Prevent unbound growth of calendar cache
+    if (_calendarDateCache.length > 100) {
+      _calendarDateCache.clear();
+      _calendarDateTimestamps.clear();
+    }
     final key = _getDateCacheKey(date);
     _calendarDateCache[key] = events;
     _calendarDateTimestamps[key] = DateTime.now();
@@ -449,10 +535,24 @@ class FirestoreCacheService {
 
   /// Invalidate all caches
   void invalidateAllCache() {
+    // #region agent log
+    _logDebug('invalidateAllCache', {
+      'hypothesisId': 'D',
+      'event': 'invalidate_start',
+      'cache_before': debugCounts()
+    });
+    // #endregion
     invalidateInstancesCache();
     invalidateCategoriesCache();
     invalidateAllTemplatesCache();
     invalidateCalendarCache();
+    // #region agent log
+    _logDebug('invalidateAllCache', {
+      'hypothesisId': 'D',
+      'event': 'invalidate_complete',
+      'cache_after': debugCounts()
+    });
+    // #endregion
   }
 
   /// Preload data on app start (optional - can be called from main.dart)

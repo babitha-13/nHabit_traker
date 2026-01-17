@@ -1,5 +1,6 @@
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/cumulative_score_history_record.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
 import 'package:intl/intl.dart';
 
@@ -189,5 +190,157 @@ class ScoreHistoryService {
     }
 
     return false; // Last entry is in the future (shouldn't happen)
+  }
+
+  /// Load score history from single document (optimized - 1 read instead of 30+)
+  /// Falls back to old method if document doesn't exist (for migration)
+  static Future<Map<String, dynamic>> loadScoreHistoryFromSingleDoc({
+    required String userId,
+    int days = 30,
+    double? cumulativeScore,
+    double? todayScore,
+  }) async {
+    if (userId.isEmpty) {
+      return {
+        'cumulativeScore': 0.0,
+        'todayScore': 0.0,
+        'history': <Map<String, dynamic>>[],
+      };
+    }
+
+    try {
+      final doc = await CumulativeScoreHistoryRecord.getDocument(userId);
+
+      if (!doc.exists) {
+        // Fallback to old method for first-time users or migration
+        return loadScoreHistory(
+          userId: userId,
+          days: days,
+          cumulativeScore: cumulativeScore,
+          todayScore: todayScore,
+        );
+      }
+
+      final data = doc.data() as Map<String, dynamic>?;
+      final scores =
+          (data?['scores'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+      if (scores.isEmpty) {
+        // Empty document - fallback to old method
+        return loadScoreHistory(
+          userId: userId,
+          days: days,
+          cumulativeScore: cumulativeScore,
+          todayScore: todayScore,
+        );
+      }
+
+      // Get last N days
+      final lastNDays = scores.length > days
+          ? scores.sublist(scores.length - days)
+          : scores;
+
+      // Get latest score values
+      final latestScore = scores.isNotEmpty
+          ? (scores.last['score'] as num?)?.toDouble() ?? 0.0
+          : 0.0;
+      final latestGain = scores.isNotEmpty
+          ? (scores.last['gain'] as num?)?.toDouble() ?? 0.0
+          : 0.0;
+
+      // Use provided live values if available, otherwise use latest from history
+      final finalCumulativeScore = cumulativeScore ?? latestScore;
+      final finalTodayScore = todayScore ?? latestGain;
+
+      // Update today's entry in the returned history if live values provided
+      final history = List<Map<String, dynamic>>.from(lastNDays);
+      final todayStart = DateService.todayStart;
+      if (history.isNotEmpty) {
+        final lastEntry = history.last;
+        final lastDate = lastEntry['date'];
+        if (lastDate is DateTime) {
+          final isToday = lastDate.year == todayStart.year &&
+              lastDate.month == todayStart.month &&
+              lastDate.day == todayStart.day;
+          if (isToday && (cumulativeScore != null || todayScore != null)) {
+            // Update today's entry with live values
+            history[history.length - 1] = {
+              'date': lastDate,
+              'score': finalCumulativeScore,
+              'gain': finalTodayScore,
+            };
+          }
+        }
+      }
+
+      return {
+        'cumulativeScore': finalCumulativeScore,
+        'todayScore': finalTodayScore,
+        'history': history,
+      };
+    } catch (e) {
+      // On error, fallback to old method
+      return loadScoreHistory(
+        userId: userId,
+        days: days,
+        cumulativeScore: cumulativeScore,
+        todayScore: todayScore,
+      );
+    }
+  }
+
+  /// Update the single document with today's score
+  /// Appends or updates today's entry and keeps only last 100 days
+  static Future<void> updateScoreHistoryDocument({
+    required String userId,
+    required double cumulativeScore,
+    required double todayScore,
+  }) async {
+    if (userId.isEmpty) return;
+
+    try {
+      final today = DateService.todayStart;
+      final dateKey = DateFormat('yyyy-MM-dd').format(today);
+
+      // Get current document
+      final doc = await CumulativeScoreHistoryRecord.getDocument(userId);
+      final data = doc.data() as Map<String, dynamic>? ?? {};
+      final scores =
+          (data['scores'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+      // Remove today's entry if it exists
+      scores.removeWhere((s) {
+        final sDate = s['date'];
+        if (sDate is DateTime) {
+          return sDate.year == today.year &&
+              sDate.month == today.month &&
+              sDate.day == today.day;
+        } else if (sDate is String) {
+          return sDate == dateKey;
+        }
+        return false;
+      });
+
+      // Add today's entry
+      scores.add({
+        'date': today,
+        'score': cumulativeScore,
+        'gain': todayScore,
+      });
+
+      // Keep only last 100 days
+      if (scores.length > 100) {
+        scores.removeRange(0, scores.length - 100);
+      }
+
+      // Update document
+      await CumulativeScoreHistoryRecord.setDocument(
+        userId: userId,
+        scores: scores,
+      );
+    } catch (e) {
+      // Silently fail - non-critical operation
+      // History will be rebuilt on next load if needed
+    }
   }
 }

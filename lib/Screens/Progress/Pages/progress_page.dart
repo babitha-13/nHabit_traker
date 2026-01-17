@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
@@ -98,6 +100,16 @@ class _ProgressPageState extends State<ProgressPage> {
               data['cumulativeScore'] as double? ?? _projectedCumulativeScore;
           _projectedDailyGain =
               data['todayScore'] as double? ?? _projectedDailyGain;
+          // Extract breakdown data from shared state (calculated by Queue Page)
+          final breakdown = data['breakdown'] as Map<String, double>?;
+          if (breakdown != null) {
+            _dailyScore = breakdown['dailyScore'] ?? 0.0;
+            _consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
+            _recoveryBonus = breakdown['recoveryBonus'] ?? 0.0;
+            _decayPenalty = breakdown['decayPenalty'] ?? 0.0;
+            _categoryNeglectPenalty =
+                breakdown['categoryNeglectPenalty'] ?? 0.0;
+          }
           // Ensure _hasProjection is set if we have live score
           if (hasLiveScore) {
             _hasProjection = true;
@@ -358,6 +370,17 @@ class _ProgressPageState extends State<ProgressPage> {
                 (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
             _projectedDailyGain =
                 (sharedScoreData['todayScore'] as double?) ?? 0.0;
+            // Extract breakdown data from shared state (calculated by Queue Page)
+            final breakdown =
+                sharedScoreData['breakdown'] as Map<String, double>?;
+            if (breakdown != null) {
+              _dailyScore = breakdown['dailyScore'] ?? 0.0;
+              _consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
+              _recoveryBonus = breakdown['recoveryBonus'] ?? 0.0;
+              _decayPenalty = breakdown['decayPenalty'] ?? 0.0;
+              _categoryNeglectPenalty =
+                  breakdown['categoryNeglectPenalty'] ?? 0.0;
+            }
             _hasProjection = true;
           });
         }
@@ -429,40 +452,21 @@ class _ProgressPageState extends State<ProgressPage> {
               (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
           _projectedDailyGain =
               (sharedScoreData['todayScore'] as double?) ?? 0.0;
+          // Extract breakdown data from shared state (already calculated by Queue Page)
+          final breakdown =
+              sharedScoreData['breakdown'] as Map<String, double>?;
+          if (breakdown != null) {
+            _dailyScore = breakdown['dailyScore'] ?? 0.0;
+            _consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
+            _recoveryBonus = breakdown['recoveryBonus'] ?? 0.0;
+            _decayPenalty = breakdown['decayPenalty'] ?? 0.0;
+            _categoryNeglectPenalty =
+                breakdown['categoryNeglectPenalty'] ?? 0.0;
+          }
           _hasProjection = true;
         });
         // Update history with live score
         _updateHistoryWithTodayScore();
-        
-        // Always load breakdown when we have live score, so breakdown dialog has data
-        // Load breakdown in background without blocking
-        Future.microtask(() async {
-          try {
-            final breakdownResult = await CumulativeScoreCalculator.updateTodayScore(
-              userId: currentUserUid,
-              completionPercentage: _todayPercentage,
-              pointsEarned: _todayEarned,
-              categories: null,
-              habitInstances: null,
-              includeBreakdown: true,
-            );
-            if (mounted) {
-              setState(() {
-                _dailyScore = (breakdownResult['dailyScore'] as num?)?.toDouble() ?? 0.0;
-                _consistencyBonus =
-                    (breakdownResult['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
-                _recoveryBonus =
-                    (breakdownResult['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
-                _decayPenalty =
-                    (breakdownResult['decayPenalty'] as num?)?.toDouble() ?? 0.0;
-                _categoryNeglectPenalty =
-                    (breakdownResult['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
-              });
-            }
-          } catch (e) {
-            // Error loading breakdown - non-critical
-          }
-        });
         return;
       }
 
@@ -1103,9 +1107,30 @@ class _ProgressPageState extends State<ProgressPage> {
   }
 
   void _showScoreBreakdownDialog(double displayGain) {
-    // Calculate breakdown on-demand if not available
+    // Try to get breakdown from shared state first (calculated by Queue Page)
+    // This ensures consistency - same calculation, same result
     Future<void> ensureBreakdownLoaded() async {
-      // If breakdown values are all zero but we have a projection, recalculate
+      // Check if breakdown is already loaded from shared state
+      final sharedData = TodayProgressState().getCumulativeScoreData();
+      final breakdown = sharedData['breakdown'] as Map<String, double>?;
+
+      if (breakdown != null && breakdown.isNotEmpty) {
+        // Breakdown already available from shared state, use it
+        if (mounted) {
+          setState(() {
+            _dailyScore = breakdown['dailyScore'] ?? 0.0;
+            _consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
+            _recoveryBonus = breakdown['recoveryBonus'] ?? 0.0;
+            _decayPenalty = breakdown['decayPenalty'] ?? 0.0;
+            _categoryNeglectPenalty =
+                breakdown['categoryNeglectPenalty'] ?? 0.0;
+          });
+        }
+        return;
+      }
+
+      // Fallback: Only recalculate if breakdown is truly missing
+      // This should rarely happen if Queue Page is active
       if (_hasProjection &&
           _dailyScore == 0.0 &&
           _consistencyBonus == 0.0 &&
@@ -1113,24 +1138,31 @@ class _ProgressPageState extends State<ProgressPage> {
           _decayPenalty == 0.0 &&
           _categoryNeglectPenalty == 0.0 &&
           _projectedDailyGain != 0.0) {
-        // Breakdown not loaded yet, calculate it now
         try {
           final userId = currentUserUid;
           if (userId.isEmpty) return;
+
+          // Fetch instances and categories for accurate penalty calculation
+          final instancesData =
+              await ProgressPageDataService.fetchInstancesForBreakdown(
+                  userId: userId);
+          final categories =
+              instancesData['categories'] as List<CategoryRecord>;
+          final habitInstances =
+              instancesData['habits'] as List<ActivityInstanceRecord>;
 
           final result = await CumulativeScoreCalculator.updateTodayScore(
             userId: userId,
             completionPercentage: _todayPercentage,
             pointsEarned: _todayEarned,
-            categories: null,
-            habitInstances: null,
+            categories: categories,
+            habitInstances: habitInstances,
             includeBreakdown: true,
+            updateSharedState:
+                false, // Don't overwrite if Queue Page has calculated
           );
 
           if (mounted) {
-            // Update breakdown components
-            // Also update projected values from result to ensure consistency
-            // The calculation already updated shared state via ScoreCoordinator
             setState(() {
               _dailyScore = (result['dailyScore'] as num?)?.toDouble() ?? 0.0;
               _consistencyBonus =
@@ -1141,20 +1173,26 @@ class _ProgressPageState extends State<ProgressPage> {
                   (result['decayPenalty'] as num?)?.toDouble() ?? 0.0;
               _categoryNeglectPenalty =
                   (result['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
-              // Update projected values from result to ensure consistency with shared state
-              _projectedCumulativeScore =
-                  (result['cumulativeScore'] as num?)?.toDouble() ?? _projectedCumulativeScore;
-              _projectedDailyGain =
-                  (result['todayScore'] as num?)?.toDouble() ?? _projectedDailyGain;
-              _hasProjection = true;
             });
-            // Update history with the newly calculated score
-            _updateHistoryWithTodayScore();
           }
         } catch (e) {
           // Error calculating breakdown - will show 0 values
         }
       }
+    }
+
+    // Always refresh breakdown from shared state before showing dialog
+    // This ensures we have the latest breakdown calculated by Queue Page
+    final sharedData = TodayProgressState().getCumulativeScoreData();
+    final breakdown = sharedData['breakdown'] as Map<String, double>?;
+    if (breakdown != null && breakdown.isNotEmpty && mounted) {
+      setState(() {
+        _dailyScore = breakdown['dailyScore'] ?? 0.0;
+        _consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
+        _recoveryBonus = breakdown['recoveryBonus'] ?? 0.0;
+        _decayPenalty = breakdown['decayPenalty'] ?? 0.0;
+        _categoryNeglectPenalty = breakdown['categoryNeglectPenalty'] ?? 0.0;
+      });
     }
 
     // Load breakdown if needed, then show dialog
@@ -1179,135 +1217,140 @@ class _ProgressPageState extends State<ProgressPage> {
                   }
                 }
               });
-              
+
               return Dialog(
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(16),
                 ),
                 child: Container(
-              constraints: const BoxConstraints(maxWidth: 400),
-              padding: const EdgeInsets.all(20),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  // Header
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  constraints: const BoxConstraints(maxWidth: 400),
+                  padding: const EdgeInsets.all(20),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text(
-                        'Score Breakdown',
-                        style: FlutterFlowTheme.of(context).titleLarge.override(
-                              fontFamily: 'Readex Pro',
-                              fontWeight: FontWeight.bold,
-                            ),
+                      // Header
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Text(
+                            'Score Breakdown',
+                            style: FlutterFlowTheme.of(context)
+                                .titleLarge
+                                .override(
+                                  fontFamily: 'Readex Pro',
+                                  fontWeight: FontWeight.bold,
+                                ),
+                          ),
+                          IconButton(
+                            icon: const Icon(Icons.close),
+                            onPressed: () => Navigator.of(context).pop(),
+                            padding: EdgeInsets.zero,
+                            constraints: const BoxConstraints(),
+                          ),
+                        ],
                       ),
-                      IconButton(
-                        icon: const Icon(Icons.close),
-                        onPressed: () => Navigator.of(context).pop(),
-                        padding: EdgeInsets.zero,
-                        constraints: const BoxConstraints(),
+                      const SizedBox(height: 16),
+                      // Breakdown items
+                      if (_hasProjection) ...[
+                        _buildBreakdownRow(
+                          context,
+                          'Completion Score',
+                          _dailyScore,
+                          Colors.blue,
+                        ),
+                        if (_consistencyBonus > 0)
+                          _buildBreakdownRow(
+                            context,
+                            'Consistency Bonus',
+                            _consistencyBonus,
+                            Colors.green,
+                          ),
+                        if (_recoveryBonus > 0)
+                          _buildBreakdownRow(
+                            context,
+                            'Recovery Bonus',
+                            _recoveryBonus,
+                            Colors.green,
+                          ),
+                        if (_decayPenalty != 0)
+                          _buildBreakdownRow(
+                            context,
+                            'Low Performance Penalty',
+                            -_decayPenalty,
+                            Colors.red,
+                          ),
+                        if (_categoryNeglectPenalty != 0)
+                          _buildBreakdownRow(
+                            context,
+                            'Category Neglect Penalty',
+                            -_categoryNeglectPenalty,
+                            Colors.red,
+                          ),
+                      ] else ...[
+                        Text(
+                          'Breakdown available only for today\'s live score',
+                          style: FlutterFlowTheme.of(context)
+                              .bodyMedium
+                              .override(
+                                fontFamily: 'Readex Pro',
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
+                              ),
+                        ),
+                      ],
+                      const SizedBox(height: 16),
+                      // Total - calculate from breakdown items to ensure accuracy
+                      Builder(
+                        builder: (context) {
+                          // Calculate total from all breakdown items
+                          final totalFromBreakdown = _dailyScore +
+                              _consistencyBonus +
+                              _recoveryBonus -
+                              _decayPenalty -
+                              _categoryNeglectPenalty;
+
+                          return Container(
+                            padding: const EdgeInsets.all(12),
+                            decoration: BoxDecoration(
+                              color: FlutterFlowTheme.of(context)
+                                  .primary
+                                  .withOpacity(0.1),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Row(
+                              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                              children: [
+                                Text(
+                                  'Total Change',
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodyMedium
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                                Text(
+                                  totalFromBreakdown >= 0
+                                      ? '+${totalFromBreakdown.toStringAsFixed(1)}'
+                                      : totalFromBreakdown.toStringAsFixed(1),
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodyMedium
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        fontWeight: FontWeight.bold,
+                                        color: totalFromBreakdown >= 0
+                                            ? Colors.green
+                                            : Colors.red,
+                                      ),
+                                ),
+                              ],
+                            ),
+                          );
+                        },
                       ),
                     ],
                   ),
-                  const SizedBox(height: 16),
-                  // Breakdown items
-                  if (_hasProjection) ...[
-                    _buildBreakdownRow(
-                      context,
-                      'Completion Score',
-                      _dailyScore,
-                      Colors.blue,
-                    ),
-                    if (_consistencyBonus > 0)
-                      _buildBreakdownRow(
-                        context,
-                        'Consistency Bonus',
-                        _consistencyBonus,
-                        Colors.green,
-                      ),
-                    if (_recoveryBonus > 0)
-                      _buildBreakdownRow(
-                        context,
-                        'Recovery Bonus',
-                        _recoveryBonus,
-                        Colors.green,
-                      ),
-                    if (_decayPenalty > 0)
-                      _buildBreakdownRow(
-                        context,
-                        'Low Performance Penalty',
-                        -_decayPenalty,
-                        Colors.red,
-                      ),
-                    if (_categoryNeglectPenalty > 0)
-                      _buildBreakdownRow(
-                        context,
-                        'Category Neglect Penalty',
-                        -_categoryNeglectPenalty,
-                        Colors.red,
-                      ),
-                  ] else ...[
-                    Text(
-                      'Breakdown available only for today\'s live score',
-                      style: FlutterFlowTheme.of(context).bodyMedium.override(
-                            fontFamily: 'Readex Pro',
-                            color: FlutterFlowTheme.of(context).secondaryText,
-                          ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  // Total - calculate from breakdown items to ensure accuracy
-                  Builder(
-                    builder: (context) {
-                      // Calculate total from all breakdown items
-                      final totalFromBreakdown = _dailyScore +
-                          _consistencyBonus +
-                          _recoveryBonus -
-                          _decayPenalty -
-                          _categoryNeglectPenalty;
-                      
-                      return Container(
-                        padding: const EdgeInsets.all(12),
-                        decoration: BoxDecoration(
-                          color: FlutterFlowTheme.of(context)
-                              .primary
-                              .withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Row(
-                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                          children: [
-                            Text(
-                              'Total Change',
-                              style: FlutterFlowTheme.of(context)
-                                  .bodyMedium
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                            ),
-                            Text(
-                              totalFromBreakdown >= 0
-                                  ? '+${totalFromBreakdown.toStringAsFixed(1)}'
-                                  : totalFromBreakdown.toStringAsFixed(1),
-                              style: FlutterFlowTheme.of(context)
-                                  .bodyMedium
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    fontWeight: FontWeight.bold,
-                                    color: totalFromBreakdown >= 0
-                                        ? Colors.green
-                                        : Colors.red,
-                                  ),
-                            ),
-                          ],
-                        ),
-                      );
-                    },
-                  ),
-                ],
-              ),
-            ),
+                ),
               );
             },
           );

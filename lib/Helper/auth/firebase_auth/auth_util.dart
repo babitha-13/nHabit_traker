@@ -1,11 +1,34 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'firebase_auth_manager.dart';
 import 'firebase_user_provider.dart';
+import 'package:habit_tracker/debug_log_stub.dart'
+    if (dart.library.io) 'package:habit_tracker/debug_log_io.dart'
+    if (dart.library.html) 'package:habit_tracker/debug_log_web.dart';
 export 'firebase_auth_manager.dart';
+
+// #region agent log
+void _logAuthDebug(String location, Map<String, dynamic> data) {
+  try {
+    final logEntry = {
+      'id': 'log_${DateTime.now().millisecondsSinceEpoch}_auth',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'location': 'auth_util.dart:$location',
+      'message': data['event'] ?? 'debug',
+      'data': data,
+      'sessionId': 'debug-session',
+      'runId': 'run2',
+    };
+    writeDebugLog(jsonEncode(logEntry));
+  } catch (_) {
+    // Silently fail
+  }
+}
+// #endregion
 
 final _authManager = FirebaseAuthManager();
 FirebaseAuthManager get authManager => _authManager;
@@ -38,10 +61,25 @@ final authenticatedUserStream = FirebaseAuth.instance
       (uid) => uid.isEmpty
           ? Stream.value(null)
           : UsersRecord.getDocument(UsersRecord.collection.doc(uid))
-              .handleError((_) {}),
+              .handleError((e) {
+              // #region agent log
+              _logAuthDebug('authenticatedUserStream', {
+                'hypothesisId': 'N',
+                'event': 'user_doc_error',
+                'errorType': e.runtimeType.toString(),
+              });
+              // #endregion
+            }),
     )
     .map((user) {
   currentUserDocument = user;
+  // #region agent log
+  _logAuthDebug('authenticatedUserStream', {
+    'hypothesisId': 'N',
+    'event': 'user_doc_update',
+    'hasUserDoc': currentUserDocument != null,
+  });
+  // #endregion
   return currentUserDocument;
 }).asBroadcastStream();
 // Stream for habit tracker app using HabitTrackerFirebaseUser
@@ -49,6 +87,14 @@ Stream<BaseAuthUser> habitTrackerFirebaseUserStream() =>
     FirebaseAuth.instance.authStateChanges().map<BaseAuthUser>(
       (user) {
         currentUser = HabitTrackerFirebaseUser(user);
+        // #region agent log
+        _logAuthDebug('habitTrackerFirebaseUserStream', {
+          'hypothesisId': 'N',
+          'event': 'auth_state_change',
+          'userIsNull': user == null,
+          'uidLength': user?.uid.length ?? 0,
+        });
+        // #endregion
         return currentUser!;
       },
     );

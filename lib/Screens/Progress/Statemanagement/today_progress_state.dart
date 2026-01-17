@@ -17,6 +17,7 @@ class TodayProgressState {
   double _todayScore = 0.0;
   bool _hasLiveScore = false;
   DateTime _lastUpdateDate = DateService.todayStart;
+  Map<String, double> _scoreBreakdown = {};
 
   double get dailyTarget {
     _checkDayTransition();
@@ -68,6 +69,7 @@ class TodayProgressState {
       _dailyScoreGain = 0.0;
       _todayScore = 0.0;
       _hasLiveScore = false;
+      _scoreBreakdown = {};
       // Carry forward yesterday's cumulative as baseline for new day
       _yesterdayCumulativeScore = _cumulativeScore;
       _lastUpdateDate = today;
@@ -97,6 +99,7 @@ class TodayProgressState {
     required double todayScore,
     required double yesterdayCumulative,
     required bool hasLiveScore,
+    Map<String, double>? breakdown,
   }) {
     _checkDayTransition();
     _cumulativeScore = cumulativeScore;
@@ -104,6 +107,9 @@ class TodayProgressState {
     _dailyScoreGain = todayScore; // Keep for backward compatibility
     _yesterdayCumulativeScore = yesterdayCumulative;
     _hasLiveScore = hasLiveScore;
+    if (breakdown != null) {
+      _scoreBreakdown = Map<String, double>.from(breakdown);
+    }
     _lastUpdateDate = DateService.todayStart;
     // Notify other pages about score update
     NotificationCenter.post('cumulativeScoreUpdated');
@@ -142,6 +148,7 @@ class TodayProgressState {
       'todayScore': _todayScore,
       'yesterdayCumulative': _yesterdayCumulativeScore,
       'hasLiveScore': _hasLiveScore,
+      'breakdown': Map<String, double>.from(_scoreBreakdown),
     };
   }
 

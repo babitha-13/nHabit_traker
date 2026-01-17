@@ -1,7 +1,7 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/Helper/Helpers/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -22,42 +22,97 @@ import 'package:habit_tracker/Screens/Home/Home.dart';
 import 'package:habit_tracker/Screens/Authentication/splash.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'Helper/Helpers/flutter_flow_theme.dart';
+import 'Helper/Helpers/resource_tracker.dart';
+import 'debug_log_stub.dart'
+    if (dart.library.io) 'debug_log_io.dart'
+    if (dart.library.html) 'debug_log_web.dart';
 
 SharedPref sharedPref = SharedPref();
 LoginResponse users = LoginResponse();
 // Global navigator key for notification navigation
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+
+// #region agent log
+void _logMainDebug(String location, Map<String, dynamic> data) {
+  try {
+    final logEntry = {
+      'id': 'log_${DateTime.now().millisecondsSinceEpoch}_main',
+      'timestamp': DateTime.now().millisecondsSinceEpoch,
+      'location': 'main.dart:$location',
+      'message': data['event'] ?? 'debug',
+      'data': data,
+      'sessionId': 'debug-session',
+      'runId': 'run1',
+    };
+    writeDebugLog(jsonEncode(logEntry));
+  } catch (e) {
+    // Silently fail to avoid breaking app
+  }
+}
+
+// #endregion
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Reset hot reload flag on hot restart (main() is called)
+  _MyAppState._hasResetOnHotReload = false;
+  // #region agent log
+  _logMainDebug('main', {
+    'hypothesisId': 'A',
+    'event': 'main_start',
+    'observerCount_before': NotificationCenter.observerCount()
+  });
+  // #endregion
   // Ensure stale observers/optimistic ops/caches are cleared on hot restart.
   NotificationCenter.reset();
+  // Reset FirestoreCacheService listeners flag so it can set up listeners again
+  FirestoreCacheService.resetListenersSetup();
+  // Reset resource tracker
+  ResourceTracker.reset();
+  // #region agent log
+  _logMainDebug('main', {
+    'hypothesisId': 'A',
+    'event': 'notificationCenter_reset',
+    'observerCount_after': NotificationCenter.observerCount(),
+    'resources': ResourceTracker.getCounts()
+  });
+  // #endregion
   OptimisticOperationTracker.clearAll();
+  // Start periodic cleanup for optimistic operations
+  OptimisticOperationTracker.startPeriodicCleanup();
   FirestoreCacheService().invalidateAllCache();
+  // #region agent log
+  _logMainDebug('main', {
+    'hypothesisId': 'D',
+    'event': 'cache_invalidated',
+    'cache': FirestoreCacheService().debugCounts(),
+    'observerCount': NotificationCenter.observerCount(),
+    'resources': ResourceTracker.getCounts()
+  });
+  // #endregion
   // Only initialize Android-specific services when not running on web
   if (!kIsWeb) {
     await AndroidAlarmManager.initialize();
   }
 
-  // Initialize Firebase with error handling for hot restart on web
-  // On web, hot restart keeps Firebase initialized, so reinitialization fails
-  // This is expected and non-fatal - just continue with existing Firebase instance
+  // Initialize Firebase with error handling for hot restart
+  // On restart, Firebase may already be initialized from a previous session
   try {
     await Firebase.initializeApp(
       options: DefaultFirebaseOptions.currentPlatform,
     );
     print('Firebase initialized successfully');
   } catch (e) {
-    // Expected on hot restart - Firebase is already initialized from first run
-    print(
-        'Firebase init skipped (already initialized from previous session): ${e.toString().substring(0, 100)}...');
-    // Verify Firebase is actually available
+    // Check if Firebase is actually available despite the initialization error
+    // This happens on hot restart when Firebase was already initialized
     try {
-      final app = Firebase.app();
-      print('✓ Firebase app available: ${app.name}');
-    } catch (e2) {
-      print('✗ WARNING: Firebase not available: $e2');
-      // This is a real problem - rethrow
+      Firebase.app(); // Will throw if not initialized
+      print('Firebase already initialized (hot restart)');
+    } catch (_) {
+      // Firebase really isn't initialized - this is a real error
+      print('Firebase initialization failed: $e');
       rethrow;
     }
   }
@@ -108,31 +163,157 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   StreamSubscription<BaseAuthUser>? _userStreamSub;
   StreamSubscription? _jwtStreamSub;
   Timer? _diagnosticTimer;
+  // Static flag to track if we've already reset observers on hot reload
+  // This prevents multiple resets when multiple widgets call initState()
+  static bool _hasResetOnHotReload = false;
+
   @override
   void initState() {
     super.initState();
+    // CRITICAL: Reset observers on hot reload (when initState is called but main() wasn't)
+    // On hot reload, main() is NOT called, so observers accumulate
+    // Check if observers exist AND we haven't already reset (indicating a hot reload scenario)
+    final observerCountBefore = NotificationCenter.observerCount();
+    if (observerCountBefore > 6 && !_hasResetOnHotReload) {
+      // More than just FirestoreCacheService observers - likely a hot reload
+      // Set flag to prevent multiple resets
+      _hasResetOnHotReload = true;
+      // #region agent log
+      _logDebug('initState', {
+        'hypothesisId': 'K',
+        'event': 'hot_reload_detected',
+        'observerCount_before': observerCountBefore
+      });
+      // #endregion
+      NotificationCenter.reset();
+      FirestoreCacheService.resetListenersSetup();
+      FirestoreCacheService().ensureListenersSetup();
+      ResourceTracker.reset();
+      // #region agent log
+      _logDebug('initState', {
+        'hypothesisId': 'K',
+        'event': 'observers_reset_on_hot_reload',
+        'observerCount_after': NotificationCenter.observerCount()
+      });
+      // #endregion
+    }
+    // #region agent log
+    _logDebug('initState', {
+      'hypothesisId': 'B',
+      'event': 'initState_called',
+      'instanceHash': hashCode,
+      'hasUserSub_before': _userStreamSub != null,
+      'hasJwtSub_before': _jwtStreamSub != null
+    });
+    // #endregion
+    // CRITICAL FIX: Cancel existing subscriptions before creating new ones
+    // This prevents memory leaks on hot restart where dispose() is not called
+    _userStreamSub?.cancel();
+    _jwtStreamSub?.cancel();
+    // #region agent log
+    _logDebug(
+        'initState', {'hypothesisId': 'B', 'event': 'old_streams_cancelled'});
+    // #endregion
     WidgetsBinding.instance.addObserver(this);
+    ResourceTracker.incrementWidgetsBindingObserver();
+    // #region agent log
+    _logDebug('initState', {
+      'hypothesisId': 'C',
+      'event': 'observer_added',
+      'observerCount': NotificationCenter.observerCount(),
+      'resources': ResourceTracker.getCounts()
+    });
+    // #endregion
     userStream = habitTrackerFirebaseUserStream();
     _userStreamSub = userStream.listen((user) {
       // User authentication state changes handled here
       // Categories are created on signup and on-demand when needed
     });
+    // #region agent log
+    _logDebug('initState', {
+      'hypothesisId': 'B',
+      'event': 'userStream_subscribed',
+      'hasSub': _userStreamSub != null
+    });
+    // #endregion
     _jwtStreamSub = jwtTokenStream.listen((_) {});
-    // Temporarily disabled diagnostic timer to troubleshoot OOM issue
-    // _logDiagnostics('startup');
-    // _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-    //   // Only log if widget is still mounted to prevent disposed view errors
-    //   if (mounted) {
-    //     _logDiagnostics();
-    //   }
-    // });
+    // #region agent log
+    _logDebug('initState', {
+      'hypothesisId': 'B',
+      'event': 'jwtStream_subscribed',
+      'hasSub': _jwtStreamSub != null,
+      'observerCount': NotificationCenter.observerCount(),
+      'cache': FirestoreCacheService().debugCounts()
+    });
+    // #endregion
+    // Diagnostic timer to track resource accumulation
+    _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      // Only check if widget is still mounted to prevent disposed view errors
+      if (mounted) {
+        // CRITICAL: Check for observer accumulation and reset if detected
+        // This handles cases where hot reload doesn't trigger initState() detection
+        final observerCount = NotificationCenter.observerCount();
+        if (observerCount > 50) {
+          // Excessive observer count indicates a leak
+          // Log it but DO NOT RESET - resetting breaks active pages
+          print('WARNING: Excessive observers detected ($observerCount)');
+        }
+      }
+    });
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    // #region agent log
+    _logDebug('didChangeDependencies', {
+      'hypothesisId': 'M',
+      'event': 'didChangeDependencies_called',
+      'instanceHash': hashCode,
+      'observerCount': NotificationCenter.observerCount(),
+      'resources': ResourceTracker.getCounts()
+    });
+    // #endregion
+  }
+
+  @override
+  void didUpdateWidget(covariant MyApp oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // #region agent log
+    _logDebug('didUpdateWidget', {
+      'hypothesisId': 'M',
+      'event': 'didUpdateWidget_called',
+      'instanceHash': hashCode,
+      'observerCount': NotificationCenter.observerCount(),
+      'resources': ResourceTracker.getCounts()
+    });
+    // #endregion
   }
 
   @override
   void dispose() {
+    // #region agent log
+    _logDebug('dispose', {
+      'hypothesisId': 'B',
+      'event': 'dispose_called',
+      'instanceHash': hashCode,
+      'hasUserSub': _userStreamSub != null,
+      'hasJwtSub': _jwtStreamSub != null,
+      'observerCount': NotificationCenter.observerCount(),
+      'resources_before': ResourceTracker.getCounts()
+    });
+    // #endregion
     WidgetsBinding.instance.removeObserver(this);
+    ResourceTracker.decrementWidgetsBindingObserver();
     _userStreamSub?.cancel();
     _jwtStreamSub?.cancel();
+    // #region agent log
+    _logDebug('dispose', {
+      'hypothesisId': 'B',
+      'event': 'streams_cancelled',
+      'observerCount': NotificationCenter.observerCount()
+    });
+    // #endregion
     _diagnosticTimer?.cancel();
     super.dispose();
   }
@@ -141,39 +322,78 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void reassemble() {
     super.reassemble();
     // Hot reload hook for diagnostics and cleanup on web.
-    debugPrint('diag:reassemble start');
+    // #region agent log
+    _logDebug('reassemble', {
+      'hypothesisId': 'A',
+      'event': 'reassemble_start',
+      'instanceHash': hashCode,
+      'observerCount_before': NotificationCenter.observerCount(),
+      'cache_before': FirestoreCacheService().debugCounts(),
+      'hasUserSub': _userStreamSub != null,
+      'hasJwtSub': _jwtStreamSub != null
+    });
+    // #endregion
 
     // Cancel existing timer to prevent disposed view errors
     _diagnosticTimer?.cancel();
 
+    /*
     NotificationCenter.reset();
+    // Reset FirestoreCacheService listeners flag so it can set up listeners again
+    FirestoreCacheService.resetListenersSetup();
+    FirestoreCacheService().ensureListenersSetup();
+    ResourceTracker.reset();
+    // #region agent log
+    _logDebug('reassemble', {
+      'hypothesisId': 'A',
+      'event': 'notificationCenter_reset',
+      'observerCount_after': NotificationCenter.observerCount(),
+      'resources': ResourceTracker.getCounts()
+    });
+    // #endregion
     OptimisticOperationTracker.clearAll();
     FirestoreCacheService().invalidateAllCache();
+    // #region agent log
+    _logDebug('reassemble', {
+      'hypothesisId': 'D',
+      'event': 'cache_invalidated',
+      'cache_after': FirestoreCacheService().debugCounts(),
+      'observerCount': NotificationCenter.observerCount(),
+      'resources': ResourceTracker.getCounts()
+    });
+    // #endregion
+    */
 
-    // Temporarily disabled diagnostic logging to troubleshoot OOM issue
-    // _logDiagnostics('reassemble');
-    // _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-    //   if (mounted) {
-    //     _logDiagnostics();
-    //   }
-    // });
-    // WidgetsBinding.instance.addPostFrameCallback((_) {
-    //   if (mounted) {
-    //     _logDiagnostics('postFrame');
-    //   }
-    // });
+    // Diagnostic timer to track resource accumulation
+    _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
+      if (mounted) {
+        // Check for observer accumulation
+        final observerCount = NotificationCenter.observerCount();
+        if (observerCount > 50) {
+          print('WARNING: Excessive observers detected ($observerCount)');
+        }
+      }
+    });
   }
 
-  // Diagnostic logging temporarily disabled to troubleshoot OOM issue
-  // void _logDiagnostics([String tag = 'tick']) {
-  //   if (!mounted) return;
-  //   final cache = FirestoreCacheService().debugCounts();
-  //   debugPrint(
-  //     'diag:$tag observers=${NotificationCenter.observerCount()} '
-  //     'pendingOps=${OptimisticOperationTracker.pendingCount()} '
-  //     'cache=$cache',
-  //   );
-  // }
+  // #region agent log
+  void _logDebug(String location, Map<String, dynamic> data) {
+    try {
+      final logEntry = {
+        'id': 'log_${DateTime.now().millisecondsSinceEpoch}_${hashCode}',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'location': 'main.dart:$location',
+        'message': data['event'] ?? 'debug',
+        'data': data,
+        'sessionId': 'debug-session',
+        'runId': 'run1',
+      };
+      writeDebugLog(jsonEncode(logEntry));
+    } catch (e) {
+      // Silently fail to avoid breaking app
+    }
+  }
+  // #endregion
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {

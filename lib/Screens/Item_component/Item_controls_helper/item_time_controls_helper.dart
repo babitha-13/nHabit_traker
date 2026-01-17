@@ -275,6 +275,40 @@ class ItemTimeControlsHelper {
         updateData['currentValue'] = 1;
       }
 
+      // Use updateInstanceProgress AND completeInstance in separate steps if not atomic
+      // But we prefer atomic if we can.
+      // Since completeInstance with finalAccumulatedTime sets everything needed, we can just call that.
+      // However, we need to update timeLogSessions first.
+      
+      // OPTIMISTIC UPDATE START
+      final operationId = OptimisticOperationTracker.generateOperationId();
+      final optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+        updatedInstance,
+        finalAccumulatedTime: newAccumulatedTime,
+        timeLogSessions: existingSessions,
+        totalTimeLogged: totalTime,
+        finalValue: updatedInstance.templateTrackingType == 'time'
+            ? newAccumulatedTime
+            : (updatedInstance.templateTrackingType == 'binary'
+                ? 1
+                : updatedInstance.currentValue),
+      );
+      
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instance.reference.id,
+        operationType: 'complete',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
+      
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+        optimisticInstance,
+        operationId,
+      );
+      onInstanceUpdated(optimisticInstance);
+      // OPTIMISTIC UPDATE END
+
       await instanceRef.update(updateData);
 
       await ActivityInstanceService.completeInstance(
@@ -285,7 +319,20 @@ class ItemTimeControlsHelper {
                 ? 1
                 : updatedInstance.currentValue),
         finalAccumulatedTime: newAccumulatedTime,
+        skipOptimisticUpdate: true, // We already did it
       );
+      
+      final finalInstance = await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instance.reference.id,
+      );
+      
+      OptimisticOperationTracker.reconcileOperation(
+        operationId,
+        finalInstance,
+      );
+      
+      onInstanceUpdated(finalInstance);
+      
       if (isMounted()) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -293,6 +340,7 @@ class ItemTimeControlsHelper {
         );
       }
     } catch (e) {
+      // Rollback logic would go here if needed, but setState handles UI reset
       if (isMounted()) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('Error completing task: $e')),
@@ -450,6 +498,33 @@ class ItemTimeControlsHelper {
       final shouldComplete = target > 0 && customTimeMs >= targetMs;
 
       if (shouldComplete && updatedInstance.status != 'completed') {
+        // OPTIMISTIC UPDATE START
+        final operationId = OptimisticOperationTracker.generateOperationId();
+        final optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+          updatedInstance,
+          finalAccumulatedTime: customTimeMs,
+          finalValue: updatedInstance.templateTrackingType == 'time'
+              ? customTimeMs
+              : (updatedInstance.templateTrackingType == 'binary'
+                  ? 1
+                  : updatedInstance.currentValue),
+        );
+        
+        OptimisticOperationTracker.trackOperation(
+          operationId,
+          instanceId: instance.reference.id,
+          operationType: 'complete',
+          optimisticInstance: optimisticInstance,
+          originalInstance: instance,
+        );
+        
+        InstanceEvents.broadcastInstanceUpdatedOptimistic(
+          optimisticInstance,
+          operationId,
+        );
+        onInstanceUpdated(optimisticInstance);
+        // OPTIMISTIC UPDATE END
+
         await ActivityInstanceService.completeInstance(
           instanceId: instance.reference.id,
           finalValue: updatedInstance.templateTrackingType == 'time'
@@ -458,7 +533,15 @@ class ItemTimeControlsHelper {
                   ? 1
                   : updatedInstance.currentValue),
           finalAccumulatedTime: customTimeMs,
+          skipOptimisticUpdate: true,
         );
+        
+        final completedInstance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        OptimisticOperationTracker.reconcileOperation(operationId, completedInstance);
+        // Ensure onInstanceUpdated is called with the final reconciled instance
+        onInstanceUpdated(completedInstance);
       } else if (!shouldComplete &&
           (updatedInstance.status == 'completed' ||
               updatedInstance.status == 'skipped')) {
@@ -482,16 +565,51 @@ class ItemTimeControlsHelper {
           deleteLogs = userChoice == 'delete';
         }
 
+        // OPTIMISTIC UPDATE FOR UNCOMPLETE
+        final operationId = OptimisticOperationTracker.generateOperationId();
+        final optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(
+          updatedInstance,
+        );
+        // Apply custom time to optimistic instance
+        final optimisticWithTime = InstanceEvents.createOptimisticProgressInstance(
+          optimisticInstance, 
+          currentValue: updatedInstance.templateTrackingType == 'time' ? customTimeMs : optimisticInstance.currentValue
+        );
+        
+        OptimisticOperationTracker.trackOperation(
+          operationId,
+          instanceId: instance.reference.id,
+          operationType: 'uncomplete',
+          optimisticInstance: optimisticWithTime,
+          originalInstance: instance,
+        );
+        
+        InstanceEvents.broadcastInstanceUpdatedOptimistic(
+          optimisticWithTime,
+          operationId,
+        );
+        onInstanceUpdated(optimisticWithTime);
+
         await ActivityInstanceService.uncompleteInstance(
           instanceId: instance.reference.id,
           deleteLogs: deleteLogs,
+          skipOptimisticUpdate: true,
+          currentValue: updatedInstance.templateTrackingType == 'time' ? customTimeMs : null,
         );
+        
+        final uncompletedInstance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        OptimisticOperationTracker.reconcileOperation(operationId, uncompletedInstance);
+        onInstanceUpdated(uncompletedInstance);
+      } else {
+        // Just a regular update without status change
+        final finalInstance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        onInstanceUpdated(finalInstance);
+        InstanceEvents.broadcastInstanceUpdated(finalInstance);
       }
-      final finalInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instance.reference.id,
-      );
-      onInstanceUpdated(finalInstance);
-      InstanceEvents.broadcastInstanceUpdated(finalInstance);
       if (isMounted()) {
         final timeDisplay = hours > 0
             ? '${hours}h ${minutes}m'

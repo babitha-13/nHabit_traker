@@ -18,7 +18,13 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance
 import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'dart:async';
+import 'dart:convert';
 import 'package:intl/intl.dart';
+import '../../debug_log_stub.dart'
+    if (dart.library.io) '../../debug_log_io.dart'
+    if (dart.library.html) '../../debug_log_web.dart';
+
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
@@ -126,6 +132,42 @@ class _HabitsPageState extends State<HabitsPage> {
       }
     });
   }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // #region agent log
+    _logReassemble('called');
+    // #endregion
+    // Clean up observers on hot reload to prevent accumulation
+    NotificationCenter.removeObserver(this);
+    // #region agent log
+    _logReassemble('complete');
+    // #endregion
+  }
+
+  // #region agent log
+  void _logReassemble(String stage) {
+    try {
+      writeDebugLog(jsonEncode({
+        'id': 'log_${DateTime.now().millisecondsSinceEpoch}_habits',
+        'timestamp': DateTime.now().millisecondsSinceEpoch,
+        'location': 'habits_page.dart:reassemble',
+        'message': 'reassemble_$stage',
+        'data': {
+          'hypothesisId': 'J',
+          'event': 'reassemble_$stage',
+          'instanceHash': hashCode,
+          'observerCount': NotificationCenter.observerCount(),
+        },
+        'sessionId': 'debug-session',
+        'runId': 'run1',
+      }));
+    } catch (e) {
+      // Silently fail
+    }
+  }
+  // #endregion
 
   @override
   void dispose() {
@@ -269,8 +311,9 @@ class _HabitsPageState extends State<HabitsPage> {
 
   Future<void> _loadHabits() async {
     if (!mounted) return;
-    // Only set loading state if it's not already true
-    if (!_isLoading) {
+    // Only set loading state if it's not already true AND we have no data
+    // This prevents full page refresh flickers when updating existing data
+    if (!_isLoading && _habitInstances.isEmpty) {
       setState(() => _isLoading = true);
     }
     try {
@@ -285,22 +328,49 @@ class _HabitsPageState extends State<HabitsPage> {
           ),
         ]);
         if (!mounted) return;
-        
+
         final instances = results[0] as List<ActivityInstanceRecord>;
         final categories = results[1] as List<CategoryRecord>;
-        
+
         // Initialize missing order values during load (avoid DB writes during build/getters).
         // Best-effort: if something was deleted concurrently, we don't want to crash UI.
         try {
           await InstanceOrderService.initializeOrderValues(instances, 'habits');
         } catch (_) {}
         if (mounted) {
+          // Preserve optimistic instances that are waiting for reconciliation
+          // This prevents flicker where stale backend data overwrites optimistic updates
+          final optimisticInstanceIds = _optimisticOperations.values.toSet();
+          final mergedInstances = instances.map((inst) {
+            // Check if this instance ID is involved in an optimistic operation
+            if (optimisticInstanceIds.contains(inst.reference.id)) {
+              // Check if we have a local version
+              final localIndex = _habitInstances.indexWhere(
+                  (local) => local.reference.id == inst.reference.id);
+              if (localIndex != -1) {
+                final local = _habitInstances[localIndex];
+                // Always prefer the local optimistic version if backend version looks "older" or "different" in critical fields
+                // Specifically for completion, if local is completed and backend is pending, KEEP LOCAL
+                if (local.status == 'completed' && inst.status != 'completed') {
+                  return local;
+                }
+                // If we have an explicit operation tracking for this ID, trust local
+                // Double check operation ID existence to be safe
+                if (_optimisticOperations.containsValue(inst.reference.id)) {
+                  return local;
+                }
+              }
+            }
+            return inst;
+          }).toList();
+
           // Calculate hash code when data changes (not in getter)
-          final newHash = instances.length.hashCode ^
-              instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-          
+          final newHash = mergedInstances.length.hashCode ^
+              mergedInstances.fold(
+                  0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
           setState(() {
-            _habitInstances = instances;
+            _habitInstances = mergedInstances;
             _categories = categories;
             // Invalidate cache when data changes
             _cachedGroupedByCategory = null;
@@ -479,7 +549,8 @@ class _HabitsPageState extends State<HabitsPage> {
               );
             },
             itemCount: sortedHabits.length,
-            itemExtent: 85.0, // Approximate item height for better scroll performance
+            itemExtent:
+                85.0, // Approximate item height for better scroll performance
             onReorder: (oldIndex, newIndex) =>
                 _handleReorder(oldIndex, newIndex, categoryName),
           ),
@@ -490,7 +561,8 @@ class _HabitsPageState extends State<HabitsPage> {
       onRefresh: _loadHabits,
       child: CustomScrollView(
         controller: _scrollController,
-        cacheExtent: 500.0, // Cache 500px worth of items above/below viewport for better scroll performance
+        cacheExtent:
+            500.0, // Cache 500px worth of items above/below viewport for better scroll performance
         slivers: [
           ...slivers,
           const SliverToBoxAdapter(
@@ -679,36 +751,36 @@ class _HabitsPageState extends State<HabitsPage> {
       _habitInstances.removeWhere(
           (inst) => inst.reference.id == updatedInstance.reference.id);
     }
-    
+
     // Recalculate hash code when instances change
     final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
     setState(() {
       // Invalidate cache when instance is updated
       _cachedGroupedByCategory = null;
       _habitInstancesHashCode = newHash;
     });
-    // Background refresh to sync with server
-    _loadHabitsSilently();
+    // Note: No need to reload from backend - optimistic update system handles synchronization
   }
 
   void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
     // Remove instance first
     _habitInstances.removeWhere(
         (inst) => inst.reference.id == deletedInstance.reference.id);
-    
+
     // Recalculate hash code when instances change
     final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
     setState(() {
       // Invalidate cache when instance is removed
       _cachedGroupedByCategory = null;
       _habitInstancesHashCode = newHash;
     });
-    // Background refresh to sync with server
-    _loadHabitsSilently();
+    // Note: No need to reload from backend - optimistic update system handles synchronization
   }
 
   Future<void> _loadHabitsSilently() async {
@@ -719,7 +791,8 @@ class _HabitsPageState extends State<HabitsPage> {
         if (mounted) {
           // Calculate hash code when data changes
           final newHash = instances.length.hashCode ^
-              instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+              instances.fold(
+                  0, (sum, inst) => sum ^ inst.reference.id.hashCode);
           setState(() {
             _habitInstances = instances;
             // Invalidate cache when instances change
@@ -789,11 +862,12 @@ class _HabitsPageState extends State<HabitsPage> {
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
     // Add instance first
     _habitInstances.add(instance);
-    
+
     // Recalculate hash code when instances change
     final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
     setState(() {
       // Invalidate cache when instance is added
       _cachedGroupedByCategory = null;
@@ -818,6 +892,19 @@ class _HabitsPageState extends State<HabitsPage> {
       return;
     }
 
+    // Update global cache immediately to prevent stale reads
+    final cache = FirestoreCacheService();
+    cache.invalidateInstanceCache(instance.reference.id);
+    if (!isOptimistic) {
+      // If it's a confirmed update (reconciled or from backend), update the cache entry
+      // to ensure subsequent queries see the new data
+      cache.cacheInstance(instance);
+    } else {
+      // If it's optimistic, we should still invalidate the aggregate caches
+      // so queries are forced to re-evaluate or use the optimistic data if merged
+      cache.invalidateInstancesCache();
+    }
+
     // Skip updates for instances currently being reordered to prevent stale data overwrites
     if (_reorderingInstanceIds.contains(instance.reference.id)) {
       return;
@@ -835,6 +922,17 @@ class _HabitsPageState extends State<HabitsPage> {
           _optimisticOperations[operationId] = instance.reference.id;
         }
       } else {
+        // Ignore stale non-optimistic updates that are older than the currently held instance
+        final existing = _habitInstances[index];
+        final incomingLastUpdated = instance.lastUpdated;
+        final existingLastUpdated = existing.lastUpdated;
+        if (incomingLastUpdated != null &&
+            existingLastUpdated != null &&
+            incomingLastUpdated.isBefore(existingLastUpdated)) {
+          // This is a stale update - ignore it
+          return;
+        }
+
         // Reconciled update - replace optimistic state
         _habitInstances[index] = instance;
         if (operationId != null) {
@@ -844,18 +942,19 @@ class _HabitsPageState extends State<HabitsPage> {
 
       // Remove from list if completed and not showing completed
       if (!_showCompleted && instance.status == 'completed') {
-        _habitInstances.removeWhere(
-            (inst) => inst.reference.id == instance.reference.id);
+        _habitInstances
+            .removeWhere((inst) => inst.reference.id == instance.reference.id);
       }
     } else if (!isOptimistic) {
       // New instance from backend (not optimistic) - add it
       _habitInstances.add(instance);
     }
-    
+
     // Recalculate hash code when instances change
     final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
     setState(() {
       // Invalidate cache when instance is updated
       _cachedGroupedByCategory = null;
@@ -885,11 +984,12 @@ class _HabitsPageState extends State<HabitsPage> {
           _revertOptimisticUpdate(instanceId);
           return; // _revertOptimisticUpdate will handle setState
         }
-        
+
         // Recalculate hash code when instances change
         final newHash = _habitInstances.length.hashCode ^
-            _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-        
+            _habitInstances.fold(
+                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
         setState(() {
           _cachedGroupedByCategory = null;
           _habitInstancesHashCode = newHash;
@@ -903,15 +1003,16 @@ class _HabitsPageState extends State<HabitsPage> {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instanceId,
       );
-      final index = _habitInstances
-          .indexWhere((inst) => inst.reference.id == instanceId);
+      final index =
+          _habitInstances.indexWhere((inst) => inst.reference.id == instanceId);
       if (index != -1) {
         _habitInstances[index] = updatedInstance;
-        
+
         // Recalculate hash code when instances change
         final newHash = _habitInstances.length.hashCode ^
-            _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-        
+            _habitInstances.fold(
+                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
         setState(() {
           _cachedGroupedByCategory = null;
           _habitInstancesHashCode = newHash;
@@ -926,11 +1027,12 @@ class _HabitsPageState extends State<HabitsPage> {
     // Remove instance first
     _habitInstances
         .removeWhere((inst) => inst.reference.id == instance.reference.id);
-    
+
     // Recalculate hash code when instances change
     final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-    
+        _habitInstances.fold(
+            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+
     setState(() {
       // Invalidate cache when instance is deleted
       _cachedGroupedByCategory = null;
