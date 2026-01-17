@@ -108,25 +108,48 @@ class ItemBinaryControlsHelper {
 
       // Perform backend operations (non-blocking for UI)
       if (completed) {
-        await ActivityInstanceService.updateInstanceProgress(
-          instanceId: instance.reference.id,
-          currentValue: targetValue,
-          referenceTime: progressReferenceTime,
-        );
-        await ActivityInstanceService.completeInstance(
-          instanceId: instance.reference.id,
-          finalAccumulatedTime: targetAccumulatedTime,
-        );
+        // For non-quantitative tasks, we can combine update and complete into a single call
+        // to prevent status flicker (pending -> completed) caused by the intermediate updateInstanceProgress
+        if (instance.templateTrackingType != 'quantitative') {
+          await ActivityInstanceService.completeInstance(
+            instanceId: instance.reference.id,
+            finalValue: targetValue,
+            finalAccumulatedTime: targetAccumulatedTime,
+            skipOptimisticUpdate: true,
+          );
+        } else {
+          await ActivityInstanceService.updateInstanceProgress(
+            instanceId: instance.reference.id,
+            currentValue: targetValue,
+            referenceTime: progressReferenceTime,
+          );
+          await ActivityInstanceService.completeInstance(
+            instanceId: instance.reference.id,
+            finalAccumulatedTime: targetAccumulatedTime,
+            skipOptimisticUpdate: true, // Skip - we already broadcasted optimistically above
+          );
+        }
       } else {
-        await ActivityInstanceService.updateInstanceProgress(
-          instanceId: instance.reference.id,
-          currentValue: undoValue,
-          referenceTime: progressReferenceTime,
-        );
-        await ActivityInstanceService.uncompleteInstance(
-          instanceId: instance.reference.id,
-          deleteLogs: deleteLogs,
-        );
+        // For non-quantitative tasks, combine update and uncomplete to prevent flicker
+        if (instance.templateTrackingType != 'quantitative') {
+          await ActivityInstanceService.uncompleteInstance(
+            instanceId: instance.reference.id,
+            deleteLogs: deleteLogs,
+            skipOptimisticUpdate: true,
+            currentValue: undoValue,
+          );
+        } else {
+          await ActivityInstanceService.updateInstanceProgress(
+            instanceId: instance.reference.id,
+            currentValue: undoValue,
+            referenceTime: progressReferenceTime,
+          );
+          await ActivityInstanceService.uncompleteInstance(
+            instanceId: instance.reference.id,
+            deleteLogs: deleteLogs,
+            skipOptimisticUpdate: true, // Skip - we already broadcasted optimistically above
+          );
+        }
       }
 
       // Get actual instance from backend and reconcile

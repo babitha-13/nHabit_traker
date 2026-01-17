@@ -1,7 +1,7 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb, debugPrint;
+import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/Helper/Helpers/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -23,7 +23,6 @@ import 'package:habit_tracker/Screens/Authentication/splash.dart';
 import 'package:provider/provider.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:flutter/foundation.dart' show kIsWeb;
 import 'Helper/Helpers/flutter_flow_theme.dart';
 import 'Helper/Helpers/resource_tracker.dart';
 import 'debug_log_stub.dart'
@@ -81,6 +80,8 @@ void main() async {
   });
   // #endregion
   OptimisticOperationTracker.clearAll();
+  // Start periodic cleanup for optimistic operations
+  OptimisticOperationTracker.startPeriodicCleanup();
   FirestoreCacheService().invalidateAllCache();
   // #region agent log
   _logMainDebug('main', {
@@ -245,23 +246,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       'cache': FirestoreCacheService().debugCounts()
     });
     // #endregion
-    // Re-enable diagnostic timer to track resource accumulation
-    _logDiagnostics('startup');
+    // Diagnostic timer to track resource accumulation
     _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
-      // Only log if widget is still mounted to prevent disposed view errors
+      // Only check if widget is still mounted to prevent disposed view errors
       if (mounted) {
-        _logDiagnostics();
         // CRITICAL: Check for observer accumulation and reset if detected
         // This handles cases where hot reload doesn't trigger initState() detection
         final observerCount = NotificationCenter.observerCount();
         if (observerCount > 50) {
           // Excessive observer count indicates a leak
           // Log it but DO NOT RESET - resetting breaks active pages
-          _logDebug('_logDiagnostics', {
-            'hypothesisId': 'L',
-            'event': 'excessive_observers_warning',
-            'observerCount': observerCount
-          });
           print('WARNING: Excessive observers detected ($observerCount)');
         }
       }
@@ -328,7 +322,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   void reassemble() {
     super.reassemble();
     // Hot reload hook for diagnostics and cleanup on web.
-    debugPrint('diag:reassemble start');
     // #region agent log
     _logDebug('reassemble', {
       'hypothesisId': 'A',
@@ -371,41 +364,16 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
     // #endregion
     */
 
-    // Re-enable diagnostic logging to track resource accumulation
-    _logDiagnostics('reassemble');
+    // Diagnostic timer to track resource accumulation
     _diagnosticTimer = Timer.periodic(const Duration(seconds: 10), (_) {
       if (mounted) {
-        _logDiagnostics();
+        // Check for observer accumulation
+        final observerCount = NotificationCenter.observerCount();
+        if (observerCount > 50) {
+          print('WARNING: Excessive observers detected ($observerCount)');
+        }
       }
     });
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) {
-        _logDiagnostics('postFrame');
-      }
-    });
-  }
-
-  // Diagnostic logging to track resource accumulation
-  void _logDiagnostics([String tag = 'tick']) {
-    if (!mounted) return;
-    final cache = FirestoreCacheService().debugCounts();
-    final resources = ResourceTracker.getCounts();
-    // #region agent log
-    _logDebug('_logDiagnostics', {
-      'hypothesisId': 'F',
-      'event': 'periodic_diagnostic',
-      'tag': tag,
-      'observers': NotificationCenter.observerCount(),
-      'pendingOps': OptimisticOperationTracker.pendingCount(),
-      'cache': cache,
-      'resources': resources,
-    });
-    // #endregion
-    debugPrint(
-      'diag:$tag observers=${NotificationCenter.observerCount()} '
-      'pendingOps=${OptimisticOperationTracker.pendingCount()} '
-      'cache=$cache resources=$resources',
-    );
   }
 
   // #region agent log

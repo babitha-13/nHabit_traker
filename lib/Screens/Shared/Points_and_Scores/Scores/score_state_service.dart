@@ -10,12 +10,14 @@ class ScoreStateService {
     required double todayScore,
     required double yesterdayCumulative,
     required bool hasLiveScore,
+    Map<String, double>? breakdown,
   }) {
     TodayProgressState().updateTodayScore(
       cumulativeScore: cumulativeScore,
       todayScore: todayScore,
       yesterdayCumulative: yesterdayCumulative,
       hasLiveScore: hasLiveScore,
+      breakdown: breakdown,
     );
   }
 

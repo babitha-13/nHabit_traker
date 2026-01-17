@@ -27,6 +27,7 @@ class ScoreCoordinator {
     List<CategoryRecord>? categories,
     List<ActivityInstanceRecord>? habitInstances,
     bool includeBreakdown = false,
+    bool updateSharedState = true,
   }) async {
     if (userId.isEmpty) {
       return {
@@ -44,6 +45,7 @@ class ScoreCoordinator {
     }
 
     // Calculate today's score from completion
+    // Always calculate breakdown to ensure shared state has complete data
     final scoreData = await TodayScoreCalculator.calculateTodayScore(
       userId: userId,
       completionPercentage: completionPercentage,
@@ -63,13 +65,27 @@ class ScoreCoordinator {
       todayScore: todayScore,
     );
 
+    // Build breakdown map for shared state (always available for consistency)
+    final breakdown = <String, double>{
+      'dailyScore': (scoreData['dailyScore'] as num?)?.toDouble() ?? 0.0,
+      'consistencyBonus':
+          (scoreData['consistencyBonus'] as num?)?.toDouble() ?? 0.0,
+      'recoveryBonus': (scoreData['recoveryBonus'] as num?)?.toDouble() ?? 0.0,
+      'decayPenalty': (scoreData['decayPenalty'] as num?)?.toDouble() ?? 0.0,
+      'categoryNeglectPenalty':
+          (scoreData['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0,
+    };
+
     // Update shared state
-    ScoreStateService.updateTodayScore(
-      cumulativeScore: cumulativeScore,
-      todayScore: todayScore,
-      yesterdayCumulative: yesterdayCumulative,
-      hasLiveScore: true,
-    );
+    if (updateSharedState) {
+      ScoreStateService.updateTodayScore(
+        cumulativeScore: cumulativeScore,
+        todayScore: todayScore,
+        yesterdayCumulative: yesterdayCumulative,
+        hasLiveScore: true,
+        breakdown: breakdown,
+      );
+    }
 
     final result = <String, dynamic>{
       'cumulativeScore': cumulativeScore,
@@ -180,6 +196,7 @@ class CumulativeScoreCalculator {
     List<CategoryRecord>? categories,
     List<ActivityInstanceRecord>? habitInstances,
     bool includeBreakdown = false,
+    bool updateSharedState = true,
   }) async {
     return ScoreCoordinator.updateTodayScore(
       userId: userId,
@@ -188,6 +205,7 @@ class CumulativeScoreCalculator {
       categories: categories,
       habitInstances: habitInstances,
       includeBreakdown: includeBreakdown,
+      updateSharedState: updateSharedState,
     );
   }
 

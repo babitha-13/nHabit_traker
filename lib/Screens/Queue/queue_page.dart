@@ -30,6 +30,7 @@ import 'package:habit_tracker/Screens/Queue/Queue_charts_section/queue_charts_se
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_dialog.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/Screens/Progress/backend/progress_page_data_service.dart';
 import 'package:habit_tracker/Screens/Progress/backend/activity_template_service.dart';
 import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
 import 'dart:async';
@@ -548,11 +549,22 @@ class _QueuePageState extends State<QueuePage> {
         });
         // #endregion
         // BACKEND RECONCILIATION: Use full calculation with Firestore
+        // Fetch full data to ensure completed items are included even if filtered from UI
+        final breakdownData =
+            await ProgressPageDataService.fetchInstancesForBreakdown(
+                userId: currentUserUid);
+        final allHabits =
+            breakdownData['habits'] as List<ActivityInstanceRecord>;
+        final allTasks = breakdownData['tasks'] as List<ActivityInstanceRecord>;
+        final allCategories =
+            breakdownData['categories'] as List<CategoryRecord>;
+        final allInstances = [...allHabits, ...allTasks];
+
         final progressData =
             await TodayCompletionPointsService.calculateTodayCompletionPoints(
           userId: currentUserUid,
-          instances: _instances,
-          categories: _categories,
+          instances: allInstances,
+          categories: allCategories,
           optimistic: false,
         );
         // #region agent log
@@ -584,7 +596,11 @@ class _QueuePageState extends State<QueuePage> {
           }
 
           // For non-optimistic, await to ensure accuracy
-          await _updateTodayScore();
+          // Pass fetched data to avoid re-fetching
+          await _updateTodayScore(
+            habitInstancesOverride: allHabits,
+            categoriesOverride: allCategories,
+          );
         }
       } catch (e) {
         // #region agent log
@@ -601,7 +617,10 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  Future<void> _updateTodayScore() async {
+  Future<void> _updateTodayScore({
+    List<ActivityInstanceRecord>? habitInstancesOverride,
+    List<CategoryRecord>? categoriesOverride,
+  }) async {
     if (_isUpdatingLiveScore) {
       _pendingLiveScoreUpdate = true;
       return;
@@ -621,18 +640,29 @@ class _QueuePageState extends State<QueuePage> {
       final userId = currentUserUid;
       if (userId.isEmpty) return;
 
-      // Get habit instances for category neglect penalty calculation
-      final habitInstances = _instances
-          .where((inst) => inst.templateCategoryType == 'habit')
-          .toList();
+      List<ActivityInstanceRecord> habitInstances;
+      List<CategoryRecord> categories;
+
+      if (habitInstancesOverride != null && categoriesOverride != null) {
+        habitInstances = habitInstancesOverride;
+        categories = categoriesOverride;
+      } else {
+        // Fetch accurate data from DB to ensure score is correct even if local list is filtered
+        final breakdownData =
+            await ProgressPageDataService.fetchInstancesForBreakdown(
+                userId: userId);
+        habitInstances =
+            breakdownData['habits'] as List<ActivityInstanceRecord>;
+        categories = breakdownData['categories'] as List<CategoryRecord>;
+      }
 
       final scoreData = await CumulativeScoreCalculator.updateTodayScore(
         userId: userId,
         completionPercentage: _dailyPercentage,
         pointsEarned: _pointsEarned,
-        categories: _categories,
+        categories: categories,
         habitInstances: habitInstances,
-        includeBreakdown: false,
+        includeBreakdown: true, // Always include breakdown for consistency
       );
       if (mounted) {
         final newCumulativeScore =

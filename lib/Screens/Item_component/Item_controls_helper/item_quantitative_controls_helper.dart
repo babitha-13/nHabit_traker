@@ -232,16 +232,92 @@ class ItemQuantitativeControlsHelper {
       }
       return;
     }
+    // Check if new value reaches target
+    final currentValue = currentProgressLocal();
+    final newValue = currentValue + delta;
+    final targetValue = getTargetValue();
+    final willComplete = targetValue > 0 && newValue >= targetValue;
+
+    if (willComplete) {
+      // Atomic completion: skip updateInstanceProgress and go straight to completion
+      // This prevents race conditions and ensures immediate UI update
+      setState(() {
+        setUpdating(true);
+        setQuantProgressOverride(newValue.toInt());
+        setBinaryCompletionOverride(true);
+      });
+      SoundHelper().playCompletionSound();
+      
+      try {
+        // Create optimistic instance for immediate UI update
+        final optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+          instance,
+          finalValue: newValue,
+        );
+        final operationId = OptimisticOperationTracker.generateOperationId();
+        
+        OptimisticOperationTracker.trackOperation(
+          operationId,
+          instanceId: instance.reference.id,
+          operationType: 'complete',
+          optimisticInstance: optimisticInstance,
+          originalInstance: instance,
+        );
+        
+        InstanceEvents.broadcastInstanceUpdatedOptimistic(
+          optimisticInstance,
+          operationId,
+        );
+        onInstanceUpdated(optimisticInstance);
+
+        await ActivityInstanceService.completeInstance(
+          instanceId: instance.reference.id,
+          finalValue: newValue,
+          skipOptimisticUpdate: true,
+        );
+        
+        final completedInstance = await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instance.reference.id,
+        );
+        
+        OptimisticOperationTracker.reconcileOperation(
+          operationId,
+          completedInstance,
+        );
+        
+        onInstanceUpdated(completedInstance);
+        if (instance.templateCategoryType == 'habit') {
+          onRefresh?.call();
+        }
+      } catch (e) {
+        setState(() {
+          setUpdating(false);
+          setQuantProgressOverride(null);
+          setBinaryCompletionOverride(false);
+        });
+        if (isMounted()) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error completing task: $e')),
+          );
+        }
+      } finally {
+        if (isMounted()) {
+          setState(() => setUpdating(false));
+        }
+      }
+      return;
+    }
+
     final currentPending = getPendingQuantIncrement();
     setPendingQuantIncrement(currentPending + delta);
-    final currentValue = currentProgressLocal();
+    final currentVal = currentProgressLocal();
     final newOptimisticValue =
-        (currentValue + getPendingQuantIncrement()).clamp(0, double.infinity);
-    final targetValue = getTargetValue();
+        (currentVal + getPendingQuantIncrement()).clamp(0, double.infinity);
+    final targetVal = getTargetValue();
     setState(() {
       setQuantProgressOverride(newOptimisticValue.toInt());
-      if (targetValue > 0) {
-        if (newOptimisticValue >= targetValue) {
+      if (targetVal > 0) {
+        if (newOptimisticValue >= targetVal) {
           setBinaryCompletionOverride(true);
         } else {
           setBinaryCompletionOverride(false);
@@ -249,7 +325,7 @@ class ItemQuantitativeControlsHelper {
       }
     });
     SoundHelper().playStepCounterSound();
-    if (targetValue > 0 && newOptimisticValue >= targetValue) {
+    if (targetVal > 0 && newOptimisticValue >= targetVal) {
       SoundHelper().playCompletionSound();
     }
     getQuantUpdateTimer()?.cancel();
@@ -303,17 +379,8 @@ class ItemQuantitativeControlsHelper {
         instanceId: instance.reference.id,
       );
       onInstanceUpdated(updatedInstance);
-      await ItemQuantitativeControlsHelper.handleQuantCompletion(
-        instance: instance,
-        updatedInstance: updatedInstance,
-        onInstanceUpdated: onInstanceUpdated,
-        onRefresh: onRefresh,
-        context: context,
-        isMounted: isMounted,
-        shouldAutoCompleteQuant: (inst) =>
-            ItemQuantitativeControlsHelper.shouldAutoCompleteQuant(
-                inst, ItemQuantitativeControlsHelper.valueToNum),
-      );
+      // Remove handleQuantCompletion call since we handle atomic completion above
+      // But we still need to handle auto-uncompletion if value drops below target
       await ItemQuantitativeControlsHelper.handleQuantUncompletion(
         instance: instance,
         updatedInstance: updatedInstance,

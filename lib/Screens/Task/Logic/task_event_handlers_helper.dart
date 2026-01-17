@@ -26,11 +26,13 @@ class TaskEventHandlersHelper {
     }
 
     if (instance.templateCategoryType == 'task') {
-      final matchesCategory = categoryName == null ||
-          instance.templateCategoryName == categoryName;
+      final matchesCategory =
+          categoryName == null || instance.templateCategoryName == categoryName;
       if (matchesCategory) {
-        final updatedInstances = List<ActivityInstanceRecord>.from(taskInstances);
-        final updatedOperations = Map<String, String>.from(optimisticOperations);
+        final updatedInstances =
+            List<ActivityInstanceRecord>.from(taskInstances);
+        final updatedOperations =
+            Map<String, String>.from(optimisticOperations);
 
         if (isOptimistic) {
           updatedInstances.add(instance);
@@ -96,16 +98,31 @@ class TaskEventHandlersHelper {
     }
 
     if (instance.templateCategoryType == 'task') {
-      final matchesCategory = categoryName == null ||
-          instance.templateCategoryName == categoryName;
+      final matchesCategory =
+          categoryName == null || instance.templateCategoryName == categoryName;
       if (matchesCategory) {
-        final updatedInstances = List<ActivityInstanceRecord>.from(taskInstances);
-        final updatedOperations = Map<String, String>.from(optimisticOperations);
+        final updatedInstances =
+            List<ActivityInstanceRecord>.from(taskInstances);
+        final updatedOperations =
+            Map<String, String>.from(optimisticOperations);
 
         final index = updatedInstances
             .indexWhere((inst) => inst.reference.id == instance.reference.id);
 
         if (index != -1) {
+          // Ignore stale non-optimistic updates that are older than the currently held instance.
+          // This prevents temporary flicker from out-of-order events (e.g., pending -> completed -> pending -> completed).
+          if (!isOptimistic) {
+            final existing = updatedInstances[index];
+            final incomingLastUpdated = instance.lastUpdated;
+            final existingLastUpdated = existing.lastUpdated;
+            if (incomingLastUpdated != null &&
+                existingLastUpdated != null &&
+                incomingLastUpdated.isBefore(existingLastUpdated)) {
+              return;
+            }
+          }
+
           if (isOptimistic) {
             updatedInstances[index] = instance;
             if (operationId != null) {
@@ -140,22 +157,70 @@ class TaskEventHandlersHelper {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
+      final operationType = param['operationType'] as String?;
       final originalInstance =
           param['originalInstance'] as ActivityInstanceRecord?;
+      final optimisticInstance =
+          param['optimisticInstance'] as ActivityInstanceRecord?;
 
       if (operationId != null &&
           optimisticOperations.containsKey(operationId)) {
-        final updatedInstances = List<ActivityInstanceRecord>.from(taskInstances);
-        final updatedOperations = Map<String, String>.from(optimisticOperations);
+        final updatedInstances =
+            List<ActivityInstanceRecord>.from(taskInstances);
+        final updatedOperations =
+            Map<String, String>.from(optimisticOperations);
 
+        // Get the optimistic instance ID from the operations map
+        final optimisticInstanceId = updatedOperations[operationId];
         updatedOperations.remove(operationId);
-        if (originalInstance != null) {
+
+        // For creation operations, remove the optimistic instance
+        if (operationType == 'create') {
+          // Try multiple strategies to find and remove the optimistic instance
+          bool removed = false;
+
+          // Strategy 1: Use optimistic instance ID from operations map
+          if (optimisticInstanceId != null) {
+            final removedCount = updatedInstances.length;
+            updatedInstances.removeWhere(
+              (inst) => inst.reference.id == optimisticInstanceId,
+            );
+            removed = updatedInstances.length < removedCount;
+          }
+
+          // Strategy 2: Use optimistic instance from rollback event (for temp IDs)
+          if (!removed && optimisticInstance != null) {
+            final removedCount = updatedInstances.length;
+            updatedInstances.removeWhere(
+              (inst) => inst.reference.id == optimisticInstance.reference.id,
+            );
+            removed = updatedInstances.length < removedCount;
+          }
+
+          // Strategy 3: Try to find by instanceId (may be temp ID)
+          if (!removed && instanceId != null) {
+            final removedCount = updatedInstances.length;
+            updatedInstances.removeWhere(
+              (inst) => inst.reference.id == instanceId,
+            );
+            removed = updatedInstances.length < removedCount;
+          }
+        } else if (originalInstance != null && instanceId != null) {
+          // For update operations, restore original instance
           final index = updatedInstances
               .indexWhere((inst) => inst.reference.id == instanceId);
           if (index != -1) {
             updatedInstances[index] = originalInstance;
+          } else if (optimisticInstanceId != null) {
+            // Fallback: try optimistic instance ID if instanceId doesn't match
+            final index2 = updatedInstances.indexWhere(
+                (inst) => inst.reference.id == optimisticInstanceId);
+            if (index2 != -1) {
+              updatedInstances[index2] = originalInstance;
+            }
           }
         } else if (instanceId != null) {
+          // Fallback: try to revert by fetching from backend
           revertOptimisticUpdate(instanceId);
         }
 
@@ -197,12 +262,14 @@ class TaskEventHandlersHelper {
     required Function() onCacheInvalidate,
   }) {
     if (instance.templateCategoryType == 'task') {
-      final matchesCategory = categoryName == null ||
-          instance.templateCategoryName == categoryName;
+      final matchesCategory =
+          categoryName == null || instance.templateCategoryName == categoryName;
       if (matchesCategory) {
-        final updatedInstances = taskInstances.where(
-          (inst) => inst.reference.id != instance.reference.id,
-        ).toList();
+        final updatedInstances = taskInstances
+            .where(
+              (inst) => inst.reference.id != instance.reference.id,
+            )
+            .toList();
         onTaskInstancesUpdate(updatedInstances);
         onCacheInvalidate();
       }
@@ -224,7 +291,8 @@ class TaskEventHandlersHelper {
       onTaskInstancesUpdate(updatedInstances);
       onCacheInvalidate();
     }
-    loadDataSilently();
+    // Note: No need to reload from backend - optimistic update system handles synchronization
+    // Removed: loadDataSilently(); - This was causing status flips by reloading stale data
   }
 
   static void removeInstanceFromLocalState({
@@ -233,9 +301,11 @@ class TaskEventHandlersHelper {
     required Function(List<ActivityInstanceRecord>) onTaskInstancesUpdate,
     required Function() onCacheInvalidate,
   }) {
-    final updatedInstances = taskInstances.where(
-      (inst) => inst.reference.id != deletedInstance.reference.id,
-    ).toList();
+    final updatedInstances = taskInstances
+        .where(
+          (inst) => inst.reference.id != deletedInstance.reference.id,
+        )
+        .toList();
     onTaskInstancesUpdate(updatedInstances);
     onCacheInvalidate();
   }

@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
@@ -17,11 +19,28 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
   List<CategoryRecord> _categories = [];
   List<String> _tabNames = ["All"];
   static bool _hasEnsuredInbox = false;
+  StreamSubscription? _authSubscription;
+  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabNames.length, vsync: this);
     _tabController.addListener(_onTabChanged);
+    _loadCategories();
+
+    // Listen for auth changes to retry loading if initial load failed due to missing auth
+    _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
+      if (user != null && (_categories.isEmpty || _hasEnsuredInbox == false)) {
+        _loadCategories();
+      }
+    });
+  }
+
+  @override
+  void reassemble() {
+    super.reassemble();
+    // Force reload categories on hot reload
     _loadCategories();
   }
 
@@ -33,46 +52,67 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   Future<void> _loadCategories() async {
     if (!mounted) return;
-    final fetched = await queryTaskCategoriesOnce(
-      userId: currentUserUid,
-      callerTag: 'TaskTab._loadCategories.initial',
-    );
-    if (!mounted) return;
 
-    await _ensureInboxCategory(fetched);
-    if (!mounted) return;
-
-    final updatedFetched = await queryTaskCategoriesOnce(
-      userId: currentUserUid,
-      callerTag: 'TaskTab._loadCategories.updated',
-    );
-    if (!mounted) return;
-
-    final List<String> newTabNames = ['All'];
-    if (updatedFetched.isNotEmpty) {
-      CategoryRecord? inboxCategory;
-      for (final category in updatedFetched) {
-        if (category.name.toLowerCase() == 'inbox') {
-          inboxCategory = category;
-          break;
-        }
-      }
-      final inboxName = inboxCategory?.name ?? 'Inbox';
-      final otherCategories =
-          updatedFetched.where((c) => c.name.toLowerCase() != 'inbox').toList();
-      newTabNames
-        ..add(inboxName)
-        ..addAll(otherCategories.map((c) => c.name));
+    // Check if auth is ready - if not, wait for listener
+    final uid = currentUserUid;
+    if (uid.isEmpty) {
+      // If auth isn't ready, we can't load yet. Listener will retry.
+      return;
     }
-    if (mounted) {
-      setState(() {
-        _categories = updatedFetched;
-        _tabNames = newTabNames;
-        _tabController.removeListener(_onTabChanged);
-        _tabController.dispose();
-        _tabController = TabController(length: _tabNames.length, vsync: this);
-        _tabController.addListener(_onTabChanged);
-      });
+
+    // Only set loading if categories are empty (initial load)
+    if (_categories.isEmpty && mounted) {
+      setState(() => _isLoading = true);
+    }
+
+    try {
+      final fetched = await queryTaskCategoriesOnce(
+        userId: uid,
+        callerTag: 'TaskTab._loadCategories.initial',
+      );
+      if (!mounted) return;
+
+      await _ensureInboxCategory(fetched);
+      if (!mounted) return;
+
+      final updatedFetched = await queryTaskCategoriesOnce(
+        userId: uid,
+        callerTag: 'TaskTab._loadCategories.updated',
+      );
+      if (!mounted) return;
+
+      final List<String> newTabNames = ['All'];
+      if (updatedFetched.isNotEmpty) {
+        CategoryRecord? inboxCategory;
+        for (final category in updatedFetched) {
+          if (category.name.toLowerCase() == 'inbox') {
+            inboxCategory = category;
+            break;
+          }
+        }
+        final inboxName = inboxCategory?.name ?? 'Inbox';
+        final otherCategories = updatedFetched
+            .where((c) => c.name.toLowerCase() != 'inbox')
+            .toList();
+        newTabNames
+          ..add(inboxName)
+          ..addAll(otherCategories.map((c) => c.name));
+      }
+      if (mounted) {
+        setState(() {
+          _categories = updatedFetched;
+          _tabNames = newTabNames;
+          _tabController.removeListener(_onTabChanged);
+          _tabController.dispose();
+          _tabController = TabController(length: _tabNames.length, vsync: this);
+          _tabController.addListener(_onTabChanged);
+          _isLoading = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isLoading = false);
+      }
     }
   }
 
@@ -100,12 +140,12 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       _hasEnsuredInbox = true;
     } catch (e) {
       // Ignore duplicate creation errors; another instance likely created it.
-      debugPrint('TaskTab: Unable to ensure Inbox category: $e');
     }
   }
 
   @override
   void dispose() {
+    _authSubscription?.cancel();
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
@@ -158,15 +198,17 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
             ),
           ),
           Expanded(
-              child: _categories.isEmpty
+              child: _isLoading
                   ? const Center(child: CircularProgressIndicator())
-                  : TabBarView(
-                      controller: _tabController,
-                      children: _tabNames.map((name) {
-                        final categoryName = name == 'All' ? null : name;
-                        return TaskPage(categoryName: categoryName);
-                      }).toList(),
-                    ))
+                  : _categories.isEmpty
+                      ? const Center(child: Text("No categories found"))
+                      : TabBarView(
+                          controller: _tabController,
+                          children: _tabNames.map((name) {
+                            final categoryName = name == 'All' ? null : name;
+                            return TaskPage(categoryName: categoryName);
+                          }).toList(),
+                        ))
         ],
       ),
     );

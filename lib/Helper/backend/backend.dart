@@ -498,24 +498,39 @@ Future<List<ActivityInstanceRecord>> queryTaskInstances({
 }
 
 /// Query to get all task instances (active and completed) for Recent Completions
-/// Uses cache to reduce redundant Firestore reads
+/// Uses cache to reduce redundant Firestore reads unless explicitly bypassed
 Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
   required String userId,
+  bool useCache = true,
 }) async {
+  print(
+      '🟡 queryAllTaskInstances: START - userId=$userId, useCache=$useCache');
   try {
     final cache = FirestoreCacheService();
     // Check cache first
-    final cached = cache.getCachedTaskInstances();
-    if (cached != null) {
-      return cached;
+    if (useCache) {
+      final cached = cache.getCachedTaskInstances();
+      if (cached != null) {
+        print(
+            '🟡 queryAllTaskInstances: CACHE HIT - returning ${cached.length} instances');
+        return cached;
+      }
     }
+    print(
+        '🟡 queryAllTaskInstances: CACHE MISS (or bypass) - calling ActivityInstanceService.getAllTaskInstances');
     // Fetch from Firestore if cache miss
     final instances =
         await ActivityInstanceService.getAllTaskInstances(userId: userId);
-    // Update cache
-    cache.cacheTaskInstances(instances);
+    print('🟡 queryAllTaskInstances: Got ${instances.length} instances from service');
+    // Update cache if allowed
+    if (useCache) {
+      cache.cacheTaskInstances(instances);
+      print('🟡 queryAllTaskInstances: Cached ${instances.length} instances');
+    }
     return instances;
   } catch (e, stackTrace) {
+    print('🔴 queryAllTaskInstances: ERROR - $e');
+    print('🔴 queryAllTaskInstances: StackTrace: $stackTrace');
     logFirestoreQueryError(
       e,
       queryDescription: 'queryAllTaskInstances',
