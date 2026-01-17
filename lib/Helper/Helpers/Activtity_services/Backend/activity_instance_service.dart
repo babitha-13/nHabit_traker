@@ -242,7 +242,8 @@ class ActivityInstanceService {
     bool includePending = true,
     bool includeRecentCompleted = false,
   }) async {
-    print('🟣 _querySafeInstances: START - uid=$uid, includePending=$includePending, includeRecentCompleted=$includeRecentCompleted');
+    print(
+        '🟣 _querySafeInstances: START - uid=$uid, includePending=$includePending, includeRecentCompleted=$includeRecentCompleted');
     final List<ActivityInstanceRecord> allInstances = [];
 
     // Add distinct try-catch blocks for each query to identify which one fails/hangs
@@ -263,11 +264,13 @@ class ActivityInstanceService {
         );
 
         final docs = pendingResult.docs;
-        print('🟣 _querySafeInstances: Got ${docs.length} pending documents from Firestore');
+        print(
+            '🟣 _querySafeInstances: Got ${docs.length} pending documents from Firestore');
 
         allInstances.addAll(
             docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
-        print('🟣 _querySafeInstances: Added ${docs.length} pending instances to allInstances (total: ${allInstances.length})');
+        print(
+            '🟣 _querySafeInstances: Added ${docs.length} pending instances to allInstances (total: ${allInstances.length})');
       } catch (e, stackTrace) {
         print('🔴 _querySafeInstances: Pending query ERROR - $e');
         print('🔴 _querySafeInstances: StackTrace: $stackTrace');
@@ -294,7 +297,8 @@ class ActivityInstanceService {
         );
 
         final docs = completedResult.docs;
-        print('🟣 _querySafeInstances: Got ${docs.length} completed documents from Firestore');
+        print(
+            '🟣 _querySafeInstances: Got ${docs.length} completed documents from Firestore');
 
         // Filter strictly for completed (query is inclusive of greaterThanOrEqualTo)
         // and ensure status is explicitly completed
@@ -302,9 +306,11 @@ class ActivityInstanceService {
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((inst) => inst.status == 'completed')
             .toList();
-        print('🟣 _querySafeInstances: Filtered to ${completedInstances.length} completed instances (with status=completed)');
+        print(
+            '🟣 _querySafeInstances: Filtered to ${completedInstances.length} completed instances (with status=completed)');
         allInstances.addAll(completedInstances);
-        print('🟣 _querySafeInstances: Added ${completedInstances.length} completed instances to allInstances (total: ${allInstances.length})');
+        print(
+            '🟣 _querySafeInstances: Added ${completedInstances.length} completed instances to allInstances (total: ${allInstances.length})');
       } catch (e, stackTrace) {
         print('🔴 _querySafeInstances: Completed query ERROR - $e');
         print('🔴 _querySafeInstances: StackTrace: $stackTrace');
@@ -312,7 +318,8 @@ class ActivityInstanceService {
       }
     }
 
-    print('🟣 _querySafeInstances: FINISH - returning ${allInstances.length} total instances');
+    print(
+        '🟣 _querySafeInstances: FINISH - returning ${allInstances.length} total instances');
     return allInstances;
   }
 
@@ -388,32 +395,26 @@ class ActivityInstanceService {
     print('🟢 ActivityInstanceService.getAllTaskInstances: START - uid=$uid');
     try {
       // Use safe query to avoid missing index errors
-      print('🟢 ActivityInstanceService.getAllTaskInstances: Calling _querySafeInstances');
+      print(
+          '🟢 ActivityInstanceService.getAllTaskInstances: Calling _querySafeInstances');
       final allRawInstances = await _querySafeInstances(
         uid: uid,
         includePending: true,
         includeRecentCompleted: true,
       );
-      print('🟢 ActivityInstanceService.getAllTaskInstances: Got ${allRawInstances.length} raw instances');
-
       // Filter for tasks in memory
-      final allInstances = allRawInstances
-          .where((inst) {
-            final isTask = inst.templateCategoryType == 'task';
-            if (!isTask) {
-              print('🟢 ActivityInstanceService.getAllTaskInstances: Filtered out instance ${inst.reference.id} - categoryType=${inst.templateCategoryType}');
-            }
-            return isTask;
-          })
-          .toList();
-      print('🟢 ActivityInstanceService.getAllTaskInstances: After task filter: ${allInstances.length} instances');
+      final allInstances = allRawInstances.where((inst) {
+        final isTask = inst.templateCategoryType == 'task';
+        return isTask;
+      }).toList();
 
-      final sorted = InstanceOrderService.sortInstancesByOrder(allInstances, 'tasks');
-      print('🟢 ActivityInstanceService.getAllTaskInstances: SUCCESS - returning ${sorted.length} sorted task instances');
+      final sorted =
+          InstanceOrderService.sortInstancesByOrder(allInstances, 'tasks');
       return sorted;
     } catch (e, stackTrace) {
       print('🔴 ActivityInstanceService.getAllTaskInstances: ERROR - $e');
-      print('🔴 ActivityInstanceService.getAllTaskInstances: StackTrace: $stackTrace');
+      print(
+          '🔴 ActivityInstanceService.getAllTaskInstances: StackTrace: $stackTrace');
       logFirestoreQueryError(
         e,
         queryDescription: 'getAllTaskInstances',
@@ -818,37 +819,40 @@ class ActivityInstanceService {
       // Separate tasks and habits for different filtering logic
       // Exclude essentials from normal queries
       // Also filter out inactive instances to match tasks page behavior
-      print('🟠 getAllActiveInstances: Filtering ${allInstances.length} instances for tasks/habits');
+      print(
+          '🟠 getAllActiveInstances: Filtering ${allInstances.length} instances for tasks/habits');
       final categoryTypeCounts = <String, int>{};
       final activeCounts = <String, int>{};
       for (final inst in allInstances) {
-        categoryTypeCounts[inst.templateCategoryType] = (categoryTypeCounts[inst.templateCategoryType] ?? 0) + 1;
+        categoryTypeCounts[inst.templateCategoryType] =
+            (categoryTypeCounts[inst.templateCategoryType] ?? 0) + 1;
         if (inst.isActive) {
-          activeCounts[inst.templateCategoryType] = (activeCounts[inst.templateCategoryType] ?? 0) + 1;
+          activeCounts[inst.templateCategoryType] =
+              (activeCounts[inst.templateCategoryType] ?? 0) + 1;
         }
       }
-      print('🟠 getAllActiveInstances: Category breakdown - $categoryTypeCounts');
+      print(
+          '🟠 getAllActiveInstances: Category breakdown - $categoryTypeCounts');
       print('🟠 getAllActiveInstances: Active breakdown - $activeCounts');
-      
-      final taskInstances = allInstances
-          .where((inst) {
-            final isTask = inst.templateCategoryType == 'task';
-            final isEssential = inst.templateCategoryType == 'essential';
-            final isActive = inst.isActive;
-            if (!isTask || isEssential || !isActive) {
-              print('🟠 getAllActiveInstances: Filtered out instance ${inst.reference.id} - categoryType=${inst.templateCategoryType}, isActive=$isActive');
-            }
-            return isTask && !isEssential && isActive;
-          })
-          .toList();
-      print('🟠 getAllActiveInstances: After task filter: ${taskInstances.length} task instances');
-      
+
+      final taskInstances = allInstances.where((inst) {
+        final isTask = inst.templateCategoryType == 'task';
+        final isEssential = inst.templateCategoryType == 'essential';
+        final isActive = inst.isActive;
+        if (!isTask || isEssential || !isActive) {
+          print(
+              '🟠 getAllActiveInstances: Filtered out instance ${inst.reference.id} - categoryType=${inst.templateCategoryType}, isActive=$isActive');
+        }
+        return isTask && !isEssential && isActive;
+      }).toList();
+
       final habitInstances = allInstances
           .where((inst) =>
               inst.templateCategoryType == 'habit' &&
               inst.isActive) // Filter inactive instances
           .toList();
-      print('🟠 getAllActiveInstances: After habit filter: ${habitInstances.length} habit instances');
+      print(
+          '🟠 getAllActiveInstances: After habit filter: ${habitInstances.length} habit instances');
       final List<ActivityInstanceRecord> finalInstanceList = [];
       // For tasks: use earliest-only logic with status priority
       final Map<String, ActivityInstanceRecord> earliestTasks = {};
@@ -1260,7 +1264,8 @@ class ActivityInstanceService {
     int? finalAccumulatedTime,
     String? notes,
     String? userId,
-    bool skipOptimisticUpdate = false, // Skip optimistic broadcast if caller already handled it
+    bool skipOptimisticUpdate =
+        false, // Skip optimistic broadcast if caller already handled it
   }) async {
     await completeInstanceWithBackdate(
       instanceId: instanceId,
@@ -1282,7 +1287,8 @@ class ActivityInstanceService {
     String? userId,
     DateTime? completedAt, // If null, uses current time
     bool forceSessionBackdate = false,
-    bool skipOptimisticUpdate = false, // Skip optimistic broadcast if caller already handled it
+    bool skipOptimisticUpdate =
+        false, // Skip optimistic broadcast if caller already handled it
   }) async {
     final uid = userId ?? _currentUserId;
     try {
@@ -1429,7 +1435,7 @@ class ActivityInstanceService {
 
       // ==================== OPTIMISTIC BROADCAST ====================
       String? operationId;
-      
+
       // Skip optimistic broadcast if caller already handled it (prevents double broadcasts)
       if (!skipOptimisticUpdate) {
         // 1. Extract time log sessions and total time for optimistic instance
@@ -1442,7 +1448,8 @@ class ActivityInstanceService {
             InstanceEvents.createOptimisticCompletedInstance(
           instance,
           finalValue: currentValueToStore,
-          finalAccumulatedTime: finalAccumulatedTime ?? instance.accumulatedTime,
+          finalAccumulatedTime:
+              finalAccumulatedTime ?? instance.accumulatedTime,
           completedAt: completionTime,
           timeLogSessions: optimisticTimeLogSessions,
           totalTimeLogged: optimisticTotalTimeLogged,
@@ -1550,7 +1557,8 @@ class ActivityInstanceService {
     required String instanceId,
     String? userId,
     bool deleteLogs = false, // New parameter to optionally delete calendar logs
-    bool skipOptimisticUpdate = false, // Skip optimistic broadcast if caller already handled it
+    bool skipOptimisticUpdate =
+        false, // Skip optimistic broadcast if caller already handled it
     dynamic currentValue, // Optional: Update current value while uncompleting
   }) async {
     final uid = userId ?? _currentUserId;
@@ -1601,7 +1609,7 @@ class ActivityInstanceService {
 
       // ==================== OPTIMISTIC BROADCAST ====================
       String? operationId;
-      
+
       // Skip optimistic broadcast if caller already handled it (prevents double broadcasts)
       if (!skipOptimisticUpdate) {
         // 1. Create optimistic instance
