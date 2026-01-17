@@ -14,6 +14,7 @@ class QueueUIBuilders {
     required double dailyTarget,
     required double pointsEarned,
     required List<Map<String, dynamic>> miniGraphHistory,
+    bool isHistoryLoading = false,
   }) {
     return GestureDetector(
       onTap: () {
@@ -67,6 +68,7 @@ class QueueUIBuilders {
                       ),
                       history: miniGraphHistory,
                       color: FlutterFlowTheme.of(context).primary,
+                      isLoading: isHistoryLoading,
                     ),
                   ),
                   const SizedBox(height: 4),

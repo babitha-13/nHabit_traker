@@ -7,11 +7,13 @@ import 'package:intl/intl.dart';
 class CumulativeScoreGraph extends StatefulWidget {
   final List<Map<String, dynamic>> history;
   final Color color;
+  final bool isLoading;
 
   const CumulativeScoreGraph({
     super.key,
     required this.history,
     required this.color,
+    this.isLoading = false,
   });
 
   @override
@@ -53,8 +55,30 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
 
   @override
   Widget build(BuildContext context) {
+    final theme = FlutterFlowTheme.of(context);
+
+    // Show loading indicator while data is loading
+    if (widget.isLoading) {
+      return Container(
+        decoration: BoxDecoration(
+          color: theme.alternate.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Center(
+          child: SizedBox(
+            width: 20,
+            height: 20,
+            child: CircularProgressIndicator(
+              strokeWidth: 2,
+              valueColor: AlwaysStoppedAnimation<Color>(theme.primary),
+            ),
+          ),
+        ),
+      );
+    }
+
+    // Show "No data" only if not loading and history is empty
     if (widget.history.isEmpty) {
-      final theme = FlutterFlowTheme.of(context);
       return Container(
         decoration: BoxDecoration(
           color: theme.alternate.withOpacity(0.1),

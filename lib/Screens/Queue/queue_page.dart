@@ -123,7 +123,7 @@ class _QueuePageState extends State<QueuePage> {
     // Load filter/sort state and data in parallel for faster initialization
     Future.wait([
       _loadFilterAndSortState(),
-      _loadData(),
+      _loadData(isInitialLoad: true),
     ]).then((_) async {
       // Wait for progress calculation and score update to complete
       // This ensures shared state is updated before loading history
@@ -136,7 +136,7 @@ class _QueuePageState extends State<QueuePage> {
         // and awaited, so it's already complete at this point
         // Now safe to load history with updated shared state
         if (mounted) {
-          _loadCumulativeScoreHistory();
+          await _loadCumulativeScoreHistory(isInitialLoad: true);
         }
       }
       if (widget.expandCompleted) {
@@ -351,7 +351,7 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  Future<void> _loadData() async {
+  Future<void> _loadData({bool isInitialLoad = false}) async {
     if (_isLoadingData) return;
     if (!mounted) return;
     _isLoadingData = true;
@@ -389,7 +389,11 @@ class _QueuePageState extends State<QueuePage> {
                   .any((instance) => instance.reference.id == id),
             );
             _currentFilter = updatedFilter;
-            _isLoading = false;
+            // Only clear loading state if this is not the initial load
+            // (initial load will be cleared after history is loaded)
+            if (!isInitialLoad) {
+              _isLoading = false;
+            }
             _isLoadingData = false;
             // Update hash codes when data changes
             _instancesHashCode = newInstancesHash;
@@ -799,7 +803,8 @@ class _QueuePageState extends State<QueuePage> {
     }
   }
 
-  Future<void> _loadCumulativeScoreHistory({bool forceReload = false}) async {
+  Future<void> _loadCumulativeScoreHistory(
+      {bool forceReload = false, bool isInitialLoad = false}) async {
     if (_isLoadingHistory) {
       if (forceReload) {
         _pendingHistoryReload = true;
@@ -819,6 +824,12 @@ class _QueuePageState extends State<QueuePage> {
       final userId = currentUserUid;
       if (userId.isEmpty) {
         _isLoadingHistory = false;
+        // Clear loading state on initial load even if user is empty
+        if (isInitialLoad && mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
 
@@ -844,6 +855,12 @@ class _QueuePageState extends State<QueuePage> {
 
       if (!isNewHistoryValid && wasOldHistoryValid) {
         _isLoadingHistory = false;
+        // Clear loading state on initial load even if history is invalid
+        if (isInitialLoad && mounted) {
+          setState(() {
+            _isLoading = false;
+          });
+        }
         return;
       }
       // Only update if values actually changed
@@ -858,12 +875,21 @@ class _QueuePageState extends State<QueuePage> {
           _dailyScoreGain = currentTodayScore;
           _cumulativeScoreHistory = history;
           _historyLoaded = true;
+          // Clear loading state on initial load after history is loaded
+          if (isInitialLoad) {
+            _isLoading = false;
+          }
         });
       } else if (!mounted) {
         _cumulativeScore = currentCumulativeScore;
         _dailyScoreGain = currentTodayScore;
         _cumulativeScoreHistory = history;
         _historyLoaded = true;
+      } else if (isInitialLoad && mounted) {
+        // Even if nothing changed, clear loading state on initial load
+        setState(() {
+          _isLoading = false;
+        });
       }
 
       final overlayScore = _pendingHistoryScore ?? _cumulativeScore;
@@ -879,17 +905,25 @@ class _QueuePageState extends State<QueuePage> {
         'errorType': e.runtimeType.toString(),
       });
       // #endregion
+      // Clear loading state on initial load even if there's an error
+      if (isInitialLoad && mounted) {
+        setState(() {
+          _isLoading = false;
+        });
+      }
     } finally {
       _isLoadingHistory = false;
       if (_pendingHistoryReload) {
         _pendingHistoryReload = false;
-        Future.microtask(_loadCumulativeScoreHistory);
+        Future.microtask(() => _loadCumulativeScoreHistory());
       }
     }
   }
 
   List<Map<String, dynamic>> _getMiniGraphHistory() {
-    if (_cumulativeScoreHistory.isEmpty) return [];
+    // Only return history if it's loaded and has valid data
+    // This prevents showing incorrect values during initial load
+    if (!_historyLoaded || _cumulativeScoreHistory.isEmpty) return [];
     return List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
   }
 
@@ -911,23 +945,14 @@ class _QueuePageState extends State<QueuePage> {
         });
       }
     } else {
-      // Only update pending values if they're different
+      // Don't create temporary history entries - just store pending values
+      // This prevents showing incorrect values in the chart during initial load
       if (_pendingHistoryScore != cumulativeScore ||
           _pendingHistoryGain != todayScore) {
         _pendingHistoryScore = cumulativeScore;
         _pendingHistoryGain = todayScore;
-        if (mounted) {
-          // Show a quick one-point history while real history loads
-          setState(() {
-            _cumulativeScoreHistory = [
-              {
-                'date': DateService.todayStart,
-                'score': cumulativeScore,
-                'gain': todayScore,
-              },
-            ];
-          });
-        }
+        // Don't update _cumulativeScoreHistory until real history is loaded
+        // This ensures the chart shows loading state until valid data is available
       }
     }
   }
@@ -1128,6 +1153,7 @@ class _QueuePageState extends State<QueuePage> {
         dailyTarget: _dailyTarget,
         pointsEarned: _pointsEarned,
         miniGraphHistory: miniGraphHistory,
+        isHistoryLoading: _isLoadingHistory,
       ),
     );
   }

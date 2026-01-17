@@ -24,7 +24,7 @@ class TaskBucketingLogicHelper {
         completionTimeFrame != (lastCompletionTimeFrame ?? 2) ||
         categoryName != lastCategoryName;
 
-    if (!cacheInvalid && cachedBucketedItems != null) {
+    if (!cacheInvalid) {
       return cachedBucketedItems;
     }
 
@@ -49,8 +49,6 @@ class TaskBucketingLogicHelper {
           .contains(searchQuery.toLowerCase());
     }).toList();
 
-    print(
-        '_bucketedItems: Processing ${activeInstancesToProcess.length} active task instances (search: "$searchQuery")');
 
     final today = DateService.todayStart;
     final tomorrow = DateService.tomorrowStart;
@@ -110,8 +108,6 @@ class TaskBucketingLogicHelper {
         return a.dueDate!.compareTo(b.dueDate!);
       });
       final earliestInstance = instances.first;
-      print(
-          '  Processing recurring task: ${earliestInstance.templateName} (earliest of ${instances.length} instances)');
       final dueDate = earliestInstance.dueDate;
       if (dueDate == null) {
         buckets['No due date']!.add(earliestInstance);
@@ -175,8 +171,6 @@ class TaskBucketingLogicHelper {
       instances.sort((a, b) => b.completedAt!.compareTo(a.completedAt!));
       for (final instance in instances) {
         buckets['Recent Completions']!.add(instance);
-        print(
-            '  Added completed recurring task: ${instance.templateName} (completed: ${instance.completedAt})');
       }
     }
 

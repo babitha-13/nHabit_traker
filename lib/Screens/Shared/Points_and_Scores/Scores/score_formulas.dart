@@ -96,17 +96,42 @@ class ScoreFormulas {
       // Only check habit categories
       if (category.categoryType != 'habit') continue;
 
-      // Get all habits in this category (instances are already filtered for target date)
-      final categoryHabits = habitInstances
-          .where((inst) => inst.templateCategoryId == category.reference.id)
-          .toList();
+      // Filter habits that belong to the target date
+      // For habits, check belongsToDate; for others, check completedAt or current activity
+      final todayHabits = habitInstances.where((inst) {
+        // Must be in this category
+        if (inst.templateCategoryId != category.reference.id) return false;
+        
+        // For habits, check if belongsToDate matches target date
+        if (inst.templateCategoryType == 'habit') {
+          if (inst.belongsToDate != null) {
+            final belongsDate = DateService.normalizeToStartOfDay(inst.belongsToDate!);
+            return belongsDate.isAtSameMomentAs(normalizedDate);
+          }
+          // Fallback: if no belongsToDate, check if completed today
+          if (inst.status == 'completed' && inst.completedAt != null) {
+            final completedDate = DateService.normalizeToStartOfDay(inst.completedAt!);
+            return completedDate.isAtSameMomentAs(normalizedDate);
+          }
+          // If not completed, check if has current activity (currentValue or accumulatedTime)
+          // This handles habits that are in progress today
+          if (inst.currentValue != null) {
+            final value = inst.currentValue;
+            if (value is num && value > 0) return true;
+          }
+          if (inst.accumulatedTime > 0) return true;
+          // If no belongsToDate and not completed/active, don't include for today
+          return false;
+        }
+        return false;
+      }).toList();
 
-      // Only apply penalty if category has more than 1 habit
-      if (categoryHabits.length <= 1) continue;
+      // Only apply penalty if category has more than 1 habit for today
+      if (todayHabits.length <= 1) continue;
 
-      // Check if category has any activity (completed or partial)
+      // Check if category has any activity (completed or partial) for today
       bool hasActivity = false;
-      for (final habit in categoryHabits) {
+      for (final habit in todayHabits) {
         // Check if completed on target date
         if (habit.status == 'completed' && habit.completedAt != null) {
           final completedDate =
@@ -116,7 +141,7 @@ class ScoreFormulas {
             break;
           }
         }
-        // Check if has partial progress (currentValue > 0)
+        // Check if has partial progress (currentValue > 0) - only counts if belongs to today
         if (habit.currentValue != null) {
           final value = habit.currentValue;
           if (value is num && value > 0) {
@@ -124,7 +149,7 @@ class ScoreFormulas {
             break;
           }
         }
-        // Check if has time logged
+        // Check if has time logged - only counts if belongs to today
         final accumulatedTime = habit.accumulatedTime;
         if (accumulatedTime > 0) {
           hasActivity = true;

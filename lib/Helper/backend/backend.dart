@@ -511,21 +511,15 @@ Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
     if (useCache) {
       final cached = cache.getCachedTaskInstances();
       if (cached != null) {
-        print(
-            '🟡 queryAllTaskInstances: CACHE HIT - returning ${cached.length} instances');
         return cached;
       }
     }
-    print(
-        '🟡 queryAllTaskInstances: CACHE MISS (or bypass) - calling ActivityInstanceService.getAllTaskInstances');
     // Fetch from Firestore if cache miss
     final instances =
         await ActivityInstanceService.getAllTaskInstances(userId: userId);
-    print('🟡 queryAllTaskInstances: Got ${instances.length} instances from service');
     // Update cache if allowed
     if (useCache) {
       cache.cacheTaskInstances(instances);
-      print('🟡 queryAllTaskInstances: Cached ${instances.length} instances');
     }
     return instances;
   } catch (e, stackTrace) {
