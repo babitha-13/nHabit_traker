@@ -4,7 +4,6 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
@@ -14,17 +13,13 @@ import 'package:habit_tracker/Screens/Categories/create_category.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_editor_dialog.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
-import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'dart:async';
 import 'dart:convert';
-import 'package:intl/intl.dart';
 import '../../debug_log_stub.dart'
     if (dart.library.io) '../../debug_log_io.dart'
     if (dart.library.html) '../../debug_log_web.dart';
 
-import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/Screens/Habits/Logic/habits_page_logic.dart';
 
 class HabitsPage extends StatefulWidget {
   final bool showCompleted;
@@ -33,79 +28,51 @@ class HabitsPage extends StatefulWidget {
   _HabitsPageState createState() => _HabitsPageState();
 }
 
-class _HabitsPageState extends State<HabitsPage> {
+class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
-  List<ActivityInstanceRecord> _habitInstances = [];
-  List<CategoryRecord> _categories = [];
-  Set<String> _expandedCategories = {};
   final Map<String, GlobalKey> _categoryKeys = {};
-  bool _isLoading = true;
-  bool _didInitialDependencies = false;
-  bool _shouldReloadOnReturn = false;
-  late bool _showCompleted;
-  bool _hasAutoExpandedOnLoad = false;
-  // Search functionality
-  String _searchQuery = '';
-  final SearchStateManager _searchManager = SearchStateManager();
-  // Cache for groupedByCategory to avoid recalculation on every build
-  Map<String, List<ActivityInstanceRecord>>? _cachedGroupedByCategory;
-  int _habitInstancesHashCode = 0; // Current hash of instances
-  int _lastCachedHabitInstancesHash = 0; // Hash used when cache was built
-  String _lastSearchQuery = '';
-  bool _lastShowCompleted = false;
-  Set<String> _reorderingInstanceIds =
-      {}; // Track instances being reordered to prevent stale updates
-  // Optimistic operation tracking
-  final Map<String, String> _optimisticOperations =
-      {}; // operationId -> instanceId
   @override
   void initState() {
     super.initState();
-    _showCompleted = widget.showCompleted;
-    // Load expansion state and habits in parallel for faster initialization
+    showCompleted = widget.showCompleted;
     Future.wait([
-      _loadExpansionState(),
-      _loadHabits(),
+      loadExpansionState(),
+      loadHabits(),
     ]);
-    // Listen for search changes
-    _searchManager.addListener(_onSearchChanged);
+    searchManager.addListener(onSearchChanged);
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
         // Only update if value actually changed
-        if (_showCompleted != param) {
+        if (showCompleted != param) {
           setState(() {
-            _showCompleted = param;
-            // Invalidate cache when showCompleted changes
-            _cachedGroupedByCategory = null;
+            showCompleted = param;
+            cachedGroupedByCategory = null;
           });
         }
       }
     });
     NotificationCenter.addObserver(this, 'loadHabits', (param) {
       if (mounted) {
-        // Don't wrap async call in setState - call directly
-        _loadHabits();
+        loadHabits();
       }
     });
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
-        _loadHabitsSilently();
+        loadHabitsSilently();
       }
     });
-    // Listen for instance events (only habit instances)
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
       if (param is ActivityInstanceRecord &&
           mounted &&
           param.templateCategoryType == 'habit') {
-        _handleInstanceCreated(param);
+        handleInstanceCreated(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
         (param) {
       if (mounted) {
-        // Check if it's a habit instance (handle both Map and ActivityInstanceRecord formats)
         ActivityInstanceRecord? instance;
         if (param is Map) {
           instance = param['instance'] as ActivityInstanceRecord?;
@@ -113,14 +80,13 @@ class _HabitsPageState extends State<HabitsPage> {
           instance = param;
         }
         if (instance != null && instance.templateCategoryType == 'habit') {
-          _handleInstanceUpdated(param);
+          handleInstanceUpdated(param);
         }
       }
     });
-    // Listen for rollback events
     NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
       if (mounted) {
-        _handleRollback(param);
+        handleRollback(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
@@ -128,7 +94,7 @@ class _HabitsPageState extends State<HabitsPage> {
       if (param is ActivityInstanceRecord &&
           mounted &&
           param.templateCategoryType == 'habit') {
-        _handleInstanceDeleted(param);
+        handleInstanceDeleted(param);
       }
     });
   }
@@ -136,43 +102,15 @@ class _HabitsPageState extends State<HabitsPage> {
   @override
   void reassemble() {
     super.reassemble();
-    // #region agent log
-    _logReassemble('called');
-    // #endregion
-    // Clean up observers on hot reload to prevent accumulation
+    logReassemble('called');
     NotificationCenter.removeObserver(this);
-    // #region agent log
-    _logReassemble('complete');
-    // #endregion
+    logReassemble('complete');
   }
-
-  // #region agent log
-  void _logReassemble(String stage) {
-    try {
-      writeDebugLog(jsonEncode({
-        'id': 'log_${DateTime.now().millisecondsSinceEpoch}_habits',
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'location': 'habits_page.dart:reassemble',
-        'message': 'reassemble_$stage',
-        'data': {
-          'hypothesisId': 'J',
-          'event': 'reassemble_$stage',
-          'instanceHash': hashCode,
-          'observerCount': NotificationCenter.observerCount(),
-        },
-        'sessionId': 'debug-session',
-        'runId': 'run1',
-      }));
-    } catch (e) {
-      // Silently fail
-    }
-  }
-  // #endregion
 
   @override
   void dispose() {
     NotificationCenter.removeObserver(this);
-    _searchManager.removeListener(_onSearchChanged);
+    searchManager.removeListener(onSearchChanged);
     _scrollController.dispose();
     super.dispose();
   }
@@ -180,232 +118,14 @@ class _HabitsPageState extends State<HabitsPage> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    if (_didInitialDependencies) {
+    if (didInitialDependencies) {
       final route = ModalRoute.of(context);
-      if (route != null && route.isCurrent && _shouldReloadOnReturn) {
-        _shouldReloadOnReturn = false;
-        _loadHabits();
+      if (route != null && route.isCurrent && shouldReloadOnReturn) {
+        shouldReloadOnReturn = false;
+        loadHabits();
       }
     } else {
-      _didInitialDependencies = true;
-    }
-  }
-
-  Future<void> _loadExpansionState() async {
-    final expandedSections =
-        await ExpansionStateManager().getHabitsExpandedSections();
-    if (mounted) {
-      setState(() {
-        _expandedCategories = expandedSections;
-      });
-    }
-  }
-
-  void _onSearchChanged(String query) {
-    if (mounted) {
-      // Only update if value actually changed
-      if (_searchQuery != query) {
-        setState(() {
-          _searchQuery = query;
-          // Invalidate cache when search query changes
-          _cachedGroupedByCategory = null;
-          // Auto-expand categories with results when searching
-          if (query.isNotEmpty) {
-            final grouped = groupedByCategory;
-            // Expand all categories with results
-            for (final key in grouped.keys) {
-              if (grouped[key]!.isNotEmpty) {
-                _expandedCategories.add(key);
-              }
-            }
-          }
-        });
-      }
-    }
-  }
-
-  Map<String, List<ActivityInstanceRecord>> get groupedByCategory {
-    // Hash codes are now calculated when data changes, not in getter
-    // This avoids expensive hash calculations on every build
-    // Compare current hash code with cached one to detect data changes
-    final cacheInvalid = _cachedGroupedByCategory == null ||
-        _habitInstancesHashCode != _lastCachedHabitInstancesHash ||
-        _searchQuery != _lastSearchQuery ||
-        _showCompleted != _lastShowCompleted;
-
-    if (!cacheInvalid && _cachedGroupedByCategory != null) {
-      return _cachedGroupedByCategory!;
-    }
-
-    // Recalculate grouping
-    final grouped = <String, List<ActivityInstanceRecord>>{};
-    // Filter instances by search query if active
-    final instancesToProcess = _habitInstances.where((instance) {
-      if (_searchQuery.isEmpty) return true;
-      return instance.templateName
-          .toLowerCase()
-          .contains(_searchQuery.toLowerCase());
-    }).toList();
-    for (final instance in instancesToProcess) {
-      if (!_showCompleted && instance.status == 'completed') continue;
-      final categoryName = instance.templateCategoryName.isNotEmpty
-          ? instance.templateCategoryName
-          : 'Uncategorized';
-      (grouped[categoryName] ??= []).add(instance);
-    }
-    // Sort items within each category by habits order
-    for (final key in grouped.keys) {
-      final items = grouped[key]!;
-      if (items.isNotEmpty) {
-        // Sort by habits order
-        grouped[key] =
-            InstanceOrderService.sortInstancesByOrder(items, 'habits');
-      }
-    }
-
-    // Update cache - hash codes are already updated when data changes
-    _cachedGroupedByCategory = grouped;
-    _lastCachedHabitInstancesHash = _habitInstancesHashCode;
-    _lastSearchQuery = _searchQuery;
-    _lastShowCompleted = _showCompleted;
-
-    return grouped;
-  }
-
-  String _getDueDateSubtitle(ActivityInstanceRecord instance) {
-    // For habits with completion windows, show window information
-    if (WindowDisplayHelper.hasCompletionWindow(instance)) {
-      if (instance.status == 'completed' || instance.status == 'skipped') {
-        return WindowDisplayHelper.getNextWindowStartSubtitle(instance);
-      } else {
-        return WindowDisplayHelper.getWindowEndSubtitle(instance);
-      }
-    }
-    // Fall back to original logic for habits without windows
-    final now = DateTime.now();
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
-    if (instance.dueDate == null) {
-      // Even if no due date, show time if available
-      if (instance.hasDueTime()) {
-        return '@ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}';
-      }
-      return 'No due date';
-    }
-    final dueDate = DateTime(
-        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
-    String dateStr;
-    if (dueDate.isAtSameMomentAs(today)) {
-      dateStr = 'Today';
-    } else if (dueDate.isAtSameMomentAs(tomorrow)) {
-      dateStr = 'Tomorrow';
-    } else {
-      dateStr = DateFormat.MMMd().format(instance.dueDate!);
-    }
-    // Add due time if available
-    final timeStr = instance.hasDueTime()
-        ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
-        : '';
-    return '$dateStr$timeStr';
-  }
-
-  Future<void> _loadHabits() async {
-    if (!mounted) return;
-    // Only set loading state if it's not already true AND we have no data
-    // This prevents full page refresh flickers when updating existing data
-    if (!_isLoading && _habitInstances.isEmpty) {
-      setState(() => _isLoading = true);
-    }
-    try {
-      final userId = currentUserUid;
-      if (userId.isNotEmpty) {
-        // Load instances and categories in parallel for faster data loading
-        final results = await Future.wait([
-          queryLatestHabitInstances(userId: userId),
-          queryHabitCategoriesOnce(
-            userId: userId,
-            callerTag: 'HabitsPage._loadHabits',
-          ),
-        ]);
-        if (!mounted) return;
-
-        final instances = results[0] as List<ActivityInstanceRecord>;
-        final categories = results[1] as List<CategoryRecord>;
-
-        // Initialize missing order values during load (avoid DB writes during build/getters).
-        // Best-effort: if something was deleted concurrently, we don't want to crash UI.
-        try {
-          await InstanceOrderService.initializeOrderValues(instances, 'habits');
-        } catch (_) {}
-        if (mounted) {
-          // Preserve optimistic instances that are waiting for reconciliation
-          // This prevents flicker where stale backend data overwrites optimistic updates
-          final optimisticInstanceIds = _optimisticOperations.values.toSet();
-          final mergedInstances = instances.map((inst) {
-            // Check if this instance ID is involved in an optimistic operation
-            if (optimisticInstanceIds.contains(inst.reference.id)) {
-              // Check if we have a local version
-              final localIndex = _habitInstances.indexWhere(
-                  (local) => local.reference.id == inst.reference.id);
-              if (localIndex != -1) {
-                final local = _habitInstances[localIndex];
-                // Always prefer the local optimistic version if backend version looks "older" or "different" in critical fields
-                // Specifically for completion, if local is completed and backend is pending, KEEP LOCAL
-                if (local.status == 'completed' && inst.status != 'completed') {
-                  return local;
-                }
-                // If we have an explicit operation tracking for this ID, trust local
-                // Double check operation ID existence to be safe
-                if (_optimisticOperations.containsValue(inst.reference.id)) {
-                  return local;
-                }
-              }
-            }
-            return inst;
-          }).toList();
-
-          // Calculate hash code when data changes (not in getter)
-          final newHash = mergedInstances.length.hashCode ^
-              mergedInstances.fold(
-                  0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-          setState(() {
-            _habitInstances = mergedInstances;
-            _categories = categories;
-            // Invalidate cache when data changes
-            _cachedGroupedByCategory = null;
-            // Update hash code when data changes
-            _habitInstancesHashCode = newHash;
-            _isLoading = false;
-          });
-          // Auto-expand first category only on initial load if no sections are expanded
-          if (!_hasAutoExpandedOnLoad && _habitInstances.isNotEmpty) {
-            _hasAutoExpandedOnLoad = true;
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              if (mounted && _expandedCategories.isEmpty) {
-                final grouped = groupedByCategory;
-                if (grouped.isNotEmpty) {
-                  setState(() {
-                    _expandedCategories.add(grouped.keys.first);
-                  });
-                  ExpansionStateManager()
-                      .setHabitsExpandedSections(_expandedCategories);
-                }
-              }
-            });
-          }
-        }
-      } else {
-        // Batch state updates for empty user case
-        if (mounted) {
-          setState(() => _isLoading = false);
-        }
-      }
-    } catch (e) {
-      // Batch state updates for error case
-      if (mounted) {
-        setState(() => _isLoading = false);
-      }
+      didInitialDependencies = true;
     }
   }
 
@@ -415,17 +135,10 @@ class _HabitsPageState extends State<HabitsPage> {
       body: SafeArea(
         child: Stack(
           children: [
-            _isLoading
+            isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : _buildAllHabitsView(),
-            // FloatingTimer(
-            //   activeHabits: _activeFloatingHabits,
-            //   onRefresh: _loadHabits,
-            //   onHabitUpdated: (updated) => {}, // _updateHabitInLocalState(updated),
-            // ),
-            // Search FAB at bottom-left
             const SearchFAB(heroTag: 'search_fab_habits'),
-            // Existing FABs at bottom-right
             Positioned(
               right: 16,
               bottom: 16,
@@ -439,7 +152,7 @@ class _HabitsPageState extends State<HabitsPage> {
                         context: context,
                         builder: (context) => ActivityEditorDialog(
                           isHabit: true,
-                          categories: _categories,
+                          categories: categories,
                           onSave: (record) {
                             if (record != null) {
                               NotificationCenter.post("loadHabits", "");
@@ -461,12 +174,8 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  // List<ActivityRecord> get _activeFloatingHabits {
-  //   // TODO: Re-implement with instances
-  //   return [];
-  // }
   Widget _buildAllHabitsView() {
-    final groupedHabits = groupedByCategory;
+    final groupedHabits = getGroupedByCategory();
     if (groupedHabits.isEmpty) {
       return Center(
         child: Column(
@@ -496,7 +205,7 @@ class _HabitsPageState extends State<HabitsPage> {
       final habits = groupedHabits[categoryName]!;
       CategoryRecord? category;
       try {
-        category = _categories.firstWhere((c) => c.name == categoryName);
+        category = categories.firstWhere((c) => c.name == categoryName);
       } catch (e) {
         final categoryData = createCategoryRecordData(
           name: categoryName,
@@ -513,7 +222,7 @@ class _HabitsPageState extends State<HabitsPage> {
           FirebaseFirestore.instance.collection('categories').doc(),
         );
       }
-      final expanded = _expandedCategories.contains(categoryName);
+      final expanded = expandedCategories.contains(categoryName);
       // Get or create GlobalKey for this category
       if (!_categoryKeys.containsKey(categoryName)) {
         _categoryKeys[categoryName] = GlobalKey();
@@ -535,13 +244,13 @@ class _HabitsPageState extends State<HabitsPage> {
                 key: Key('${instance.reference.id}_drag'),
                 child: ItemComponent(
                   key: Key(instance.reference.id),
-                  subtitle: _getDueDateSubtitle(instance),
-                  showCompleted: _showCompleted,
+                  subtitle: getDueDateSubtitle(instance),
+                  showCompleted: showCompleted,
                   instance: instance,
                   categoryColorHex: category!.color,
-                  onRefresh: _loadHabits,
-                  onInstanceUpdated: _updateInstanceInLocalState,
-                  onInstanceDeleted: _removeInstanceFromLocalState,
+                  onRefresh: loadHabits,
+                  onInstanceUpdated: updateInstanceInLocalState,
+                  onInstanceDeleted: removeInstanceFromLocalState,
                   isHabit: true,
                   showTypeIcon: false,
                   showRecurringIcon: false,
@@ -552,13 +261,13 @@ class _HabitsPageState extends State<HabitsPage> {
             itemExtent:
                 85.0, // Approximate item height for better scroll performance
             onReorder: (oldIndex, newIndex) =>
-                _handleReorder(oldIndex, newIndex, categoryName),
+                handleReorder(oldIndex, newIndex, categoryName),
           ),
         );
       }
     }
     return RefreshIndicator(
-      onRefresh: _loadHabits,
+      onRefresh: loadHabits,
       child: CustomScrollView(
         controller: _scrollController,
         cacheExtent:
@@ -650,7 +359,7 @@ class _HabitsPageState extends State<HabitsPage> {
                 size: 20,
                 color: FlutterFlowTheme.of(context).secondaryText,
               ),
-              onSelected: (value) => _handleCategoryMenuAction(value, category),
+              onSelected: (value) => handleCategoryMenuAction(value, category),
               itemBuilder: (context) => [
                 const PopupMenuItem<String>(
                   value: 'edit',
@@ -681,18 +390,16 @@ class _HabitsPageState extends State<HabitsPage> {
               if (mounted) {
                 setState(() {
                   if (expanded) {
-                    // Collapse this section
-                    _expandedCategories.remove(categoryName);
+                    expandedCategories.remove(categoryName);
                   } else {
-                    // Expand this section
-                    _expandedCategories.add(categoryName);
+                    expandedCategories.add(categoryName);
                   }
                 });
                 // Save state persistently
                 ExpansionStateManager()
-                    .setHabitsExpandedSections(_expandedCategories);
+                    .setHabitsExpandedSections(expandedCategories);
                 // Scroll to make the newly expanded section visible
-                if (_expandedCategories.contains(categoryName)) {
+                if (expandedCategories.contains(categoryName)) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (headerKey.currentContext != null) {
                       Scrollable.ensureVisible(
@@ -717,97 +424,29 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  void _handleCategoryMenuAction(String action, CategoryRecord category) {
+  void handleCategoryMenuAction(String action, CategoryRecord category) {
     switch (action) {
       case 'edit':
-        _showEditCategoryDialog(category);
+        showEditCategoryDialog(category);
         break;
       case 'delete':
-        _showDeleteCategoryConfirmation(category);
+        showDeleteCategoryConfirmation(category);
         break;
     }
   }
 
-  void _showEditCategoryDialog(CategoryRecord category) {
+  void showEditCategoryDialog(CategoryRecord category) {
     showDialog(
       context: context,
       builder: (context) => CreateCategory(category: category),
     ).then((value) {
       if (value != null && value != false) {
-        _loadHabits();
+        loadHabits();
       }
     });
   }
 
-  void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
-    // Update instance first
-    final index = _habitInstances.indexWhere(
-        (inst) => inst.reference.id == updatedInstance.reference.id);
-    if (index != -1) {
-      _habitInstances[index] = updatedInstance;
-    }
-    // Remove from list if completed and not showing completed
-    if (!_showCompleted && updatedInstance.status == 'completed') {
-      _habitInstances.removeWhere(
-          (inst) => inst.reference.id == updatedInstance.reference.id);
-    }
-
-    // Recalculate hash code when instances change
-    final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-    setState(() {
-      // Invalidate cache when instance is updated
-      _cachedGroupedByCategory = null;
-      _habitInstancesHashCode = newHash;
-    });
-    // Note: No need to reload from backend - optimistic update system handles synchronization
-  }
-
-  void _removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
-    // Remove instance first
-    _habitInstances.removeWhere(
-        (inst) => inst.reference.id == deletedInstance.reference.id);
-
-    // Recalculate hash code when instances change
-    final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-    setState(() {
-      // Invalidate cache when instance is removed
-      _cachedGroupedByCategory = null;
-      _habitInstancesHashCode = newHash;
-    });
-    // Note: No need to reload from backend - optimistic update system handles synchronization
-  }
-
-  Future<void> _loadHabitsSilently() async {
-    try {
-      final userId = currentUserUid;
-      if (userId.isNotEmpty) {
-        final instances = await queryCurrentHabitInstances(userId: userId);
-        if (mounted) {
-          // Calculate hash code when data changes
-          final newHash = instances.length.hashCode ^
-              instances.fold(
-                  0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-          setState(() {
-            _habitInstances = instances;
-            // Invalidate cache when instances change
-            _cachedGroupedByCategory = null;
-            _habitInstancesHashCode = newHash;
-          });
-        }
-      }
-    } catch (e) {
-      // Silently ignore errors in category cache invalidation - non-critical operation
-      print('Error invalidating category cache: $e');
-    }
-  }
-
-  void _showDeleteCategoryConfirmation(CategoryRecord category) {
+  void showDeleteCategoryConfirmation(CategoryRecord category) {
     showDialog(
       context: context,
       builder: (context) => AlertDialog(
@@ -826,7 +465,7 @@ class _HabitsPageState extends State<HabitsPage> {
               try {
                 await deleteCategory(category.reference.id,
                     userId: currentUserUid);
-                await _loadHabits();
+                await loadHabits();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(
@@ -858,260 +497,4 @@ class _HabitsPageState extends State<HabitsPage> {
     );
   }
 
-  // Event handlers for live updates (habit instances only)
-  void _handleInstanceCreated(ActivityInstanceRecord instance) {
-    // Add instance first
-    _habitInstances.add(instance);
-
-    // Recalculate hash code when instances change
-    final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-    setState(() {
-      // Invalidate cache when instance is added
-      _cachedGroupedByCategory = null;
-      _habitInstancesHashCode = newHash;
-    });
-  }
-
-  void _handleInstanceUpdated(dynamic param) {
-    // Handle both optimistic and reconciled updates
-    ActivityInstanceRecord instance;
-    bool isOptimistic = false;
-    String? operationId;
-
-    if (param is Map) {
-      instance = param['instance'] as ActivityInstanceRecord;
-      isOptimistic = param['isOptimistic'] as bool? ?? false;
-      operationId = param['operationId'] as String?;
-    } else if (param is ActivityInstanceRecord) {
-      // Backward compatibility: handle old format
-      instance = param;
-    } else {
-      return;
-    }
-
-    // Update global cache immediately to prevent stale reads
-    final cache = FirestoreCacheService();
-    cache.invalidateInstanceCache(instance.reference.id);
-    if (!isOptimistic) {
-      // If it's a confirmed update (reconciled or from backend), update the cache entry
-      // to ensure subsequent queries see the new data
-      cache.cacheInstance(instance);
-    } else {
-      // If it's optimistic, we should still invalidate the aggregate caches
-      // so queries are forced to re-evaluate or use the optimistic data if merged
-      cache.invalidateInstancesCache();
-    }
-
-    // Skip updates for instances currently being reordered to prevent stale data overwrites
-    if (_reorderingInstanceIds.contains(instance.reference.id)) {
-      return;
-    }
-
-    // Update instances first
-    final index = _habitInstances
-        .indexWhere((inst) => inst.reference.id == instance.reference.id);
-
-    if (index != -1) {
-      if (isOptimistic) {
-        // Store optimistic state with operation ID for later reconciliation
-        _habitInstances[index] = instance;
-        if (operationId != null) {
-          _optimisticOperations[operationId] = instance.reference.id;
-        }
-      } else {
-        // Ignore stale non-optimistic updates that are older than the currently held instance
-        final existing = _habitInstances[index];
-        final incomingLastUpdated = instance.lastUpdated;
-        final existingLastUpdated = existing.lastUpdated;
-        if (incomingLastUpdated != null &&
-            existingLastUpdated != null &&
-            incomingLastUpdated.isBefore(existingLastUpdated)) {
-          // This is a stale update - ignore it
-          return;
-        }
-
-        // Reconciled update - replace optimistic state
-        _habitInstances[index] = instance;
-        if (operationId != null) {
-          _optimisticOperations.remove(operationId);
-        }
-      }
-
-      // Remove from list if completed and not showing completed
-      if (!_showCompleted && instance.status == 'completed') {
-        _habitInstances
-            .removeWhere((inst) => inst.reference.id == instance.reference.id);
-      }
-    } else if (!isOptimistic) {
-      // New instance from backend (not optimistic) - add it
-      _habitInstances.add(instance);
-    }
-
-    // Recalculate hash code when instances change
-    final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-    setState(() {
-      // Invalidate cache when instance is updated
-      _cachedGroupedByCategory = null;
-      _habitInstancesHashCode = newHash;
-    });
-  }
-
-  void _handleRollback(dynamic param) {
-    if (param is Map) {
-      final operationId = param['operationId'] as String?;
-      final instanceId = param['instanceId'] as String?;
-      final originalInstance =
-          param['originalInstance'] as ActivityInstanceRecord?;
-
-      if (operationId != null &&
-          _optimisticOperations.containsKey(operationId)) {
-        _optimisticOperations.remove(operationId);
-        if (originalInstance != null) {
-          // Restore from original state
-          final index = _habitInstances
-              .indexWhere((inst) => inst.reference.id == instanceId);
-          if (index != -1) {
-            _habitInstances[index] = originalInstance;
-          }
-        } else if (instanceId != null) {
-          // Fallback to reloading from backend
-          _revertOptimisticUpdate(instanceId);
-          return; // _revertOptimisticUpdate will handle setState
-        }
-
-        // Recalculate hash code when instances change
-        final newHash = _habitInstances.length.hashCode ^
-            _habitInstances.fold(
-                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-        setState(() {
-          _cachedGroupedByCategory = null;
-          _habitInstancesHashCode = newHash;
-        });
-      }
-    }
-  }
-
-  Future<void> _revertOptimisticUpdate(String instanceId) async {
-    try {
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instanceId,
-      );
-      final index =
-          _habitInstances.indexWhere((inst) => inst.reference.id == instanceId);
-      if (index != -1) {
-        _habitInstances[index] = updatedInstance;
-
-        // Recalculate hash code when instances change
-        final newHash = _habitInstances.length.hashCode ^
-            _habitInstances.fold(
-                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-        setState(() {
-          _cachedGroupedByCategory = null;
-          _habitInstancesHashCode = newHash;
-        });
-      }
-    } catch (e) {
-      // Error reverting - non-critical, will be fixed on next data load
-    }
-  }
-
-  void _handleInstanceDeleted(ActivityInstanceRecord instance) {
-    // Remove instance first
-    _habitInstances
-        .removeWhere((inst) => inst.reference.id == instance.reference.id);
-
-    // Recalculate hash code when instances change
-    final newHash = _habitInstances.length.hashCode ^
-        _habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
-
-    setState(() {
-      // Invalidate cache when instance is deleted
-      _cachedGroupedByCategory = null;
-      _habitInstancesHashCode = newHash;
-    });
-  }
-
-  /// Handle reordering of items within a category
-  Future<void> _handleReorder(
-      int oldIndex, int newIndex, String categoryName) async {
-    final reorderingIds = <String>{};
-    try {
-      final groupedHabits = groupedByCategory;
-      final items = groupedHabits[categoryName]!;
-      // Allow dropping at the end (newIndex can equal items.length)
-      if (oldIndex < 0 ||
-          oldIndex >= items.length ||
-          newIndex < 0 ||
-          newIndex > items.length) return;
-      // Create a copy of the items list for reordering
-      final reorderedItems = List<ActivityInstanceRecord>.from(items);
-      // Adjust newIndex for the case where we're moving down
-      int adjustedNewIndex = newIndex;
-      if (oldIndex < newIndex) {
-        adjustedNewIndex -= 1;
-      }
-      // Get the item being moved
-      final movedItem = reorderedItems.removeAt(oldIndex);
-      reorderedItems.insert(adjustedNewIndex, movedItem);
-      // OPTIMISTIC UI UPDATE: Update local state immediately
-      // Update order values in the local _habitInstances list
-      for (int i = 0; i < reorderedItems.length; i++) {
-        final instance = reorderedItems[i];
-        final instanceId = instance.reference.id;
-        reorderingIds.add(instanceId);
-        // Create updated instance with new habits order
-        final updatedData = Map<String, dynamic>.from(instance.snapshotData);
-        updatedData['habitsOrder'] = i;
-        final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
-          updatedData,
-          instance.reference,
-        );
-        // Update in _habitInstances
-        final habitIndex = _habitInstances
-            .indexWhere((inst) => inst.reference.id == instanceId);
-        if (habitIndex != -1) {
-          _habitInstances[habitIndex] = updatedInstance;
-        }
-      }
-      // Add instance IDs to reordering set to prevent stale updates
-      _reorderingInstanceIds.addAll(reorderingIds);
-      // Invalidate cache to ensure UI uses updated order
-      _cachedGroupedByCategory = null;
-      // Trigger setState to update UI immediately (eliminates twitch)
-      if (mounted) {
-        setState(() {
-          // State is already updated above
-        });
-      }
-      // Perform database update in background
-      await InstanceOrderService.reorderInstancesInSection(
-        reorderedItems,
-        'habits',
-        oldIndex,
-        adjustedNewIndex,
-      );
-      // Clear reordering set after successful database update
-      _reorderingInstanceIds.removeAll(reorderingIds);
-    } catch (e) {
-      // Clear reordering set even on error
-      _reorderingInstanceIds.removeAll(reorderingIds);
-      // Revert to correct state by refreshing data
-      await _loadHabits();
-      // Show error to user
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error reordering items: $e')),
-        );
-      }
-    }
-  }
 }
