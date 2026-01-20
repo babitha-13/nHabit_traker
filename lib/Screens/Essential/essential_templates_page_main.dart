@@ -220,12 +220,12 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
     return RefreshIndicator(
       onRefresh: loadTemplates,
       child: CustomScrollView(
-        slivers: [
-          ...slivers,
-          const SliverToBoxAdapter(
-            child: SizedBox(height: 140),
-          ),
-        ],
+      slivers: [
+        ...slivers,
+        const SliverToBoxAdapter(
+          child: SizedBox(height: 140),
+        ),
+      ],
       ),
     );
   }

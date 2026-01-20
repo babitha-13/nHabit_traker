@@ -11,7 +11,7 @@ import 'package:habit_tracker/Screens/Home/home_bottom_navigation_bar.dart';
 import 'package:habit_tracker/Screens/Home/app_drawer.dart';
 import 'package:habit_tracker/Screens/Categories/manage_categories.dart';
 import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.dart';
-import 'package:habit_tracker/Screens/Routine/routines_page_main.dart';
+import 'package:habit_tracker/Screens/Routine/Routine%20Main%20page/routines_page_main.dart';
 import 'package:habit_tracker/Screens/Task/task_tab.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
 import 'package:habit_tracker/Screens/Calendar/calendar_page_main.dart';

@@ -10,7 +10,7 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Routine/create_routine_page.dart';
+import 'package:habit_tracker/Screens/Routine/Create%20Routine/create_routine_page.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
@@ -18,9 +18,9 @@ import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dar
 class RoutineDetailPage extends StatefulWidget {
   final RoutineRecord routine;
   const RoutineDetailPage({
-    Key? key,
+    super.key,
     required this.routine,
-  }) : super(key: key);
+  });
   @override
   State<RoutineDetailPage> createState() => _RoutineDetailPageState();
 }
@@ -63,8 +63,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         routineId: widget.routine.reference.id,
         userId: currentUserUid,
       );
-
-      // Load categories for color lookup
       final habitCategories = await queryHabitCategoriesOnce(
         userId: currentUserUid,
         callerTag: 'RoutineDetailPage._loadRoutine.habits',
@@ -74,28 +72,16 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         callerTag: 'RoutineDetailPage._loadRoutine.tasks',
       );
       final allCategories = [...habitCategories, ...taskCategories];
-
-      // Automatically create instances for items without them (habits and tasks only)
       RoutineWithInstances? updatedRoutineWithInstances = routineWithInstances;
       if (routineWithInstances != null) {
         final routine = routineWithInstances.routine;
-        final instances = Map<String, ActivityInstanceRecord>.from(
-            routineWithInstances.instances);
-
-        // Check each item in the routine
+        final instances = Map<String, ActivityInstanceRecord>.from(routineWithInstances.instances);
         for (int i = 0; i < routine.itemIds.length; i++) {
           final itemId = routine.itemIds[i];
-          final itemType =
-              routine.itemTypes.isNotEmpty && i < routine.itemTypes.length
-                  ? routine.itemTypes[i]
-                  : 'habit';
-
-          // Skip if instance already exists
+          final itemType = routine.itemTypes.isNotEmpty && i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
           if (instances.containsKey(itemId)) {
             continue;
           }
-
-          // Auto-create instances for habits, tasks, and Essential Activities
           if (itemType == 'habit' || itemType == 'task') {
             try {
               final newInstance =
@@ -106,30 +92,21 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               if (newInstance != null) {
                 instances[itemId] = newInstance;
               }
-            } catch (e) {
-              // Silently fail for individual instance creation - item will show as missing
-              // This prevents one failed instance from breaking the entire routine load
-            }
+            } catch (e) {}
           } else if (itemType == 'essential') {
-            // Create pending instance for Essential Activities so they can use ItemComponent
             try {
               final newInstance = await _createPendingessentialInstance(itemId);
               if (newInstance != null) {
                 instances[itemId] = newInstance;
               }
-            } catch (e) {
-              // Silently fail for individual instance creation
-            }
+            } catch (e) {}
           }
         }
-
-        // Create new RoutineWithInstances with updated instances map
         updatedRoutineWithInstances = RoutineWithInstances(
           routine: routine,
           instances: instances,
         );
       }
-
       if (mounted) {
         setState(() {
           _routineWithInstances = updatedRoutineWithInstances;
@@ -207,9 +184,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           existingRoutine: routineToEdit,
         ),
       ),
-    )
-        .then((result) {
-      // Keep UI in sync immediately when coming back from edit
+    ).then((result) {
       if (result is Map<String, dynamic> && result['itemIds'] != null) {
         final itemIds = List<String>.from(result['itemIds'] as List);
         final itemOrder = result['itemOrder'] != null
@@ -221,17 +196,12 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         final itemTypes = result['itemTypes'] != null
             ? List<String>.from(result['itemTypes'] as List)
             : null;
-
-        // Check if items were added or removed
-        final previousIds =
-            _routineWithInstances?.routine.itemIds ?? <String>[];
+        final previousIds = _routineWithInstances?.routine.itemIds ?? <String>[];
         final itemsChanged = itemIds.length != previousIds.length ||
             !itemIds.every((id) => previousIds.contains(id)) ||
             !previousIds.every((id) => itemIds.contains(id));
 
         _applyRoutineEdit(itemIds, itemOrder, itemNames, itemTypes);
-
-        // If items were added/removed, refresh instances in background
         if (itemsChanged) {
           _refreshRoutine();
         }
@@ -239,7 +209,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     });
   }
 
-  /// Apply routine edit result immediately to keep UI in sync
   void _applyRoutineEdit(
     List<String> itemIds,
     List<String> itemOrder,
@@ -248,8 +217,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   ) {
     if (_routineWithInstances == null) return;
     final currentRoutine = _routineWithInstances!.routine;
-
-    // Use provided names/types if available, otherwise fall back to existing
     final finalNames = itemNames ??
         itemOrder.map((id) {
           final index = currentRoutine.itemIds.indexOf(id);
@@ -278,7 +245,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       currentRoutine.reference,
     );
 
-    // Filter instances to only include items that still exist
     final filteredInstances = <String, ActivityInstanceRecord>{};
     for (final itemId in itemOrder) {
       if (_routineWithInstances!.instances.containsKey(itemId)) {
@@ -294,7 +260,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     });
   }
 
-  /// Legacy method for backward compatibility (reorder only)
   void _applyRoutineOrder(List<String> orderedIds) {
     _applyRoutineEdit(orderedIds, orderedIds, null, null);
   }
@@ -302,8 +267,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   Future<void> _onReorderItems(int oldIndex, int newIndex) async {
     if (_routineWithInstances == null) return;
     if (_isReordering) return;
-
-    // Adjust newIndex for the case where we're moving down
     int adjustedNewIndex = newIndex;
     if (oldIndex < newIndex) {
       adjustedNewIndex -= 1;
@@ -320,10 +283,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
 
     final moved = currentOrder.removeAt(oldIndex);
     currentOrder.insert(adjustedNewIndex, moved);
-
-    // Immediate UI sync (no refresh)
     _applyRoutineOrder(currentOrder);
-
     setState(() => _isReordering = true);
     try {
       await RoutineService.updateRoutine(
@@ -347,12 +307,9 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     }
   }
 
-  /// Create a pending instance for a essential item (for display with ItemComponent)
-  /// Reuses existing instance for today if available, otherwise creates new one
   Future<ActivityInstanceRecord?> _createPendingessentialInstance(
       String itemId) async {
     try {
-      // First, check if there's already an instance for today
       final today = DateService.todayStart;
       final existingInstancesQuery =
           ActivityInstanceRecord.collectionForUser(currentUserUid)
@@ -362,22 +319,15 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       final existingInstances = await existingInstancesQuery.get();
 
       if (existingInstances.docs.isNotEmpty) {
-        // Reuse existing instance for today
-        return ActivityInstanceRecord.fromSnapshot(
-            existingInstances.docs.first);
+        return ActivityInstanceRecord.fromSnapshot(existingInstances.docs.first);
       }
-
-      // Only create new instance if none exists for today
-      final templateDoc = await ActivityRecord.collectionForUser(currentUserUid)
-          .doc(itemId)
-          .get();
+      final templateDoc = await ActivityRecord.collectionForUser(currentUserUid).doc(itemId).get();
       if (!templateDoc.exists) {
         return null;
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
 
-      final newInstanceRef =
-          await ActivityInstanceService.createActivityInstance(
+      final newInstanceRef = await ActivityInstanceService.createActivityInstance(
         templateId: itemId,
         template: template,
         userId: currentUserUid,
@@ -390,17 +340,12 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       }
       return null;
     } catch (e) {
-      print('RoutineDetailPage: Error creating essential instance: $e');
       return null;
     }
   }
 
   Future<void> _resetRoutineItems() async {
-    // Check if there are any Essential Activities to reset
-    final hasRoutineItems = _routineWithInstances?.routine.itemTypes
-            .any((type) => type == 'essential') ??
-        false;
-
+    final hasRoutineItems = _routineWithInstances?.routine.itemTypes.any((type) => type == 'essential') ?? false;
     if (!hasRoutineItems) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -413,7 +358,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       return;
     }
 
-    // Show confirmation dialog
     final confirm = await showDialog<bool>(
       context: context,
       builder: (context) => AlertDialog(
@@ -434,11 +378,8 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         ],
       ),
     );
-
     if (confirm != true) return;
-
     try {
-      // Show loading
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -447,7 +388,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           ),
         );
       }
-
       final resetCount = await RoutineService.resetRoutineItems(
         routineId: widget.routine.reference.id,
         currentInstances: _routineWithInstances!.instances,
@@ -455,15 +395,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         itemIds: _routineWithInstances!.routine.itemIds,
         userId: currentUserUid,
       );
-
-      // Refresh the routine to show new instances
       await _refreshRoutine();
-
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text(
-                'Reset $resetCount essential item${resetCount != 1 ? 's' : ''}'),
+            content: Text('Reset $resetCount essential item${resetCount != 1 ? 's' : ''}'),
             backgroundColor: Colors.green,
           ),
         );
@@ -556,10 +492,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     );
   }
 
-  Widget _buildItemComponent(ActivityInstanceRecord? instance, String itemId,
-      String itemType, String itemName) {
-    // All items should have instances now (created in _loadRoutineWithInstances)
-    // If instance is null, show loading placeholder (shouldn't happen)
+  Widget _buildItemComponent(ActivityInstanceRecord? instance, String itemId, String itemType, String itemName) {
     if (instance == null) {
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
@@ -567,9 +500,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         child: const Center(child: CircularProgressIndicator()),
       );
     }
-
-    // Use ItemComponent for all items with instances (habits, tasks, and essential)
-    // Use actual category color if available, fallback to category lookup
     final categoryColor = instance.templateCategoryColor.isNotEmpty
         ? instance.templateCategoryColor
         : _getCategoryColor(instance);
@@ -646,14 +576,12 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                 )
               : CustomScrollView(
                   slivers: [
-                    // Routine Header
                     SliverToBoxAdapter(
                       child: _buildSectionHeader(
                         widget.routine.name,
                         _routineWithInstances!.routine.itemIds.length,
                       ),
                     ),
-                    // Routine Description
                     if (widget.routine.description.isNotEmpty)
                       SliverToBoxAdapter(
                         child: Container(
@@ -674,31 +602,20 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                           ),
                         ),
                       ),
-                    // Items in Order (reorderable)
                     SliverReorderableList(
-                      itemCount:
-                          _routineWithInstances!.routine.itemOrder.length,
+                      itemCount: _routineWithInstances!.routine.itemOrder.length,
                       onReorder: _onReorderItems,
                       itemBuilder: (context, index) {
-                        final itemId =
-                            _routineWithInstances!.routine.itemOrder[index];
-                        final instance =
-                            _routineWithInstances!.instances[itemId];
-                        final itemType = _routineWithInstances!
-                                    .routine.itemTypes.isNotEmpty &&
-                                index <
-                                    _routineWithInstances!
-                                        .routine.itemTypes.length
+                        final itemId = _routineWithInstances!.routine.itemOrder[index];
+                        final instance = _routineWithInstances!.instances[itemId];
+                        final itemType = _routineWithInstances!.routine.itemTypes.isNotEmpty &&
+                                index < _routineWithInstances!.routine.itemTypes.length
                             ? _routineWithInstances!.routine.itemTypes[index]
                             : 'habit';
-                        final itemName = _routineWithInstances!
-                                    .routine.itemNames.isNotEmpty &&
-                                index <
-                                    _routineWithInstances!
-                                        .routine.itemNames.length
+                        final itemName = _routineWithInstances!.routine.itemNames.isNotEmpty &&
+                                index < _routineWithInstances!.routine.itemNames.length
                             ? _routineWithInstances!.routine.itemNames[index]
                             : 'Unknown Item';
-
                         return ReorderableDelayedDragStartListener(
                           key: ValueKey('routine_item_$itemId'),
                           index: index,
@@ -712,7 +629,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                         );
                       },
                     ),
-                    // Missing Instances Info
                     if (_routineWithInstances!.missingInstances.isNotEmpty)
                       SliverToBoxAdapter(
                         child: Container(
@@ -728,7 +644,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                           ),
                           child: Row(
                             children: [
-                              Icon(
+                              const Icon(
                                 Icons.info_outline,
                                 color: Colors.orange,
                                 size: 20,
@@ -748,7 +664,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                           ),
                         ),
                       ),
-                    // Bottom spacing
                     const SliverToBoxAdapter(
                       child: SizedBox(height: 100),
                     ),
