@@ -1,10 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/Helpers/category_color_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Shared/polished_dialog.dart';
+import 'package:habit_tracker/Screens/Categories/Create Category/Logic/create_category_logic.dart';
 
 class CreateCategory extends StatefulWidget {
   final CategoryRecord? category;
@@ -14,13 +13,10 @@ class CreateCategory extends StatefulWidget {
   State<CreateCategory> createState() => _CreateCategoryState();
 }
 
-class _CreateCategoryState extends State<CreateCategory> {
+class _CreateCategoryState extends State<CreateCategory>
+    with CreateCategoryLogic {
   late TextEditingController nameController;
   late TextEditingController descriptionController;
-  int weight = 1;
-  String selectedColor = CategoryColorUtil.palette.first;
-  List<CategoryRecord> existingCategories = [];
-  bool _isValidating = false;
   @override
   void initState() {
     super.initState();
@@ -32,30 +28,14 @@ class _CreateCategoryState extends State<CreateCategory> {
     selectedColor = widget.category?.color.isNotEmpty == true
         ? widget.category!.color
         : CategoryColorUtil.palette.first;
-    _loadExistingCategories();
+    loadExistingCategories();
   }
 
-  Future<void> _loadExistingCategories() async {
-    try {
-      final fetchedCategories = await queryCategoriesRecordOnce(
-        userId: currentUserUid,
-        callerTag: 'CreateCategory._loadExistingCategories',
-      );
-      if (mounted) {
-        setState(() {
-          existingCategories = fetchedCategories;
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading categories: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+  @override
+  void dispose() {
+    nameController.dispose();
+    descriptionController.dispose();
+    super.dispose();
   }
 
   @override
@@ -73,7 +53,7 @@ class _CreateCategoryState extends State<CreateCategory> {
           ? 'Edit ${categoryTypeLabel}Category'
           : 'Create New ${categoryTypeLabel}Category',
       content: AbsorbPointer(
-        absorbing: _isValidating,
+        absorbing: isValidating,
         child: Stack(
           children: [
             SingleChildScrollView(
@@ -194,7 +174,7 @@ class _CreateCategoryState extends State<CreateCategory> {
                 ],
               ),
             ),
-            if (_isValidating)
+            if (isValidating)
               Positioned.fill(
                 child: Container(
                   color: Colors.black.withOpacity(0.2),
@@ -225,7 +205,7 @@ class _CreateCategoryState extends State<CreateCategory> {
       actions: [
         OutlinedButton(
           onPressed:
-              _isValidating ? null : () => Navigator.of(context).pop(false),
+              isValidating ? null : () => Navigator.of(context).pop(false),
           style: OutlinedButton.styleFrom(
             padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
             side: BorderSide(color: theme.surfaceBorderColor),
@@ -239,131 +219,18 @@ class _CreateCategoryState extends State<CreateCategory> {
           ),
         ),
         ElevatedButton(
-          onPressed: _isValidating
+          onPressed: isValidating
               ? null
               : () async {
-                  if (nameController.text.isEmpty) return;
-                  if (!mounted) return;
-                  setState(() {
-                    _isValidating = true;
-                  });
-                  try {
-                    // Get fresh categories from database
-                    final freshCategories = await queryCategoriesRecordOnce(
-                      userId: currentUserUid,
-                      callerTag: 'CreateCategory.validateName',
-                    );
-                    // Check for duplicate names, but exclude the current category when editing
-                    final newName = nameController.text.trim().toLowerCase();
-                    final nameExists = freshCategories.any((cat) {
-                      // Skip the current category when editing
-                      if (isEdit &&
-                          cat.reference.id == widget.category!.reference.id) {
-                        return false;
-                      }
-                      final existingName = cat.name.trim().toLowerCase();
-                      return existingName == newName;
-                    });
-                    if (nameExists) {
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content:
-                                Text('Category with this name already exists!'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                      if (mounted) {
-                        setState(() {
-                          _isValidating = false;
-                        });
-                      }
-                      return;
-                    }
-                    if (isEdit) {
-                      // Check if name changed for cascade update
-                      final oldName = widget.category!.name;
-                      final newName = nameController.text.trim();
-                      final nameChanged = oldName != newName;
-                      final oldColor = widget.category!.color;
-                      final colorChanged = oldColor != selectedColor;
-                      await updateCategory(
-                        categoryId: widget.category!.reference.id,
-                        name: nameController.text,
-                        description: descriptionController.text.isNotEmpty
-                            ? descriptionController.text
-                            : null,
-                        weight: 1.0,
-                        color: selectedColor,
-                        categoryType:
-                            widget.categoryType, // Only update if provided
-                      );
-                      // If metadata changed, cascade the update to all templates and instances
-                      if (nameChanged || colorChanged) {
-                        try {
-                          await updateCategoryCascade(
-                            categoryId: widget.category!.reference.id,
-                            userId: currentUserUid,
-                            newCategoryName: nameChanged ? newName : null,
-                            newCategoryColor:
-                                colorChanged ? selectedColor : null,
-                          );
-                        } catch (e) {
-                          // Show warning but don't fail the operation
-                          if (mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                content: Text(
-                                    'Warning: Some items may not reflect the updated category immediately'),
-                                backgroundColor: Colors.orange,
-                              ),
-                            );
-                          }
-                        }
-                      }
-                      Navigator.of(context).pop(true);
-                    } else {
-                      // ✅ Create new
-                      final newCategoryRef = await createCategory(
-                        name: nameController.text,
-                        description: descriptionController.text.isNotEmpty
-                            ? descriptionController.text
-                            : null,
-                        weight: 1.0,
-                        color: selectedColor,
-                        categoryType: widget.categoryType ??
-                            'habit', // Default to habit if not specified
-                      );
-                      Navigator.of(context).pop(newCategoryRef.id);
-                    }
-                  } catch (e) {
-                    if (mounted) {
-                      // Check if it's a duplicate name error from backend
-                      final errorMessage = e.toString();
-                      if (errorMessage.contains('already exists')) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          const SnackBar(
-                            content:
-                                Text('Category with this name already exists!'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      } else {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Error: $e'),
-                            backgroundColor: Colors.red,
-                          ),
-                        );
-                      }
-                    }
-                  } finally {
-                    if (mounted) {
-                      setState(() {
-                        _isValidating = false;
-                      });
-                    }
+                  final result = await saveCategory(
+                    nameController: nameController,
+                    descriptionController: descriptionController,
+                    category: widget.category,
+                    categoryType: widget.categoryType,
+                    isEdit: isEdit,
+                  );
+                  if (mounted && result != null) {
+                    Navigator.of(context).pop(result);
                   }
                 },
           style: ElevatedButton.styleFrom(

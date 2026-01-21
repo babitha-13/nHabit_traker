@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Screens/Settings/faq_page.dart';
-import 'package:habit_tracker/Screens/Categories/manage_categories.dart';
+import 'package:habit_tracker/Screens/Categories/Manage%20Category/manage_categories.dart';
 import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
 import 'package:habit_tracker/Screens/Settings/settings_page.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';

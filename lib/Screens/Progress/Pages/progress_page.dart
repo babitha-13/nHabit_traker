@@ -26,7 +26,7 @@ import 'package:habit_tracker/main.dart';
 import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.dart';
 import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
 import 'package:habit_tracker/Screens/Habits/habits_page.dart';
-import 'package:habit_tracker/Screens/Categories/manage_categories.dart';
+import 'package:habit_tracker/Screens/Categories/Manage%20Category/manage_categories.dart';
 
 class ProgressPage extends StatefulWidget {
   const ProgressPage({Key? key}) : super(key: key);

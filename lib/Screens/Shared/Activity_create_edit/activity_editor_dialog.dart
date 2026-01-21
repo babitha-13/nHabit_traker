@@ -17,7 +17,7 @@ import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_confi
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_type_dropdown_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
-import 'package:habit_tracker/Screens/Categories/create_category.dart';
+import 'package:habit_tracker/Screens/Categories/Create%20Category/create_category.dart';
 import 'package:habit_tracker/Screens/Essential/essential_data_service.dart';
 import 'package:intl/intl.dart';
 
