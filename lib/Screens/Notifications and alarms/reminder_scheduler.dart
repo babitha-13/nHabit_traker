@@ -45,7 +45,7 @@ class ReminderScheduler {
             canSchedule = true;
           } else if (template.isRecurring) {
             // For recurring, allow past times if we use matchDateTimeComponents
-            // Logic below handles this better, but for default reminder:
+            // Routine Main page below handles this better, but for default reminder:
             canSchedule = true;
           }
         }

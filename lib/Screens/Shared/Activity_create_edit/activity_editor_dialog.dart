@@ -817,7 +817,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
         ? _frequencyConfig!.endDate
         : _endDate;
 
-    // Check for frequency changes (Logic from edit_task.dart)
+    // Check for frequency changes (Routine Main page from edit_task.dart)
     if (quickIsTaskRecurring &&
         _frequencyConfig != null &&
         _hasFrequencyChanged()) {
