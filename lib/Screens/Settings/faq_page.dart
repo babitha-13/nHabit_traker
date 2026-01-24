@@ -33,10 +33,10 @@ class FaqPage extends StatelessWidget {
                 builder: (context, constraints) {
                   final isWide = constraints.maxWidth >= 680;
                   final children = <Widget>[
-                    _CompareCard(
+                    const _CompareCard(
                       title: 'Tasks',
                       icon: Icons.checklist,
-                      bullets: const [
+                      bullets: [
                         'Things that need to be done (responsibilities).',
                         'Can be one-off (Fix the AC) or recurring (Pay rent every month).',
                         'Have a due date. If missed, they become overdue and stay until completed, skipped, or deleted.',
@@ -44,10 +44,10 @@ class FaqPage extends StatelessWidget {
                         'Historical progress isn’t tracked (focus is on getting them done).',
                       ],
                     ),
-                    _CompareCard(
+                    const _CompareCard(
                       title: 'Habits',
                       icon: Icons.repeat,
-                      bullets: const [
+                      bullets: [
                         'Things you want to build or aspire to do.',
                         'Always recurring (Daily/weekly patterns).',
                         'Have a completion window (e.g., “jog once within 7 days”).',
@@ -87,7 +87,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'Tracking types (Binary / Quantity / Time)',
             children: [
               _Bullet(
@@ -102,7 +102,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'Scoring (the basics)',
             children: [
               _Bullet(
@@ -114,7 +114,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'Two scoring systems: Goal mode vs Effort mode',
             children: [
               _Bullet(
@@ -123,7 +123,7 @@ class FaqPage extends StatelessWidget {
               _Bullet(
                 'Effort mode (Effort Mode ON): binary + time-based activities also reward time spent (in 30-minute blocks). Quantity remains quantity-only.',
               ),
-              const SizedBox(height: 8),
+              SizedBox(height: 8),
               _Callout(
                 title:
                     'When Effort Mode is ON (examples for a 1-star activity)',
@@ -140,7 +140,7 @@ class FaqPage extends StatelessWidget {
                     'Quantity:\n'
                     '- Time doesn’t matter; points depend on quantity vs target.',
               ),
-              const SizedBox(height: 12),
+              SizedBox(height: 12),
               _Callout(
                 title:
                     'When Effort Mode is OFF (examples for a 1-star activity)',
@@ -160,7 +160,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'Partial completion',
             children: [
               _Bullet(
@@ -174,7 +174,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'Over-completion',
             children: [
               _Bullet(
@@ -191,7 +191,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'What does “Priority” mean?',
             children: [
               _Bullet(
@@ -200,7 +200,7 @@ class FaqPage extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 16),
-          _Section(
+          const _Section(
             title: 'What else is worth explaining?',
             children: [
               _Bullet(

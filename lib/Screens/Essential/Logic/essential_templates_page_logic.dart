@@ -9,7 +9,7 @@ import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_edito
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
-import 'package:habit_tracker/Screens/Categories/create_category.dart';
+import 'package:habit_tracker/Screens/Categories/Create%20Category/create_category.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/task_instance_service.dart';
 import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 

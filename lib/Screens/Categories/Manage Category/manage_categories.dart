@@ -1,10 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/polished_dialog.dart';
-import 'package:habit_tracker/Screens/Categories/create_category.dart';
+import 'package:habit_tracker/Screens/Categories/Manage Category/Logic/manage_categories_logic.dart';
 
 class ManageCategories extends StatefulWidget {
   const ManageCategories({super.key});
@@ -12,114 +9,14 @@ class ManageCategories extends StatefulWidget {
   _ManageCategoriesState createState() => _ManageCategoriesState();
 }
 
-class _ManageCategoriesState extends State<ManageCategories> {
+class _ManageCategoriesState extends State<ManageCategories>
+    with ManageCategoriesLogic {
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  List<CategoryRecord> _categories = [];
-  bool _isLoading = true;
+
   @override
   void initState() {
     super.initState();
-    _loadCategories();
-  }
-
-  Future<void> _loadCategories({bool showLoading = true}) async {
-    if (showLoading && mounted) {
-      setState(() {
-        _isLoading = true;
-      });
-    }
-    try {
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) {
-        if (mounted) {
-          setState(() {
-            if (showLoading) {
-              _isLoading = false;
-            }
-          });
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('User not authenticated'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-      // Load only user-created categories (exclude system categories like Inbox)
-      final categories = await queryUserCategoriesOnce(userId: userId);
-      if (mounted) {
-        setState(() {
-          _categories = categories;
-          if (showLoading) {
-            _isLoading = false;
-          }
-        });
-      }
-    } catch (e) {
-      print('Error loading categories: $e');
-      if (mounted) {
-        setState(() {
-          if (showLoading) {
-            _isLoading = false;
-          }
-        });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error loading categories: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _deleteCategory(CategoryRecord category) async {
-    try {
-      // Safety check: prevent deletion of system categories
-      if (category.isSystemCategory) {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('System categories cannot be deleted'),
-              backgroundColor: Colors.red,
-            ),
-          );
-        }
-        return;
-      }
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      await deleteCategory(category.reference.id, userId: userId);
-      await _loadCategories(); // Reload the list
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Category "${category.name}" deleted successfully!'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error deleting category: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _showEditCategoryDialog(CategoryRecord category) async {
-    final didUpdate = await showDialog<bool>(
-      context: context,
-      builder: (context) => CreateCategory(category: category),
-    );
-    if (didUpdate == true) {
-      await _loadCategories(showLoading: false);
-    }
+    loadCategories();
   }
 
   @override
@@ -139,13 +36,13 @@ class _ManageCategoriesState extends State<ManageCategories> {
       ),
       body: SafeArea(
         top: true,
-        child: _isLoading
+        child: isLoading
             ? const Center(child: CircularProgressIndicator())
             : Column(
                 children: [
                   // Categories list
                   Expanded(
-                    child: _categories.isEmpty
+                    child: categories.isEmpty
                         ? Center(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
@@ -170,13 +67,44 @@ class _ManageCategoriesState extends State<ManageCategories> {
                                 ),
                                 const SizedBox(height: 16),
                                 ElevatedButton(
-                                  onPressed: _showAddCategoryDialog,
+                                  onPressed: showAddCategoryDialog,
                                   child: const Text('Add Category'),
                                 ),
                               ],
                             ),
                           )
-                        : _buildCategorizedList(),
+                        : categories.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.category,
+                                      size: 64,
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No categories yet',
+                                      style:
+                                          FlutterFlowTheme.of(context).titleMedium,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Create categories to organize your habits and tasks!',
+                                      style:
+                                          FlutterFlowTheme.of(context).bodyMedium,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(
+                                      onPressed: showAddCategoryDialog,
+                                      child: const Text('Add Category'),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : _buildCategorizedList(),
                   ),
                 ],
               ),
@@ -187,11 +115,11 @@ class _ManageCategoriesState extends State<ManageCategories> {
   Widget _buildCategorizedList() {
     // Separate categories by type
     final habitCategories =
-        _categories.where((cat) => cat.categoryType == 'habit').toList();
+        categories.where((cat) => cat.categoryType == 'habit').toList();
     final taskCategories =
-        _categories.where((cat) => cat.categoryType == 'task').toList();
+        categories.where((cat) => cat.categoryType == 'task').toList();
     final essentialCategories =
-        _categories.where((cat) => cat.categoryType == 'essential').toList();
+        categories.where((cat) => cat.categoryType == 'essential').toList();
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -302,7 +230,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
           width: 40,
           height: 40,
           decoration: BoxDecoration(
-            color: _parseColor(category.color),
+            color: parseColor(category.color),
             shape: BoxShape.circle,
           ),
           child: Icon(
@@ -363,12 +291,12 @@ class _ManageCategoriesState extends State<ManageCategories> {
           children: [
             IconButton(
               icon: const Icon(Icons.edit),
-              onPressed: () => _showEditCategoryDialog(category),
+              onPressed: () => showEditCategoryDialog(category),
               color: FlutterFlowTheme.of(context).secondaryText,
             ),
             IconButton(
               icon: const Icon(Icons.delete),
-              onPressed: () => _showDeleteConfirmation(category),
+              onPressed: () => showDeleteConfirmation(category),
               color: Colors.red,
             ),
           ],
@@ -416,67 +344,4 @@ class _ManageCategoriesState extends State<ManageCategories> {
     );
   }
 
-  Color _parseColor(String colorString) {
-    try {
-      return Color(int.parse(colorString.replaceAll('#', '0xFF')));
-    } catch (e) {
-      return Colors.blue;
-    }
-  }
-
-  void _showDeleteConfirmation(CategoryRecord category) {
-    showPolishedAlertDialog(
-      context: context,
-      title: 'Delete Category',
-      content:
-          'Are you sure you want to delete "${category.name}"? This action cannot be undone.',
-      cancelText: 'Cancel',
-      confirmText: 'Delete',
-      isDestructive: true,
-      onConfirm: () {
-        Navigator.of(context).pop();
-        _deleteCategory(category);
-      },
-    );
-  }
-
-  Future<void> _showAddCategoryDialog() async {
-    // Show dialog to select category type
-    final categoryType = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Select Category Type'),
-        content: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            ListTile(
-              leading: const Icon(Icons.repeat, color: Colors.green),
-              title: const Text('Habit Category'),
-              onTap: () => Navigator.of(context).pop('habit'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.task_alt, color: Colors.blue),
-              title: const Text('Task Category'),
-              onTap: () => Navigator.of(context).pop('task'),
-            ),
-            ListTile(
-              leading: const Icon(Icons.monitor_heart, color: Colors.grey),
-              title: const Text('Essential Category'),
-              onTap: () => Navigator.of(context).pop('essential'),
-            ),
-          ],
-        ),
-      ),
-    );
-
-    if (categoryType != null) {
-      final didCreate = await showDialog<bool>(
-        context: context,
-        builder: (context) => CreateCategory(categoryType: categoryType),
-      );
-      if (didCreate == true) {
-        await _loadCategories(showLoading: false);
-      }
-    }
-  }
 }
