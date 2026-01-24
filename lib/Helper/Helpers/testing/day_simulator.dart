@@ -35,7 +35,7 @@ class DaySimulator {
     if (!_isSimulationMode) {
       throw Exception('Not in simulation mode. Call startSimulation() first.');
     }
-    final currentUser = currentUserUid;
+    final currentUser = await waitForCurrentUserUid();
     if (currentUser.isEmpty) {
       throw Exception('No authenticated user');
     }

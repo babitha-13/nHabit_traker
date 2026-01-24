@@ -292,8 +292,10 @@ class NotificationService {
       if (homeContext == null) return;
 
       try {
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
         final routineDoc = await RoutineRecord.collectionForUser(
-          currentUserUid,
+          userId,
         ).doc(routineId).get();
 
         if (routineDoc.exists) {

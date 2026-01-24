@@ -185,7 +185,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
 
   Future<void> _loadDefaultTimeEstimate() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
       final minutes =
           await TimeLoggingPreferencesService.getDefaultDurationMinutes(userId);
@@ -205,7 +205,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     setState(() => _isLoadingCategories = true);
 
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         if (mounted) {
           setState(() => _isLoadingCategories = false);
@@ -475,6 +475,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   }
 
   Future<void> _createNewActivity(CategoryRecord selectedCategory) async {
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) return;
     dynamic targetValue;
     switch (_selectedTrackingType) {
       case 'binary':
@@ -495,7 +497,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
       trackingType: _selectedTrackingType ?? 'binary',
       target: targetValue,
       isRecurring: quickIsTaskRecurring,
-      userId: currentUserUid,
+      userId: userId,
       priority: _priority,
       unit: _unit,
       description: _descriptionController.text.trim().isNotEmpty
@@ -550,6 +552,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   }
 
   Future<void> _createNewEssential(CategoryRecord selectedCategory) async {
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) return;
     final freqPayload = _frequencyPayloadForEssential();
     final templateRef = await essentialService.createessentialTemplate(
       name: _titleController.text.trim(),
@@ -561,7 +565,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
       trackingType: 'binary', // Essentials are always binary
       target: null,
       unit: null,
-      userId: currentUserUid,
+      userId: userId,
       timeEstimateMinutes: _timeEstimateMinutes != null
           ? _timeEstimateMinutes!.clamp(1, 600)
           : null,
@@ -606,6 +610,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   }
 
   Future<void> _updateExistingEssential(CategoryRecord selectedCategory) async {
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) return;
     final docRef = widget.activity!.reference;
     final freqPayload = _frequencyPayloadForEssential();
 
@@ -620,7 +626,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
       trackingType: 'binary', // Essentials are always binary
       target: null,
       unit: null,
-      userId: currentUserUid,
+      userId: userId,
       timeEstimateMinutes: _timeEstimateMinutes != null
           ? _timeEstimateMinutes!.clamp(1, 600)
           : null,

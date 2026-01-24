@@ -407,7 +407,7 @@ class RoutineReminderScheduler {
   static Future<void> cancelForRoutine(String routineId) async {
     try {
       // Cancel repeating notifications (daily/weekly patterns use stable IDs)
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       // Try to load routine to determine which IDs to cancel
@@ -483,7 +483,7 @@ class RoutineReminderScheduler {
   /// Schedule reminders for all active routines
   static Future<void> scheduleAllActiveRoutineReminders() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       final routinesQuery = RoutineRecord.collectionForUser(userId)

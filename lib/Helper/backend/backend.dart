@@ -352,10 +352,11 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
   required String userId,
   String callerTag = 'queryCategoriesRecordOnce',
 }) async {
+  // Validate userId before attempting query
+  if (userId.isEmpty) {
+    return [];
+  }
   try {
-    // Simplified logging
-    print('🔍 queryCategoriesRecordOnce called from tag "$callerTag"');
-
     // Use simple query without orderBy to avoid Firestore composite index requirements
     final query = CategoryRecord.collectionForUser(userId)
         .where('isActive', isEqualTo: true);
@@ -503,8 +504,6 @@ Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
   required String userId,
   bool useCache = true,
 }) async {
-  print(
-      '🟡 queryAllTaskInstances: START - userId=$userId, useCache=$useCache');
   try {
     final cache = FirestoreCacheService();
     // Check cache first

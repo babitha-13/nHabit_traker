@@ -61,7 +61,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     if (mounted) {
       Navigator.of(context).pop();
     }
-    
+
     // Run all background operations after dialog is dismissed
     // This allows user to continue using the app while these complete
     _runBackgroundOperations();
@@ -73,13 +73,13 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     try {
       // Ensure all instances exist (background operation)
       await _logic.ensureInstancesExistInBackground();
-      
+
       // Save state and recalculate progress (background operation)
       await _logic.saveStateOnDispose();
-      
+
       // Prepare for close (triggers refresh notifications)
       await _logic.prepareForClose();
-      
+
       // Show pending toasts after all background operations complete
       MorningCatchUpService.showPendingToasts();
     } catch (e) {
@@ -160,8 +160,10 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     if (shouldSkip != true) {
       // User canceled - still ensure record exists
       try {
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
         await MorningCatchUpService.createDailyProgressRecordForDate(
-          userId: currentUserUid,
+          userId: userId,
           targetDate: DateService.yesterdayStart,
         );
       } catch (e) {

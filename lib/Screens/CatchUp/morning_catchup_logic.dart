@@ -36,7 +36,9 @@ class MorningCatchUpDialogLogic {
   /// Ensure instances exist for pending items
   Future<void> ensureInstancesExist() async {
     try {
-      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      await MorningCatchUpService.ensurePendingInstancesExist(userId);
       // Reload items after ensuring instances exist
       await loadItems();
     } catch (e) {
@@ -48,7 +50,9 @@ class MorningCatchUpDialogLogic {
   /// Doesn't reload items since dialog is already closed
   Future<void> ensureInstancesExistInBackground() async {
     try {
-      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      await MorningCatchUpService.ensurePendingInstancesExist(userId);
     } catch (e) {
       print('Error ensuring instances exist in background: $e');
       // Silent error - don't block user
@@ -58,10 +62,12 @@ class MorningCatchUpDialogLogic {
   /// Ensure daily progress record is created
   Future<void> ensureRecordCreated() async {
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final yesterday = DateService.yesterdayStart;
       // Check if record exists, create if not
       await MorningCatchUpService.createDailyProgressRecordForDate(
-        userId: currentUserUid,
+        userId: userId,
         targetDate: yesterday,
       );
     } catch (e) {
@@ -78,7 +84,8 @@ class MorningCatchUpDialogLogic {
   /// Load incomplete items from yesterday
   Future<void> loadItems() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       items =
           await MorningCatchUpService.getIncompleteItemsFromYesterday(userId);
       isLoading = false;
@@ -227,10 +234,12 @@ class MorningCatchUpDialogLogic {
       // RECALCULATE daily progress record in background after user completes/skips items
       // This ensures cumulative score includes the user's updates
       // Run in background without blocking UI - fire and forget with error handling
-      Future.delayed(const Duration(milliseconds: 300)).then((_) {
+      Future.delayed(const Duration(milliseconds: 300)).then((_) async {
         // Background recalculation - don't await, let it run asynchronously
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
         MorningCatchUpService.recalculateDailyProgressRecordForDate(
-          userId: currentUserUid,
+          userId: userId,
           targetDate: yesterday,
         ).catchError((error) {
           // Silent error handling - recalculation failure shouldn't affect UI
@@ -268,21 +277,23 @@ class MorningCatchUpDialogLogic {
   /// This runs in background after dialog closes
   Future<void> saveStateOnDispose() async {
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       // Ensure all active habits have pending instances (background operation)
-      await MorningCatchUpService.ensurePendingInstancesExist(currentUserUid);
-      
+      await MorningCatchUpService.ensurePendingInstancesExist(userId);
+
       // Reload items to reflect any new instances that were generated
       await loadItems();
-      
+
       // Broadcast progress recalculated to refresh other parts of UI
       InstanceEvents.broadcastProgressRecalculated();
-      
+
       // If items were processed, recalculate the record to ensure cumulative score is updated
       if (processedItemIds.isNotEmpty) {
         // Recalculate with suppressToasts: true to store updated toast data
         // The updated data will overwrite the initial pending toast data
         await MorningCatchUpService.recalculateDailyProgressRecordForDate(
-          userId: currentUserUid,
+          userId: userId,
           targetDate: DateService.yesterdayStart,
           suppressToasts: true, // Store updated toast data, don't show yet
         );
@@ -290,7 +301,7 @@ class MorningCatchUpDialogLogic {
         // If dialog is closed without action, ensure record exists
         // Use suppressToasts: true to maintain consistency
         await MorningCatchUpService.createDailyProgressRecordForDate(
-          userId: currentUserUid,
+          userId: userId,
           targetDate: DateService.yesterdayStart,
           suppressToasts: true,
         );
@@ -305,8 +316,10 @@ class MorningCatchUpDialogLogic {
   /// Uses suppressToasts: true to store updated toast data
   Future<void> recalculateProgressRecord() async {
     if (processedItemIds.isNotEmpty) {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       MorningCatchUpService.recalculateDailyProgressRecordForDate(
-        userId: currentUserUid,
+        userId: userId,
         targetDate: DateService.yesterdayStart,
         suppressToasts: true, // Store updated toast data, don't show yet
       ).catchError((error) {
@@ -347,10 +360,12 @@ class MorningCatchUpDialogLogic {
           'Skipping ${remainingHabits.length} habit${remainingHabits.length == 1 ? '' : 's'}...';
       onProgressUpdate?.call();
 
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return SkipAllResult(success: false, skippedCount: 0);
       await ActivityInstanceService.batchSkipInstances(
         instances: remainingHabits,
         skippedAt: yesterdayEnd,
-        userId: currentUserUid,
+        userId: userId,
       );
 
       // Mark all as processed

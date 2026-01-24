@@ -1,30 +1,7 @@
-import 'dart:convert';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart';
-import 'package:habit_tracker/debug_log_stub.dart'
-    if (dart.library.io) 'package:habit_tracker/debug_log_io.dart'
-    if (dart.library.html) 'package:habit_tracker/debug_log_web.dart';
-
-// #region agent log
-void _logQueueDataDebug(String location, Map<String, dynamic> data) {
-  try {
-    final logEntry = {
-      'id': 'log_${DateTime.now().millisecondsSinceEpoch}_queue_data',
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'location': 'queue_page_refresh.dart:$location',
-      'message': data['event'] ?? 'debug',
-      'data': data,
-      'sessionId': 'debug-session',
-      'runId': 'run2',
-    };
-    writeDebugLog(jsonEncode(logEntry));
-  } catch (_) {
-    // Silently fail
-  }
-}
-// #endregion
 
 /// Service class for loading queue data
 class QueueDataService {
@@ -41,13 +18,6 @@ class QueueDataService {
     }
 
     try {
-      // #region agent log
-      _logQueueDataDebug('loadQueueData', {
-        'hypothesisId': 'O',
-        'event': 'load_start',
-        'userIdLength': userId.length,
-      });
-      // #endregion
       // Batch Firestore queries in parallel for faster loading
       final results = await Future.wait([
         queryAllInstances(userId: userId),
@@ -84,28 +54,12 @@ class QueueDataService {
         selectedTaskCategoryNames: allTaskNames,
       );
 
-      // #region agent log
-      _logQueueDataDebug('loadQueueData', {
-        'hypothesisId': 'O',
-        'event': 'load_complete',
-        'instancesCount': deduplicatedInstances.length,
-        'categoriesCount': allCategories.length,
-      });
-      // #endregion
-
       return QueueDataResult(
         instances: deduplicatedInstances,
         categories: allCategories,
         filterState: defaultFilter,
       );
     } catch (e) {
-      // #region agent log
-      _logQueueDataDebug('loadQueueData', {
-        'hypothesisId': 'O',
-        'event': 'load_error',
-        'errorType': e.runtimeType.toString(),
-      });
-      // #endregion
       rethrow;
     }
   }

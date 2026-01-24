@@ -12,6 +12,8 @@ import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 
 // Manual time log modal for logging time manually, used by both Timer and Calendar pages
 
@@ -201,7 +203,7 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
 
   Future<void> _loadDefaultDuration() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         final enableDefaultEstimates =
             await TimeLoggingPreferencesService.getEnableDefaultEstimates(
@@ -236,7 +238,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
   }
 
   Future<void> _loadCategories() async {
-    final uid = currentUserUid;
+    final uid = await waitForCurrentUserUid();
+    if (uid.isEmpty) return;
     final categories = await queryCategoriesRecordOnce(
       userId: uid,
       callerTag: 'ManualTimeLogModal',
@@ -279,7 +282,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
   }
 
   Future<void> _loadActivities() async {
-    final uid = currentUserUid;
+    final uid = await waitForCurrentUserUid();
+    if (uid.isEmpty) return;
     // Include essential items to ensure Essential Activities are fetched
     final activities = await queryActivitiesRecordOnce(
       userId: uid,
@@ -637,6 +641,8 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     setState(() => _isLoading = true);
 
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final templateId = _selectedTemplate?.reference.id;
 
       // Check if we're editing an existing entry
@@ -660,10 +666,11 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
             hasTypeChanged ||
             templateId != null ||
             _selectedCategory != null) {
-          // Update instance metadata
-          final instanceRef =
-              ActivityInstanceRecord.collectionForUser(currentUserUid)
-                  .doc(widget.editMetadata!.instanceId);
+          // Get current instance for optimistic update
+          final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
+              .doc(widget.editMetadata!.instanceId);
+          final currentInstance =
+              await ActivityInstanceRecord.getDocumentOnce(instanceRef);
 
           final updateData = <String, dynamic>{
             'lastUpdated': DateTime.now(),
@@ -693,10 +700,34 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
             }
           }
 
-          // Also update the template if it exists
+          // ==================== OPTIMISTIC BROADCAST ====================
+          // 1. Create optimistic instance with metadata updates
+          final optimisticInstance =
+              InstanceEvents.createOptimisticPropertyUpdateInstance(
+            currentInstance,
+            updateData,
+          );
+
+          // 2. Generate operation ID
+          final operationId = OptimisticOperationTracker.generateOperationId();
+
+          // 3. Track operation
+          OptimisticOperationTracker.trackOperation(
+            operationId,
+            instanceId: currentInstance.reference.id,
+            operationType: 'progress',
+            optimisticInstance: optimisticInstance,
+            originalInstance: currentInstance,
+          );
+
+          // 4. Broadcast optimistically (IMMEDIATE)
+          InstanceEvents.broadcastInstanceUpdatedOptimistic(
+              optimisticInstance, operationId);
+
+          // 5. Also update the template if it exists
           if (templateId != null) {
-            final templateRef = ActivityRecord.collectionForUser(currentUserUid)
-                .doc(templateId);
+            final templateRef =
+                ActivityRecord.collectionForUser(userId).doc(templateId);
             final templateUpdateData = <String, dynamic>{
               'lastUpdated': DateTime.now(),
             };
@@ -719,8 +750,20 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
             }
           }
 
-          // Update the instance
-          await instanceRef.update(updateData);
+          // 6. Perform backend update
+          try {
+            await instanceRef.update(updateData);
+
+            // 7. Reconcile with actual data
+            final updatedInstance =
+                await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+            OptimisticOperationTracker.reconcileOperation(
+                operationId, updatedInstance);
+          } catch (e) {
+            // 8. Rollback on error
+            OptimisticOperationTracker.rollbackOperation(operationId);
+            rethrow;
+          }
         }
       } else {
         // Create new entry
@@ -780,9 +823,11 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
     setState(() => _isLoading = true);
 
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       // Fetch the instance to check its status and tracking type
       final instance = await ActivityInstanceRecord.getDocumentOnce(
-        ActivityInstanceRecord.collectionForUser(currentUserUid)
+        ActivityInstanceRecord.collectionForUser(userId)
             .doc(widget.editMetadata!.instanceId),
       );
 

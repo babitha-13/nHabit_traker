@@ -54,7 +54,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     if (!mounted) return;
 
     // Check if auth is ready - if not, wait for listener
-    final uid = currentUserUid;
+    final uid = await waitForCurrentUserUid();
     if (uid.isEmpty) {
       // If auth isn't ready, we can't load yet. Listener will retry.
       return;
@@ -118,7 +118,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   Future<void> _ensureInboxCategory(List<CategoryRecord> categories) async {
     if (_hasEnsuredInbox) return;
-    final userId = currentUserUid;
+    final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) return;
     final inboxExists = categories.any(
       (c) => c.name.toLowerCase() == 'inbox' && c.isSystemCategory,

@@ -550,10 +550,12 @@ class _GlobalFloatingTimerState extends State<GlobalFloatingTimer>
           // Delete the template if it exists
           try {
             if (instance.hasTemplateId()) {
-              final templateRef =
-                  ActivityRecord.collectionForUser(currentUserUid)
-                      .doc(instance.templateId);
-              await templateRef.delete();
+              final userId = await waitForCurrentUserUid();
+              if (userId.isNotEmpty) {
+                final templateRef = ActivityRecord.collectionForUser(userId)
+                    .doc(instance.templateId);
+                await templateRef.delete();
+              }
             }
             // Delete the instance
             await instance.reference.delete();

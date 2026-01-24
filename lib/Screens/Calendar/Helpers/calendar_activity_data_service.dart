@@ -78,7 +78,7 @@ class CalendarQueueService {
     String? userId,
     DateTime? date,
   }) async {
-    final uid = userId ?? currentUserUid;
+    final uid = userId ?? await waitForCurrentUserUid();
     if (uid.isEmpty) return [];
 
     final targetDate = _startOfDay(date);
@@ -193,7 +193,7 @@ class CalendarQueueService {
     String? userId,
     DateTime? date,
   }) async {
-    final uid = userId ?? currentUserUid;
+    final uid = userId ?? await waitForCurrentUserUid();
     if (uid.isEmpty) return [];
 
     final targetDate = _startOfDay(date);

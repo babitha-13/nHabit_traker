@@ -34,10 +34,6 @@ import 'package:habit_tracker/Screens/Progress/backend/progress_page_data_servic
 import 'package:habit_tracker/Screens/Progress/backend/activity_template_service.dart';
 import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
 import 'dart:async';
-// import 'dart:convert';
-// import 'package:habit_tracker/debug_log_stub.dart'
-//     if (dart.library.io) 'package:habit_tracker/debug_log_io.dart'
-//     if (dart.library.html) 'package:habit_tracker/debug_log_web.dart';
 
 // #region agent log
 void _logQueueCrashDebug(String location, Map<String, dynamic> data) {
@@ -274,6 +270,7 @@ class _QueuePageState extends State<QueuePage> {
   void _checkDayTransition() {
     final today = DateService.todayStart;
     if (_lastKnownDate != null && !_isSameDay(_lastKnownDate!, today)) {
+      if (currentUserUid.isEmpty) return;
       // Day has changed - reload all data
       _lastKnownDate = today;
       // Invalidate daily progress cache since historical data may have changed
@@ -361,7 +358,7 @@ class _QueuePageState extends State<QueuePage> {
       setState(() => _isLoading = true);
     }
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         final result = await QueueDataService.loadQueueData(userId: userId);
         if (!mounted) return;
@@ -499,6 +496,9 @@ class _QueuePageState extends State<QueuePage> {
   }
 
   Future<void> _calculateProgress({bool optimistic = false}) async {
+    if (currentUserUid.isEmpty) {
+      return;
+    }
     // Increment version to track calculation order
     final calculationVersion = ++_progressCalculationVersion;
 
@@ -542,6 +542,11 @@ class _QueuePageState extends State<QueuePage> {
       _isCalculatingProgress = true;
 
       try {
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) {
+          _isCalculatingProgress = false;
+          return;
+        }
         // #region agent log
         _logQueueCrashDebug('_calculateProgress', {
           'hypothesisId': 'Q',
@@ -556,7 +561,7 @@ class _QueuePageState extends State<QueuePage> {
         // Fetch full data to ensure completed items are included even if filtered from UI
         final breakdownData =
             await ProgressPageDataService.fetchInstancesForBreakdown(
-                userId: currentUserUid);
+                userId: userId);
         final allHabits =
             breakdownData['habits'] as List<ActivityInstanceRecord>;
         final allTasks = breakdownData['tasks'] as List<ActivityInstanceRecord>;
@@ -566,7 +571,7 @@ class _QueuePageState extends State<QueuePage> {
 
         final progressData =
             await TodayCompletionPointsService.calculateTodayCompletionPoints(
-          userId: currentUserUid,
+          userId: userId,
           instances: allInstances,
           categories: allCategories,
           optimistic: false,
@@ -641,7 +646,7 @@ class _QueuePageState extends State<QueuePage> {
         'categoryCount': _categories.length,
       });
       // #endregion
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       List<ActivityInstanceRecord> habitInstances;
@@ -724,8 +729,10 @@ class _QueuePageState extends State<QueuePage> {
     }
 
     // Fetch template only for this one instance (1 read)
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) return 0.0;
     final template = await ActivityTemplateService.getTemplateById(
-      userId: currentUserUid,
+      userId: userId,
       templateId: instance.templateId,
     );
     if (template != null) {
@@ -742,7 +749,9 @@ class _QueuePageState extends State<QueuePage> {
     if (instance.templateCategoryType == 'essential') {
       return 0.0;
     }
-    return await PointsService.calculatePointsEarned(instance, currentUserUid);
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) return 0.0;
+    return await PointsService.calculatePointsEarned(instance, userId);
   }
 
   /// Calculate progress incrementally by applying delta from instance change
@@ -821,7 +830,7 @@ class _QueuePageState extends State<QueuePage> {
       });
       // #endregion
       _isLoadingHistory = true;
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         _isLoadingHistory = false;
         // Clear loading state on initial load even if user is empty
@@ -1605,7 +1614,7 @@ class _QueuePageState extends State<QueuePage> {
 
   Future<void> _silentRefreshInstances() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
       final result =
           await QueueDataService.silentRefreshInstances(userId: userId);

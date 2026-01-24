@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_activity_data_service.dart';
@@ -22,8 +23,15 @@ class CalendarEventService {
     required DateTime selectedDate,
     required Map<String, ActivityInstanceRecord> optimisticInstances,
   }) async {
-    // Check cache first
     final cache = FirestoreCacheService();
+    
+    // If we have optimistic instances, invalidate cache to ensure fresh merge
+    // This prevents stale cached data from being returned without optimistic instances
+    if (optimisticInstances.isNotEmpty) {
+      cache.invalidateCalendarDateCache(selectedDate);
+    }
+    
+    // Check cache (will be empty if we just invalidated)
     final cached = cache.getCachedCalendarEvents(selectedDate);
     if (cached != null) {
       return cached;
@@ -67,9 +75,17 @@ class CalendarEventService {
           date: selectedDate,
         ),
         queryRoutineRecordOnce(userId: userId),
-      ]);
+      ]).timeout(
+        const Duration(seconds: 30),
+        onTimeout: () {
+          throw TimeoutException(
+            'CalendarEventService.loadEvents timed out after 30 seconds',
+            const Duration(seconds: 30),
+          );
+        },
+      );
     } catch (e) {
-      // Log any errors from Future.wait (e.g., index errors from routine query)
+      // Log any errors from Future.wait (e.g., index errors from routine query, timeouts)
       logFirestoreIndexError(
         e,
         'CalendarEventService.loadEvents (Future.wait - multiple queries)',
@@ -105,6 +121,12 @@ class CalendarEventService {
     }
     for (final item in essentialInstances) {
       allItemsMap[item.reference.id] = item;
+    }
+
+    // Merge optimistic instances (overwriting backend data) to ensure immediate UI updates
+    // This handles cases like deleting a time log session where backend might be slightly stale
+    for (final optimisticInstance in optimisticInstances.values) {
+      allItemsMap[optimisticInstance.reference.id] = optimisticInstance;
     }
 
     final completedEvents = <CalendarEventData>[];

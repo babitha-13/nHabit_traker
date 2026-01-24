@@ -4,18 +4,13 @@ import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'dart:async';
-import 'dart:convert';
 import 'package:intl/intl.dart';
-import '../../../debug_log_stub.dart'
-    if (dart.library.io) '../../../debug_log_io.dart'
-    if (dart.library.html) '../../../debug_log_web.dart';
 
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
@@ -39,27 +34,6 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
       {}; // Track instances being reordered to prevent stale updates
   final Map<String, String> optimisticOperations =
       {}; // operationId -> instanceId
-
-  void logReassemble(String stage) {
-    try {
-      writeDebugLog(jsonEncode({
-        'id': 'log_${DateTime.now().millisecondsSinceEpoch}_habits',
-        'timestamp': DateTime.now().millisecondsSinceEpoch,
-        'location': 'habits_page.dart:reassemble',
-        'message': 'reassemble_$stage',
-        'data': {
-          'hypothesisId': 'J',
-          'event': 'reassemble_$stage',
-          'instanceHash': hashCode,
-          'observerCount': NotificationCenter.observerCount(),
-        },
-        'sessionId': 'debug-session',
-        'runId': 'run1',
-      }));
-    } catch (e) {
-      // Silently fail
-    }
-  }
 
   Future<void> loadExpansionState() async {
     final expandedSections =
@@ -116,7 +90,8 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
     for (final key in grouped.keys) {
       final items = grouped[key]!;
       if (items.isNotEmpty) {
-        grouped[key] = InstanceOrderService.sortInstancesByOrder(items, 'habits');
+        grouped[key] =
+            InstanceOrderService.sortInstancesByOrder(items, 'habits');
       }
     }
     cachedGroupedByCategory = grouped;
@@ -166,7 +141,7 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
       setState(() => isLoading = true);
     }
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         final results = await Future.wait([
           queryLatestHabitInstances(userId: userId),
@@ -201,7 +176,9 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
             return inst;
           }).toList();
 
-          final newHash = mergedInstances.length.hashCode ^ mergedInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+          final newHash = mergedInstances.length.hashCode ^
+              mergedInstances.fold(
+                  0, (sum, inst) => sum ^ inst.reference.id.hashCode);
 
           setState(() {
             habitInstances = mergedInstances;
@@ -245,9 +222,11 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
       habitInstances[index] = updatedInstance;
     }
     if (!showCompleted && updatedInstance.status == 'completed') {
-      habitInstances.removeWhere((inst) => inst.reference.id == updatedInstance.reference.id);
+      habitInstances.removeWhere(
+          (inst) => inst.reference.id == updatedInstance.reference.id);
     }
-    final newHash = habitInstances.length.hashCode ^ habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    final newHash = habitInstances.length.hashCode ^
+        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
 
     setState(() {
       cachedGroupedByCategory = null;
@@ -256,8 +235,10 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
   }
 
   void removeInstanceFromLocalState(ActivityInstanceRecord deletedInstance) {
-    habitInstances.removeWhere((inst) => inst.reference.id == deletedInstance.reference.id);
-    final newHash = habitInstances.length.hashCode ^ habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    habitInstances.removeWhere(
+        (inst) => inst.reference.id == deletedInstance.reference.id);
+    final newHash = habitInstances.length.hashCode ^
+        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
     setState(() {
       cachedGroupedByCategory = null;
       habitInstancesHashCode = newHash;
@@ -266,7 +247,7 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
 
   Future<void> loadHabitsSilently() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         final instances = await queryCurrentHabitInstances(userId: userId);
         if (mounted) {
@@ -352,8 +333,7 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
     }
 
     final newHash = habitInstances.length.hashCode ^
-        habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
 
     setState(() {
       cachedGroupedByCategory = null;
@@ -372,7 +352,8 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
           optimisticOperations.containsKey(operationId)) {
         optimisticOperations.remove(operationId);
         if (originalInstance != null) {
-          final index = habitInstances.indexWhere((inst) => inst.reference.id == instanceId);
+          final index = habitInstances
+              .indexWhere((inst) => inst.reference.id == instanceId);
           if (index != -1) {
             habitInstances[index] = originalInstance;
           }
@@ -416,10 +397,10 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
   }
 
   void handleInstanceDeleted(ActivityInstanceRecord instance) {
-    habitInstances.removeWhere((inst) => inst.reference.id == instance.reference.id);
+    habitInstances
+        .removeWhere((inst) => inst.reference.id == instance.reference.id);
     final newHash = habitInstances.length.hashCode ^
-        habitInstances.fold(
-            0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
 
     setState(() {
       cachedGroupedByCategory = null;
@@ -463,8 +444,7 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
       reorderingInstanceIds.addAll(reorderingIds);
       cachedGroupedByCategory = null;
       if (mounted) {
-        setState(() {
-        });
+        setState(() {});
       }
       await InstanceOrderService.reorderInstancesInSection(
         reorderedItems,

@@ -31,7 +31,7 @@ class _HabitStatisticsTabState extends State<HabitStatisticsTab> {
     });
 
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         if (mounted) {
           setState(() {

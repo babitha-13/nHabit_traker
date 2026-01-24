@@ -408,7 +408,7 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       _isLoading = true;
     });
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         _showError('No authenticated user');
         return;
@@ -429,7 +429,7 @@ class _DaySimulatorUIState extends State<DaySimulatorUI> {
       _isLoading = true;
     });
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         _showError('No authenticated user');
         return;

@@ -73,7 +73,38 @@ class _ManageCategoriesState extends State<ManageCategories>
                               ],
                             ),
                           )
-                        : _buildCategorizedList(),
+                        : categories.isEmpty
+                            ? Center(
+                                child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(
+                                      Icons.category,
+                                      size: 64,
+                                      color: FlutterFlowTheme.of(context)
+                                          .secondaryText,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    Text(
+                                      'No categories yet',
+                                      style:
+                                          FlutterFlowTheme.of(context).titleMedium,
+                                    ),
+                                    const SizedBox(height: 8),
+                                    Text(
+                                      'Create categories to organize your habits and tasks!',
+                                      style:
+                                          FlutterFlowTheme.of(context).bodyMedium,
+                                    ),
+                                    const SizedBox(height: 16),
+                                    ElevatedButton(
+                                      onPressed: showAddCategoryDialog,
+                                      child: const Text('Add Category'),
+                                    ),
+                                  ],
+                                ),
+                              )
+                            : _buildCategorizedList(),
                   ),
                 ],
               ),

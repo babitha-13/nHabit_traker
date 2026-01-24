@@ -54,6 +54,8 @@ class _CreateEssentialItemDialogState extends State<CreateEssentialItemDialog> {
       _isCreating = true;
     });
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final templateRef = await essentialService.createessentialTemplate(
         name: _nameController.text.trim(),
         description: _descriptionController.text.trim().isEmpty
@@ -64,7 +66,7 @@ class _CreateEssentialItemDialogState extends State<CreateEssentialItemDialog> {
         unit: _unitController.text.trim().isEmpty
             ? null
             : _unitController.text.trim(),
-        userId: currentUserUid,
+        userId: userId,
       );
       // Get the created activity record
       final activityDoc = await templateRef.get();

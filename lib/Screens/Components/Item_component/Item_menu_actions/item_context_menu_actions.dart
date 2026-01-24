@@ -6,7 +6,6 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class ItemManagementHelper {
@@ -18,7 +17,9 @@ class ItemManagementHelper {
   }) async {
     try {
       setUpdating(true);
-      final templateRef = ActivityRecord.collectionForUser(currentUserUid)
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      final templateRef = ActivityRecord.collectionForUser(userId)
           .doc(instance.templateId);
       final template = await ActivityRecord.getDocumentOnce(templateRef);
       final newTemplateName = 'Copy of ${template.name}';
@@ -110,7 +111,8 @@ class ItemManagementHelper {
       ],
     );
     if (selected == null) return;
-    final uid = FirebaseAuth.instance.currentUser!.uid;
+    final uid = await waitForCurrentUserUid();
+    if (uid.isEmpty) return;
     final templateRef =
         ActivityRecord.collectionForUser(uid).doc(instance.templateId);
 

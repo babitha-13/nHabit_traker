@@ -30,6 +30,8 @@ class CalendarModals {
           initialEndTime: endTime,
           onPreviewChange: onPreviewChange,
           onSave: onSave,
+          // Manual calendar logs should not auto-complete by default
+          markCompleteOnSave: false,
         );
       },
     ).whenComplete(() {
@@ -48,8 +50,12 @@ class CalendarModals {
     required VoidCallback onRemovePreview,
   }) async {
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) {
+        return;
+      }
       final instance = await ActivityInstanceRecord.getDocumentOnce(
-        ActivityInstanceRecord.collectionForUser(currentUserUid)
+        ActivityInstanceRecord.collectionForUser(userId)
             .doc(metadata.instanceId),
       );
 
@@ -84,6 +90,8 @@ class CalendarModals {
             onPreviewChange: onPreviewChange,
             onSave: onSave,
             editMetadata: metadata,
+            // Editing an entry should not auto-complete implicitly
+            markCompleteOnSave: false,
           );
         },
       ).whenComplete(() {

@@ -229,7 +229,7 @@ class _TaskPageState extends State<TaskPage> {
       setState(() => _isLoading = true);
     }
     try {
-      final uid = currentUserUid;
+      final uid = await waitForCurrentUserUid();
       if (uid.isEmpty) {
         if (mounted) {
           setState(() => _isLoading = false);
@@ -649,7 +649,7 @@ class _TaskPageState extends State<TaskPage> {
 
   Future<void> _loadDataSilently() async {
     try {
-      final uid = currentUserUid;
+      final uid = await waitForCurrentUserUid();
       if (uid.isEmpty) return;
       final instances = await queryAllTaskInstances(userId: uid);
       final categories = await queryTaskCategoriesOnce(

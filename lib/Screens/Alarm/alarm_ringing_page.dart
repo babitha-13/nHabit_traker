@@ -66,7 +66,7 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
       }
 
       // Get instance
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         setState(() => _isLoadingInstance = false);
         return;

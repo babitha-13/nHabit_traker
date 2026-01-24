@@ -141,7 +141,7 @@ class DailyNotificationScheduler {
   /// Initialize daily notifications for current user
   static Future<void> initializeDailyNotifications() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         return;
       }
