@@ -18,7 +18,7 @@ class ReminderScheduler {
     }
     try {
       // Get the template to access reminder configurations
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
       final templateRef =
           ActivityRecord.collectionForUser(userId).doc(instance.templateId);
@@ -394,7 +394,7 @@ class ReminderScheduler {
       // Cancel default notification
       await NotificationService.cancelNotification(instanceId);
 
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         return;
       }
@@ -474,7 +474,7 @@ class ReminderScheduler {
   /// Schedule reminders for all pending instances
   static Future<void> scheduleAllPendingReminders() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         return;
       }
@@ -544,7 +544,7 @@ class ReminderScheduler {
   /// Check for expired snoozes and reschedule reminders
   static Future<void> checkExpiredSnoozes() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
       final instances = await queryAllInstances(userId: userId);
       final now = DateTime.now();
@@ -572,7 +572,7 @@ class ReminderScheduler {
     required int durationMinutes,
   }) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       // Parse reminderId to find instance

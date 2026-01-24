@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
@@ -53,6 +54,7 @@ class _CalendarPageState extends State<CalendarPage> {
   final Map<String, String> _optimisticOperations = {};
   final Map<String, ActivityInstanceRecord> _optimisticInstances = {};
   bool _isLoadingEvents = false;
+  Timer? _loadingStateSafetyTimer;
 
   CalendarEventTileBuilder get _eventTileBuilder {
     return CalendarEventTileBuilder(
@@ -109,7 +111,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   Future<void> _loadDefaultDuration() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         final duration =
             await TimeLoggingPreferencesService.getDefaultDurationMinutes(
@@ -290,7 +292,25 @@ class _CalendarPageState extends State<CalendarPage> {
       _selectedDate.month,
       _selectedDate.day,
     );
+    bool affectsSelectedDate = false;
     bool affectsPlannedSection = false;
+    
+    // Check if instance has time log sessions on selected date
+    if (instance.timeLogSessions.isNotEmpty) {
+      for (final session in instance.timeLogSessions) {
+        final sessionStart = session['startTime'] as DateTime;
+        final sessionDate = DateTime(
+          sessionStart.year,
+          sessionStart.month,
+          sessionStart.day,
+        );
+        if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
+          affectsSelectedDate = true;
+          break;
+        }
+      }
+    }
+    
     if (instance.dueDate != null &&
         instance.dueTime != null &&
         instance.dueTime!.isNotEmpty) {
@@ -301,6 +321,7 @@ class _CalendarPageState extends State<CalendarPage> {
       );
       if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
         affectsPlannedSection = true;
+        affectsSelectedDate = true;
       }
     }
     if (instance.belongsToDate != null &&
@@ -314,6 +335,7 @@ class _CalendarPageState extends State<CalendarPage> {
       );
       if (belongsToDateOnly.isAtSameMomentAs(selectedDateOnly)) {
         affectsPlannedSection = true;
+        affectsSelectedDate = true;
       }
     }
 
@@ -321,16 +343,22 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations[operationId] = instance.reference.id;
       }
-      if (affectsPlannedSection) {
+      // Add to optimistic instances if it affects planned section OR has time log sessions on selected date
+      if (affectsPlannedSection || affectsSelectedDate) {
         _optimisticInstances[instance.reference.id] = instance;
+      }
+      if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
+      }
+      if (affectsSelectedDate) {
+        _loadEvents();
       }
     } else {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
       _optimisticInstances.remove(instance.reference.id);
-      if (affectsPlannedSection) {
+      if (affectsPlannedSection || affectsSelectedDate) {
         _loadEvents();
       }
     }
@@ -400,11 +428,37 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations[operationId] = instance.reference.id;
       }
+      // Add to optimistic instances if it affects planned section OR has time log sessions on selected date
+      if (affectsPlannedSection || affectsSelectedDate) {
+        // Check if instance still has sessions on this date after update (for delete operations)
+        bool hasSessionsOnDate = false;
+        if (affectsSelectedDate && instance.timeLogSessions.isNotEmpty) {
+          for (final session in instance.timeLogSessions) {
+            final sessionStart = session['startTime'] as DateTime;
+            final sessionDate = DateTime(
+              sessionStart.year,
+              sessionStart.month,
+              sessionStart.day,
+            );
+            if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
+              hasSessionsOnDate = true;
+              break;
+            }
+          }
+        }
+        
+        // If affects selected date but has no sessions on this date, remove from optimistic instances
+        // This handles delete operations where the session was removed
+        if (affectsSelectedDate && !hasSessionsOnDate) {
+          _optimisticInstances.remove(instance.reference.id);
+        } else {
+          _optimisticInstances[instance.reference.id] = instance;
+        }
+      }
       if (affectsPlannedSection) {
-        _optimisticInstances[instance.reference.id] = instance;
+        _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
-        _applyOptimisticPlannedPatch(instance);
         _loadEvents();
       }
     } else {
@@ -788,21 +842,46 @@ class _CalendarPageState extends State<CalendarPage> {
     if (_isLoadingEvents) {
       return;
     }
+    
+    // Check userId BEFORE setting loading state to avoid showing loader if not authenticated
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) {
+      // Don't set loading state if user is not authenticated
+      return;
+    }
+    
+    // Set loading state only after confirming user is authenticated
     if (mounted) {
       setState(() {
         _isLoadingEvents = true;
       });
+      
+      // Start safety timer to reset loading state if stuck for too long (60 seconds)
+      _loadingStateSafetyTimer?.cancel();
+      _loadingStateSafetyTimer = Timer(const Duration(seconds: 60), () {
+        if (mounted && _isLoadingEvents) {
+          print('⚠️ Calendar loading state stuck for 60+ seconds, resetting...');
+          setState(() {
+            _isLoadingEvents = false;
+          });
+        }
+      });
     }
+    
     try {
-      final userId = currentUserUid;
-      // GUARD: Don't query Firestore if user is not authenticated yet
-      if (userId.isEmpty) {
-        return;
-      }
+      // Add timeout wrapper to prevent indefinite hanging
       final result = await CalendarEventService.loadEvents(
         userId: userId,
         selectedDate: _selectedDate,
         optimisticInstances: _optimisticInstances,
+      ).timeout(
+        const Duration(seconds: 35), // Slightly longer than the 30s timeout in CalendarEventService
+        onTimeout: () {
+          throw TimeoutException(
+            'Calendar page _loadEvents timed out after 35 seconds',
+            const Duration(seconds: 35),
+          );
+        },
       );
 
       _sortedCompletedEvents = result.completedEvents;
@@ -819,7 +898,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
       if (mounted) setState(() {});
     } catch (e, stackTrace) {
-      // Log errors, especially index errors
+      // Log errors, especially index errors and timeouts
       print('❌ Calendar page error loading events:');
       print('   Error: $e');
       print('   Stack trace: $stackTrace');
@@ -842,10 +921,24 @@ class _CalendarPageState extends State<CalendarPage> {
         setState(() {});
       }
     } finally {
-      if (mounted) {
-        setState(() {
+      // Cancel safety timer since loading is completing
+      _loadingStateSafetyTimer?.cancel();
+      _loadingStateSafetyTimer = null;
+      
+      // Always reset loading state, even if widget unmounts during the operation
+      // Use a try-catch to ensure we don't throw if widget is unmounted
+      try {
+        if (mounted) {
+          setState(() {
+            _isLoadingEvents = false;
+          });
+        } else {
+          // Widget unmounted, but we still need to reset the flag
           _isLoadingEvents = false;
-        });
+        }
+      } catch (_) {
+        // Fallback: directly set the flag if setState fails
+        _isLoadingEvents = false;
       }
     }
   }
@@ -1010,6 +1103,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   @override
   void dispose() {
+    _loadingStateSafetyTimer?.cancel();
     NotificationCenter.removeObserver(this);
     _completedEventController.dispose();
     _plannedEventController.dispose();
@@ -1075,12 +1169,14 @@ class _CalendarPageState extends State<CalendarPage> {
             _selectedDate = _selectedDate.add(Duration(days: days));
             _dayViewKey = GlobalKey<DayViewState>();
           });
+          _loadEvents();
         },
         onResetDate: () {
           setState(() {
             _selectedDate = DateTime.now();
             _dayViewKey = GlobalKey<DayViewState>();
           });
+          _loadEvents();
         },
         onSaveTabState: _saveTabState,
         onTogglePlanned: (value) {

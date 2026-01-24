@@ -1437,6 +1437,25 @@ class TaskInstanceService {
     try {
       final normalizedDate = DateService.normalizeToStartOfDay(date);
 
+      Future<List<ActivityInstanceRecord>> loadBySessionsForDate() async {
+        final result = await ActivityInstanceRecord.collectionForUser(uid)
+            .where('totalTimeLogged', isGreaterThan: 0)
+            .get();
+        final instances = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) => instance.isActive)
+            .toList();
+        return instances.where((instance) {
+          final sessions = instance.timeLogSessions;
+          return sessions.any((session) {
+            final sessionStart = session['startTime'] as DateTime;
+            final normalizedSessionStart =
+                DateService.normalizeToStartOfDay(sessionStart);
+            return normalizedSessionStart.isAtSameMomentAs(normalizedDate);
+          });
+        }).toList();
+      }
+
       // Try to query by belongsToDate first (much faster than loading all)
       try {
         final dateQuery = ActivityInstanceRecord.collectionForUser(uid)
@@ -1450,7 +1469,7 @@ class TaskInstanceService {
             .toList();
 
         // Verify sessions are actually on this date
-        return dateInstances.where((instance) {
+        final filtered = dateInstances.where((instance) {
           final sessions = instance.timeLogSessions;
           return sessions.any((session) {
             final sessionStart = session['startTime'] as DateTime;
@@ -1459,6 +1478,25 @@ class TaskInstanceService {
             return normalizedSessionStart.isAtSameMomentAs(normalizedDate);
           });
         }).toList();
+
+        // If no instances matched by belongsToDate, fall back to session scan.
+        if (filtered.isEmpty) {
+          return loadBySessionsForDate();
+        }
+
+        // Merge with session scan to include older records missing belongsToDate.
+        final sessionMatches = await loadBySessionsForDate();
+        if (sessionMatches.isEmpty) {
+          return filtered;
+        }
+        final mergedById = <String, ActivityInstanceRecord>{};
+        for (final instance in sessionMatches) {
+          mergedById[instance.reference.id] = instance;
+        }
+        for (final instance in filtered) {
+          mergedById[instance.reference.id] = instance;
+        }
+        return mergedById.values.toList();
       } catch (e) {
         // Log index error if present
         logFirestoreIndexError(
@@ -1466,12 +1504,8 @@ class TaskInstanceService {
           'Get time logged tasks by belongsToDate (totalTimeLogged + belongsToDate)',
           'activity_instances',
         );
-        // Fallback to original method if belongsToDate query fails
-        return getTimeLoggedTasks(
-          userId: uid,
-          startDate: normalizedDate,
-          endDate: normalizedDate.add(const Duration(days: 1)),
-        );
+        // Fallback to session scan if belongsToDate query fails
+        return loadBySessionsForDate();
       }
     } catch (e, stackTrace) {
       logFirestoreQueryError(
@@ -1665,6 +1699,14 @@ class TaskInstanceService {
             'lastUpdated': DateTime.now(),
           };
 
+          if (markComplete) {
+            updateData['status'] = 'completed';
+            updateData['completedAt'] = endTime;
+            if (existingInstance.templateTrackingType == 'binary') {
+              updateData['currentValue'] = 1;
+            }
+          }
+
           // Fix: Ensure templateCategoryType is correct for Essential Activities
           if (activityType == 'essential') {
             updateData['templateCategoryType'] = 'essential';
@@ -1737,6 +1779,10 @@ class TaskInstanceService {
                   template: template,
                   userId: uid);
 
+          // Get the created instance (will be optimistic from createActivityInstance)
+          final createdInstance =
+              await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+
           // Now update it with the session
           // Recurse or just update? Update is safer
           final sessions = [newSession];
@@ -1744,6 +1790,55 @@ class TaskInstanceService {
           // For quantitative/binary, the instance was just created with default currentValue (0 or null)
           final newCurrentValue =
               template.trackingType == 'time' ? totalTime : null;
+
+          // ==================== OPTIMISTIC BROADCAST ====================
+          // 1. Create optimistic instance with time log session
+          final optimisticInstance =
+              InstanceEvents.createOptimisticProgressInstance(
+            createdInstance,
+            accumulatedTime: totalTime,
+            currentValue: newCurrentValue ?? createdInstance.currentValue,
+            timeLogSessions: sessions,
+            totalTimeLogged: totalTime,
+          );
+
+          // Update status if marking complete
+          ActivityInstanceRecord finalOptimisticInstance;
+          if (markComplete) {
+            final optimisticData = Map<String, dynamic>.from(
+                optimisticInstance.snapshotData);
+            optimisticData['status'] = 'completed';
+            optimisticData['completedAt'] = endTime;
+            if (template.trackingType == 'binary') {
+              optimisticData['currentValue'] = 1;
+            }
+            optimisticData['_optimistic'] = true;
+            finalOptimisticInstance =
+                ActivityInstanceRecord.getDocumentFromData(
+              optimisticData,
+              optimisticInstance.reference,
+            );
+          } else {
+            finalOptimisticInstance = optimisticInstance;
+          }
+
+          // 2. Generate operation ID
+          final operationId = OptimisticOperationTracker.generateOperationId();
+
+          // 3. Track operation
+          OptimisticOperationTracker.trackOperation(
+            operationId,
+            instanceId: createdInstance.reference.id,
+            operationType: 'progress',
+            optimisticInstance: finalOptimisticInstance,
+            originalInstance: createdInstance,
+          );
+
+          // 4. Broadcast optimistically (IMMEDIATE)
+          InstanceEvents.broadcastInstanceUpdatedOptimistic(
+              finalOptimisticInstance, operationId);
+
+          // 5. Perform backend update
           final updateData = <String, dynamic>{
             'timeLogSessions': sessions,
             'totalTimeLogged': totalTime,
@@ -1753,7 +1848,27 @@ class TaskInstanceService {
           if (newCurrentValue != null) {
             updateData['currentValue'] = newCurrentValue;
           }
-          await instanceRef.update(updateData);
+          if (markComplete) {
+            updateData['status'] = 'completed';
+            updateData['completedAt'] = endTime;
+            if (template.trackingType == 'binary') {
+              updateData['currentValue'] = 1;
+            }
+          }
+
+          try {
+            await instanceRef.update(updateData);
+
+            // 6. Reconcile with actual data
+            final updatedInstance =
+                await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+            OptimisticOperationTracker.reconcileOperation(
+                operationId, updatedInstance);
+          } catch (e) {
+            // 7. Rollback on error
+            OptimisticOperationTracker.rollbackOperation(operationId);
+            rethrow;
+          }
 
           // Only auto-complete tasks if:
           // 1. It's a task (not habit/essential)
@@ -1791,6 +1906,10 @@ class TaskInstanceService {
       );
       final now = DateTime.now();
 
+      // Get the created instance (will be optimistic from createTimerTaskInstance)
+      final currentInstance =
+          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+
       final isessential = activityType == 'essential';
       final timeLogSessions = [newSession];
 
@@ -1818,7 +1937,50 @@ class TaskInstanceService {
           templateRef = matchingTemplate.reference;
         }
 
-        // Update the instance with essential data
+        // ==================== OPTIMISTIC BROADCAST ====================
+        // 1. Create optimistic instance with essential data
+        final optimisticData = Map<String, dynamic>.from(
+            currentInstance.snapshotData);
+        optimisticData['status'] = markComplete ? 'completed' : 'pending';
+        optimisticData['completedAt'] =
+            markComplete ? endTime : FieldValue.delete();
+        optimisticData['isTimerActive'] = false;
+        optimisticData['timeLogSessions'] = timeLogSessions;
+        optimisticData['totalTimeLogged'] = totalTime;
+        optimisticData['accumulatedTime'] = totalTime;
+        optimisticData['currentValue'] = totalTime;
+        optimisticData['templateId'] = templateRef.id;
+        optimisticData['templateName'] = taskName;
+        optimisticData['templateCategoryType'] = 'essential';
+        optimisticData['templateCategoryName'] = 'essential';
+        optimisticData['templateTrackingType'] =
+            matchingTemplate?.trackingType ?? 'binary';
+        optimisticData['currentSessionStartTime'] = null;
+        optimisticData['lastUpdated'] = now;
+        optimisticData['_optimistic'] = true;
+
+        final optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
+          optimisticData,
+          currentInstance.reference,
+        );
+
+        // 2. Generate operation ID
+        final operationId = OptimisticOperationTracker.generateOperationId();
+
+        // 3. Track operation
+        OptimisticOperationTracker.trackOperation(
+          operationId,
+          instanceId: currentInstance.reference.id,
+          operationType: 'progress',
+          optimisticInstance: optimisticInstance,
+          originalInstance: currentInstance,
+        );
+
+        // 4. Broadcast optimistically (IMMEDIATE)
+        InstanceEvents.broadcastInstanceUpdatedOptimistic(
+            optimisticInstance, operationId);
+
+        // 5. Perform backend update
         final updateData = <String, dynamic>{
           'status': markComplete ? 'completed' : 'pending',
           'completedAt': markComplete ? endTime : FieldValue.delete(),
@@ -1835,15 +1997,73 @@ class TaskInstanceService {
           'currentSessionStartTime': null,
           'lastUpdated': now,
         };
-        await taskInstanceRef.update(updateData);
+
+        try {
+          await taskInstanceRef.update(updateData);
+
+          // 6. Reconcile with actual data
+          final updatedInstance =
+              await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+          OptimisticOperationTracker.reconcileOperation(
+              operationId, updatedInstance);
+        } catch (e) {
+          // 7. Rollback on error
+          OptimisticOperationTracker.rollbackOperation(operationId);
+          rethrow;
+        }
       } else {
         // Handle productive tasks (New One-Off)
-        final currentInstance =
-            await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
         final templateRef = ActivityRecord.collectionForUser(uid)
             .doc(currentInstance.templateId);
 
-        // Update the instance with the manual log data.
+        // ==================== OPTIMISTIC BROADCAST ====================
+        // 1. Create optimistic instance with manual log data
+        final optimisticData = Map<String, dynamic>.from(
+            currentInstance.snapshotData);
+        optimisticData['status'] = markComplete ? 'completed' : 'pending';
+        optimisticData['completedAt'] =
+            markComplete ? endTime : FieldValue.delete();
+        optimisticData['isTimerActive'] = false;
+        optimisticData['timeLogSessions'] = timeLogSessions;
+        optimisticData['totalTimeLogged'] = totalTime;
+        optimisticData['accumulatedTime'] = totalTime;
+        optimisticData['currentValue'] =
+            markComplete ? 1 : 0; // Binary one-offs: 1 if complete
+        optimisticData['templateTarget'] = totalTime / 60000.0; // Minutes
+        optimisticData['templateName'] = taskName;
+        optimisticData['templateCategoryType'] = 'task';
+        optimisticData['templateTrackingType'] =
+            'binary'; // Force binary for one-offs per previous request
+        optimisticData['lastUpdated'] = now;
+        optimisticData['currentSessionStartTime'] = null;
+
+        if (categoryId != null) optimisticData['templateCategoryId'] = categoryId;
+        if (categoryName != null)
+          optimisticData['templateCategoryName'] = categoryName;
+        optimisticData['_optimistic'] = true;
+
+        final optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
+          optimisticData,
+          currentInstance.reference,
+        );
+
+        // 2. Generate operation ID
+        final operationId = OptimisticOperationTracker.generateOperationId();
+
+        // 3. Track operation
+        OptimisticOperationTracker.trackOperation(
+          operationId,
+          instanceId: currentInstance.reference.id,
+          operationType: 'progress',
+          optimisticInstance: optimisticInstance,
+          originalInstance: currentInstance,
+        );
+
+        // 4. Broadcast optimistically (IMMEDIATE)
+        InstanceEvents.broadcastInstanceUpdatedOptimistic(
+            optimisticInstance, operationId);
+
+        // 5. Perform backend update
         final updateData = <String, dynamic>{
           'status': markComplete ? 'completed' : 'pending',
           'completedAt': markComplete ? endTime : FieldValue.delete(),
@@ -1866,7 +2086,19 @@ class TaskInstanceService {
         if (categoryName != null)
           updateData['templateCategoryName'] = categoryName;
 
-        await taskInstanceRef.update(updateData);
+        try {
+          await taskInstanceRef.update(updateData);
+
+          // 6. Reconcile with actual data
+          final updatedInstance =
+              await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+          OptimisticOperationTracker.reconcileOperation(
+              operationId, updatedInstance);
+        } catch (e) {
+          // 7. Rollback on error
+          OptimisticOperationTracker.rollbackOperation(operationId);
+          rethrow;
+        }
 
         // Update the underlying template as well.
         final templateUpdateData = <String, dynamic>{

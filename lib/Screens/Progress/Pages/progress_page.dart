@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/auth/logout_cleanup.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
@@ -272,7 +273,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   Future<Map<String, dynamic>> _calculateTodayBreakdown() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       final today = DateService.currentDate;
 
       // Use service to calculate breakdown (encapsulates Firestore access)
@@ -291,7 +292,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   Future<Map<String, dynamic>> _calculateBreakdownForDate(DateTime date) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       // Use service to calculate breakdown (encapsulates Firestore access)
       return await ProgressPageDataService.calculateBreakdownForDate(
         userId: userId,
@@ -311,7 +312,7 @@ class _ProgressPageState extends State<ProgressPage> {
       _isLoading = true;
     });
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         if (mounted) {
           setState(() {
@@ -355,7 +356,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   Future<void> _loadCumulativeScore() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       // Check shared state first - if queue page already calculated today's score, use it
@@ -436,7 +437,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   Future<void> _updateTodayScore() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       // Check shared state first - queue page may have already calculated the score
@@ -509,7 +510,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   Future<void> _loadCumulativeScoreHistory() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       // Check shared state first - use live score from queue page if available
@@ -570,7 +571,7 @@ class _ProgressPageState extends State<ProgressPage> {
 
   Future<void> _calculateStatisticsFromHistory() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
       // Use service to calculate statistics (encapsulates business logic)
@@ -1139,7 +1140,7 @@ class _ProgressPageState extends State<ProgressPage> {
           _categoryNeglectPenalty == 0.0 &&
           _projectedDailyGain != 0.0) {
         try {
-          final userId = currentUserUid;
+          final userId = await waitForCurrentUserUid();
           if (userId.isEmpty) return;
 
           // Fetch instances and categories for accurate penalty calculation
@@ -2145,13 +2146,15 @@ class _ProgressPageState extends State<ProgressPage> {
             _DrawerItem(
               icon: Icons.logout,
               label: 'Log Out',
-              onTap: () {
-                sharedPref
-                    .remove(SharedPreference.name.sUserDetails)
-                    .then((value) {
-                  users = LoginResponse();
-                  Navigator.pushReplacementNamed(context, login);
-                });
+              onTap: () async {
+                await performLogout(
+                  sharedPref: sharedPref,
+                  onLoggedOut: () async {
+                    users = LoginResponse();
+                    if (!context.mounted) return;
+                    Navigator.pushReplacementNamed(context, login);
+                  },
+                );
               },
             ),
           ],

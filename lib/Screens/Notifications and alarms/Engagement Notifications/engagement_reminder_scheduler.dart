@@ -151,7 +151,7 @@ class EngagementReminderScheduler {
   /// Initialize engagement reminder checking for current user
   static Future<void> initializeEngagementReminders() async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         return;
       }

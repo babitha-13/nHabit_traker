@@ -29,7 +29,7 @@ class _CategoryStatisticsTabState extends State<CategoryStatisticsTab> {
     });
 
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         if (mounted) {
           setState(() {

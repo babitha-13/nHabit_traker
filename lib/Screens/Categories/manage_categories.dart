@@ -29,7 +29,7 @@ class _ManageCategoriesState extends State<ManageCategories> {
       });
     }
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         if (mounted) {
           setState(() {
@@ -88,7 +88,9 @@ class _ManageCategoriesState extends State<ManageCategories> {
         }
         return;
       }
-      await deleteCategory(category.reference.id, userId: currentUserUid);
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      await deleteCategory(category.reference.id, userId: userId);
       await _loadCategories(); // Reload the list
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(

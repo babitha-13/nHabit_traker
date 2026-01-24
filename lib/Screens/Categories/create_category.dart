@@ -37,8 +37,10 @@ class _CreateCategoryState extends State<CreateCategory> {
 
   Future<void> _loadExistingCategories() async {
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final fetchedCategories = await queryCategoriesRecordOnce(
-        userId: currentUserUid,
+        userId: userId,
         callerTag: 'CreateCategory._loadExistingCategories',
       );
       if (mounted) {
@@ -249,8 +251,10 @@ class _CreateCategoryState extends State<CreateCategory> {
                   });
                   try {
                     // Get fresh categories from database
+                    final userId = await waitForCurrentUserUid();
+                    if (userId.isEmpty) return;
                     final freshCategories = await queryCategoriesRecordOnce(
-                      userId: currentUserUid,
+                      userId: userId,
                       callerTag: 'CreateCategory.validateName',
                     );
                     // Check for duplicate names, but exclude the current category when editing
@@ -302,9 +306,11 @@ class _CreateCategoryState extends State<CreateCategory> {
                       // If metadata changed, cascade the update to all templates and instances
                       if (nameChanged || colorChanged) {
                         try {
+                          final userId = await waitForCurrentUserUid();
+                          if (userId.isEmpty) return;
                           await updateCategoryCascade(
                             categoryId: widget.category!.reference.id,
-                            userId: currentUserUid,
+                            userId: userId,
                             newCategoryName: nameChanged ? newName : null,
                             newCategoryColor:
                                 colorChanged ? selectedColor : null,

@@ -10,7 +10,7 @@ class InstanceOrderService {
     int newOrder,
   ) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(userId).doc(instanceId);
@@ -47,7 +47,8 @@ class InstanceOrderService {
       try {
         // instances is already in the desired order; just persist the order
         final batch = FirebaseFirestore.instance.batch();
-        final userId = currentUserUid;
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
         final List<String> instanceIds = [];
         for (int i = 0; i < instances.length; i++) {
           final instance = instances[i];
@@ -90,7 +91,8 @@ class InstanceOrderService {
     List<ActivityInstanceRecord> expectedInstances,
   ) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final List<Future<DocumentSnapshot>> futures = [];
       // Fetch all instances to validate their order values
       for (final instanceId in instanceIds) {
@@ -136,7 +138,8 @@ class InstanceOrderService {
   ) async {
     try {
       final batch = FirebaseFirestore.instance.batch();
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       for (int i = 0; i < instances.length; i++) {
         final instance = instances[i];
         bool needsUpdate = false;
@@ -237,13 +240,13 @@ class InstanceOrderService {
     sortedInstances.sort((a, b) {
       final orderA = getOrderValue(a, pageType);
       final orderB = getOrderValue(b, pageType);
-      
+
       // Primary sort: by order value
       final orderComparison = orderA.compareTo(orderB);
       if (orderComparison != 0) {
         return orderComparison;
       }
-      
+
       // Secondary sort: by createdTime (latest first) for new tasks to appear on top
       final createdA = a.createdTime ?? DateTime(0);
       final createdB = b.createdTime ?? DateTime(0);
@@ -251,7 +254,7 @@ class InstanceOrderService {
       if (timeComparison != 0) {
         return timeComparison;
       }
-      
+
       // Tertiary sort: by template name (alphabetical)
       final nameA = a.templateName.toLowerCase();
       final nameB = b.templateName.toLowerCase();

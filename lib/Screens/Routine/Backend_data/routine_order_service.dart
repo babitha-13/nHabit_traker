@@ -9,7 +9,8 @@ class RoutineOrderService {
   ) async {
     try {
       final batch = FirebaseFirestore.instance.batch();
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       for (int i = 0; i < routines.length; i++) {
         final routine = routines[i];
         bool needsUpdate = false;
@@ -34,7 +35,7 @@ class RoutineOrderService {
   /// Get the next order index for a new routine
   static Future<int> getNextOrderIndex({String? userId}) async {
     try {
-      final uid = userId ?? currentUserUid;
+      final uid = userId ?? await waitForCurrentUserUid();
       if (uid.isEmpty) return 0;
       final query = RoutineRecord.collectionForUser(uid)
           .where('isActive', isEqualTo: true)
@@ -47,7 +48,9 @@ class RoutineOrderService {
     } catch (e) {
       // If orderBy fails, count existing routines
       try {
-        final query = RoutineRecord.collectionForUser(userId ?? currentUserUid)
+        final uid = userId ?? await waitForCurrentUserUid();
+        if (uid.isEmpty) return 0;
+        final query = RoutineRecord.collectionForUser(uid)
             .where('isActive', isEqualTo: true);
         final result = await query.get();
         return result.docs.length;
@@ -69,7 +72,8 @@ class RoutineOrderService {
       try {
         // routines is already in the desired order; just persist the order
         final batch = FirebaseFirestore.instance.batch();
-        final userId = currentUserUid;
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
         final List<String> routineIds = [];
         for (int i = 0; i < routines.length; i++) {
           final routine = routines[i];
@@ -102,7 +106,8 @@ class RoutineOrderService {
     List<RoutineRecord> expectedRoutines,
   ) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final List<Future<DocumentSnapshot>> futures = [];
       // Fetch all routines to validate their order values
       for (final routineId in routineIds) {

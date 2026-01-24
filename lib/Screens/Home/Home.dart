@@ -30,6 +30,7 @@ import 'package:habit_tracker/main.dart';
 import '../Queue/queue_page.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/auth/logout_cleanup.dart';
 import 'package:habit_tracker/Screens/Timer/global_floating_timer.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
@@ -146,11 +147,15 @@ class _HomeState extends State<Home> {
           drawer: AppDrawer(
             currentUserEmail: currentUserEmail,
             loadPage: loadPage,
-            onLogout: () {
-              sharedPref.remove(SharedPreference.name.sUserDetails).then((_) {
-                users = LoginResponse();
-                Navigator.pushReplacementNamed(context, login);
-              });
+            onLogout: () async {
+              await performLogout(
+                sharedPref: sharedPref,
+                onLoggedOut: () async {
+                  users = LoginResponse();
+                  if (!context.mounted) return;
+                  Navigator.pushReplacementNamed(context, login);
+                },
+              );
             },
           ),
           body: SafeArea(

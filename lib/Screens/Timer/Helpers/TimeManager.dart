@@ -218,8 +218,6 @@ class TimerManager extends ChangeNotifier {
       final timeResult = await timeQuery.get();
       final binaryResult = await binaryQuery.get();
 
-      int addedCount = 0;
-
       // Process time-tracking instances
       for (final doc in timeResult.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
@@ -230,7 +228,6 @@ class TimerManager extends ChangeNotifier {
         if (shouldShow) {
           _activeTimers[instance.reference.id] = instance;
           _hiddenTimers.remove(instance.reference.id);
-          addedCount++;
         }
       }
 
@@ -240,15 +237,12 @@ class TimerManager extends ChangeNotifier {
         if (instance.templateShowInFloatingTimer) {
           _activeTimers[instance.reference.id] = instance;
           _hiddenTimers.remove(instance.reference.id);
-          addedCount++;
         }
       }
 
       if (_activeTimers.isNotEmpty) {
         _startUpdateTimer();
       }
-      debugPrint(
-          'TimerManager: Loaded $addedCount active timers from Firestore');
       notifyListeners();
     } catch (e) {
       debugPrint('TimerManager: Error loading active timers: $e');

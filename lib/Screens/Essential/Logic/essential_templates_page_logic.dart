@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Screens/Essential/essential_data_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
@@ -8,7 +7,6 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_editor_dialog.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/Screens/Categories/create_category.dart';
@@ -60,12 +58,16 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
 
   Future<Map<String, dynamic>> loadTodayStatsData() async {
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) {
+        return {'counts': <String, int>{}, 'minutes': <String, int>{}};
+      }
       final today = DateTime.now();
       final startOfDay = DateTime(today.year, today.month, today.day);
       final endOfDay = startOfDay.add(const Duration(days: 1));
 
       final instances = await TaskInstanceService.getessentialInstances(
-        userId: currentUserUid,
+        userId: userId,
         startDate: startOfDay,
         endDate: endOfDay,
       );
@@ -116,11 +118,13 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
     final startTime = now.subtract(Duration(minutes: estimate));
 
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       await essentialService.createessentialInstance(
         templateId: template.reference.id,
         startTime: startTime,
         endTime: now,
-        userId: currentUserUid,
+        userId: userId,
       );
       await loadTodayStats();
       if (mounted) {
@@ -197,14 +201,24 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       });
     }
     try {
+      final uid = await waitForCurrentUserUid();
+      if (uid.isEmpty) {
+        isLoadingData = false;
+        if (mounted) {
+          setState(() {
+            isLoading = false;
+          });
+        }
+        return;
+      }
       defaultTimeEstimateMinutes =
-          await TimeLoggingPreferencesService.getDefaultDurationMinutes(currentUserUid);
+          await TimeLoggingPreferencesService.getDefaultDurationMinutes(uid);
       final results = await Future.wait([
         essentialService.getessentialTemplates(
-          userId: currentUserUid,
+          userId: uid,
         ),
         queryEssentialCategoriesOnce(
-          userId: currentUserUid,
+          userId: uid,
           callerTag: 'essentialTemplatesPage._loadTemplates',
         ),
         loadTodayStatsData(),
@@ -306,9 +320,11 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
     );
     if (confirmed == true) {
       try {
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
         await essentialService.deleteessentialTemplate(
           templateId: template.reference.id,
-          userId: currentUserUid,
+          userId: userId,
         );
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -517,8 +533,10 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
             onPressed: () async {
               Navigator.of(context).pop();
               try {
+                final userId = await waitForCurrentUserUid();
+                if (userId.isEmpty) return;
                 await deleteCategory(category.reference.id,
-                    userId: currentUserUid);
+                    userId: userId);
                 await loadTemplates();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

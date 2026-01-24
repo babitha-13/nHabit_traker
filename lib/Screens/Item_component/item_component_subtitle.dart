@@ -253,7 +253,7 @@ class ItemSubtitleReminderHelper {
     required Function(String?) setReminderDisplayText,
   }) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) {
         if (isMounted()) {
           setState(() {

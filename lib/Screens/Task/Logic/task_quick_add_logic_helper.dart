@@ -12,22 +12,22 @@ import 'package:habit_tracker/Screens/Task/Logic/task_quick_add_ui_helper.dart';
 
 class TaskQuickAddLogicHelper {
   static Future<void> submitQuickAdd(
-      BuildContext context,
-      String title,
-      String? categoryId,
-      List<CategoryRecord> categories,
-      String? selectedQuickTrackingType,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      TextEditingController quickUnitController,
-      List<ReminderConfig> quickReminders,
-      Function() onReset,
-      ) async {
+    BuildContext context,
+    String title,
+    String? categoryId,
+    List<CategoryRecord> categories,
+    String? selectedQuickTrackingType,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    TextEditingController quickUnitController,
+    List<ReminderConfig> quickReminders,
+    Function() onReset,
+  ) async {
     if (title.isEmpty) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -64,51 +64,53 @@ class TaskQuickAddLogicHelper {
         default:
           targetValue = null;
       }
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       await createActivity(
         name: title,
         categoryId: categoryId,
         categoryName:
-        categories.firstWhere((c) => c.reference.id == categoryId).name,
-        trackingType: selectedQuickTrackingType!,
+            categories.firstWhere((c) => c.reference.id == categoryId).name,
+        trackingType: selectedQuickTrackingType,
         target: targetValue,
         timeEstimateMinutes:
-        !isQuickTimeTarget(selectedQuickTrackingType, quickTargetDuration)
-            ? quickTimeEstimateMinutes
-            : null,
+            !isQuickTimeTarget(selectedQuickTrackingType, quickTargetDuration)
+                ? quickTimeEstimateMinutes
+                : null,
         isRecurring: quickIsRecurring,
-        userId: currentUserUid,
+        userId: userId,
         dueDate: selectedQuickDueDate,
         dueTime: selectedQuickDueTime != null
-            ? TimeUtils.timeOfDayToString(selectedQuickDueTime!)
+            ? TimeUtils.timeOfDayToString(selectedQuickDueTime)
             : null,
         priority: 1,
         unit: quickUnitController.text,
         specificDays: quickFrequencyConfig != null &&
-            quickFrequencyConfig!.type == FrequencyType.specificDays
-            ? quickFrequencyConfig!.selectedDays
+                quickFrequencyConfig.type == FrequencyType.specificDays
+            ? quickFrequencyConfig.selectedDays
             : null,
         categoryType: 'task',
         frequencyType: quickIsRecurring
-            ? quickFrequencyConfig!.type.toString().split('.').last
+            ? quickFrequencyConfig?.type.toString().split('.').last
             : null,
         everyXValue: quickIsRecurring &&
-            quickFrequencyConfig!.type == FrequencyType.everyXPeriod
-            ? quickFrequencyConfig!.everyXValue
+                quickFrequencyConfig?.type == FrequencyType.everyXPeriod
+            ? quickFrequencyConfig?.everyXValue
             : null,
         everyXPeriodType: quickIsRecurring &&
-            quickFrequencyConfig!.type == FrequencyType.everyXPeriod
-            ? quickFrequencyConfig!.everyXPeriodType.toString().split('.').last
+                quickFrequencyConfig?.type == FrequencyType.everyXPeriod
+            ? quickFrequencyConfig?.everyXPeriodType.toString().split('.').last
             : null,
         timesPerPeriod: quickIsRecurring &&
-            quickFrequencyConfig!.type == FrequencyType.timesPerPeriod
-            ? quickFrequencyConfig!.timesPerPeriod
+                quickFrequencyConfig?.type == FrequencyType.timesPerPeriod
+            ? quickFrequencyConfig?.timesPerPeriod
             : null,
         periodType: quickIsRecurring &&
-            quickFrequencyConfig!.type == FrequencyType.timesPerPeriod
-            ? quickFrequencyConfig!.periodType.toString().split('.').last
+                quickFrequencyConfig?.type == FrequencyType.timesPerPeriod
+            ? quickFrequencyConfig?.periodType.toString().split('.').last
             : null,
-        startDate: quickIsRecurring ? quickFrequencyConfig!.startDate : null,
-        endDate: quickIsRecurring ? quickFrequencyConfig!.endDate : null,
+        startDate: quickIsRecurring ? quickFrequencyConfig?.startDate : null,
+        endDate: quickIsRecurring ? quickFrequencyConfig?.endDate : null,
         reminders: quickReminders.isNotEmpty
             ? ReminderConfigList.toMapList(quickReminders)
             : null,
@@ -163,14 +165,14 @@ class TaskQuickAddLogicHelper {
   }
 
   static Future<void> selectQuickDueDate(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      DateTime? selectedQuickDueDate,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      Function(DateTime?) onDueDateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    DateTime? selectedQuickDueDate,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    Function(DateTime?) onDueDateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+  ) async {
     final DateTime? picked = await showDatePicker(
       context: context,
       initialDate: selectedQuickDueDate ?? DateTime.now(),
@@ -182,18 +184,18 @@ class TaskQuickAddLogicHelper {
         onDueDateChanged(picked);
         if (quickIsRecurring && quickFrequencyConfig != null) {
           onRecurringChanged(
-              true, quickFrequencyConfig!.copyWith(startDate: picked));
+              true, quickFrequencyConfig.copyWith(startDate: picked));
         }
       });
     }
   }
 
   static Future<void> selectQuickDueTime(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      TimeOfDay? selectedQuickDueTime,
-      Function(TimeOfDay?) onDueTimeChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    TimeOfDay? selectedQuickDueTime,
+    Function(TimeOfDay?) onDueTimeChanged,
+  ) async {
     final TimeOfDay? picked = await showTimePicker(
       context: context,
       initialTime: selectedQuickDueTime ?? TimeUtils.getCurrentTime(),
@@ -206,11 +208,11 @@ class TaskQuickAddLogicHelper {
   }
 
   static Future<void> selectQuickTimeEstimate(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      int? quickTimeEstimateMinutes,
-      Function(int?) onTimeEstimateChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    int? quickTimeEstimateMinutes,
+    Function(int?) onTimeEstimateChanged,
+  ) async {
     final theme = FlutterFlowTheme.of(context);
     final result = await TaskQuickAddUIHelper.showQuickTimeEstimateSheet(
       context: context,
@@ -224,13 +226,13 @@ class TaskQuickAddLogicHelper {
   }
 
   static Future<void> selectQuickReminders(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      List<ReminderConfig> quickReminders,
-      TimeOfDay? selectedQuickDueTime,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    List<ReminderConfig> quickReminders,
+    TimeOfDay? selectedQuickDueTime,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+  ) async {
     final reminders = await ReminderConfigDialog.show(
       context: context,
       initialReminders: quickReminders,
@@ -257,9 +259,8 @@ class TaskQuickAddLogicHelper {
 
     if (config.type == FrequencyType.specificDays) {
       const days = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-      final selectedDayNames = config.selectedDays
-          .map((day) => days[day - 1])
-          .join(', ');
+      final selectedDayNames =
+          config.selectedDays.map((day) => days[day - 1]).join(', ');
       return 'Recurring on $selectedDayNames';
     }
 

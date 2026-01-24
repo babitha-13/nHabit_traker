@@ -12,7 +12,7 @@ class SimpleDayAdvancer {
 
   /// Advance to the next day and process day-end
   static Future<void> advanceToNextDay() async {
-    final userId = currentUserUid;
+    final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) {
       throw Exception('No authenticated user');
     }

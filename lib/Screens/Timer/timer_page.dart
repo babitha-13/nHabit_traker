@@ -419,9 +419,12 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
       if (!widget.fromSwipe) {
         // Delete the template if templateId exists
         if (instance.hasTemplateId()) {
-          final templateRef = ActivityRecord.collectionForUser(currentUserUid)
-              .doc(instance.templateId);
-          await templateRef.delete();
+          final userId = await waitForCurrentUserUid();
+          if (userId.isNotEmpty) {
+            final templateRef = ActivityRecord.collectionForUser(userId)
+                .doc(instance.templateId);
+            await templateRef.delete();
+          }
         }
         // Delete the instance
         await _taskInstanceRef!.delete();
@@ -540,10 +543,12 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver {
                 await ActivityInstanceRecord.getDocumentOnce(_taskInstanceRef!);
             // Delete the template if templateId exists
             if (instance.hasTemplateId()) {
-              final templateRef =
-                  ActivityRecord.collectionForUser(currentUserUid)
-                      .doc(instance.templateId);
-              await templateRef.delete();
+              final userId = await waitForCurrentUserUid();
+              if (userId.isNotEmpty) {
+                final templateRef = ActivityRecord.collectionForUser(userId)
+                    .doc(instance.templateId);
+                await templateRef.delete();
+              }
             }
             // Delete the instance
             await _taskInstanceRef!.delete();

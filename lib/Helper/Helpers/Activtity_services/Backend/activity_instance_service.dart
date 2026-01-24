@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
@@ -13,29 +12,7 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/time_estimate_resolver.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/recurrence_calculator.dart';
-import 'package:habit_tracker/debug_log_stub.dart'
-    if (dart.library.io) 'package:habit_tracker/debug_log_io.dart'
-    if (dart.library.html) 'package:habit_tracker/debug_log_web.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
-
-// #region agent log
-void _logInstanceServiceDebug(String location, Map<String, dynamic> data) {
-  try {
-    final logEntry = {
-      'id': 'log_${DateTime.now().millisecondsSinceEpoch}_instances',
-      'timestamp': DateTime.now().millisecondsSinceEpoch,
-      'location': 'activity_instance_service.dart:$location',
-      'message': data['event'] ?? 'debug',
-      'data': data,
-      'sessionId': 'debug-session',
-      'runId': 'run3',
-    };
-    writeDebugLog(jsonEncode(logEntry));
-  } catch (_) {
-    // Silently fail
-  }
-}
-// #endregion
 
 /// Result of calculating stacked session times
 class StackedSessionTimes {
@@ -242,14 +219,11 @@ class ActivityInstanceService {
     bool includePending = true,
     bool includeRecentCompleted = false,
   }) async {
-    print(
-        '🟣 _querySafeInstances: START - uid=$uid, includePending=$includePending, includeRecentCompleted=$includeRecentCompleted');
     final List<ActivityInstanceRecord> allInstances = [];
 
     // Add distinct try-catch blocks for each query to identify which one fails/hangs
     if (includePending) {
       try {
-        print('🟣 _querySafeInstances: Querying pending instances');
         final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
             .where('status', isEqualTo: 'pending')
             .limit(500); // Increased limit to ensure we catch everything
@@ -258,29 +232,20 @@ class ActivityInstanceService {
         final pendingResult = await pendingQuery.get().timeout(
           const Duration(seconds: 10),
           onTimeout: () {
-            print('🔴 _querySafeInstances: Pending query TIMEOUT');
             throw TimeoutException('Pending query timed out');
           },
         );
 
         final docs = pendingResult.docs;
-        print(
-            '🟣 _querySafeInstances: Got ${docs.length} pending documents from Firestore');
-
         allInstances.addAll(
             docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
-        print(
-            '🟣 _querySafeInstances: Added ${docs.length} pending instances to allInstances (total: ${allInstances.length})');
-      } catch (e, stackTrace) {
-        print('🔴 _querySafeInstances: Pending query ERROR - $e');
-        print('🔴 _querySafeInstances: StackTrace: $stackTrace');
+      } catch (e) {
         // Continue even if this fails, so we might at least get completed ones
       }
     }
 
     if (includeRecentCompleted) {
       try {
-        print('🟣 _querySafeInstances: Querying recent completed instances');
         final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
         final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
             .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
@@ -291,14 +256,11 @@ class ActivityInstanceService {
         final completedResult = await completedQuery.get().timeout(
           const Duration(seconds: 10),
           onTimeout: () {
-            print('🔴 _querySafeInstances: Completed query TIMEOUT');
             throw TimeoutException('Completed query timed out');
           },
         );
 
         final docs = completedResult.docs;
-        print(
-            '🟣 _querySafeInstances: Got ${docs.length} completed documents from Firestore');
 
         // Filter strictly for completed (query is inclusive of greaterThanOrEqualTo)
         // and ensure status is explicitly completed
@@ -306,20 +268,12 @@ class ActivityInstanceService {
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((inst) => inst.status == 'completed')
             .toList();
-        print(
-            '🟣 _querySafeInstances: Filtered to ${completedInstances.length} completed instances (with status=completed)');
         allInstances.addAll(completedInstances);
-        print(
-            '🟣 _querySafeInstances: Added ${completedInstances.length} completed instances to allInstances (total: ${allInstances.length})');
-      } catch (e, stackTrace) {
-        print('🔴 _querySafeInstances: Completed query ERROR - $e');
-        print('🔴 _querySafeInstances: StackTrace: $stackTrace');
+      } catch (e) {
         // Continue silently
       }
     }
 
-    print(
-        '🟣 _querySafeInstances: FINISH - returning ${allInstances.length} total instances');
     return allInstances;
   }
 
@@ -392,11 +346,8 @@ class ActivityInstanceService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
-    print('🟢 ActivityInstanceService.getAllTaskInstances: START - uid=$uid');
     try {
       // Use safe query to avoid missing index errors
-      print(
-          '🟢 ActivityInstanceService.getAllTaskInstances: Calling _querySafeInstances');
       final allRawInstances = await _querySafeInstances(
         uid: uid,
         includePending: true,
@@ -785,13 +736,6 @@ class ActivityInstanceService {
   }) async {
     final uid = userId ?? _currentUserId;
     try {
-      // #region agent log
-      _logInstanceServiceDebug('getAllActiveInstances', {
-        'hypothesisId': 'P',
-        'event': 'fetch_start',
-        'uidLength': uid.length,
-      });
-      // #endregion
       // CRITICAL: Fetch only pending instances and recent completions (last 2 days)
       // This prevents OOM from loading thousands of old completed instances
 
@@ -802,47 +746,13 @@ class ActivityInstanceService {
         includeRecentCompleted: true,
       );
 
-      // Debug: Log status breakdown
-      final statusCounts = <String, int>{};
-      for (final inst in allInstances) {
-        statusCounts[inst.status] = (statusCounts[inst.status] ?? 0) + 1;
-      }
-      // #region agent log
-      _logInstanceServiceDebug('getAllActiveInstances', {
-        'hypothesisId': 'P',
-        'event': 'fetch_counts',
-        'pendingCount': statusCounts['pending'] ?? 0,
-        'completedCount': statusCounts['completed'] ?? 0,
-        'totalCount': allInstances.length,
-      });
-      // #endregion
       // Separate tasks and habits for different filtering logic
       // Exclude essentials from normal queries
       // Also filter out inactive instances to match tasks page behavior
-      print(
-          '🟠 getAllActiveInstances: Filtering ${allInstances.length} instances for tasks/habits');
-      final categoryTypeCounts = <String, int>{};
-      final activeCounts = <String, int>{};
-      for (final inst in allInstances) {
-        categoryTypeCounts[inst.templateCategoryType] =
-            (categoryTypeCounts[inst.templateCategoryType] ?? 0) + 1;
-        if (inst.isActive) {
-          activeCounts[inst.templateCategoryType] =
-              (activeCounts[inst.templateCategoryType] ?? 0) + 1;
-        }
-      }
-      print(
-          '🟠 getAllActiveInstances: Category breakdown - $categoryTypeCounts');
-      print('🟠 getAllActiveInstances: Active breakdown - $activeCounts');
-
       final taskInstances = allInstances.where((inst) {
         final isTask = inst.templateCategoryType == 'task';
         final isEssential = inst.templateCategoryType == 'essential';
         final isActive = inst.isActive;
-        if (!isTask || isEssential || !isActive) {
-          print(
-              '🟠 getAllActiveInstances: Filtered out instance ${inst.reference.id} - categoryType=${inst.templateCategoryType}, isActive=$isActive');
-        }
         return isTask && !isEssential && isActive;
       }).toList();
 
@@ -851,8 +761,6 @@ class ActivityInstanceService {
               inst.templateCategoryType == 'habit' &&
               inst.isActive) // Filter inactive instances
           .toList();
-      print(
-          '🟠 getAllActiveInstances: After habit filter: ${habitInstances.length} habit instances');
       final List<ActivityInstanceRecord> finalInstanceList = [];
       // For tasks: use earliest-only logic with status priority
       final Map<String, ActivityInstanceRecord> earliestTasks = {};
@@ -949,15 +857,6 @@ class ActivityInstanceService {
         collectionName: 'activity_instances',
         stackTrace: stackTrace,
       );
-      // #region agent log
-      _logInstanceServiceDebug('getAllActiveInstances', {
-        'hypothesisId': 'P',
-        'event': 'fetch_error',
-        'errorType': e.runtimeType.toString(),
-        'errorCode': e is FirebaseException ? e.code : null,
-        'messageLength': e is FirebaseException ? (e.message?.length ?? 0) : 0,
-      });
-      // #endregion
       return [];
     }
   }

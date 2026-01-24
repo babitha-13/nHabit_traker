@@ -59,16 +59,23 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       _isLoading = true;
     });
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) {
+        if (mounted) {
+          setState(() => _isLoading = false);
+        }
+        return;
+      }
       final routineWithInstances = await RoutineService.getRoutineWithInstances(
         routineId: widget.routine.reference.id,
-        userId: currentUserUid,
+        userId: userId,
       );
       final habitCategories = await queryHabitCategoriesOnce(
-        userId: currentUserUid,
+        userId: userId,
         callerTag: 'RoutineDetailPage._loadRoutine.habits',
       );
       final taskCategories = await queryTaskCategoriesOnce(
-        userId: currentUserUid,
+        userId: userId,
         callerTag: 'RoutineDetailPage._loadRoutine.tasks',
       );
       final allCategories = [...habitCategories, ...taskCategories];
@@ -87,7 +94,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               final newInstance =
                   await RoutineService.createInstanceForRoutineItem(
                 itemId: itemId,
-                userId: currentUserUid,
+                userId: userId,
               );
               if (newInstance != null) {
                 instances[itemId] = newInstance;
@@ -286,9 +293,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     _applyRoutineOrder(currentOrder);
     setState(() => _isReordering = true);
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       await RoutineService.updateRoutine(
         routineId: _routineWithInstances!.routine.reference.id,
-        userId: currentUserUid,
+        userId: userId,
         itemIds: currentOrder,
         itemOrder: currentOrder,
       );
@@ -310,9 +319,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   Future<ActivityInstanceRecord?> _createPendingessentialInstance(
       String itemId) async {
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return null;
       final today = DateService.todayStart;
       final existingInstancesQuery =
-          ActivityInstanceRecord.collectionForUser(currentUserUid)
+          ActivityInstanceRecord.collectionForUser(userId)
               .where('templateId', isEqualTo: itemId)
               .where('belongsToDate', isEqualTo: today)
               .limit(1);
@@ -321,7 +332,8 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       if (existingInstances.docs.isNotEmpty) {
         return ActivityInstanceRecord.fromSnapshot(existingInstances.docs.first);
       }
-      final templateDoc = await ActivityRecord.collectionForUser(currentUserUid).doc(itemId).get();
+      final templateDoc =
+          await ActivityRecord.collectionForUser(userId).doc(itemId).get();
       if (!templateDoc.exists) {
         return null;
       }
@@ -330,7 +342,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       final newInstanceRef = await ActivityInstanceService.createActivityInstance(
         templateId: itemId,
         template: template,
-        userId: currentUserUid,
+        userId: userId,
         dueDate: DateTime.now(),
       );
 
@@ -388,12 +400,14 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           ),
         );
       }
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final resetCount = await RoutineService.resetRoutineItems(
         routineId: widget.routine.reference.id,
         currentInstances: _routineWithInstances!.instances,
         itemTypes: _routineWithInstances!.routine.itemTypes,
         itemIds: _routineWithInstances!.routine.itemIds,
-        userId: currentUserUid,
+        userId: userId,
       );
       await _refreshRoutine();
       if (mounted) {

@@ -71,6 +71,12 @@ class TimerNotificationService {
     }
   }
 
+  /// Shutdown timer notifications and detach listeners (used on logout).
+  static Future<void> shutdown() async {
+    TimerManager().removeListener(_onTimerStateChanged);
+    await _stopNotification();
+  }
+
   /// Update notification content
   static Future<void> _updateNotification() async {
     if (!_isNotificationActive) return;

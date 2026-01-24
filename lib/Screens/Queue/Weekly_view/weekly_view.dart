@@ -147,7 +147,7 @@ class _WeeklyViewState extends State<WeeklyView> {
     if (!mounted) return;
     setState(() => _isLoading = true);
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         final allInstances = await queryAllInstances(userId: userId);
         final habitCategories = await queryHabitCategoriesOnce(
@@ -165,7 +165,7 @@ class _WeeklyViewState extends State<WeeklyView> {
             _categories = allCategories;
           });
           // Calculate weekly progress and wait for it to complete
-          await _calculateWeeklyProgress();
+          await _calculateWeeklyProgress(userId: userId);
           if (mounted) {
             setState(() {
               _isLoading = false;
@@ -180,12 +180,14 @@ class _WeeklyViewState extends State<WeeklyView> {
     }
   }
 
-  Future<void> _calculateWeeklyProgress() async {
+  Future<void> _calculateWeeklyProgress({String? userId}) async {
     print('WeeklyView: _calculateWeeklyProgress() called');
     final weekStart = DateService.currentWeekStart;
+    final uid = userId ?? await waitForCurrentUserUid();
+    if (uid.isEmpty) return;
     // Use the weekly progress calculator
     final progressData = await WeeklyProgressCalculator.calculateWeeklyProgress(
-      userId: currentUserUid,
+      userId: uid,
       weekStart: weekStart,
       allInstances: _instances,
       categories: _categories,

@@ -8,7 +8,6 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Screens/Routine/Backend_data/routine_order_service.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
 import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'package:habit_tracker/Screens/Routine/Create%20Routine/create_routine_page.dart';
 import 'package:habit_tracker/Screens/Routine/Routine_reminder_frequency/routine_reminder.dart';
@@ -86,7 +85,7 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
       });
     }
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         // Load routines and habits in parallel for faster data loading
         final results = await Future.wait([
@@ -148,7 +147,9 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
     });
 
     try {
-      await RoutineService.deleteRoutine(routineId, userId: currentUserUid);
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      await RoutineService.deleteRoutine(routineId, userId: userId);
       // Background reconciliation: reload to ensure sync
       loadData();
       if (mounted) {
@@ -351,10 +352,12 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
     }
 
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       await RoutineService.updateRoutine(
         routineId: routineId,
         dueTime: newDueTime,
-        userId: currentUserUid,
+        userId: userId,
       );
       // Background reconciliation: reload to ensure sync
       loadData();
@@ -419,6 +422,8 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
     }
 
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       await RoutineService.updateRoutine(
         routineId: routineId,
         reminders: ReminderConfigList.toMapList(result.reminders),
@@ -430,7 +435,7 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
             ? result.specificDays
             : const [],
         remindersEnabled: result.remindersEnabled,
-        userId: currentUserUid,
+        userId: userId,
       );
       // Background reconciliation: reload to ensure sync
       loadData();

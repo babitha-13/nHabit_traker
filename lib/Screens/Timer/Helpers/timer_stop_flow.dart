@@ -112,9 +112,12 @@ class TimerStopFlow {
           updatedInstance.templateCategoryType == 'task') {
         // Delete the template if templateId exists
         if (updatedInstance.hasTemplateId()) {
-          final templateRef = ActivityRecord.collectionForUser(currentUserUid)
-              .doc(updatedInstance.templateId);
-          await templateRef.delete();
+          final userId = await waitForCurrentUserUid();
+          if (userId.isNotEmpty) {
+            final templateRef = ActivityRecord.collectionForUser(userId)
+                .doc(updatedInstance.templateId);
+            await templateRef.delete();
+          }
         }
         // Delete the instance
         await instance.reference.delete();

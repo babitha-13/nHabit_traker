@@ -9,7 +9,6 @@ import 'package:habit_tracker/Screens/Essential/create_essential_item_dialog.dar
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
 import 'package:habit_tracker/Screens/Routine/Backend_data/routine_service.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Routine Main page mixin for CreateRoutinePage that contains all business logic
 /// This separates business logic from UI code
@@ -39,7 +38,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
   Future<String?> fetchLatestRoutineAndLoadActivities(
       RoutineRecord? existingRoutine) async {
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isEmpty || existingRoutine == null) {
         loadActivities();
         return null;
@@ -144,7 +143,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
       });
     }
     try {
-      final userId = currentUserUid;
+      final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         // Load all activities including Essential Activities
         final activities = await queryActivitiesRecordOnce(
@@ -359,6 +358,8 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
       isSaving = true;
     });
     try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
       final itemIds = selectedItems.map((item) => item.reference.id).toList();
       final itemOrder =
           selectedItems.map((item) => item.reference.id).toList();
@@ -373,7 +374,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           name: nameController.text.trim(),
           itemIds: itemIds,
           itemOrder: itemOrder,
-          userId: currentUserUid,
+          userId: userId,
           dueTime: startTime != null
               ? TimeUtils.timeOfDayToString(startTime!)
               : null,
@@ -413,7 +414,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           name: nameController.text.trim(),
           itemIds: itemIds,
           itemOrder: itemOrder,
-          userId: currentUserUid,
+          userId: userId,
           dueTime: startTime != null
               ? TimeUtils.timeOfDayToString(startTime!)
               : null,
