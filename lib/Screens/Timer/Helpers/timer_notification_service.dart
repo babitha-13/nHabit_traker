@@ -3,7 +3,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Screens/Timer/Helpers/TimeManager.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
 
 /// Service for managing persistent timer notifications
 class TimerNotificationService {

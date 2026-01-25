@@ -9,7 +9,7 @@ import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_serv
 import 'package:habit_tracker/Screens/toasts/bonus_notification_formatter.dart';
 import 'package:habit_tracker/Screens/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';

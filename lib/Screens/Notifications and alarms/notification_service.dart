@@ -11,7 +11,7 @@ import 'package:habit_tracker/Screens/Goals/goal_dialog.dart';
 import 'package:habit_tracker/Screens/Goals/goal_data_service.dart';
 import 'package:habit_tracker/Helper/Helpers/constants.dart';
 import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
 import 'package:habit_tracker/Screens/Timer/Helpers/timer_notification_service.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/snooze_dialog.dart';
