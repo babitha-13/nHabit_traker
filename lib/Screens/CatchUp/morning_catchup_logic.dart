@@ -333,10 +333,19 @@ class MorningCatchUpDialogLogic {
   /// [onProgressUpdate] - Optional callback to notify UI to rebuild during processing
   Future<SkipAllResult> skipAllRemaining(
       {VoidCallback? onProgressUpdate}) async {
+    final today = DateService.todayStart;
+    // Only skip habits where window has ended (exclude habits with active windows)
     final remainingHabits = items
         .where((item) =>
             !processedItemIds.contains(item.reference.id) &&
-            item.templateCategoryType == 'habit')
+            item.templateCategoryType == 'habit' &&
+            // Only include habits where window has ended
+            (item.windowEndDate == null ||
+                DateTime(
+                      item.windowEndDate!.year,
+                      item.windowEndDate!.month,
+                      item.windowEndDate!.day,
+                    ).isBefore(today)))
         .toList();
 
     if (remainingHabits.isEmpty) {
