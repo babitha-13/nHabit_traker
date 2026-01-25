@@ -173,7 +173,7 @@ class _SignUpCardState extends State<SignUpCard> {
                           ).bodyMedium.fontStyle,
                           color: FlutterFlowTheme.of(
                             context,
-                          ).accent4,
+                          ).primaryText,
                         ),
                         letterSpacing: 0.0,
                         fontWeight: FlutterFlowTheme.of(
@@ -184,7 +184,7 @@ class _SignUpCardState extends State<SignUpCard> {
                         ).bodyMedium.fontStyle,
                         color: FlutterFlowTheme.of(
                           context,
-                        ).accent4,
+                        ).primaryText,
                       ),
                   keyboardType: TextInputType.emailAddress,
                   cursorColor: FlutterFlowTheme.of(
@@ -318,6 +318,7 @@ class _SignUpCardState extends State<SignUpCard> {
                           fontStyle: FlutterFlowTheme.of(
                             context,
                           ).bodyMedium.fontStyle,
+                          color: FlutterFlowTheme.of(context).primaryText,
                         ),
                         letterSpacing: 0.0,
                         fontWeight: FlutterFlowTheme.of(
@@ -326,6 +327,7 @@ class _SignUpCardState extends State<SignUpCard> {
                         fontStyle: FlutterFlowTheme.of(
                           context,
                         ).bodyMedium.fontStyle,
+                        color: FlutterFlowTheme.of(context).primaryText,
                       ),
                   cursorColor: FlutterFlowTheme.of(
                     context,
@@ -459,7 +461,7 @@ class _SignUpCardState extends State<SignUpCard> {
                           ).bodyMedium.fontStyle,
                           color: FlutterFlowTheme.of(
                             context,
-                          ).accent4,
+                          ).primaryText,
                         ),
                         letterSpacing: 0.0,
                         fontWeight: FlutterFlowTheme.of(
@@ -470,7 +472,7 @@ class _SignUpCardState extends State<SignUpCard> {
                         ).bodyMedium.fontStyle,
                         color: FlutterFlowTheme.of(
                           context,
-                        ).accent4,
+                        ).primaryText,
                       ),
                   minLines: 1,
                   cursorColor: FlutterFlowTheme.of(
@@ -545,9 +547,7 @@ class _SignUpCardState extends State<SignUpCard> {
                       context,
                     ).primary,
                     textStyle: const TextStyle(
-                      color: Color(
-                        0xFF000000,
-                      ),
+                      color: Colors.white,
                       fontWeight: FontWeight.bold,
                       fontFamily: 'Inter Tight',
                       fontSize: 18.0,

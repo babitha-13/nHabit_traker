@@ -23,6 +23,10 @@ class ActivityInstanceRecord extends FirestoreRecord {
   String? _dueTime;
   String? get dueTime => _dueTime;
   bool hasDueTime() => _dueTime != null;
+  // Use to track the original due date before rescheduling (for recurring tasks)
+  DateTime? _originalDueDate;
+  DateTime? get originalDueDate => _originalDueDate;
+  bool hasOriginalDueDate() => _originalDueDate != null;
   String? _status; // 'pending', 'completed', 'skipped'
   String get status => _status ?? 'pending';
   bool hasStatus() => _status != null;
@@ -119,8 +123,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
   bool hasTemplateDescription() => _templateDescription != null;
   int? _templateTimeEstimateMinutes;
   int? get templateTimeEstimateMinutes => _templateTimeEstimateMinutes;
-  bool hasTemplateTimeEstimateMinutes() =>
-      _templateTimeEstimateMinutes != null;
+  bool hasTemplateTimeEstimateMinutes() => _templateTimeEstimateMinutes != null;
   // Template due time (denormalized from template)
   String? _templateDueTime;
   String? get templateDueTime => _templateDueTime;
@@ -181,6 +184,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
     _dueTime = snapshotData['dueTime'] as String?;
+    _originalDueDate = snapshotData['originalDueDate'] as DateTime?;
     _status = snapshotData['status'] as String?;
     _completedAt = snapshotData['completedAt'] as DateTime?;
     _skippedAt = snapshotData['skippedAt'] as DateTime?;
@@ -274,6 +278,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
   String? templateId,
   DateTime? dueDate,
   String? dueTime,
+  DateTime? originalDueDate,
   String? status,
   DateTime? completedAt,
   DateTime? skippedAt,
@@ -322,6 +327,7 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'templateId': templateId,
       'dueDate': dueDate,
       'dueTime': dueTime,
+      'originalDueDate': originalDueDate,
       'status': status,
       'completedAt': completedAt,
       'skippedAt': skippedAt,
@@ -378,6 +384,7 @@ class ActivityInstanceRecordDocumentEquality
   bool equals(ActivityInstanceRecord? e1, ActivityInstanceRecord? e2) {
     return e1?.templateId == e2?.templateId &&
         e1?.dueDate == e2?.dueDate &&
+        e1?.originalDueDate == e2?.originalDueDate &&
         e1?.status == e2?.status &&
         e1?.completedAt == e2?.completedAt &&
         e1?.skippedAt == e2?.skippedAt &&
@@ -399,8 +406,7 @@ class ActivityInstanceRecordDocumentEquality
         e1?.templateTarget == e2?.templateTarget &&
         e1?.templateUnit == e2?.templateUnit &&
         e1?.templateDescription == e2?.templateDescription &&
-        e1?.templateTimeEstimateMinutes ==
-            e2?.templateTimeEstimateMinutes &&
+        e1?.templateTimeEstimateMinutes == e2?.templateTimeEstimateMinutes &&
         e1?.templateShowInFloatingTimer == e2?.templateShowInFloatingTimer &&
         e1?.templateEveryXValue == e2?.templateEveryXValue &&
         e1?.templateEveryXPeriodType == e2?.templateEveryXPeriodType &&
@@ -424,6 +430,7 @@ class ActivityInstanceRecordDocumentEquality
   int hash(ActivityInstanceRecord? e) => const ListEquality().hash([
         e?.templateId,
         e?.dueDate,
+        e?.originalDueDate,
         e?.status,
         e?.completedAt,
         e?.skippedAt,

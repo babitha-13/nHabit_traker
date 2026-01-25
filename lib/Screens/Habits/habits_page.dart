@@ -251,8 +251,6 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
               );
             },
             itemCount: sortedHabits.length,
-            itemExtent:
-                85.0, // Approximate item height for better scroll performance
             onReorder: (oldIndex, newIndex) =>
                 handleReorder(oldIndex, newIndex, categoryName),
           ),

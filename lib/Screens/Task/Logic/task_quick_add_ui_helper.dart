@@ -6,31 +6,31 @@ import 'package:habit_tracker/Screens/Task/UI/task_quick_add_widget_builder.dart
 
 class TaskQuickAddUIHelper {
   static Widget buildQuickAddWithState(
-      BuildContext context,
-      StateSetter setModalState,
-      StateSetter setState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    StateSetter setModalState,
+    StateSetter setState,
+    TextEditingController quickAddController,
+    String? selectedQuickTrackingType,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    List<ReminderConfig> quickReminders,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     void updateState(VoidCallback fn) {
       setState(fn);
       setModalState(() {}); // Trigger modal rebuild
@@ -64,30 +64,30 @@ class TaskQuickAddUIHelper {
   }
 
   static Widget buildQuickAdd(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    TextEditingController quickAddController,
+    String? selectedQuickTrackingType,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    List<ReminderConfig> quickReminders,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     return TaskQuickAddWidgetBuilder.buildQuickAdd(
       context,
       updateState,
@@ -116,31 +116,31 @@ class TaskQuickAddUIHelper {
   }
 
   static void showQuickAddBottomSheet(
-      BuildContext context,
-      StateSetter setModalState,
-      StateSetter setState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    StateSetter setModalState,
+    StateSetter setState,
+    TextEditingController quickAddController,
+    String? Function() getSelectedQuickTrackingType,
+    DateTime? Function() getSelectedQuickDueDate,
+    TimeOfDay? Function() getSelectedQuickDueTime,
+    int? Function() getQuickTimeEstimateMinutes,
+    bool Function() getQuickIsRecurring,
+    FrequencyConfig? Function() getQuickFrequencyConfig,
+    List<ReminderConfig> Function() getQuickReminders,
+    int Function() getQuickTargetNumber,
+    Duration Function() getQuickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     final theme = FlutterFlowTheme.of(context);
     showModalBottomSheet(
       context: context,
@@ -152,7 +152,7 @@ class TaskQuickAddUIHelper {
           final bottomPadding = MediaQuery.of(context).padding.bottom;
           final keyboardHeight = MediaQuery.of(context).viewInsets.bottom;
           final totalBottomPadding =
-          keyboardHeight > 0 ? keyboardHeight : bottomPadding;
+              keyboardHeight > 0 ? keyboardHeight : bottomPadding;
 
           return Padding(
             padding: EdgeInsets.only(
@@ -162,7 +162,7 @@ class TaskQuickAddUIHelper {
               decoration: BoxDecoration(
                 color: theme.primaryBackground,
                 borderRadius:
-                const BorderRadius.vertical(top: Radius.circular(20)),
+                    const BorderRadius.vertical(top: Radius.circular(20)),
               ),
               child: SingleChildScrollView(
                 child: Padding(
@@ -172,15 +172,15 @@ class TaskQuickAddUIHelper {
                     setModalState,
                     setState,
                     quickAddController,
-                    selectedQuickTrackingType,
-                    selectedQuickDueDate,
-                    selectedQuickDueTime,
-                    quickTimeEstimateMinutes,
-                    quickIsRecurring,
-                    quickFrequencyConfig,
-                    quickReminders,
-                    quickTargetNumber,
-                    quickTargetDuration,
+                    getSelectedQuickTrackingType(),
+                    getSelectedQuickDueDate(),
+                    getSelectedQuickDueTime(),
+                    getQuickTimeEstimateMinutes(),
+                    getQuickIsRecurring(),
+                    getQuickFrequencyConfig(),
+                    getQuickReminders(),
+                    getQuickTargetNumber(),
+                    getQuickTargetDuration(),
                     quickTargetNumberController,
                     quickHoursController,
                     quickMinutesController,
@@ -208,7 +208,7 @@ class TaskQuickAddUIHelper {
     required int? initialMinutes,
   }) async {
     final controller =
-    TextEditingController(text: initialMinutes?.toString() ?? '');
+        TextEditingController(text: initialMinutes?.toString() ?? '');
     const presets = <int>[5, 10, 15, 20, 30, 45, 60];
 
     final result = await showModalBottomSheet<int?>(
@@ -223,7 +223,7 @@ class TaskQuickAddUIHelper {
             decoration: BoxDecoration(
               color: theme.primaryBackground,
               borderRadius:
-              const BorderRadius.vertical(top: Radius.circular(20)),
+                  const BorderRadius.vertical(top: Radius.circular(20)),
               border: Border.all(color: theme.surfaceBorderColor, width: 1),
             ),
             child: Padding(
@@ -257,12 +257,12 @@ class TaskQuickAddUIHelper {
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
                               borderSide:
-                              BorderSide(color: theme.surfaceBorderColor),
+                                  BorderSide(color: theme.surfaceBorderColor),
                             ),
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
                               borderSide:
-                              BorderSide(color: theme.surfaceBorderColor),
+                                  BorderSide(color: theme.surfaceBorderColor),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(10),
@@ -286,17 +286,17 @@ class TaskQuickAddUIHelper {
                     children: presets
                         .map(
                           (m) => OutlinedButton(
-                        onPressed: () => Navigator.pop(ctx, m),
-                        style: OutlinedButton.styleFrom(
-                          side: BorderSide(color: theme.surfaceBorderColor),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(10),
+                            onPressed: () => Navigator.pop(ctx, m),
+                            style: OutlinedButton.styleFrom(
+                              side: BorderSide(color: theme.surfaceBorderColor),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10),
+                              ),
+                              foregroundColor: theme.primaryText,
+                            ),
+                            child: Text('${m}m'),
                           ),
-                          foregroundColor: theme.primaryText,
-                        ),
-                        child: Text('${m}m'),
-                      ),
-                    )
+                        )
                         .toList(),
                   ),
                   const SizedBox(height: 16),
@@ -334,4 +334,3 @@ class TaskQuickAddUIHelper {
     return result;
   }
 }
-

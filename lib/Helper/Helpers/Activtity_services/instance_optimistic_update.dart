@@ -279,6 +279,11 @@ class InstanceEvents {
     if (newDueTime != null) {
       updatedData['dueTime'] = newDueTime;
     }
+    // If originalDueDate is not set, set it to the current dueDate (before change)
+    // This preserves the anchor for recurrence calculations
+    if (updatedData['originalDueDate'] == null) {
+      updatedData['originalDueDate'] = original.dueDate;
+    }
     updatedData['lastUpdated'] = now;
 
     // Mark as optimistic

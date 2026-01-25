@@ -1335,8 +1335,6 @@ class _QueuePageState extends State<QueuePage> {
               );
             },
             itemCount: items.length,
-            itemExtent:
-                85.0, // Approximate item height for better scroll performance
             onReorder: (oldIndex, newIndex) =>
                 _handleReorder(oldIndex, newIndex, key),
           ),

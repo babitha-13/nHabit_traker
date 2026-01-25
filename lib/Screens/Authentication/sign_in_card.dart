@@ -117,13 +117,13 @@ class _SignInCardState extends State<SignInCard> {
                               .fontWeight,
                           fontStyle:
                               FlutterFlowTheme.of(context).bodyMedium.fontStyle,
-                          color: FlutterFlowTheme.of(context).accent4),
+                          color: FlutterFlowTheme.of(context).primaryText),
                       letterSpacing: 0.0,
                       fontWeight:
                           FlutterFlowTheme.of(context).bodyMedium.fontWeight,
                       fontStyle:
                           FlutterFlowTheme.of(context).bodyMedium.fontStyle,
-                      color: FlutterFlowTheme.of(context).accent4),
+                      color: FlutterFlowTheme.of(context).primaryText),
                   keyboardType: TextInputType.emailAddress,
                   cursorColor: FlutterFlowTheme.of(context).primary,
                   validator: widget.model.emailAddressTextControllerValidator
@@ -210,12 +210,14 @@ class _SignInCardState extends State<SignInCard> {
                               .fontWeight,
                           fontStyle:
                               FlutterFlowTheme.of(context).bodyMedium.fontStyle,
+                          color: FlutterFlowTheme.of(context).primaryText,
                         ),
                         letterSpacing: 0.0,
                         fontWeight:
                             FlutterFlowTheme.of(context).bodyMedium.fontWeight,
                         fontStyle:
                             FlutterFlowTheme.of(context).bodyMedium.fontStyle,
+                        color: FlutterFlowTheme.of(context).primaryText,
                       ),
                   cursorColor: FlutterFlowTheme.of(context).primary,
                   validator: widget.model.passwordTextControllerValidator
@@ -281,7 +283,7 @@ class _SignInCardState extends State<SignInCard> {
                             ),
                       height: 52.0,
                       textStyle: const TextStyle(
-                        color: Color(0xFF000000),
+                        color: Colors.white,
                         fontWeight: FontWeight.bold,
                         fontFamily: 'Inter Tight',
                         fontSize: 18.0,

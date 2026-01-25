@@ -78,8 +78,8 @@ class TaskSectionsUIHelper {
               );
             },
             itemCount: visibleItems.length,
-            itemExtent: 85.0, // Approximate item height for better scroll performance
-            onReorder: (oldIndex, newIndex) => handleReorder(oldIndex, newIndex, key),
+            onReorder: (oldIndex, newIndex) =>
+                handleReorder(oldIndex, newIndex, key),
           ),
         );
         if (key == 'Recent Completions') {
@@ -253,9 +253,8 @@ class TaskSectionsUIHelper {
   }) {
     if (bucketKey == 'Recent Completions') {
       final completedAt = instance.completedAt!;
-      final completedStr = isSameDay(completedAt, DateTime.now())
-          ? 'Today'
-          : 'Yesterday';
+      final completedStr =
+          isSameDay(completedAt, DateTime.now()) ? 'Today' : 'Yesterday';
       final due = instance.dueDate;
       final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
       final timeStr = instance.hasDueTime()
@@ -288,8 +287,8 @@ class TaskSectionsUIHelper {
     required List<CategoryRecord> categories,
   }) {
     try {
-      final category = categories
-          .firstWhere((c) => c.name == instance.templateCategoryName);
+      final category =
+          categories.firstWhere((c) => c.name == instance.templateCategoryName);
       return category.color;
     } catch (e) {
       return '#000000';

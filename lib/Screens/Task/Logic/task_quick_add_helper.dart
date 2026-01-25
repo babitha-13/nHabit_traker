@@ -9,31 +9,31 @@ import 'package:habit_tracker/Screens/Task/Logic/task_quick_add_ui_helper.dart';
 class TaskQuickAddHelper {
   // Delegate to UI Helper
   static Widget buildQuickAddWithState(
-      BuildContext context,
-      StateSetter setModalState,
-      StateSetter setState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    StateSetter setModalState,
+    StateSetter setState,
+    TextEditingController quickAddController,
+    String? selectedQuickTrackingType,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    List<ReminderConfig> quickReminders,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     return TaskQuickAddUIHelper.buildQuickAddWithState(
       context,
       setModalState,
@@ -63,30 +63,30 @@ class TaskQuickAddHelper {
   }
 
   static Widget buildQuickAdd(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    TextEditingController quickAddController,
+    String? selectedQuickTrackingType,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    List<ReminderConfig> quickReminders,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     return TaskQuickAddUIHelper.buildQuickAdd(
       context,
       updateState,
@@ -115,45 +115,45 @@ class TaskQuickAddHelper {
   }
 
   static void showQuickAddBottomSheet(
-      BuildContext context,
-      StateSetter setModalState,
-      StateSetter setState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    StateSetter setModalState,
+    StateSetter setState,
+    TextEditingController quickAddController,
+    String? Function() getSelectedQuickTrackingType,
+    DateTime? Function() getSelectedQuickDueDate,
+    TimeOfDay? Function() getSelectedQuickDueTime,
+    int? Function() getQuickTimeEstimateMinutes,
+    bool Function() getQuickIsRecurring,
+    FrequencyConfig? Function() getQuickFrequencyConfig,
+    List<ReminderConfig> Function() getQuickReminders,
+    int Function() getQuickTargetNumber,
+    Duration Function() getQuickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     TaskQuickAddUIHelper.showQuickAddBottomSheet(
       context,
       setModalState,
       setState,
       quickAddController,
-      selectedQuickTrackingType,
-      selectedQuickDueDate,
-      selectedQuickDueTime,
-      quickTimeEstimateMinutes,
-      quickIsRecurring,
-      quickFrequencyConfig,
-      quickReminders,
-      quickTargetNumber,
-      quickTargetDuration,
+      getSelectedQuickTrackingType,
+      getSelectedQuickDueDate,
+      getSelectedQuickDueTime,
+      getQuickTimeEstimateMinutes,
+      getQuickIsRecurring,
+      getQuickFrequencyConfig,
+      getQuickReminders,
+      getQuickTargetNumber,
+      getQuickTargetDuration,
       quickTargetNumberController,
       quickHoursController,
       quickMinutesController,
@@ -170,22 +170,22 @@ class TaskQuickAddHelper {
 
   // Delegate to Routine Main page Helper
   static Future<void> submitQuickAdd(
-      BuildContext context,
-      String title,
-      String? categoryId,
-      List<CategoryRecord> categories,
-      String? selectedQuickTrackingType,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      TextEditingController quickUnitController,
-      List<ReminderConfig> quickReminders,
-      Function() onReset,
-      ) async {
+    BuildContext context,
+    String title,
+    String? categoryId,
+    List<CategoryRecord> categories,
+    String? selectedQuickTrackingType,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    TextEditingController quickUnitController,
+    List<ReminderConfig> quickReminders,
+    Function() onReset,
+  ) async {
     return TaskQuickAddLogicHelper.submitQuickAdd(
       context,
       title,
@@ -240,18 +240,19 @@ class TaskQuickAddHelper {
   }
 
   static bool isQuickTimeTarget(String? trackingType, Duration targetDuration) {
-    return TaskQuickAddLogicHelper.isQuickTimeTarget(trackingType, targetDuration);
+    return TaskQuickAddLogicHelper.isQuickTimeTarget(
+        trackingType, targetDuration);
   }
 
   static Future<void> selectQuickDueDate(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      DateTime? selectedQuickDueDate,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      Function(DateTime?) onDueDateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    DateTime? selectedQuickDueDate,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    Function(DateTime?) onDueDateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+  ) async {
     return TaskQuickAddLogicHelper.selectQuickDueDate(
       context,
       updateState,
@@ -264,11 +265,11 @@ class TaskQuickAddHelper {
   }
 
   static Future<void> selectQuickDueTime(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      TimeOfDay? selectedQuickDueTime,
-      Function(TimeOfDay?) onDueTimeChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    TimeOfDay? selectedQuickDueTime,
+    Function(TimeOfDay?) onDueTimeChanged,
+  ) async {
     return TaskQuickAddLogicHelper.selectQuickDueTime(
       context,
       updateState,
@@ -278,11 +279,11 @@ class TaskQuickAddHelper {
   }
 
   static Future<void> selectQuickTimeEstimate(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      int? quickTimeEstimateMinutes,
-      Function(int?) onTimeEstimateChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    int? quickTimeEstimateMinutes,
+    Function(int?) onTimeEstimateChanged,
+  ) async {
     return TaskQuickAddLogicHelper.selectQuickTimeEstimate(
       context,
       updateState,
@@ -304,13 +305,13 @@ class TaskQuickAddHelper {
   }
 
   static Future<void> selectQuickReminders(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      List<ReminderConfig> quickReminders,
-      TimeOfDay? selectedQuickDueTime,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      ) async {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    List<ReminderConfig> quickReminders,
+    TimeOfDay? selectedQuickDueTime,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+  ) async {
     return TaskQuickAddLogicHelper.selectQuickReminders(
       context,
       updateState,
@@ -325,4 +326,3 @@ class TaskQuickAddHelper {
     return TaskQuickAddLogicHelper.getQuickFrequencyDescription(config);
   }
 }
-

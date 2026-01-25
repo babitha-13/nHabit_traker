@@ -142,6 +142,8 @@ class ActivityInstanceService {
       templateTimesPerPeriod: template.timesPerPeriod,
       templatePeriodType: template.periodType,
       templateDueTime: template.dueTime,
+      // Initialize originalDueDate with the initial due date
+      originalDueDate: initialDueDate,
       // Set habit-specific fields
       dayState: template.categoryType == 'habit' ? 'open' : null,
       belongsToDate: template.categoryType == 'habit' ||
@@ -1398,8 +1400,11 @@ class ActivityInstanceService {
             final template = ActivityRecord.fromSnapshot(templateDoc);
             // Generate next instance if template is recurring and still active
             if (template.isRecurring && template.isActive) {
+              // Use originalDueDate if available to preserve recurrence schedule
+              final recurrenceAnchorDate =
+                  instance.originalDueDate ?? instance.dueDate!;
               final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
-                currentDueDate: instance.dueDate!,
+                currentDueDate: recurrenceAnchorDate,
                 template: template,
               );
               if (nextDueDate != null) {
@@ -1482,7 +1487,31 @@ class ActivityInstanceService {
                       isGreaterThan: instance.belongsToDate);
 
           final futureInstances = await futureInstancesQuery.get();
-          for (final doc in futureInstances.docs) {
+          final List<DocumentSnapshot> docsToDelete = [...futureInstances.docs];
+
+          // EXTRA SAFETY: Also check for instances with > dueDate to catch any edge cases
+          // where belongsToDate might have been set identically (unlikely but possible in race conditions)
+          // or if belongsToDate logic missed something.
+          if (instance.dueDate != null) {
+            try {
+              final futureByDateQuery =
+                  ActivityInstanceRecord.collectionForUser(uid)
+                      .where('templateId', isEqualTo: instance.templateId)
+                      .where('status', isEqualTo: 'pending')
+                      .where('dueDate', isGreaterThan: instance.dueDate);
+              final futureByDate = await futureByDateQuery.get();
+              for (final doc in futureByDate.docs) {
+                // Add if not already in list
+                if (!docsToDelete.any((d) => d.id == doc.id)) {
+                  docsToDelete.add(doc);
+                }
+              }
+            } catch (e) {
+              // Ignore index errors for the secondary safety check
+            }
+          }
+
+          for (final doc in docsToDelete) {
             // IMPORTANT: uncompleting a habit can delete auto-generated future
             // pending instances. Broadcast deletions so any mounted screens
             // can remove stale references and avoid writing to deleted docs.
@@ -1503,6 +1532,49 @@ class ActivityInstanceService {
             print('   Click the link to create the index automatically.');
           }
           rethrow;
+        }
+      }
+
+      // For recurring tasks, delete any pending future instances that were auto-generated
+      if (instance.templateCategoryType == 'task' &&
+          instance.templateIsRecurring &&
+          instance.dueDate != null) {
+        try {
+          // Query for pending instances of same template with later due date
+          final futureTasksQuery = ActivityInstanceRecord.collectionForUser(uid)
+              .where('templateId', isEqualTo: instance.templateId)
+              .where('status', isEqualTo: 'pending')
+              .where('dueDate', isGreaterThan: instance.dueDate);
+
+          final futureTasks = await futureTasksQuery.get();
+          for (final doc in futureTasks.docs) {
+            final deletedInstance = ActivityInstanceRecord.fromSnapshot(doc);
+            await doc.reference.delete();
+            InstanceEvents.broadcastInstanceDeleted(deletedInstance);
+          }
+        } catch (e) {
+          print('❌ MISSING INDEX: uncompleteInstance needs Index for Tasks');
+          // Fallback: Query by templateId + status and filter in memory if index missing
+          // This is a safety net to avoid crashing if index isn't ready
+          try {
+            final allPendingTasks =
+                ActivityInstanceRecord.collectionForUser(uid)
+                    .where('templateId', isEqualTo: instance.templateId)
+                    .where('status', isEqualTo: 'pending')
+                    .get();
+            final results = await allPendingTasks;
+            for (final doc in results.docs) {
+              final task = ActivityInstanceRecord.fromSnapshot(doc);
+              if (task.dueDate != null &&
+                  instance.dueDate != null &&
+                  task.dueDate!.isAfter(instance.dueDate!)) {
+                await doc.reference.delete();
+                InstanceEvents.broadcastInstanceDeleted(task);
+              }
+            }
+          } catch (e2) {
+            print('Error in fallback cleanup for tasks: $e2');
+          }
         }
       }
 
@@ -2258,8 +2330,11 @@ class ActivityInstanceService {
               final template = ActivityRecord.fromSnapshot(templateDoc);
               // Generate next instance if template is recurring and still active
               if (template.isRecurring && template.isActive) {
+                // Use originalDueDate if available to preserve recurrence schedule
+                final recurrenceAnchorDate =
+                    instance.originalDueDate ?? instance.dueDate!;
                 final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
-                  currentDueDate: instance.dueDate!,
+                  currentDueDate: recurrenceAnchorDate,
                   template: template,
                 );
                 if (nextDueDate != null) {
@@ -2524,7 +2599,9 @@ class ActivityInstanceService {
 
       // Step 2: Generate all due dates from oldestInstance forward
       final List<DateTime> allDueDates = [];
-      DateTime currentDueDate = oldestInstance.dueDate ?? DateTime.now();
+      DateTime currentDueDate = oldestInstance.originalDueDate ??
+          oldestInstance.dueDate ??
+          DateTime.now();
 
       // Generate due dates until we pass yesterday
       while (currentDueDate.isBefore(yesterday.add(const Duration(days: 30)))) {
@@ -2612,6 +2689,7 @@ class ActivityInstanceService {
             final instanceData = createActivityInstanceRecordData(
               templateId: template.reference.id,
               dueDate: dueDate,
+              originalDueDate: dueDate,
               dueTime: template.dueTime,
               status: 'skipped',
               skippedAt: windowEndDate,
@@ -2728,6 +2806,7 @@ class ActivityInstanceService {
       try {
         await instanceRef.update({
           'dueDate': newDueDate,
+          'originalDueDate': instance.originalDueDate ?? instance.dueDate,
           'lastUpdated': DateService.currentDate,
         });
         // Reschedule reminder for rescheduled instance

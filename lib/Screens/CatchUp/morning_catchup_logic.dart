@@ -384,15 +384,17 @@ class MorningCatchUpDialogLogic {
       await MorningCatchUpService.resetReminderCount();
       await MorningCatchUpService.markDialogAsShown();
 
-      // Check if there are still remaining items (tasks remain even after skipping habits)
-      final updatedRemainingItems = items
-          .where((item) => !processedItemIds.contains(item.reference.id))
-          .toList();
+      // Check if there are still remaining habits
+      // Tasks are ignored for the purpose of keeping the dialog open after "Skip All"
+      // because tasks are not skipped by this action and we don't want to show just tasks
+      final hasRemainingHabits = items.any((item) =>
+          !processedItemIds.contains(item.reference.id) &&
+          item.templateCategoryType == 'habit');
 
       return SkipAllResult(
         success: true,
         skippedCount: remainingHabits.length,
-        hasRemainingItems: updatedRemainingItems.isNotEmpty,
+        hasRemainingItems: hasRemainingHabits,
       );
     } catch (e) {
       return SkipAllResult(success: false, error: e.toString());
