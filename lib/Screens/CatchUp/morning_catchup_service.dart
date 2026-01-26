@@ -85,20 +85,32 @@ class MorningCatchUpService {
   static Future<bool> _hasIncompleteItemsFromYesterday(String userId) async {
     try {
       final yesterday = DateService.yesterdayStart;
-      final today = DateService.todayStart;
 
       // Check for habit instances that belong to yesterday specifically
+      // Only include habits where window has ended (windowEndDate <= yesterday)
       final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'habit')
           .where('status', isEqualTo: 'pending')
-          .where('windowEndDate', isLessThanOrEqualTo: today)
+          .where('windowEndDate', isLessThanOrEqualTo: yesterday)
           .limit(50); // Get more to filter client-side
       final habitSnapshot = await habitQuery.get();
-      // Filter to ONLY yesterday's items
+      // Filter to ONLY yesterday's items where window has ended
       final yesterdayHabits = habitSnapshot.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((item) {
         if (item.skippedAt != null) return false;
+        // Ensure window has ended before including
+        if (item.windowEndDate != null) {
+          final windowEndDateOnly = DateTime(
+            item.windowEndDate!.year,
+            item.windowEndDate!.month,
+            item.windowEndDate!.day,
+          );
+          // Window must have ended (is before or equal to yesterday)
+          if (windowEndDateOnly.isAfter(yesterday)) {
+            return false; // Window still active, exclude
+          }
+        }
         // Check belongsToDate
         if (item.belongsToDate != null) {
           final belongsToDateOnly = DateTime(
@@ -107,10 +119,10 @@ class MorningCatchUpService {
             item.belongsToDate!.day,
           );
           if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
-            return true;
+            return true; // Belongs to yesterday and window has ended
           }
         }
-        // Check windowEndDate
+        // Check windowEndDate - if it's yesterday, the habit window ended yesterday
         if (item.windowEndDate != null) {
           final windowEndDateOnly = DateTime(
             item.windowEndDate!.year,
@@ -118,7 +130,7 @@ class MorningCatchUpService {
             item.windowEndDate!.day,
           );
           if (windowEndDateOnly.isAtSameMomentAs(yesterday)) {
-            return true;
+            return true; // This habit's window ended yesterday
           }
         }
         return false;
@@ -163,18 +175,31 @@ class MorningCatchUpService {
   static Future<List<ActivityInstanceRecord>> _getHabitItemsFromYesterday(
       String userId, DateTime yesterday, DateTime today) async {
     try {
+      // Only include habits where window has ended (windowEndDate <= yesterday)
       final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'habit')
           .where('status', isEqualTo: 'pending')
-          .where('windowEndDate', isLessThanOrEqualTo: today)
+          .where('windowEndDate', isLessThanOrEqualTo: yesterday)
           .orderBy('windowEndDate', descending: false);
       final habitSnapshot = await habitQuery.get();
-      // Filter to ONLY yesterday's items: belongsToDate is yesterday OR windowEndDate is yesterday
+      // Filter to ONLY yesterday's items where window has ended: belongsToDate is yesterday OR windowEndDate is yesterday
       final habitItems = habitSnapshot.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((item) {
         if (item.status != 'pending' || item.skippedAt != null) {
           return false; // Exclude skipped/completed items
+        }
+        // Ensure window has ended before including
+        if (item.windowEndDate != null) {
+          final windowEndDateOnly = DateTime(
+            item.windowEndDate!.year,
+            item.windowEndDate!.month,
+            item.windowEndDate!.day,
+          );
+          // Window must have ended (is before or equal to yesterday)
+          if (windowEndDateOnly.isAfter(yesterday)) {
+            return false; // Window still active, exclude
+          }
         }
         // Check if this item belongs to yesterday
         if (item.belongsToDate != null) {
@@ -184,7 +209,7 @@ class MorningCatchUpService {
             item.belongsToDate!.day,
           );
           if (belongsToDateOnly.isAtSameMomentAs(yesterday)) {
-            return true; // This habit belongs to yesterday
+            return true; // Belongs to yesterday and window has ended
           }
         }
         // Also check windowEndDate - if it's yesterday, the habit window ended yesterday
