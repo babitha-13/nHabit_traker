@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
 import 'package:calendar_view/calendar_view.dart';
-import 'package:habit_tracker/Screens/Shared/manual_time_log_helper.dart';
 import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Screens/Shared/Manual%20Time%20Log/manual_time_log_helper.dart';
 
 /// Helper class for calendar modal dialogs
 class CalendarModals {

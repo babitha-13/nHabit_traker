@@ -7,8 +7,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual%20Time%20Log/manual_time_log_helper.dart';
 import 'package:habit_tracker/Screens/Timer/Helpers/TimeManager.dart';
-import 'package:habit_tracker/Screens/Shared/manual_time_log_helper.dart';
 import 'package:habit_tracker/Screens/Timer/Helpers/timer_stop_flow.dart';
 import '../timer_page.dart';
 

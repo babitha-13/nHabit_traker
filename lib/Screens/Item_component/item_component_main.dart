@@ -14,7 +14,7 @@ import 'package:habit_tracker/Screens/Item_component/Item_controls_helper/item_q
 import 'package:habit_tracker/Screens/Item_component/item_component_subtitle.dart';
 import 'package:habit_tracker/Screens/Item_component/Item_controls_helper/item_time_controls_helper.dart';
 import 'package:habit_tracker/Screens/Item_component/item_component_ui.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_editor_dialog.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Activity%20Editor%20Dialog/activity_editor_dialog.dart';
 import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Progress/Pages/habit_detail_statistics_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
