@@ -17,6 +17,16 @@ import {
 
 const db = admin.firestore();
 
+/**
+ * Calculate effective gain (actual change in score, accounting for floor at 0)
+ * This is the actual amount the cumulative score changed, not the raw gain
+ */
+function calculateEffectiveGain(previousScore: number, actualGain: number, newScore: number): number {
+  // Effective gain is simply the actual change in score
+  // This automatically accounts for the floor at 0
+  return newScore - previousScore;
+}
+
 // Score formula constants (matching ScoreFormulas in Dart)
 const BASE_POINTS_PER_DAY = 10.0;
 const CONSISTENCY_THRESHOLD = 80.0;
@@ -29,25 +39,28 @@ const CONSISTENCY_BONUS_PARTIAL = 2.0;
 /**
  * Persist scores for a specific date
  * Creates daily progress record if it doesn't exist
+ * @param setLastProcessedDate If true, sets lastProcessedDate in progress_stats (for cloud function tracking)
  */
 export async function persistScoresForDate(
   userId: string,
-  targetDate: Date
+  targetDate: Date,
+  setLastProcessedDate = false
 ): Promise<void> {
   try {
     const normalizedDate = normalizeToStartOfDay(targetDate);
     
-    // Check if record already exists
+    // Check if record already exists using date-based document ID
     const progressRef = db
       .collection('users')
       .doc(userId)
       .collection('daily_progress');
     
-    const existingQuery = progressRef
-      .where('date', '==', admin.firestore.Timestamp.fromDate(normalizedDate));
+    const dateDocId = `${normalizedDate.getFullYear()}-`
+      + `${String(normalizedDate.getMonth() + 1).padStart(2, '0')}-`
+      + `${String(normalizedDate.getDate()).padStart(2, '0')}`;
     
-    const existingSnapshot = await existingQuery.get();
-    if (!existingSnapshot.empty) {
+    const existingDoc = await progressRef.doc(dateDocId).get();
+    if (existingDoc.exists) {
       return; // Record already exists
     }
     
@@ -61,10 +74,12 @@ export async function persistScoresForDate(
 
 /**
  * Create daily progress record for a specific date
+ * @param setLastProcessedDate If true, sets lastProcessedDate in progress_stats
  */
 async function createDailyProgressRecordForDate(
   userId: string,
-  targetDate: Date
+  targetDate: Date,
+  setLastProcessedDate = false
 ): Promise<void> {
   try {
     // Fetch all instances and categories
@@ -126,7 +141,11 @@ async function createDailyProgressRecordForDate(
     
     // Get cumulative score at start of target day
     const cumulativeAtStart = await getCumulativeScoreAtStartOfDay(userId, targetDate);
-    const cumulativeAtEnd = Math.max(0, cumulativeAtStart + scoreData.todayScore);
+    const actualGain = scoreData.todayScore;
+    const cumulativeAtEnd = Math.max(0, cumulativeAtStart + actualGain);
+    
+    // Calculate effective gain (actual change in score, accounting for floor at 0)
+    const effectiveGain = calculateEffectiveGain(cumulativeAtStart, actualGain, cumulativeAtEnd);
     
     // Count statistics
     const stats = countStatistics(
@@ -165,6 +184,13 @@ async function createDailyProgressRecordForDate(
       taskBreakdown: calculationResult.taskBreakdown,
       cumulativeScoreSnapshot: cumulativeAtEnd,
       dailyScoreGain: scoreData.todayScore,
+      effectiveGain: effectiveGain,
+      dailyPoints: scoreData.dailyPoints,
+      consistencyBonus: scoreData.consistencyBonus,
+      recoveryBonus: scoreData.recoveryBonus,
+      decayPenalty: scoreData.decayPenalty,
+      categoryNeglectPenalty: scoreData.categoryNeglectPenalty,
+      previousDayCumulativeScore: cumulativeAtStart,
       createdAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     
@@ -173,7 +199,12 @@ async function createDailyProgressRecordForDate(
       .doc(userId)
       .collection('daily_progress');
     
-    await progressRef.add(progressData);
+    // Use date as document ID for easy tracing: "YYYY-MM-DD"
+    const dateDocId = `${targetDate.getFullYear()}-`
+      + `${String(targetDate.getMonth() + 1).padStart(2, '0')}-`
+      + `${String(targetDate.getDate()).padStart(2, '0')}`;
+    
+    await progressRef.doc(dateDocId).set(progressData, { merge: true });
     
     // Update user progress stats
     await updateUserProgressStats(
@@ -182,7 +213,17 @@ async function createDailyProgressRecordForDate(
       targetDate,
       scoreData.todayScore,
       calculationResult.completionPercentage,
-      scoreData.categoryNeglectPenalty
+      scoreData.categoryNeglectPenalty,
+      setLastProcessedDate
+    );
+
+    // Update cumulative score history document
+    await updateCumulativeScoreHistory(
+      userId,
+      targetDate,
+      cumulativeAtEnd,
+      scoreData.todayScore,
+      effectiveGain
     );
   } catch (error) {
     console.error(`Error creating daily progress record for user ${userId}:`, error);
@@ -328,7 +369,7 @@ async function calculateScore(
   habitInstances: ActivityInstance[]
 ): Promise<{
   todayScore: number;
-  dailyScore: number;
+  dailyPoints: number;
   consistencyBonus: number;
   recoveryBonus: number;
   decayPenalty: number;
@@ -337,8 +378,8 @@ async function calculateScore(
   // Get last 7 days for consistency bonus
   const last7Days = await getLastNDays(userId, 7);
   
-  // Base daily score
-  const dailyScore = calculateDailyScore(completionPercentage, pointsEarned);
+  // Base daily points
+  const dailyPoints = calculateDailyScore(completionPercentage, pointsEarned);
   
   // Consistency bonus
   const consistencyBonus = calculateConsistencyBonus(last7Days);
@@ -366,11 +407,11 @@ async function calculateScore(
   );
   
   // Today's total score
-  const todayScore = dailyScore + consistencyBonus + recoveryBonus - decayPenalty - categoryNeglectPenalty;
+  const todayScore = dailyPoints + consistencyBonus + recoveryBonus - decayPenalty - categoryNeglectPenalty;
   
   return {
     todayScore,
-    dailyScore,
+    dailyPoints,
     consistencyBonus,
     recoveryBonus,
     decayPenalty,
@@ -767,7 +808,7 @@ async function getUserStats(userId: string): Promise<UserProgressStats | null> {
     const statsRef = db
       .collection('users')
       .doc(userId)
-      .collection('user_progress_stats')
+      .collection('progress_stats')
       .doc('main');
     
     const statsDoc = await statsRef.get();
@@ -787,13 +828,14 @@ async function updateUserProgressStats(
   calculationDate: Date,
   dailyGain: number,
   completionPercentage: number,
-  categoryNeglectPenalty: number
+  categoryNeglectPenalty: number,
+  setLastProcessedDate = false
 ): Promise<void> {
   try {
     const statsRef = db
       .collection('users')
       .doc(userId)
-      .collection('user_progress_stats')
+      .collection('progress_stats')
       .doc('main');
     
     const existingStats = await getUserStats(userId);
@@ -815,6 +857,13 @@ async function updateUserProgressStats(
       lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
     };
     
+    // Set lastProcessedDate if requested (when called from cloud function)
+    if (setLastProcessedDate) {
+      // Set to yesterday's date (normalized to start of day)
+      const yesterday = normalizeToStartOfDay(calculationDate);
+      statsData.lastProcessedDate = admin.firestore.Timestamp.fromDate(yesterday);
+    }
+    
     if (existingStats) {
       await statsRef.update(statsData);
     } else {
@@ -832,6 +881,72 @@ async function updateUserProgressStats(
     console.error(`Error updating user stats for ${userId}:`, error);
     // Don't throw - stats update is not critical
   }
+}
+
+/**
+ * Update cumulative score history document with today's entry
+ * Keeps last 100 days of history
+ */
+async function updateCumulativeScoreHistory(
+  userId: string,
+  date: Date,
+  score: number,
+  gain: number,
+  effectiveGain: number
+): Promise<void> {
+  try {
+    const historyRef = db
+      .collection('users')
+      .doc(userId)
+      .collection('cumulative_score_history')
+      .doc('history');
+    
+    const historyDoc = await historyRef.get();
+    let scores: Array<{date: admin.firestore.Timestamp, score: number, gain: number, effectiveGain: number}> = [];
+    
+    if (historyDoc.exists) {
+      const data = historyDoc.data();
+      if (data && data.scores) {
+        scores = data.scores;
+      }
+    }
+    
+    // Remove existing entry for this date (if any)
+    const dateKey = formatDateKey(date);
+    scores = scores.filter(s => formatDateKey(s.date.toDate()) !== dateKey);
+    
+    // Add new entry
+    scores.push({
+      date: admin.firestore.Timestamp.fromDate(date),
+      score,
+      gain,
+      effectiveGain,
+    });
+    
+    // Keep last 100 days
+    scores.sort((a, b) => a.date.toMillis() - b.date.toMillis());
+    if (scores.length > 100) {
+      scores = scores.slice(-100);
+    }
+    
+    await historyRef.set({
+      scores,
+      lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+    });
+  } catch (error) {
+    console.error(`Error updating cumulative score history for ${userId}:`, error);
+    // Don't throw - history update is non-critical, can be recalculated from daily_progress
+  }
+}
+
+/**
+ * Format date as YYYY-MM-DD key for comparison
+ */
+function formatDateKey(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
@@ -881,12 +996,24 @@ export async function persistScoresForMissedDaysIfNeeded(userId: string): Promis
       // Limit to 90 days to avoid excessive processing
       const daysToProcess = Math.min(daysDiff, 90);
       
-      // Create records for each missed day
+      // Build list of missed dates
+      const missedDates: Date[] = [];
       for (let i = 1; i <= daysToProcess; i++) {
         const missedDate = new Date(lastRecordNormalized);
         missedDate.setUTCDate(missedDate.getUTCDate() + i);
+        missedDates.push(missedDate);
+      }
+      
+      // Process missed days in parallel batches to improve performance
+      // Batch size of 10 balances speed with Firestore load
+      const batchSize = 10;
+      for (let i = 0; i < missedDates.length; i += batchSize) {
+        const batch = missedDates.slice(i, i + batchSize);
         
-        await persistScoresForDate(userId, missedDate);
+        // Process batch in parallel
+        await Promise.all(
+          batch.map((date) => persistScoresForDate(userId, date))
+        );
       }
     }
   } catch (error) {

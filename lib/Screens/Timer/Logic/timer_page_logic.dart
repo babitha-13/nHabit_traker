@@ -32,9 +32,43 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
     remainingTime = countdownDuration;
     if (widget.initialTimerLogRef != null) {
       taskInstanceRef = widget.initialTimerLogRef;
-      if (widget.fromSwipe) {
+      if (widget.fromNotification) {
+        _resumeRunningTimer();
+      } else if (widget.fromSwipe) {
         loadInstanceData();
         startTimer(fromTask: true);
+      }
+    }
+  }
+
+  /// Sync UI with an already-running instance (e.g. opened from notification). Does not call startTimeLogging.
+  Future<void> _resumeRunningTimer() async {
+    if (taskInstanceRef == null) return;
+    try {
+      final instance =
+          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
+      if (!mounted) return;
+      setState(() {
+        templateTrackingType = instance.templateTrackingType;
+        isStopwatch = true;
+        isRunning = true;
+        if (instance.templateTrackingType == 'binary' &&
+            (instance.isTimeLogging ||
+                instance.currentSessionStartTime != null)) {
+          stopwatchElapsed = Duration(milliseconds: instance.totalTimeLogged);
+          stopwatchRunStart =
+              instance.currentSessionStartTime ?? instance.timerStartTime;
+        } else {
+          stopwatchElapsed = Duration(milliseconds: instance.accumulatedTime);
+          stopwatchRunStart = instance.timerStartTime;
+        }
+      });
+      startTicker();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error resuming timer: $e')),
+        );
       }
     }
   }
@@ -49,7 +83,8 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
   Future<void> loadInstanceData() async {
     if (taskInstanceRef == null) return;
     try {
-      final instance = await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
+      final instance =
+          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
       if (mounted) {
         setState(() {
           templateTrackingType = instance.templateTrackingType;
@@ -160,7 +195,8 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
       stopwatchElapsed = Duration.zero;
       stopwatchRunStart = DateTime.now();
     } else {
-      remainingTime = remainingTime > Duration.zero ? remainingTime : countdownDuration;
+      remainingTime =
+          remainingTime > Duration.zero ? remainingTime : countdownDuration;
       countdownEndTime = DateTime.now().add(remainingTime);
     }
     startTicker();
@@ -197,7 +233,8 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
     });
     cancelTicker();
 
-    final shouldSaveDirectly = widget.fromSwipe || widget.isessential;
+    final shouldSaveDirectly =
+        widget.fromSwipe || widget.isessential || widget.fromNotification;
 
     if (shouldSaveDirectly) {
       if (taskInstanceRef == null) {
@@ -240,7 +277,8 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
     } else {
       if (taskInstanceRef != null) {
         try {
-          final instance = await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
+          final instance =
+              await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
 
           final success = await TimerStopFlow.handleTimerStop(
             context: context,
@@ -360,12 +398,14 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
         );
       } catch (e) {}
 
-      final instance = await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
-      if (!widget.fromSwipe) {
+      final instance =
+          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
+      if (!widget.fromSwipe && !widget.fromNotification) {
         if (instance.hasTemplateId()) {
           final userId = await waitForCurrentUserUid();
           if (userId.isNotEmpty) {
-            final templateRef = ActivityRecord.collectionForUser(userId).doc(instance.templateId);
+            final templateRef = ActivityRecord.collectionForUser(userId)
+                .doc(instance.templateId);
             await templateRef.delete();
           }
         }
@@ -468,16 +508,18 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
 
       if (taskInstanceRef != null) {
         try {
-          if (widget.fromSwipe) {
+          if (widget.fromSwipe || widget.fromNotification) {
             await TaskInstanceService.discardTimeLogging(
               activityInstanceRef: taskInstanceRef!,
             );
           } else {
-            final instance = await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
+            final instance =
+                await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
             if (instance.hasTemplateId()) {
               final userId = await waitForCurrentUserUid();
               if (userId.isNotEmpty) {
-                final templateRef = ActivityRecord.collectionForUser(userId).doc(instance.templateId);
+                final templateRef = ActivityRecord.collectionForUser(userId)
+                    .doc(instance.templateId);
                 await templateRef.delete();
               }
             }
@@ -487,7 +529,7 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
       }
 
       if (mounted) {
-        if (widget.fromSwipe) {
+        if (widget.fromSwipe || widget.fromNotification) {
           Navigator.of(context).pop();
         } else {
           resetTimer();
@@ -518,7 +560,8 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
           'templateShowInFloatingTimer': true,
         });
 
-        final instance = await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
+        final instance =
+            await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef!);
         TimerManager().startInstance(instance);
 
         if (mounted) {

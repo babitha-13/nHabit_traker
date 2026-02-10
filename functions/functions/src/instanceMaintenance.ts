@@ -67,7 +67,7 @@ async function autoSkipExpiredHabitsBeforeYesterday(
     }
     
     // Process in batches
-    const batch = db.batch();
+    let batch = db.batch();
     let batchCount = 0;
     const maxBatchSize = 500;
     
@@ -93,9 +93,10 @@ async function autoSkipExpiredHabitsBeforeYesterday(
         // Generate next instance
         await generateNextInstance(instance, userId, batch);
         
-        // Commit batch if it reaches max size
+        // Commit batch if it reaches max size and create a new one
         if (batchCount >= maxBatchSize) {
           await batch.commit();
+          batch = db.batch(); // Create new batch after commit
           batchCount = 0;
         }
       }
@@ -138,40 +139,86 @@ async function ensurePendingInstancesExist(
       return;
     }
     
+    // Collect all template data and IDs
+    const templates: Array<{ id: string; data: ActivityRecord }> = [];
+    const templateIds: string[] = [];
+    
+    activeHabitsSnapshot.forEach((doc) => {
+      templates.push({ id: doc.id, data: doc.data() as ActivityRecord });
+      templateIds.push(doc.id);
+    });
+    
     const instancesRef = db
       .collection('users')
       .doc(userId)
       .collection('activity_instances');
     
-    for (const templateDoc of activeHabitsSnapshot.docs) {
-      const template = templateDoc.data() as ActivityRecord;
-      const templateId = templateDoc.id;
+    // Batch fetch pending instances for all templates using whereIn
+    // Firestore whereIn limit is 10, so batch in groups of 10
+    const pendingInstancesByTemplate = new Map<string, ActivityInstance[]>();
+    const mostRecentInstancesByTemplate = new Map<string, { instance: ActivityInstance; ref: admin.firestore.DocumentReference }>();
+    
+    const whereInBatchSize = 10;
+    for (let i = 0; i < templateIds.length; i += whereInBatchSize) {
+      const batchTemplateIds = templateIds.slice(i, i + whereInBatchSize);
       
-      // Check if there's a pending instance for yesterday
-      const yesterdayPendingQuery = instancesRef
-        .where('templateId', '==', templateId)
+      // Batch fetch pending instances for this group of templates
+      const pendingQuery = instancesRef
+        .where('templateId', 'in', batchTemplateIds)
         .where('status', '==', 'pending');
       
-      const yesterdayPendingSnapshot = await yesterdayPendingQuery.get();
+      const pendingSnapshot = await pendingQuery.get();
+      
+      // Group instances by templateId
+      pendingSnapshot.forEach((doc) => {
+        const instance = doc.data() as ActivityInstance;
+        const templateId = instance.templateId;
+        if (!pendingInstancesByTemplate.has(templateId)) {
+          pendingInstancesByTemplate.set(templateId, []);
+        }
+        pendingInstancesByTemplate.get(templateId)!.push(instance);
+      });
+      
+      // Batch fetch most recent instances for this group (for templates needing generation)
+      // Use parallel queries for each template in batch (limit 1 per template)
+      const mostRecentPromises = batchTemplateIds.map(async (templateId) => {
+        const allInstancesQuery = instancesRef
+          .where('templateId', '==', templateId)
+          .orderBy('windowEndDate', 'desc')
+          .limit(1);
+        
+        const snapshot = await allInstancesQuery.get();
+        if (!snapshot.empty) {
+          const doc = snapshot.docs[0];
+          mostRecentInstancesByTemplate.set(templateId, {
+            instance: doc.data() as ActivityInstance,
+            ref: doc.ref
+          });
+        }
+      });
+      
+      await Promise.all(mostRecentPromises);
+    }
+    
+    // Process each template with pre-fetched instance data
+    for (const { id: templateId, data: template } of templates) {
+      const pendingInstances = pendingInstancesByTemplate.get(templateId) || [];
       
       // Filter to check if any belong to yesterday
       let hasYesterdayPending = false;
-      const pendingInstances: ActivityInstance[] = [];
-      
-      yesterdayPendingSnapshot.forEach((doc) => {
-        const instance = doc.data() as ActivityInstance;
-        pendingInstances.push(instance);
-        
+      for (const instance of pendingInstances) {
         const belongsToDate = timestampToDate(instance.belongsToDate);
         const windowEndDate = timestampToDate(instance.windowEndDate);
         
         if (belongsToDate && isSameDay(belongsToDate, yesterday)) {
           hasYesterdayPending = true;
+          break;
         }
         if (windowEndDate && isSameDay(windowEndDate, yesterday)) {
           hasYesterdayPending = true;
+          break;
         }
-      });
+      }
       
       // If there's a pending instance for yesterday, don't generate today's instance
       if (hasYesterdayPending) {
@@ -204,24 +251,17 @@ async function ensurePendingInstancesExist(
       }
       
       // No pending instance found - need to generate one
-      // Find the most recent instance to generate from
-      const allInstancesQuery = instancesRef
-        .where('templateId', '==', templateId)
-        .orderBy('windowEndDate', 'desc')
-        .limit(1);
+      const mostRecentData = mostRecentInstancesByTemplate.get(templateId);
       
-      const allInstancesSnapshot = await allInstancesQuery.get();
-      
-      if (!allInstancesSnapshot.empty) {
-        const mostRecentDoc = allInstancesSnapshot.docs[0];
-        const mostRecentInstance = mostRecentDoc.data() as ActivityInstance;
-        
+      if (mostRecentData) {
+        const mostRecentInstance = mostRecentData.instance;
         if (mostRecentInstance.windowEndDate) {
           const windowEndDate = timestampToDate(mostRecentInstance.windowEndDate);
           if (windowEndDate && windowEndDate < yesterday) {
             // Window ended before yesterday - skip the instance and generate next
+            // Use pre-fetched document reference to avoid extra query
             await skipInstanceAndGenerateNext(
-              mostRecentDoc.ref,
+              mostRecentData.ref,
               mostRecentInstance,
               userId,
               windowEndDate
@@ -267,11 +307,11 @@ async function updateLastDayValuesOnly(
       return;
     }
     
-    const batch = db.batch();
+    let batch = db.batch();
     let batchCount = 0;
     const maxBatchSize = 500;
     
-    openWindowsSnapshot.forEach((doc) => {
+    for (const doc of openWindowsSnapshot.docs) {
       const instance = doc.data() as ActivityInstance;
       
       // Update lastDayValue to current value for next day's differential calculation
@@ -282,12 +322,15 @@ async function updateLastDayValuesOnly(
       
       batchCount++;
       
+      // Commit batch when it reaches max size and create a new one
       if (batchCount >= maxBatchSize) {
-        batch.commit();
+        await batch.commit();
+        batch = db.batch(); // Create new batch after commit
         batchCount = 0;
       }
-    });
+    }
     
+    // Commit remaining updates
     if (batchCount > 0) {
       await batch.commit();
     }

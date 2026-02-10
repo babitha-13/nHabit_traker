@@ -10,23 +10,26 @@ class TimerPage extends StatefulWidget {
   final String? taskTitle;
   final bool fromSwipe;
   final bool isessential; // Indicates if this is a essential activity
+  /// When true, opens with an already-running timer (e.g. from notification tap) and shows elapsed time without calling startTimeLogging.
+  final bool fromNotification;
   const TimerPage({
     super.key,
     this.initialTimerLogRef,
     this.taskTitle,
     this.fromSwipe = false,
     this.isessential = false,
+    this.fromNotification = false,
   });
   @override
   State<TimerPage> createState() => _TimerPageState();
 }
 
-class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver, TimerPageLogic {
+class _TimerPageState extends State<TimerPage>
+    with WidgetsBindingObserver, TimerPageLogic {
   @override
   Widget build(BuildContext context) {
-    final displayTime = isStopwatch
-        ? currentStopwatchElapsed()
-        : currentCountdownRemaining();
+    final displayTime =
+        isStopwatch ? currentStopwatchElapsed() : currentCountdownRemaining();
     return WillPopScope(
       onWillPop: onWillPop,
       child: Scaffold(
@@ -47,8 +50,7 @@ class _TimerPageState extends State<TimerPage> with WidgetsBindingObserver, Time
                   formatTime(displayTime),
                   style: TextStyle(
                     fontSize: 72,
-                    color:
-                        !isStopwatch ? Theme.of(context).primaryColor : null,
+                    color: !isStopwatch ? Theme.of(context).primaryColor : null,
                   ),
                 ),
               ),

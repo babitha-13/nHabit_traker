@@ -124,6 +124,13 @@ export interface DailyProgressRecord {
   lastEditedAt?: FirestoreTimestamp;
   cumulativeScoreSnapshot?: number;
   dailyScoreGain?: number;
+  effectiveGain?: number;
+  dailyPoints?: number;
+  consistencyBonus?: number;
+  recoveryBonus?: number;
+  decayPenalty?: number;
+  categoryNeglectPenalty?: number;
+  previousDayCumulativeScore?: number;
 }
 
 // User Progress Stats types
@@ -140,6 +147,14 @@ export interface UserProgressStats {
   achievedMilestones: number;
   createdAt?: FirestoreTimestamp;
   lastUpdatedAt?: FirestoreTimestamp;
+  // New field names (preferred)
+  averageDailyGain7Day?: number;
+  averageDailyGain30Day?: number;
+  bestDailyGain?: number;
+  worstDailyGain?: number;
+  negativeDaysCount7Day?: number;
+  negativeDaysCount30Day?: number;
+  // Old field names (backward compatibility)
   averageDailyScore7Day?: number;
   averageDailyScore30Day?: number;
   bestDailyScoreGain?: number;
@@ -151,6 +166,7 @@ export interface UserProgressStats {
   averageCumulativeScore7Day?: number;
   averageCumulativeScore30Day?: number;
   lastAggregateStatsCalculationDate?: FirestoreTimestamp;
+  lastProcessedDate?: FirestoreTimestamp;
 }
 
 // Category Record types
