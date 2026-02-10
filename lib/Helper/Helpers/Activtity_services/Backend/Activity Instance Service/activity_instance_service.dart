@@ -10,11 +10,10 @@ import 'Services/activity_instance_completion_service.dart';
 import 'Services/activity_instance_progress_service.dart';
 import 'Services/activity_instance_scheduling_service.dart';
 import 'Services/activity_instance_helper_service.dart';
-export 'Services/activity_instance_completion_service.dart' show StackedSessionTimes;
-
+export 'Services/activity_instance_completion_service.dart'
+    show StackedSessionTimes;
 
 class ActivityInstanceService {
-
   static Future<DocumentReference> createActivityInstance({
     required String templateId,
     DateTime? dueDate,
@@ -33,7 +32,6 @@ class ActivityInstanceService {
     );
   }
 
-
   static Future<List<ActivityInstanceRecord>> getActiveTaskInstances({
     String? userId,
   }) async {
@@ -45,7 +43,6 @@ class ActivityInstanceService {
   }) async {
     return ActivityInstanceQueryService.getAllTaskInstances(userId: userId);
   }
-
 
   static Future<List<ActivityInstanceRecord>> getTaskInstancesHistory({
     required int daysAgo,
@@ -66,7 +63,6 @@ class ActivityInstanceService {
         userId: userId);
   }
 
-
   static Future<List<ActivityInstanceRecord>> getHabitInstancesForDate({
     required DateTime targetDate,
     String? userId,
@@ -76,7 +72,6 @@ class ActivityInstanceService {
       userId: userId,
     );
   }
-
 
   static Future<List<ActivityInstanceRecord>> getAllHabitInstances({
     String? userId,
@@ -96,8 +91,7 @@ class ActivityInstanceService {
   static Future<List<ActivityInstanceRecord>> getActiveHabitInstances({
     String? userId,
   }) async {
-    return ActivityInstanceQueryService.getActiveHabitInstances(
-        userId: userId);
+    return ActivityInstanceQueryService.getActiveHabitInstances(userId: userId);
   }
 
   /// Get all active instances for a user (tasks and habits)
@@ -106,6 +100,13 @@ class ActivityInstanceService {
     String? userId,
   }) async {
     return ActivityInstanceQueryService.getAllActiveInstances(userId: userId);
+  }
+
+  static Future<List<ActivityInstanceRecord>> getRecentCompletedInstances({
+    String? userId,
+  }) async {
+    return ActivityInstanceQueryService.getRecentCompletedInstances(
+        userId: userId);
   }
 
   // ==================== UTILITY METHODS ====================
@@ -371,7 +372,8 @@ class ActivityInstanceService {
     required ActivityRecord template,
     required String userId,
   }) async {
-    return ActivityInstanceSchedulingService.bulkSkipExpiredInstancesWithBatches(
+    return ActivityInstanceSchedulingService
+        .bulkSkipExpiredInstancesWithBatches(
       oldestInstance: oldestInstance,
       template: template,
       userId: userId,
@@ -414,7 +416,6 @@ class ActivityInstanceService {
       userId: userId,
     );
   }
-
 
   static int calculateMissingInstancesFromInstance({
     required ActivityInstanceRecord instance,

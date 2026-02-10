@@ -72,6 +72,34 @@ class ActivityInstanceQueryService {
     return allInstances;
   }
 
+  /// Get recent completed instances (for Weekly View)
+  /// Fetches completed instances from the last 7 days
+  static Future<List<ActivityInstanceRecord>> getRecentCompletedInstances({
+    String? userId,
+  }) async {
+    final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
+    try {
+      final sevenDaysAgo = DateTime.now().subtract(const Duration(days: 7));
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('status', isEqualTo: 'completed')
+          .where('completedAt', isGreaterThanOrEqualTo: sevenDaysAgo)
+          .orderBy('completedAt', descending: true);
+
+      final result = await query.get();
+      return result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getRecentCompletedInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
+      return [];
+    }
+  }
+
   /// Get active task instances for the user
   /// This is the core method for Phase 2 - displaying instances
   /// It returns only the earliest pending instance for each task template
