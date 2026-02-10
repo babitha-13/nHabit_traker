@@ -1,7 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
@@ -247,15 +247,16 @@ class ItemQuantitativeControlsHelper {
         setBinaryCompletionOverride(true);
       });
       SoundHelper().playCompletionSound();
-      
+
       try {
         // Create optimistic instance for immediate UI update
-        final optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+        final optimisticInstance =
+            InstanceEvents.createOptimisticCompletedInstance(
           instance,
           finalValue: newValue,
         );
         final operationId = OptimisticOperationTracker.generateOperationId();
-        
+
         OptimisticOperationTracker.trackOperation(
           operationId,
           instanceId: instance.reference.id,
@@ -263,7 +264,7 @@ class ItemQuantitativeControlsHelper {
           optimisticInstance: optimisticInstance,
           originalInstance: instance,
         );
-        
+
         InstanceEvents.broadcastInstanceUpdatedOptimistic(
           optimisticInstance,
           operationId,
@@ -275,16 +276,17 @@ class ItemQuantitativeControlsHelper {
           finalValue: newValue,
           skipOptimisticUpdate: true,
         );
-        
-        final completedInstance = await ActivityInstanceService.getUpdatedInstance(
+
+        final completedInstance =
+            await ActivityInstanceService.getUpdatedInstance(
           instanceId: instance.reference.id,
         );
-        
+
         OptimisticOperationTracker.reconcileOperation(
           operationId,
           completedInstance,
         );
-        
+
         onInstanceUpdated(completedInstance);
         if (instance.templateCategoryType == 'habit') {
           onRefresh?.call();
@@ -463,15 +465,16 @@ class ItemQuantitativeControlsHelper {
     required bool Function(ActivityInstanceRecord) shouldAutoUncompleteQuant,
   }) async {
     if (!shouldAutoUncompleteQuant(updatedInstance)) return;
-    
+
     // Generate operation ID for tracking
     final operationId = OptimisticOperationTracker.generateOperationId();
-    
+
     // Create optimistic uncompleted instance IMMEDIATELY for instant UI update
-    final optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(
+    final optimisticInstance =
+        InstanceEvents.createOptimisticUncompletedInstance(
       updatedInstance,
     );
-    
+
     // Track the optimistic operation
     OptimisticOperationTracker.trackOperation(
       operationId,
@@ -480,7 +483,7 @@ class ItemQuantitativeControlsHelper {
       optimisticInstance: optimisticInstance,
       originalInstance: instance,
     );
-    
+
     // IMMEDIATE UI UPDATE: Broadcast optimistic update and update local state
     InstanceEvents.broadcastInstanceUpdatedOptimistic(
       optimisticInstance,
@@ -488,34 +491,34 @@ class ItemQuantitativeControlsHelper {
     );
     // Update page immediately
     onInstanceUpdated(optimisticInstance);
-    
+
     try {
       await ActivityInstanceService.uncompleteInstance(
         instanceId: instance.reference.id,
       );
-      
+
       // Get actual instance from backend and reconcile
       final uncompletedInstance =
           await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
-      
+
       // Reconcile optimistic update with actual backend data
       OptimisticOperationTracker.reconcileOperation(
         operationId,
         uncompletedInstance,
       );
-      
+
       // Update with actual instance (in case there are any differences)
       onInstanceUpdated(uncompletedInstance);
-      
+
       if (instance.templateCategoryType == 'habit') {
         onRefresh?.call();
       }
     } catch (e) {
       // Rollback optimistic update on error
       OptimisticOperationTracker.rollbackOperation(operationId);
-      
+
       // Restore original instance
       onInstanceUpdated(instance);
       if (isMounted()) {

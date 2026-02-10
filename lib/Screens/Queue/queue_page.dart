@@ -23,7 +23,7 @@ import 'package:habit_tracker/Screens/Queue/Helpers/queue_page_refresh.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_reorder_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_logic.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/today_points_service.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_coordinator.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_history_service.dart';
 import 'package:habit_tracker/Screens/Queue/Helpers/queue_focus_handler.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_charts_section/queue_charts_section.dart';
@@ -55,7 +55,8 @@ class QueuePage extends StatefulWidget {
   _QueuePageState createState() => _QueuePageState();
 }
 
-class _QueuePageState extends State<QueuePage> {
+class _QueuePageState extends State<QueuePage>
+    with TickerProviderStateMixin, WidgetsBindingObserver {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   List<ActivityInstanceRecord> _instances = [];
@@ -109,13 +110,20 @@ class _QueuePageState extends State<QueuePage> {
   Timer? _highlightTimer;
   DateTime?
       _lastKnownDate; // Track last known date for day transition detection
+  Timer? _fullSyncDebounceTimer;
+  Timer? _fullSyncIntervalTimer;
+  DateTime? _lastFullSyncAt;
+  static const Duration _fullSyncDebounceDuration = Duration(seconds: 60);
+  static const Duration _fullSyncInterval = Duration(minutes: 5);
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _lastKnownDate = DateService.todayStart;
     _pendingFocusTemplateId = widget.focusTemplateId;
     _pendingFocusInstanceId = widget.focusInstanceId;
     _loadExpansionState();
+    _startFullSyncTimers();
     // Load filter/sort state and data in parallel for faster initialization
     Future.wait([
       _loadFilterAndSortState(),
@@ -245,7 +253,21 @@ class _QueuePageState extends State<QueuePage> {
     _searchManager.removeSearchOpenListener(_onSearchVisibilityChanged);
     _scrollController.dispose();
     _highlightTimer?.cancel();
+    _stopFullSyncTimers();
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (!mounted) return;
+    if (state == AppLifecycleState.resumed) {
+      _startFullSyncTimers();
+      _scheduleFullSync(immediate: true);
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached) {
+      _stopFullSyncTimers();
+    }
   }
 
   @override
@@ -281,6 +303,44 @@ class _QueuePageState extends State<QueuePage> {
     } else if (_lastKnownDate == null) {
       _lastKnownDate = today;
     }
+  }
+
+  void _startFullSyncTimers() {
+    _fullSyncIntervalTimer?.cancel();
+    _fullSyncIntervalTimer = Timer.periodic(_fullSyncInterval, (_) {
+      if (!mounted) return;
+      final lastSync = _lastFullSyncAt;
+      if (lastSync == null ||
+          DateTime.now().difference(lastSync) >= _fullSyncInterval) {
+        _triggerFullSync(reason: 'interval');
+      }
+    });
+  }
+
+  void _stopFullSyncTimers() {
+    _fullSyncDebounceTimer?.cancel();
+    _fullSyncIntervalTimer?.cancel();
+  }
+
+  void _scheduleFullSync({bool immediate = false}) {
+    _fullSyncDebounceTimer?.cancel();
+    if (immediate) {
+      _triggerFullSync(reason: 'immediate');
+      return;
+    }
+    _fullSyncDebounceTimer = Timer(_fullSyncDebounceDuration, () {
+      if (!mounted) return;
+      _triggerFullSync(reason: 'debounced');
+    });
+  }
+
+  Future<void> _triggerFullSync({String reason = 'scheduled'}) async {
+    if (!mounted || currentUserUid.isEmpty) return;
+    if (_isCalculatingProgress || _isLoadingData) {
+      _scheduleFullSync();
+      return;
+    }
+    await _calculateProgress(optimistic: false);
   }
 
   bool _isSameDay(DateTime a, DateTime b) {
@@ -610,6 +670,7 @@ class _QueuePageState extends State<QueuePage> {
             habitInstancesOverride: allHabits,
             categoriesOverride: allCategories,
           );
+          _lastFullSyncAt = DateTime.now();
         }
       } catch (e) {
         // #region agent log
@@ -665,7 +726,7 @@ class _QueuePageState extends State<QueuePage> {
         categories = breakdownData['categories'] as List<CategoryRecord>;
       }
 
-      final scoreData = await CumulativeScoreCalculator.updateTodayScore(
+      final scoreData = await ScoreCoordinator.updateTodayScore(
         userId: userId,
         completionPercentage: _dailyPercentage,
         pointsEarned: _pointsEarned,
@@ -805,7 +866,13 @@ class _QueuePageState extends State<QueuePage> {
         }
 
         // Update score after progress calculation
-        await _updateTodayScore();
+        final habitInstances = _instances
+            .where((inst) => inst.templateCategoryType == 'habit')
+            .toList();
+        await _updateTodayScore(
+          habitInstancesOverride: habitInstances,
+          categoriesOverride: _categories,
+        );
       }
     } finally {
       _isCalculatingProgress = false;
@@ -941,7 +1008,7 @@ class _QueuePageState extends State<QueuePage> {
       // Create a copy of the list to ensure Flutter detects the change
       final historyCopy =
           List<Map<String, dynamic>>.from(_cumulativeScoreHistory);
-      final changed = CumulativeScoreCalculator.updateHistoryWithTodayScore(
+      final changed = ScoreCoordinator.updateHistoryWithTodayScore(
         historyCopy,
         todayScore,
         cumulativeScore,
@@ -1424,8 +1491,7 @@ class _QueuePageState extends State<QueuePage> {
       _instancesHashCode = newInstancesHash;
     });
     _calculateProgress(optimistic: true);
-    // Schedule non-optimistic in background to avoid race condition
-    Future.microtask(() => _calculateProgress(optimistic: false));
+    _scheduleFullSync();
   }
 
   void _removeInstanceFromLocalState(
@@ -1443,8 +1509,7 @@ class _QueuePageState extends State<QueuePage> {
       _instancesHashCode = newInstancesHash;
     });
     _calculateProgress(optimistic: true);
-    // Schedule non-optimistic in background to avoid race condition
-    Future.microtask(() => _calculateProgress(optimistic: false));
+    _scheduleFullSync();
   }
 
   void _handleInstanceCreated(ActivityInstanceRecord instance) {
@@ -1468,8 +1533,7 @@ class _QueuePageState extends State<QueuePage> {
     } else {
       // Full calculation for initial load
       _calculateProgress(optimistic: true);
-      // Schedule non-optimistic in background to avoid race condition
-      Future.microtask(() => _calculateProgress(optimistic: false));
+      _scheduleFullSync();
     }
   }
 
@@ -1527,8 +1591,7 @@ class _QueuePageState extends State<QueuePage> {
       // Full calculation for initial load or optimistic updates
       _calculateProgress(optimistic: true);
       if (!isOptimistic) {
-        // Schedule non-optimistic in background to avoid race condition
-        Future.microtask(() => _calculateProgress(optimistic: false));
+        _scheduleFullSync();
       }
     }
   }
@@ -1557,7 +1620,7 @@ class _QueuePageState extends State<QueuePage> {
         if (originalInstance == null && instanceId != null) {
           _revertOptimisticUpdate(instanceId);
         } else {
-          _calculateProgress(optimistic: false);
+          _scheduleFullSync(immediate: true);
         }
       }
     }
@@ -1605,8 +1668,7 @@ class _QueuePageState extends State<QueuePage> {
     } else {
       // Full calculation for initial load
       _calculateProgress(optimistic: true);
-      // Schedule non-optimistic in background to avoid race condition
-      Future.microtask(() => _calculateProgress(optimistic: false));
+      _scheduleFullSync();
     }
   }
 
@@ -1632,8 +1694,7 @@ class _QueuePageState extends State<QueuePage> {
         });
         // Fast UI update using local instances
         _calculateProgress(optimistic: true);
-        // Reconcile with backend in background
-        Future.microtask(() => _calculateProgress(optimistic: false));
+        _scheduleFullSync();
       }
     } catch (e) {}
   }
@@ -1655,7 +1716,7 @@ class _QueuePageState extends State<QueuePage> {
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
 
-      final result = await QueueReorderHandler.handleReorder(
+      await QueueReorderHandler.handleReorder(
         items: items,
         oldIndex: oldIndex,
         newIndex: newIndex,
@@ -1663,35 +1724,32 @@ class _QueuePageState extends State<QueuePage> {
         reorderingInstanceIds: _reorderingInstanceIds,
         isSortActive: _currentSort.isActive,
         sectionKey: sectionKey,
+        context: context,
+        onInstancesUpdate: (updatedInstances) {
+          if (mounted) {
+            setState(() {
+              _instances = updatedInstances;
+            });
+          } else {
+            _instances = updatedInstances;
+          }
+        },
+        onReorderingIdsUpdate: (updatedIds) {
+          _reorderingInstanceIds.clear();
+          _reorderingInstanceIds.addAll(updatedIds);
+        },
+        onCacheInvalidate: () {
+          if (mounted) {
+            final newInstancesHash =
+                QueueBucketService.calculateInstancesHash(_instances);
+            setState(() {
+              _cachedBucketedItems = null;
+              _instancesHashCode = newInstancesHash;
+            });
+          }
+        },
+        onLoadData: _loadData,
       );
-
-      if (result.success && result.updatedInstances != null) {
-        if (result.reorderingIds != null) {
-          _reorderingInstanceIds.addAll(result.reorderingIds!);
-        }
-        _cachedBucketedItems = null;
-        if (mounted) {
-          setState(() {
-            _instances.clear();
-            _instances.addAll(result.updatedInstances!);
-          });
-        }
-        if (result.reorderingIds != null) {
-          _reorderingInstanceIds.removeAll(result.reorderingIds!);
-        }
-      } else {
-        if (result.reorderingIds != null) {
-          _reorderingInstanceIds.removeAll(result.reorderingIds!);
-        }
-        await _loadData();
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-                content: Text(
-                    'Error reordering items: ${result.error ?? 'Unknown error'}')),
-          );
-        }
-      }
     } catch (e) {
       await _loadData();
       if (mounted) {

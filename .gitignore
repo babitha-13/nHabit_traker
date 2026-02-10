@@ -45,3 +45,8 @@ app.*.map.json
 /android/app/profile
 /android/app/release
 /android/.idea
+
+# Google Cloud credentials - NEVER commit these!
+serviceAccountKey.json
+*.json
+!google-services.json
