@@ -59,8 +59,8 @@ class TodayScoreCalculator {
       _last7DaysCachedAt = DateTime.now();
     }
 
-    // Base daily score from completion % and points earned
-    final dailyScore = ScoreFormulas.calculateDailyScore(
+    // Base daily points from completion % and points earned
+    final dailyPoints = ScoreFormulas.calculateDailyScore(
       completionPercentage,
       pointsEarned,
     );
@@ -109,7 +109,7 @@ class TodayScoreCalculator {
     }
 
     // Today's total score = base + bonuses - penalties
-    final todayScore = dailyScore +
+    final todayScore = dailyPoints +
         consistencyBonus +
         recoveryBonus -
         decayPenalty -
@@ -117,7 +117,7 @@ class TodayScoreCalculator {
 
     return {
       'todayScore': todayScore,
-      'dailyScore': dailyScore,
+      'dailyPoints': dailyPoints,
       'consistencyBonus': consistencyBonus,
       'recoveryBonus': recoveryBonus,
       'decayPenalty': decayPenalty,

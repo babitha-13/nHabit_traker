@@ -149,19 +149,32 @@ class _WeeklyViewState extends State<WeeklyView> {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
-        final allInstances = await queryAllInstances(userId: userId);
-        final habitCategories = await queryHabitCategoriesOnce(
-          userId: userId,
-          callerTag: 'WeeklyView._loadData.habits',
-        );
-        final taskCategories = await queryTaskCategoriesOnce(
-          userId: userId,
-          callerTag: 'WeeklyView._loadData.tasks',
-        );
+        final results = await Future.wait([
+          queryAllInstances(userId: userId),
+          ActivityInstanceService.getRecentCompletedInstances(userId: userId),
+          queryHabitCategoriesOnce(
+            userId: userId,
+            callerTag: 'WeeklyView._loadData.habits',
+          ),
+          queryTaskCategoriesOnce(
+            userId: userId,
+            callerTag: 'WeeklyView._loadData.tasks',
+          ),
+        ]);
+        final baseInstances = results[0] as List<ActivityInstanceRecord>;
+        final recentCompleted = results[1] as List<ActivityInstanceRecord>;
+        final habitCategories = results[2] as List<CategoryRecord>;
+        final taskCategories = results[3] as List<CategoryRecord>;
         final allCategories = [...habitCategories, ...taskCategories];
+        // Deduplicate instances by reference ID
+        final uniqueInstances = <String, ActivityInstanceRecord>{};
+        for (final instance in [...baseInstances, ...recentCompleted]) {
+          uniqueInstances[instance.reference.id] = instance;
+        }
+        final mergedInstances = uniqueInstances.values.toList();
         if (mounted) {
           setState(() {
-            _instances = allInstances;
+            _instances = mergedInstances;
             _categories = allCategories;
           });
           // Calculate weekly progress and wait for it to complete

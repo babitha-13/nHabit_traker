@@ -19,6 +19,10 @@ class ProgressBreakdownDialog extends StatelessWidget {
   }) : super(key: key);
   @override
   Widget build(BuildContext context) {
+    // Sort breakdown lists: Completed (by points desc) > Skipped > Pending
+    final sortedHabitBreakdown = _sortBreakdown(habitBreakdown);
+    final sortedTaskBreakdown = _sortBreakdown(taskBreakdown);
+
     return Dialog(
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(16),
@@ -109,20 +113,20 @@ class ProgressBreakdownDialog extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     // Habits Section
-                    if (habitBreakdown.isNotEmpty) ...[
+                    if (sortedHabitBreakdown.isNotEmpty) ...[
                       _buildSectionHeader(
-                          context, 'Habits', habitBreakdown.length),
+                          context, 'Habits', sortedHabitBreakdown.length),
                       const SizedBox(height: 8),
-                      ...habitBreakdown
+                      ...sortedHabitBreakdown
                           .map((habit) => _buildItemCard(context, habit)),
                       const SizedBox(height: 16),
                     ],
                     // Tasks Section
-                    if (taskBreakdown.isNotEmpty) ...[
+                    if (sortedTaskBreakdown.isNotEmpty) ...[
                       _buildSectionHeader(
-                          context, 'Tasks', taskBreakdown.length),
+                          context, 'Tasks', sortedTaskBreakdown.length),
                       const SizedBox(height: 8),
-                      ...taskBreakdown
+                      ...sortedTaskBreakdown
                           .map((task) => _buildItemCard(context, task)),
                     ],
                     // Empty state
@@ -334,5 +338,50 @@ class ProgressBreakdownDialog extends StatelessWidget {
     if (percentage >= 75) return Colors.blue;
     if (percentage >= 50) return Colors.orange;
     return Colors.red;
+  }
+
+  /// Sort breakdown items: Completed (by points desc) > Skipped > Pending
+  List<Map<String, dynamic>> _sortBreakdown(
+      List<Map<String, dynamic>> breakdown) {
+    final sorted = List<Map<String, dynamic>>.from(breakdown);
+    
+    sorted.sort((a, b) {
+      final statusA = (a['status'] as String?) ?? 'pending';
+      final statusB = (b['status'] as String?) ?? 'pending';
+      
+      // Get status priority: completed = 0, skipped = 1, pending = 2
+      int getStatusPriority(String status) {
+        switch (status) {
+          case 'completed':
+            return 0;
+          case 'skipped':
+            return 1;
+          case 'pending':
+            return 2;
+          default:
+            return 2; // Unknown status goes to end
+        }
+      }
+      
+      final priorityA = getStatusPriority(statusA);
+      final priorityB = getStatusPriority(statusB);
+      
+      // First sort by status priority
+      if (priorityA != priorityB) {
+        return priorityA.compareTo(priorityB);
+      }
+      
+      // If both are completed, sort by points descending
+      if (statusA == 'completed' && statusB == 'completed') {
+        final earnedA = (a['earned'] as num?)?.toDouble() ?? 0.0;
+        final earnedB = (b['earned'] as num?)?.toDouble() ?? 0.0;
+        return earnedB.compareTo(earnedA); // Descending order
+      }
+      
+      // For skipped and pending, maintain original order (or sort by name if needed)
+      return 0;
+    });
+    
+    return sorted;
   }
 }

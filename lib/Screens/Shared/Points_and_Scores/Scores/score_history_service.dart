@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dar
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/cumulative_score_history_record.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:intl/intl.dart';
 
 /// Service for loading and managing score history for UI
@@ -222,10 +223,10 @@ class ScoreHistoryService {
       }
 
       final data = doc.data() as Map<String, dynamic>?;
-      final scores =
+      final rawScores =
           (data?['scores'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
-      if (scores.isEmpty) {
+      if (rawScores.isEmpty) {
         // Empty document - fallback to old method
         return loadScoreHistory(
           userId: userId,
@@ -235,6 +236,32 @@ class ScoreHistoryService {
         );
       }
 
+      // Convert Firestore Timestamps to DateTime and normalize the data structure
+      final scores = rawScores.map((entry) {
+        final dateValue = entry['date'];
+        DateTime date;
+        
+        if (dateValue is DateTime) {
+          date = dateValue;
+        } else if (dateValue is Timestamp) {
+          date = dateValue.toDate();
+        } else {
+          // Fallback: try to parse as string or use current date
+          date = DateTime.now();
+        }
+        
+        return {
+          'date': DateService.normalizeToStartOfDay(date),
+          'score': (entry['score'] as num?)?.toDouble() ?? 0.0,
+          'gain': (entry['gain'] as num?)?.toDouble() ?? 0.0,
+          'effectiveGain': (entry['effectiveGain'] as num?)?.toDouble() ?? 
+              ((entry['gain'] as num?)?.toDouble() ?? 0.0),
+        };
+      }).toList();
+
+      // Sort by date to ensure chronological order
+      scores.sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
+
       // Get last N days
       final lastNDays = scores.length > days
           ? scores.sublist(scores.length - days)
@@ -242,10 +269,10 @@ class ScoreHistoryService {
 
       // Get latest score values
       final latestScore = scores.isNotEmpty
-          ? (scores.last['score'] as num?)?.toDouble() ?? 0.0
+          ? (scores.last['score'] as double)
           : 0.0;
       final latestGain = scores.isNotEmpty
-          ? (scores.last['gain'] as num?)?.toDouble() ?? 0.0
+          ? (scores.last['gain'] as double)
           : 0.0;
 
       // Use provided live values if available, otherwise use latest from history
@@ -257,19 +284,18 @@ class ScoreHistoryService {
       final todayStart = DateService.todayStart;
       if (history.isNotEmpty) {
         final lastEntry = history.last;
-        final lastDate = lastEntry['date'];
-        if (lastDate is DateTime) {
-          final isToday = lastDate.year == todayStart.year &&
-              lastDate.month == todayStart.month &&
-              lastDate.day == todayStart.day;
-          if (isToday && (cumulativeScore != null || todayScore != null)) {
-            // Update today's entry with live values
-            history[history.length - 1] = {
-              'date': lastDate,
-              'score': finalCumulativeScore,
-              'gain': finalTodayScore,
-            };
-          }
+        final lastDate = lastEntry['date'] as DateTime;
+        final isToday = lastDate.year == todayStart.year &&
+            lastDate.month == todayStart.month &&
+            lastDate.day == todayStart.day;
+        if (isToday && (cumulativeScore != null || todayScore != null)) {
+          // Update today's entry with live values
+          history[history.length - 1] = {
+            'date': lastDate,
+            'score': finalCumulativeScore,
+            'gain': finalTodayScore,
+            'effectiveGain': finalTodayScore, // Live score is always effective
+          };
         }
       }
 
@@ -300,43 +326,74 @@ class ScoreHistoryService {
 
     try {
       final today = DateService.todayStart;
-      final dateKey = DateFormat('yyyy-MM-dd').format(today);
 
       // Get current document
       final doc = await CumulativeScoreHistoryRecord.getDocument(userId);
       final data = doc.data() as Map<String, dynamic>? ?? {};
-      final scores =
+      final rawScores =
           (data['scores'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+
+      // Convert Timestamps to DateTime and normalize
+      final scores = rawScores.map<Map<String, dynamic>>((entry) {
+        final dateValue = entry['date'];
+        DateTime date;
+        
+        if (dateValue is DateTime) {
+          date = dateValue;
+        } else if (dateValue is Timestamp) {
+          date = dateValue.toDate();
+        } else {
+          // Fallback
+          date = DateTime.now();
+        }
+        
+        return <String, dynamic>{
+          'date': DateService.normalizeToStartOfDay(date),
+          'score': (entry['score'] as num?)?.toDouble() ?? 0.0,
+          'gain': (entry['gain'] as num?)?.toDouble() ?? 0.0,
+          'effectiveGain': (entry['effectiveGain'] as num?)?.toDouble() ?? 
+              ((entry['gain'] as num?)?.toDouble() ?? 0.0),
+        };
+      }).toList();
 
       // Remove today's entry if it exists
       scores.removeWhere((s) {
-        final sDate = s['date'];
-        if (sDate is DateTime) {
-          return sDate.year == today.year &&
-              sDate.month == today.month &&
-              sDate.day == today.day;
-        } else if (sDate is String) {
-          return sDate == dateKey;
-        }
-        return false;
+        final sDate = s['date'] as DateTime;
+        return sDate.year == today.year &&
+            sDate.month == today.month &&
+            sDate.day == today.day;
       });
 
       // Add today's entry
-      scores.add({
-        'date': today,
+      scores.add(<String, dynamic>{
+        'date': DateService.normalizeToStartOfDay(today),
         'score': cumulativeScore,
         'gain': todayScore,
+        'effectiveGain': todayScore, // Live score is always effective
       });
+
+      // Sort by date to ensure chronological order
+      scores.sort((a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime));
 
       // Keep only last 100 days
       if (scores.length > 100) {
         scores.removeRange(0, scores.length - 100);
       }
 
-      // Update document
+      // Update document (convert DateTime back to Timestamp for Firestore)
+      final scoresForFirestore = scores.map<Map<String, dynamic>>((entry) {
+        final date = entry['date'] as DateTime;
+        return <String, dynamic>{
+          'date': Timestamp.fromDate(date),
+          'score': entry['score'],
+          'gain': entry['gain'],
+          'effectiveGain': entry['effectiveGain'],
+        };
+      }).toList();
+
       await CumulativeScoreHistoryRecord.setDocument(
         userId: userId,
-        scores: scores,
+        scores: scoresForFirestore,
       );
     } catch (e) {
       // Silently fail - non-critical operation

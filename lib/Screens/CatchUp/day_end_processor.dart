@@ -3,16 +3,17 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/daily_points_calculator.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/day_end_score_orchestrator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/Screens/toasts/bonus_notification_formatter.dart';
-import 'package:habit_tracker/Screens/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
+import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 
 /// Service for processing day-end operations on habits
 /// Creates daily progress snapshots (status changes now require manual user confirmation)
@@ -255,11 +256,14 @@ class DayEndProcessor {
   ) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-    // Check if record already exists
-    final existingQuery = DailyProgressRecord.collectionForUser(userId)
-        .where('date', isEqualTo: normalizedDate);
-    final existingSnapshot = await existingQuery.get();
-    if (existingSnapshot.docs.isNotEmpty) {
+    // Check if record already exists using date-based document ID
+    final dateDocId = '${normalizedDate.year.toString().padLeft(4, '0')}-'
+        '${normalizedDate.month.toString().padLeft(2, '0')}-'
+        '${normalizedDate.day.toString().padLeft(2, '0')}';
+    final existingDoc = await DailyProgressRecord.collectionForUser(userId)
+        .doc(dateDocId)
+        .get();
+    if (existingDoc.exists) {
       return;
     }
     // Get all habit instances (we'll filter them using the shared calculator)
@@ -330,8 +334,13 @@ class DayEndProcessor {
         categoryBreakdown: {},
         createdAt: DateTime.now(),
       );
+      // Use date as document ID for easy tracing: "YYYY-MM-DD"
+      final dateDocId = '${normalizedDate.year.toString().padLeft(4, '0')}-'
+          '${normalizedDate.month.toString().padLeft(2, '0')}-'
+          '${normalizedDate.day.toString().padLeft(2, '0')}';
       await DailyProgressRecord.collectionForUser(userId)
-          .add(emptyProgressData);
+          .doc(dateDocId)
+          .set(emptyProgressData, SetOptions(merge: true));
       return;
     }
     // Count habit statistics using allForMath and completion-on-date rule
@@ -396,7 +405,13 @@ class DayEndProcessor {
     // Calculate score for the target date (yesterday) and cumulative at end of day
     double dailyScoreGain = 0.0;
     double cumulativeScoreAtEndOfDay = 0.0;
-    Map<String, dynamic> cumulativeScoreData = {};
+    double cumulativeAtStartOfTargetDay = 0.0;
+    // Score breakdown components
+    double dailyPoints = 0.0;
+    double consistencyBonus = 0.0;
+    double recoveryBonus = 0.0;
+    double decayPenalty = 0.0;
+    double categoryNeglectPenalty = 0.0;
 
     try {
       // Calculate score for target date using TodayScoreCalculator
@@ -407,6 +422,13 @@ class DayEndProcessor {
         categories: categories,
         habitInstances: allForMath,
       );
+      
+      // Extract ALL score components from scoreData
+      dailyPoints = (scoreData['dailyPoints'] as num?)?.toDouble() ?? 0.0;
+      consistencyBonus = (scoreData['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
+      recoveryBonus = (scoreData['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
+      decayPenalty = (scoreData['decayPenalty'] as num?)?.toDouble() ?? 0.0;
+      categoryNeglectPenalty = (scoreData['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
       dailyScoreGain = (scoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
 
       // Get cumulative score at START of target day (end of day before)
@@ -418,7 +440,6 @@ class DayEndProcessor {
         endDate: dayBeforeTarget,
         orderDescending: false,
       );
-      double cumulativeAtStartOfTargetDay = 0.0;
       if (dayBeforeRecords.isNotEmpty) {
         final dayBeforeRecord = dayBeforeRecords.first;
         if (dayBeforeRecord.cumulativeScoreSnapshot > 0) {
@@ -449,7 +470,7 @@ class DayEndProcessor {
       // If still zero, try UserProgressStats as fallback
       if (cumulativeAtStartOfTargetDay == 0.0) {
         final userStats =
-            await CumulativeScoreService.getCumulativeScore(userId);
+            await ScorePersistenceService.getUserStats(userId);
         if (userStats != null && userStats.cumulativeScore > 0) {
           // Subtract today's gain to get baseline
           cumulativeAtStartOfTargetDay =
@@ -464,31 +485,33 @@ class DayEndProcessor {
               .clamp(0.0, double.infinity);
 
       // Also update UserProgressStatsRecord for consistency
-      cumulativeScoreData = await CumulativeScoreService.updateCumulativeScore(
+      // Don't trigger toasts here - toasts are only shown after morning catch-up completes
+      // This method is called during day-end processing, not after user completes catch-up
+      // Check if we're processing yesterday (UI fallback processing)
+      final yesterday = DateService.yesterdayStart;
+      final isProcessingYesterday = normalizedDate.year == yesterday.year &&
+          normalizedDate.month == yesterday.month &&
+          normalizedDate.day == yesterday.day;
+
+      await DayEndScoreOrchestrator.processScoreForDay(
         userId,
         completionPercentage,
         normalizedDate,
         earnedPoints,
-        categoryNeglectPenalty:
-            (scoreData['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0,
+        categoryNeglectPenalty: categoryNeglectPenalty,
+        setLastProcessedDate:
+            isProcessingYesterday, // Set when UI processes yesterday as fallback
+        cumulativeScoreAtStart: cumulativeAtStartOfTargetDay,
       );
 
-      // Show bonus notifications
-      BonusNotificationFormatter.showBonusNotifications(cumulativeScoreData);
-
-      // Show milestone achievements
-      final newMilestones =
-          cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
-      if (newMilestones.isNotEmpty) {
-        final milestoneValues = newMilestones.map((m) => m as int).toList();
-        MilestoneToastService.showMultipleMilestones(milestoneValues);
-      }
+      // The calculated values are the source of truth for daily progress records
+      // UserProgressStats is updated to match, not the other way around
     } catch (e) {
       // Continue without cumulative score if calculation fails
       // Use fallback: calculate from UserProgressStats if available
       try {
         final userStats =
-            await CumulativeScoreService.getCumulativeScore(userId);
+            await ScorePersistenceService.getUserStats(userId);
         if (userStats != null) {
           cumulativeScoreAtEndOfDay = userStats.cumulativeScore;
           dailyScoreGain = userStats.lastDailyGain;
@@ -497,6 +520,10 @@ class DayEndProcessor {
         // If all fails, use zeros
       }
     }
+
+    // Calculate effective gain (actual change in score, accounting for floor at 0)
+    final effectiveGain =
+        cumulativeScoreAtEndOfDay - cumulativeAtStartOfTargetDay;
 
     // Create the daily progress record
     final progressData = createDailyProgressRecordData(
@@ -520,9 +547,19 @@ class DayEndProcessor {
       taskBreakdown: taskBreakdown,
       cumulativeScoreSnapshot: cumulativeScoreAtEndOfDay,
       dailyScoreGain: dailyScoreGain,
+      effectiveGain: effectiveGain,
+      dailyPoints: dailyPoints,
+      consistencyBonus: consistencyBonus,
+      recoveryBonus: recoveryBonus,
+      decayPenalty: decayPenalty,
+      categoryNeglectPenalty: categoryNeglectPenalty,
+      previousDayCumulativeScore: cumulativeAtStartOfTargetDay,
       createdAt: DateTime.now(),
     );
-    await DailyProgressRecord.collectionForUser(userId).add(progressData);
+    // Use date as document ID for easy tracing: "YYYY-MM-DD" (already defined above)
+    await DailyProgressRecord.collectionForUser(userId)
+        .doc(dateDocId)
+        .set(progressData, SetOptions(merge: true));
   }
 
   /// Check if day-end processing is needed
@@ -603,6 +640,15 @@ class DayEndProcessor {
 
       final today = DateService.todayStart;
       final yesterday = DateService.yesterdayStart;
+
+      // Batch fetch all templates upfront to reduce Firestore reads
+      // This reduces N individual reads to ~N/10 batch reads
+      final templateIds = activeHabits.map((h) => h.reference.id).toList();
+      final templates = await BatchReadService.batchGetTemplates(
+        templateIds: templateIds,
+        userId: userId,
+        useCache: true,
+      );
 
       for (final habit in activeHabits) {
         // Check if there's at least one pending instance for this habit
@@ -798,11 +844,12 @@ class DayEndProcessor {
 
               // If the window ended before yesterday, use bulk skip to fill the gap
               if (windowEndDateOnly.isBefore(yesterday)) {
-                // Get template for bulk skip
-                final templateRef = ActivityRecord.collectionForUser(userId)
-                    .doc(habit.reference.id);
-                final template =
-                    await ActivityRecord.getDocumentOnce(templateRef);
+                // Get template from pre-fetched batch (reduces individual reads)
+                final template = templates[habit.reference.id];
+                if (template == null) {
+                  // Template not found - skip this habit
+                  continue;
+                }
 
                 // Use bulk skip to efficiently fill gap up to yesterday
                 await ActivityInstanceService

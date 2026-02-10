@@ -214,8 +214,58 @@ class ActivityInstanceService {
 
   // ==================== INSTANCE QUERYING ====================
 
+  /// Helper function to paginate through query results
+  /// Uses cursor-based pagination with startAfter to handle large result sets
+  static Future<List<ActivityInstanceRecord>> _paginateQuery(
+    Query query,
+    int pageSize,
+    Duration timeout,
+  ) async {
+    final List<ActivityInstanceRecord> allInstances = [];
+    DocumentSnapshot? lastDoc;
+
+    while (true) {
+      Query paginatedQuery = query.limit(pageSize);
+      if (lastDoc != null) {
+        paginatedQuery = paginatedQuery.startAfterDocument(lastDoc);
+      }
+
+      try {
+        final result = await paginatedQuery.get().timeout(
+          timeout,
+          onTimeout: () {
+            throw TimeoutException('Query pagination timed out');
+          },
+        );
+
+        if (result.docs.isEmpty) {
+          break; // No more results
+        }
+
+        final instances = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+        allInstances.addAll(instances);
+
+        // If we got fewer results than pageSize, we've reached the end
+        if (result.docs.length < pageSize) {
+          break;
+        }
+
+        // Update cursor for next page
+        lastDoc = result.docs.last;
+      } catch (e) {
+        // On error, return what we have so far
+        break;
+      }
+    }
+
+    return allInstances;
+  }
+
   /// Safely query instances without triggering composite index errors
   /// Fetches broad datasets (all pending, recent completed) and relies on in-memory filtering
+  /// OPTIMIZED: Runs queries in parallel and uses pagination for large result sets
   static Future<List<ActivityInstanceRecord>> _querySafeInstances({
     required String uid,
     bool includePending = true,
@@ -223,56 +273,66 @@ class ActivityInstanceService {
   }) async {
     final List<ActivityInstanceRecord> allInstances = [];
 
-    // Add distinct try-catch blocks for each query to identify which one fails/hangs
+    // Run queries in parallel for better performance
+    final futures = <Future<List<ActivityInstanceRecord>>>[];
+
     if (includePending) {
-      try {
-        final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
-            .where('status', isEqualTo: 'pending')
-            .limit(500); // Increased limit to ensure we catch everything
+      futures.add(
+        () async {
+          try {
+            // Order by document ID for consistent pagination (Firestore requirement)
+            final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
+                .where('status', isEqualTo: 'pending')
+                .orderBy(FieldPath.documentId); // Required for pagination
 
-        // Add timeout to prevent infinite hang
-        final pendingResult = await pendingQuery.get().timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {
-            throw TimeoutException('Pending query timed out');
-          },
-        );
-
-        final docs = pendingResult.docs;
-        allInstances.addAll(
-            docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
-      } catch (e) {
-        // Continue even if this fails, so we might at least get completed ones
-      }
+            // Use pagination to handle large result sets (500+ instances)
+            return await _paginateQuery(
+              pendingQuery,
+              500, // Page size
+              const Duration(seconds: 10),
+            );
+          } catch (e) {
+            // Continue even if this fails, so we might at least get completed ones
+            return <ActivityInstanceRecord>[];
+          }
+        }(),
+      );
     }
 
     if (includeRecentCompleted) {
-      try {
-        final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-        final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
-            .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-            .orderBy('completedAt', descending: true)
-            .limit(200);
+      futures.add(
+        () async {
+          try {
+            final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+            final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
+                .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+                .orderBy('completedAt', descending: true);
 
-        // Add timeout
-        final completedResult = await completedQuery.get().timeout(
-          const Duration(seconds: 10),
-          onTimeout: () {
-            throw TimeoutException('Completed query timed out');
-          },
-        );
+            // Use pagination to handle large result sets (200+ instances)
+            final instances = await _paginateQuery(
+              completedQuery,
+              200, // Page size
+              const Duration(seconds: 10),
+            );
 
-        final docs = completedResult.docs;
+            // Filter strictly for completed (query is inclusive of greaterThanOrEqualTo)
+            // and ensure status is explicitly completed
+            return instances
+                .where((inst) => inst.status == 'completed')
+                .toList();
+          } catch (e) {
+            // Continue silently
+            return <ActivityInstanceRecord>[];
+          }
+        }(),
+      );
+    }
 
-        // Filter strictly for completed (query is inclusive of greaterThanOrEqualTo)
-        // and ensure status is explicitly completed
-        final completedInstances = docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((inst) => inst.status == 'completed')
-            .toList();
-        allInstances.addAll(completedInstances);
-      } catch (e) {
-        // Continue silently
+    // Wait for all queries to complete in parallel
+    if (futures.isNotEmpty) {
+      final results = await Future.wait(futures);
+      for (final result in results) {
+        allInstances.addAll(result);
       }
     }
 
@@ -863,6 +923,35 @@ class ActivityInstanceService {
     }
   }
 
+  /// Get recent completed instances (last 2 days) for Queue page
+  /// Uses safe query to avoid OOM and missing index errors
+  static Future<List<ActivityInstanceRecord>> getRecentCompletedInstances({
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    try {
+      final recentCompleted = await _querySafeInstances(
+        uid: uid,
+        includePending: false,
+        includeRecentCompleted: true,
+      );
+      return recentCompleted.where((inst) {
+        final isCompleted = inst.status == 'completed';
+        final isActive = inst.isActive;
+        final isEssential = inst.templateCategoryType == 'essential';
+        return isCompleted && isActive && !isEssential;
+      }).toList();
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription: 'getRecentCompletedInstances',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
+      return [];
+    }
+  }
+
   // ==================== UTILITY METHODS ====================
   /// Test method to manually create an instance (for debugging)
   static Future<void> testCreateInstance({
@@ -952,6 +1041,48 @@ class ActivityInstanceService {
       logFirestoreQueryError(
         e,
         queryDescription: 'deleteInstancesForTemplate ($templateId)',
+        collectionName: 'activity_instances',
+        stackTrace: stackTrace,
+      );
+      rethrow;
+    }
+  }
+
+  /// Delete instances from [fromDate] onward only (keeps past instances).
+  /// Uses [belongsToDate] for habits and [dueDate] for tasks.
+  /// Stops future instance creation when used with template soft-delete (isActive: false).
+  static Future<void> deleteInstancesFromDateOnward({
+    required String templateId,
+    required DateTime fromDate,
+    required String templateCategoryType,
+    String? userId,
+  }) async {
+    final uid = userId ?? _currentUserId;
+    final normalizedFrom =
+        DateTime(fromDate.year, fromDate.month, fromDate.day);
+    try {
+      if (templateCategoryType == 'habit') {
+        final query = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateId', isEqualTo: templateId)
+            .where('belongsToDate', isGreaterThanOrEqualTo: normalizedFrom);
+        final instances = await query.get();
+        for (final doc in instances.docs) {
+          await doc.reference.delete();
+        }
+      } else {
+        final query = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateId', isEqualTo: templateId)
+            .where('dueDate', isGreaterThanOrEqualTo: normalizedFrom);
+        final instances = await query.get();
+        for (final doc in instances.docs) {
+          await doc.reference.delete();
+        }
+      }
+    } catch (e, stackTrace) {
+      logFirestoreQueryError(
+        e,
+        queryDescription:
+            'deleteInstancesFromDateOnward ($templateId, $templateCategoryType)',
         collectionName: 'activity_instances',
         stackTrace: stackTrace,
       );

@@ -1,5 +1,4 @@
 import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
 import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
 import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';
@@ -32,17 +31,14 @@ class ScorePersistenceService {
           achievedMilestones: 0,
           createdAt: now,
           lastUpdatedAt: now,
-          averageDailyScore7Day: 0.0,
-          averageDailyScore30Day: 0.0,
-          bestDailyScoreGain: 0.0,
-          worstDailyScoreGain: 0.0,
+          averageDailyGain7Day: 0.0,
+          averageDailyGain30Day: 0.0,
+          bestDailyGain: 0.0,
+          worstDailyGain: 0.0,
           positiveDaysCount7Day: 0,
           positiveDaysCount30Day: 0,
-          scoreGrowthRate7Day: 0.0,
-          scoreGrowthRate30Day: 0.0,
           averageCumulativeScore7Day: 0.0,
           averageCumulativeScore30Day: 0.0,
-          lastAggregateStatsCalculationDate: now,
         );
         await docRef.set(data);
         return UserProgressStatsRecord.getDocumentFromData(data, docRef);
@@ -67,6 +63,7 @@ class ScorePersistenceService {
     int consecutiveLowDays,
     int achievedMilestones, {
     Map<String, dynamic>? aggregateStats,
+    DateTime? lastProcessedDate,
   }) async {
     final docRef =
         UserProgressStatsRecord.collectionForUser(userId).doc('main');
@@ -84,21 +81,19 @@ class ScorePersistenceService {
       consecutiveLowDays: consecutiveLowDays,
       achievedMilestones: achievedMilestones,
       lastUpdatedAt: now,
-      averageDailyScore7Day:
-          aggregateStats?['averageDailyScore7Day'] as double?,
-      averageDailyScore30Day:
-          aggregateStats?['averageDailyScore30Day'] as double?,
-      bestDailyScoreGain: aggregateStats?['bestDailyScoreGain'] as double?,
-      worstDailyScoreGain: aggregateStats?['worstDailyScoreGain'] as double?,
+      averageDailyGain7Day:
+          aggregateStats?['averageDailyGain7Day'] as double?,
+      averageDailyGain30Day:
+          aggregateStats?['averageDailyGain30Day'] as double?,
+      bestDailyGain: aggregateStats?['bestDailyGain'] as double?,
+      worstDailyGain: aggregateStats?['worstDailyGain'] as double?,
       positiveDaysCount7Day: aggregateStats?['positiveDaysCount7Day'] as int?,
       positiveDaysCount30Day: aggregateStats?['positiveDaysCount30Day'] as int?,
-      scoreGrowthRate7Day: aggregateStats?['scoreGrowthRate7Day'] as double?,
-      scoreGrowthRate30Day: aggregateStats?['scoreGrowthRate30Day'] as double?,
       averageCumulativeScore7Day:
           aggregateStats?['averageCumulativeScore7Day'] as double?,
       averageCumulativeScore30Day:
           aggregateStats?['averageCumulativeScore30Day'] as double?,
-      lastAggregateStatsCalculationDate: aggregateStats != null ? now : null,
+      lastProcessedDate: lastProcessedDate,
     );
 
     await docRef.set(data, SetOptions(merge: true));
@@ -197,8 +192,8 @@ class ScorePersistenceService {
         final completion = day.completionPercentage;
         final rawPoints = day.earnedPoints;
 
-        // Calculate daily score
-        final dailyScore =
+        // Calculate daily points
+        final dailyPoints =
             ScoreFormulas.calculateDailyScore(completion, rawPoints);
 
         // Calculate consistency bonus (need last 7 days)
@@ -227,7 +222,7 @@ class ScorePersistenceService {
 
         // Update cumulative score
         final dailyGain =
-            dailyScore + consistencyBonus + recoveryBonus - penalty;
+            dailyPoints + consistencyBonus + recoveryBonus - penalty;
         final oldScore = cumulativeScore;
         cumulativeScore =
             (cumulativeScore + dailyGain).clamp(0.0, double.infinity);

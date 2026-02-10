@@ -18,7 +18,7 @@ class ScoreCoordinator {
   /// - `cumulativeScore` (double) - yesterday's cumulative + today's score (clamped >= 0)
   /// - `todayScore` (double) - today's score gain (can be negative)
   /// - `yesterdayCumulative` (double) - cumulative at end of yesterday
-  /// - if [includeBreakdown] is true: `dailyScore`, `consistencyBonus`,
+  /// - if [includeBreakdown] is true: `dailyPoints`, `consistencyBonus`,
   ///   `recoveryBonus`, `decayPenalty`, `categoryNeglectPenalty`
   static Future<Map<String, dynamic>> updateTodayScore({
     required String userId,
@@ -35,7 +35,7 @@ class ScoreCoordinator {
         'todayScore': 0.0,
         'yesterdayCumulative': 0.0,
         if (includeBreakdown) ...{
-          'dailyScore': 0.0,
+          'dailyPoints': 0.0,
           'consistencyBonus': 0.0,
           'recoveryBonus': 0.0,
           'decayPenalty': 0.0,
@@ -67,7 +67,7 @@ class ScoreCoordinator {
 
     // Build breakdown map for shared state (always available for consistency)
     final breakdown = <String, double>{
-      'dailyScore': (scoreData['dailyScore'] as num?)?.toDouble() ?? 0.0,
+      'dailyPoints': (scoreData['dailyPoints'] as num?)?.toDouble() ?? 0.0,
       'consistencyBonus':
           (scoreData['consistencyBonus'] as num?)?.toDouble() ?? 0.0,
       'recoveryBonus': (scoreData['recoveryBonus'] as num?)?.toDouble() ?? 0.0,
@@ -95,7 +95,7 @@ class ScoreCoordinator {
 
     if (includeBreakdown) {
       result.addAll({
-        'dailyScore': (scoreData['dailyScore'] as num?)?.toDouble() ?? 0.0,
+        'dailyPoints': (scoreData['dailyPoints'] as num?)?.toDouble() ?? 0.0,
         'consistencyBonus':
             (scoreData['consistencyBonus'] as num?)?.toDouble() ?? 0.0,
         'recoveryBonus':
@@ -159,8 +159,8 @@ class ScoreCoordinator {
       }
     }
 
-    // Delegate to history service
-    return ScoreHistoryService.loadScoreHistory(
+    // Delegate to history service (optimized single-document method)
+    return ScoreHistoryService.loadScoreHistoryFromSingleDoc(
       userId: userId,
       days: days,
       cumulativeScore: liveCumulative,
@@ -180,88 +180,5 @@ class ScoreCoordinator {
       todayScore,
       cumulativeScore,
     );
-  }
-}
-
-/// Legacy alias for backward compatibility
-/// Use ScoreCoordinator instead
-@Deprecated('Use ScoreCoordinator instead')
-class CumulativeScoreCalculator {
-  /// Legacy method - delegates to ScoreCoordinator
-  @Deprecated('Use ScoreCoordinator.updateTodayScore instead')
-  static Future<Map<String, dynamic>> updateTodayScore({
-    required String userId,
-    required double completionPercentage,
-    required double pointsEarned,
-    List<CategoryRecord>? categories,
-    List<ActivityInstanceRecord>? habitInstances,
-    bool includeBreakdown = false,
-    bool updateSharedState = true,
-  }) async {
-    return ScoreCoordinator.updateTodayScore(
-      userId: userId,
-      completionPercentage: completionPercentage,
-      pointsEarned: pointsEarned,
-      categories: categories,
-      habitInstances: habitInstances,
-      includeBreakdown: includeBreakdown,
-      updateSharedState: updateSharedState,
-    );
-  }
-
-  /// Legacy method - delegates to ScoreCoordinator
-  @Deprecated('Use ScoreCoordinator.loadScoreHistoryWithToday instead')
-  static Future<Map<String, dynamic>> loadCumulativeScoreHistory({
-    required String userId,
-    int days = 7,
-    double? cumulativeScore,
-    double? todayScore,
-  }) async {
-    return ScoreCoordinator.loadScoreHistoryWithToday(
-      userId: userId,
-      days: days,
-      cumulativeScore: cumulativeScore,
-      todayScore: todayScore,
-    );
-  }
-
-  /// Legacy method - delegates to ScoreCoordinator
-  @Deprecated('Use ScoreCoordinator.updateHistoryWithTodayScore instead')
-  static bool updateHistoryWithTodayScore(
-    List<Map<String, dynamic>> history,
-    double todayScore,
-    double cumulativeScore,
-  ) {
-    return ScoreCoordinator.updateHistoryWithTodayScore(
-      history,
-      todayScore,
-      cumulativeScore,
-    );
-  }
-
-  /// Legacy method for backward compatibility
-  @Deprecated('Use ScoreCoordinator.updateTodayScore instead')
-  static Future<Map<String, dynamic>> updateCumulativeScoreLive({
-    required String userId,
-    required double dailyPercentage,
-    required double pointsEarned,
-    bool includeBreakdown = false,
-  }) async {
-    return ScoreCoordinator.updateTodayScore(
-      userId: userId,
-      completionPercentage: dailyPercentage,
-      pointsEarned: pointsEarned,
-      includeBreakdown: includeBreakdown,
-    );
-  }
-
-  /// Legacy method for backward compatibility
-  @Deprecated('Use ScoreCoordinator.updateHistoryWithTodayScore instead')
-  static bool applyLiveScoreToHistory(
-    List<Map<String, dynamic>> history,
-    double score,
-    double gain,
-  ) {
-    return ScoreCoordinator.updateHistoryWithTodayScore(history, gain, score);
   }
 }

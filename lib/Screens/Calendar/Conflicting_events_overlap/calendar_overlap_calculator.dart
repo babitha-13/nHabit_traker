@@ -12,13 +12,57 @@ class CalendarOverlapCalculator {
     return '${event.title}_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
   }
 
+  /// Check if a task/habit belongs to a routine and should be excluded from clash detection
+  /// Returns true if the task/habit is part of the routine and they overlap in time
+  static bool _isTaskHabitInRoutine(
+    CalendarEventData routineEvent,
+    CalendarEventData taskHabitEvent,
+    Map<String, List<String>> routineIdToItemIds,
+  ) {
+    // Extract routine ID from routine event
+    final eventData = routineEvent.event;
+    if (eventData is! Map<String, dynamic>) return false;
+    final routineId = eventData['routineId'] as String?;
+    if (routineId == null) return false;
+
+    // Get itemIds for this routine
+    final itemIds = routineIdToItemIds[routineId];
+    if (itemIds == null || itemIds.isEmpty) return false;
+
+    // Extract templateId from task/habit event
+    final metadata = CalendarEventMetadata.fromMap(taskHabitEvent.event);
+    final templateId = metadata?.templateId;
+    if (templateId == null || templateId.isEmpty) return false;
+
+    // Check if templateId is in routine's itemIds
+    if (!itemIds.contains(templateId)) return false;
+
+    // Check if they overlap in time (partial overlap is allowed)
+    if (routineEvent.startTime == null ||
+        routineEvent.endTime == null ||
+        taskHabitEvent.startTime == null ||
+        taskHabitEvent.endTime == null) {
+      return false;
+    }
+
+    final routineStart = routineEvent.startTime!;
+    final routineEnd = routineEvent.endTime!;
+    final taskStart = taskHabitEvent.startTime!;
+    final taskEnd = taskHabitEvent.endTime!;
+
+    // Check for overlap: events overlap if one starts before the other ends
+    return (taskStart.isBefore(routineEnd) && taskEnd.isAfter(routineStart)) ||
+        (routineStart.isBefore(taskEnd) && routineEnd.isAfter(taskStart));
+  }
+
   /// Incrementally update overlaps after removing an event
   /// More efficient than recalculating all overlaps when only one event is removed
   static PlannedOverlapInfo updateOverlapsAfterRemoval(
     String removedEventId,
     List<CalendarEventData> remainingEvents,
-    PlannedOverlapInfo previousOverlapInfo,
-  ) {
+    PlannedOverlapInfo previousOverlapInfo, {
+    Map<String, List<String>> routineIdToItemIds = const {},
+  }) {
     // If the removed event wasn't in any overlap, just remove it from overlappedIds
     if (!previousOverlapInfo.overlappedIds.contains(removedEventId)) {
       final updatedOverlappedIds = Set<String>.from(previousOverlapInfo.overlappedIds);
@@ -61,7 +105,7 @@ class CalendarOverlapCalculator {
     
     // If the removed event was in overlaps, recalculate (still faster than full recompute)
     // because we're working with a smaller list
-    return computePlannedOverlaps(remainingEvents);
+    return computePlannedOverlaps(remainingEvents, routineIdToItemIds: routineIdToItemIds);
   }
 
   /// Incrementally update overlaps after adding a new event
@@ -69,8 +113,9 @@ class CalendarOverlapCalculator {
   static PlannedOverlapInfo updateOverlapsAfterAdd(
     CalendarEventData newEvent,
     List<CalendarEventData> allEvents,
-    PlannedOverlapInfo previousOverlapInfo,
-  ) {
+    PlannedOverlapInfo previousOverlapInfo, {
+    Map<String, List<String>> routineIdToItemIds = const {},
+  }) {
     if (newEvent.startTime == null || newEvent.endTime == null) {
       return previousOverlapInfo;
     }
@@ -78,12 +123,18 @@ class CalendarOverlapCalculator {
     final newEventId = stableEventId(newEvent);
     if (newEventId == null) {
       // Fallback to full recompute if no stable ID
-      return computePlannedOverlaps(allEvents);
+      return computePlannedOverlaps(allEvents, routineIdToItemIds: routineIdToItemIds);
     }
     
     final newStart = newEvent.startTime!;
     final newEnd = newEvent.endTime!;
     final overlappingEventIds = <String>{};
+    
+    // Extract metadata for new event to check if it's a routine or task/habit
+    final newMetadata = CalendarEventMetadata.fromMap(newEvent.event);
+    final newActivityType = newMetadata?.activityType ?? '';
+    final isNewEventRoutine = newActivityType == 'routine';
+    final isNewEventTaskHabit = newActivityType == 'task' || newActivityType == 'habit';
     
     // Check which existing events overlap with the new event
     for (final event in allEvents) {
@@ -93,11 +144,30 @@ class CalendarOverlapCalculator {
       final eventId = stableEventId(event);
       if (eventId == null) continue;
       
+      // Extract metadata for existing event
+      final eventMetadata = CalendarEventMetadata.fromMap(event.event);
+      final eventActivityType = eventMetadata?.activityType ?? '';
+      final isEventRoutine = eventActivityType == 'routine';
+      final isEventTaskHabit = eventActivityType == 'task' || eventActivityType == 'habit';
+      
       // Check overlap: events overlap if one starts before the other ends
-      if ((newStart.isBefore(event.endTime!) && newEnd.isAfter(event.startTime!)) ||
-          (event.startTime!.isBefore(newEnd) && event.endTime!.isAfter(newStart))) {
-        overlappingEventIds.add(eventId);
+      final hasTimeOverlap = (newStart.isBefore(event.endTime!) && newEnd.isAfter(event.startTime!)) ||
+          (event.startTime!.isBefore(newEnd) && event.endTime!.isAfter(newStart));
+      
+      if (!hasTimeOverlap) continue;
+      
+      // Exclude overlap if it's a routine-task/habit relationship where task/habit belongs to routine
+      if (isNewEventRoutine && isEventTaskHabit) {
+        if (_isTaskHabitInRoutine(newEvent, event, routineIdToItemIds)) {
+          continue; // Skip counting this overlap
+        }
+      } else if (isNewEventTaskHabit && isEventRoutine) {
+        if (_isTaskHabitInRoutine(event, newEvent, routineIdToItemIds)) {
+          continue; // Skip counting this overlap
+        }
       }
+      
+      overlappingEventIds.add(eventId);
     }
     
     // If no overlaps, return previous info unchanged
@@ -109,7 +179,7 @@ class CalendarOverlapCalculator {
     // For simplicity, if the new event overlaps with any overlapped event,
     // we do a full recompute (still faster than always doing full recompute)
     if (overlappingEventIds.any((id) => previousOverlapInfo.overlappedIds.contains(id))) {
-      return computePlannedOverlaps(allEvents);
+      return computePlannedOverlaps(allEvents, routineIdToItemIds: routineIdToItemIds);
     }
     
     // New overlap: add to overlappedIds and increment pair count
@@ -168,8 +238,9 @@ class CalendarOverlapCalculator {
 
   /// Compute planned event overlaps
   static PlannedOverlapInfo computePlannedOverlaps(
-    List<CalendarEventData> planned,
-  ) {
+    List<CalendarEventData> planned, {
+    Map<String, List<String>> routineIdToItemIds = const {},
+  }) {
     final events = planned
         .where((e) => e.startTime != null && e.endTime != null)
         .toList()
@@ -190,19 +261,59 @@ class CalendarOverlapCalculator {
         currentGroupEnd = null;
         return;
       }
-      final start = currentGroupStart!;
-      final end = currentGroupEnd!;
-      groups.add(
-        PlannedOverlapGroup(
-          start: start,
-          end: end,
-          events: List.of(currentGroup),
-        ),
-      );
-      for (final e in currentGroup) {
-        final id = stableEventId(e);
-        if (id != null) overlappedIds.add(id);
+      
+      // Count valid overlaps (excluding routine-task/habit pairs where task/habit belongs to routine)
+      final validOverlapIds = <String>{};
+      int validPairCount = 0;
+      
+      for (int i = 0; i < currentGroup.length; i++) {
+        final e1 = currentGroup[i];
+        final e1Id = stableEventId(e1);
+        if (e1Id == null) continue;
+        
+        final e1Metadata = CalendarEventMetadata.fromMap(e1.event);
+        final e1ActivityType = e1Metadata?.activityType ?? '';
+        final isE1Routine = e1ActivityType == 'routine';
+        final isE1TaskHabit = e1ActivityType == 'task' || e1ActivityType == 'habit';
+        
+        for (int j = i + 1; j < currentGroup.length; j++) {
+          final e2 = currentGroup[j];
+          final e2Metadata = CalendarEventMetadata.fromMap(e2.event);
+          final e2ActivityType = e2Metadata?.activityType ?? '';
+          final isE2Routine = e2ActivityType == 'routine';
+          final isE2TaskHabit = e2ActivityType == 'task' || e2ActivityType == 'habit';
+          
+          // Exclude overlap if it's a routine-task/habit relationship where task/habit belongs to routine
+          bool shouldExclude = false;
+          if (isE1Routine && isE2TaskHabit) {
+            shouldExclude = _isTaskHabitInRoutine(e1, e2, routineIdToItemIds);
+          } else if (isE1TaskHabit && isE2Routine) {
+            shouldExclude = _isTaskHabitInRoutine(e2, e1, routineIdToItemIds);
+          }
+          
+          if (!shouldExclude) {
+            validPairCount++;
+            validOverlapIds.add(e1Id);
+            final e2Id = stableEventId(e2);
+            if (e2Id != null) validOverlapIds.add(e2Id);
+          }
+        }
       }
+      
+      // Only add group if there are valid overlaps (excluding routine-task/habit pairs)
+      if (validPairCount > 0) {
+        final start = currentGroupStart!;
+        final end = currentGroupEnd!;
+        groups.add(
+          PlannedOverlapGroup(
+            start: start,
+            end: end,
+            events: List.of(currentGroup), // Include all events in group for display
+          ),
+        );
+        overlappedIds.addAll(validOverlapIds);
+      }
+      
       currentGroup.clear();
       currentGroupStart = null;
       currentGroupEnd = null;
@@ -212,13 +323,44 @@ class CalendarOverlapCalculator {
       final start = e.startTime!;
       final end = e.endTime!;
       active.removeWhere((a) => !a.endTime!.isAfter(start));
+      
+      // Extract metadata for current event
+      final eMetadata = CalendarEventMetadata.fromMap(e.event);
+      final eActivityType = eMetadata?.activityType ?? '';
+      final isEventRoutine = eActivityType == 'routine';
+      final isEventTaskHabit = eActivityType == 'task' || eActivityType == 'habit';
+      
       if (active.isNotEmpty) {
-        overlapPairs += active.length;
-        final id = stableEventId(e);
-        if (id != null) overlappedIds.add(id);
+        // Count overlaps, excluding routine-task/habit overlaps where task/habit belongs to routine
+        int validOverlaps = 0;
+        final validOverlapIds = <String>{};
+        
         for (final a in active) {
-          final aid = stableEventId(a);
-          if (aid != null) overlappedIds.add(aid);
+          final aMetadata = CalendarEventMetadata.fromMap(a.event);
+          final aActivityType = aMetadata?.activityType ?? '';
+          final isActiveRoutine = aActivityType == 'routine';
+          final isActiveTaskHabit = aActivityType == 'task' || aActivityType == 'habit';
+          
+          // Exclude overlap if it's a routine-task/habit relationship where task/habit belongs to routine
+          bool shouldExclude = false;
+          if (isEventRoutine && isActiveTaskHabit) {
+            shouldExclude = _isTaskHabitInRoutine(e, a, routineIdToItemIds);
+          } else if (isEventTaskHabit && isActiveRoutine) {
+            shouldExclude = _isTaskHabitInRoutine(a, e, routineIdToItemIds);
+          }
+          
+          if (!shouldExclude) {
+            validOverlaps++;
+            final aid = stableEventId(a);
+            if (aid != null) validOverlapIds.add(aid);
+          }
+        }
+        
+        if (validOverlaps > 0) {
+          overlapPairs += validOverlaps;
+          final id = stableEventId(e);
+          if (id != null) overlappedIds.add(id);
+          overlappedIds.addAll(validOverlapIds);
         }
       }
       active.add(e);

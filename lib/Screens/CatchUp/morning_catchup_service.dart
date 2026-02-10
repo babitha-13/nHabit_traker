@@ -1,17 +1,21 @@
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Screens/Shared/Points_and_Scores/daily_points_calculator.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/day_end_score_orchestrator.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_formulas.dart';
+import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
 import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
 import 'package:habit_tracker/Screens/toasts/bonus_notification_formatter.dart';
 import 'package:habit_tracker/Screens/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/Screens/CatchUp/day_end_processor.dart';
+import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
+import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -22,7 +26,7 @@ class MorningCatchUpService {
   static const String _reminderCountDateKey =
       'morning_catchup_reminder_count_date';
   static const int maxReminderCount = 2;
-  
+
   // Store pending toast data to show after catch-up dialog closes
   static Map<String, dynamic>? _pendingToastData;
 
@@ -233,8 +237,7 @@ class MorningCatchUpService {
           'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
       print('Collection: activity_instances');
       print('Full error: $e');
-      if (e.toString().contains('index') ||
-          e.toString().contains('https://')) {
+      if (e.toString().contains('index') || e.toString().contains('https://')) {
         print(
             '📋 Look for the Firestore index creation link in the error message above!');
         print('   Click the link to create the index automatically.');
@@ -281,8 +284,7 @@ class MorningCatchUpService {
           'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
       print('Collection: activity_instances');
       print('Full error: $e');
-      if (e.toString().contains('index') ||
-          e.toString().contains('https://')) {
+      if (e.toString().contains('index') || e.toString().contains('https://')) {
         print(
             '📋 Look for the Firestore index creation link in the error message above!');
         print('   Click the link to create the index automatically.');
@@ -345,6 +347,7 @@ class MorningCatchUpService {
   /// Auto-skip all items that expired before yesterday (NEW: Optimized with batch writes)
   /// This ensures everything is brought up to date before showing yesterday's items
   /// Uses frequency-aware bulk skip to efficiently handle large gaps
+  /// OPTIMIZED: Batches template fetches to reduce Firestore reads
   static Future<void> autoSkipExpiredItemsBeforeYesterday(String userId) async {
     try {
       final yesterday = DateService.yesterdayStart;
@@ -360,6 +363,10 @@ class MorningCatchUpService {
           .limit(100);
       final habitSnapshot = await habitQuery.get();
 
+      // Collect instances and their template IDs for batch fetching
+      final instancesToProcess = <ActivityInstanceRecord>[];
+      final templateIds = <String>{};
+
       for (final doc in habitSnapshot.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
         if (instance.windowEndDate != null) {
@@ -372,53 +379,82 @@ class MorningCatchUpService {
           // Only process if windowEndDate is before yesterday (already expired, not ongoing)
           // This ensures we don't touch active windows
           if (windowEndDateOnly.isBefore(yesterday)) {
-            // Get template to calculate frequency
-            try {
-              final templateRef = ActivityRecord.collectionForUser(userId)
-                  .doc(instance.templateId);
-              final template =
-                  await ActivityRecord.getDocumentOnce(templateRef);
-
-              // Use bulk skip with batch writes - stops at yesterday for manual confirmation
-              final yesterdayInstanceRef = await ActivityInstanceService
-                  .bulkSkipExpiredInstancesWithBatches(
-                oldestInstance: instance,
-                template: template,
-                userId: userId,
-              );
-
-              if (yesterdayInstanceRef != null) {
-              } else {
-                // Fallback: skip expired instance and generate next one normally
-                // This should rarely happen as bulkSkipExpiredInstancesWithBatches now always returns a reference
-                await ActivityInstanceService.skipInstance(
-                  instanceId: instance.reference.id,
-                  skippedAt: windowEndDateOnly,
-                  skipAutoGeneration: false, // Allow normal generation
-                  userId: userId,
-                );
-              }
-            } catch (e) {
-              // Fallback: skip normally if bulk skip fails
-              await ActivityInstanceService.skipInstance(
-                instanceId: instance.reference.id,
-                skippedAt: windowEndDateOnly,
-                skipAutoGeneration: true,
-                userId: userId,
-              );
-            }
-
-            // Track affected dates for progress recalculation
-            if (instance.belongsToDate != null) {
-              affectedDates.add(DateTime(
-                instance.belongsToDate!.year,
-                instance.belongsToDate!.month,
-                instance.belongsToDate!.day,
-              ));
-            } else {
-              affectedDates.add(windowEndDateOnly);
-            }
+            instancesToProcess.add(instance);
+            templateIds.add(instance.templateId);
           }
+        }
+      }
+
+      // Batch fetch all templates at once (reduces N reads to ~N/10 reads)
+      final templates = await BatchReadService.batchGetTemplates(
+        templateIds: templateIds.toList(),
+        userId: userId,
+        useCache: true,
+      );
+
+      // Process instances with pre-fetched templates
+      for (final instance in instancesToProcess) {
+        final windowEndDate = instance.windowEndDate!;
+        final windowEndDateOnly = DateTime(
+          windowEndDate.year,
+          windowEndDate.month,
+          windowEndDate.day,
+        );
+
+        final template = templates[instance.templateId];
+        if (template == null) {
+          // Template not found - skip this instance normally
+          try {
+            await ActivityInstanceService.skipInstance(
+              instanceId: instance.reference.id,
+              skippedAt: windowEndDateOnly,
+              skipAutoGeneration: true,
+              userId: userId,
+            );
+          } catch (e) {
+            // Error skipping - continue with next instance
+          }
+          continue;
+        }
+
+        // Use bulk skip with batch writes - stops at yesterday for manual confirmation
+        try {
+          final yesterdayInstanceRef =
+              await ActivityInstanceService.bulkSkipExpiredInstancesWithBatches(
+            oldestInstance: instance,
+            template: template,
+            userId: userId,
+          );
+
+          if (yesterdayInstanceRef == null) {
+            // Fallback: skip expired instance and generate next one normally
+            // This should rarely happen as bulkSkipExpiredInstancesWithBatches now always returns a reference
+            await ActivityInstanceService.skipInstance(
+              instanceId: instance.reference.id,
+              skippedAt: windowEndDateOnly,
+              skipAutoGeneration: false, // Allow normal generation
+              userId: userId,
+            );
+          }
+        } catch (e) {
+          // Fallback: skip normally if bulk skip fails
+          await ActivityInstanceService.skipInstance(
+            instanceId: instance.reference.id,
+            skippedAt: windowEndDateOnly,
+            skipAutoGeneration: true,
+            userId: userId,
+          );
+        }
+
+        // Track affected dates for progress recalculation
+        if (instance.belongsToDate != null) {
+          affectedDates.add(DateTime(
+            instance.belongsToDate!.year,
+            instance.belongsToDate!.month,
+            instance.belongsToDate!.day,
+          ));
+        } else {
+          affectedDates.add(windowEndDateOnly);
         }
       }
 
@@ -573,26 +609,61 @@ class MorningCatchUpService {
 
   /// Persist points/scores for a specific date
   /// If [overwriteExisting] is true, existing records are recalculated
-  /// [suppressToasts] - If true, toasts will be stored and shown later via showPendingToasts()
+  /// Toasts are never triggered during record creation - they're shown later via showPendingToasts()
   static Future<void> persistScoresForDate({
     required String userId,
     required DateTime targetDate,
     bool overwriteExisting = false,
-    bool suppressToasts = false,
   }) async {
     if (overwriteExisting) {
       await recalculateDailyProgressRecordForDate(
         userId: userId,
         targetDate: targetDate,
-        suppressToasts: suppressToasts,
       );
       return;
     }
     await createDailyProgressRecordForDate(
       userId: userId,
       targetDate: targetDate,
-      suppressToasts: suppressToasts,
     );
+  }
+
+  /// Check if there are any missed days that need records created
+  /// Returns true if there are gaps between last record and yesterday
+  static Future<bool> hasMissedDays({required String userId}) async {
+    try {
+      final yesterday = DateService.yesterdayStart;
+
+      // Find the last DailyProgressRecord date
+      final lastRecordQuery = DailyProgressRecord.collectionForUser(userId)
+          .orderBy('date', descending: true)
+          .limit(1);
+      final lastRecordSnapshot = await lastRecordQuery.get();
+
+      DateTime? lastRecordDate;
+      if (lastRecordSnapshot.docs.isNotEmpty) {
+        final lastRecord =
+            DailyProgressRecord.fromSnapshot(lastRecordSnapshot.docs.first);
+        if (lastRecord.date != null) {
+          lastRecordDate = DateTime(
+            lastRecord.date!.year,
+            lastRecord.date!.month,
+            lastRecord.date!.day,
+          );
+        }
+      }
+
+      // If no last record, there are definitely missed days
+      if (lastRecordDate == null) {
+        return true;
+      }
+
+      // Check if last record is before yesterday (meaning there are missed days)
+      return lastRecordDate.isBefore(yesterday);
+    } catch (e) {
+      // On error, assume there might be missed days to be safe
+      return true;
+    }
   }
 
   /// Persist points/scores for missed days up to yesterday
@@ -604,11 +675,11 @@ class MorningCatchUpService {
   /// Recalculate and update daily progress record for a specific date
   /// This deletes the existing record (if any) and creates a new one with updated data
   /// Used when user completes items in morning catch-up dialog to ensure cumulative score is recalculated
-  /// [suppressToasts] - If true, toasts will be stored and shown later via showPendingToasts()
+  /// [storeToastData] - If true, stores toast data to show after catch-up completes (only for yesterday)
   static Future<void> recalculateDailyProgressRecordForDate({
     required String userId,
     required DateTime targetDate,
-    bool suppressToasts = false,
+    bool storeToastData = false,
   }) async {
     try {
       final normalizedDate =
@@ -631,7 +702,7 @@ class MorningCatchUpService {
       await createDailyProgressRecordForDate(
         userId: userId,
         targetDate: targetDate,
-        suppressToasts: suppressToasts,
+        storeToastData: storeToastData,
       );
     } catch (e) {
       // Error recalculating record - log but don't throw
@@ -646,14 +717,15 @@ class MorningCatchUpService {
   /// [allInstances] - Optional: Pre-fetched habit instances to avoid redundant queries
   /// [allTaskInstances] - Optional: Pre-fetched task instances to avoid redundant queries
   /// [categories] - Optional: Pre-fetched categories to avoid redundant queries
-  /// [suppressToasts] - If true, toasts will be stored and shown later via showPendingToasts()
+  /// [storeToastData] - If true, stores toast data in _pendingToastData to show after catch-up completes
+  ///                     Only set to true when recalculating yesterday's record after catch-up dialog closes
   static Future<void> createDailyProgressRecordForDate({
     required String userId,
     required DateTime targetDate,
     List<ActivityInstanceRecord>? allInstances,
     List<ActivityInstanceRecord>? allTaskInstances,
     List<CategoryRecord>? categories,
-    bool suppressToasts = false,
+    bool storeToastData = false,
   }) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
@@ -764,8 +836,13 @@ class MorningCatchUpService {
             taskBreakdown: [],
             createdAt: DateTime.now(),
           );
+          // Use date as document ID for easy tracing: "YYYY-MM-DD"
+          final dateDocId = '${normalizedDate.year.toString().padLeft(4, '0')}-'
+              '${normalizedDate.month.toString().padLeft(2, '0')}-'
+              '${normalizedDate.day.toString().padLeft(2, '0')}';
           await DailyProgressRecord.collectionForUser(userId)
-              .add(emptyProgressData);
+              .doc(dateDocId)
+              .set(emptyProgressData, SetOptions(merge: true));
           return;
         }
 
@@ -832,45 +909,97 @@ class MorningCatchUpService {
 
         // Calculate category neglect penalty
         final categoryNeglectPenalty =
-            CumulativeScoreService.calculateCategoryNeglectPenalty(
+            ScoreFormulas.calculateCategoryNeglectPenalty(
           categoryList,
           allForMath,
           normalizedDate,
         );
 
+        // Get cumulative score at start of target day (before update)
+        double cumulativeAtStart = 0.0;
+        try {
+          final dayBeforeTarget =
+              normalizedDate.subtract(const Duration(days: 1));
+          final dayBeforeRecords =
+              await DailyProgressQueryService.queryDailyProgress(
+            userId: userId,
+            startDate: dayBeforeTarget,
+            endDate: dayBeforeTarget,
+            orderDescending: false,
+          );
+          if (dayBeforeRecords.isNotEmpty) {
+            final dayBeforeRecord = dayBeforeRecords.first;
+            if (dayBeforeRecord.cumulativeScoreSnapshot > 0) {
+              cumulativeAtStart = dayBeforeRecord.cumulativeScoreSnapshot;
+            }
+          }
+        } catch (_) {
+          // If we can't get previous day's score, try UserProgressStats
+          try {
+            final userStats =
+                await ScorePersistenceService.getUserStats(userId);
+            if (userStats != null && userStats.cumulativeScore > 0) {
+              // Subtract today's gain to get baseline (if last calculation was for this date)
+              cumulativeAtStart =
+                  (userStats.cumulativeScore - userStats.lastDailyGain)
+                      .clamp(0.0, double.infinity);
+            }
+          } catch (_) {
+            // If all fails, use 0
+          }
+        }
+
         // Calculate cumulative score
         Map<String, dynamic> cumulativeScoreData = {};
         try {
+          // Check if we're processing yesterday (UI fallback processing)
+          final yesterday = DateService.yesterdayStart;
+          final isProcessingYesterday = normalizedDate.year == yesterday.year &&
+              normalizedDate.month == yesterday.month &&
+              normalizedDate.day == yesterday.day;
+
           cumulativeScoreData =
-              await CumulativeScoreService.updateCumulativeScore(
+              await DayEndScoreOrchestrator.processScoreForDay(
             userId,
             completionPercentage,
             normalizedDate,
             earnedPoints,
             categoryNeglectPenalty: categoryNeglectPenalty,
+            setLastProcessedDate:
+                isProcessingYesterday, // Set when UI processes yesterday as fallback
+            cumulativeScoreAtStart: cumulativeAtStart,
           );
 
-          // Show bonus notifications or store them for later
-          if (suppressToasts) {
-            // Store toast data to show after catch-up dialog closes
+          // Store toast data only if requested (when recalculating yesterday after catch-up completes)
+          // Toasts are never triggered during record creation - they're shown later via showPendingToasts()
+          if (storeToastData) {
             _pendingToastData = cumulativeScoreData;
-          } else {
-            // Show toasts immediately
-            BonusNotificationFormatter.showBonusNotifications(
-                cumulativeScoreData);
-
-            // Show milestone achievements
-            final newMilestones =
-                cumulativeScoreData['newMilestones'] as List<dynamic>? ?? [];
-            if (newMilestones.isNotEmpty) {
-              final milestoneValues = newMilestones.map((m) => m as int).toList();
-              MilestoneToastService.showMultipleMilestones(milestoneValues);
-            }
           }
         } catch (e) {
           // Error calculating cumulative score
           // Continue without cumulative score if calculation fails
         }
+
+        // Calculate effective gain (actual change in score, accounting for floor at 0)
+        final cumulativeAtEnd = cumulativeScoreData['cumulativeScore'] ?? 0.0;
+        final effectiveGain = cumulativeAtEnd - cumulativeAtStart;
+
+        // Extract ALL score components from cumulativeScoreData
+        final dailyPoints =
+            (cumulativeScoreData['dailyPoints'] as num?)?.toDouble() ?? 0.0;
+        final consistencyBonus =
+            (cumulativeScoreData['consistencyBonus'] as num?)?.toDouble() ??
+                0.0;
+        final recoveryBonus =
+            (cumulativeScoreData['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
+        final decayPenalty =
+            (cumulativeScoreData['decayPenalty'] as num?)?.toDouble() ?? 0.0;
+        final categoryNeglectPenaltyFromData =
+            (cumulativeScoreData['categoryNeglectPenalty'] as num?)
+                    ?.toDouble() ??
+                categoryNeglectPenalty;
+        final dailyScoreGain =
+            (cumulativeScoreData['dailyGain'] as num?)?.toDouble() ?? 0.0;
 
         // Create the daily progress record with full breakdown
         final progressData = createDailyProgressRecordData(
@@ -894,10 +1023,23 @@ class MorningCatchUpService {
           taskBreakdown: taskBreakdown,
           cumulativeScoreSnapshot:
               cumulativeScoreData['cumulativeScore'] ?? 0.0,
-          dailyScoreGain: cumulativeScoreData['dailyGain'] ?? 0.0,
+          dailyScoreGain: dailyScoreGain,
+          effectiveGain: effectiveGain,
+          dailyPoints: dailyPoints,
+          consistencyBonus: consistencyBonus,
+          recoveryBonus: recoveryBonus,
+          decayPenalty: decayPenalty,
+          categoryNeglectPenalty: categoryNeglectPenaltyFromData,
+          previousDayCumulativeScore: cumulativeAtStart,
           createdAt: DateTime.now(),
         );
-        await DailyProgressRecord.collectionForUser(userId).add(progressData);
+        // Use date as document ID for easy tracing: "YYYY-MM-DD"
+        final dateDocId = '${normalizedDate.year.toString().padLeft(4, '0')}-'
+            '${normalizedDate.month.toString().padLeft(2, '0')}-'
+            '${normalizedDate.day.toString().padLeft(2, '0')}';
+        await DailyProgressRecord.collectionForUser(userId)
+            .doc(dateDocId)
+            .set(progressData, SetOptions(merge: true));
         return; // Success
       } catch (e) {
         retries--;
@@ -926,8 +1068,14 @@ class MorningCatchUpService {
               taskBreakdown: [],
               createdAt: DateTime.now(),
             );
+            // Use date as document ID for easy tracing: "YYYY-MM-DD"
+            final dateDocId =
+                '${normalizedDate.year.toString().padLeft(4, '0')}-'
+                '${normalizedDate.month.toString().padLeft(2, '0')}-'
+                '${normalizedDate.day.toString().padLeft(2, '0')}';
             await DailyProgressRecord.collectionForUser(userId)
-                .add(minimalData);
+                .doc(dateDocId)
+                .set(minimalData, SetOptions(merge: true));
           } catch (fallbackError) {
             // Fallback record creation also failed
             rethrow;

@@ -154,14 +154,21 @@ class PointsService {
         }
 
         // Add time bonus if enabled and time is logged (SYNCHRONOUS - uses cached data)
+        // Uses diminishing returns: 0.7x multiplier per 30-minute block beyond baseline
         final timeMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
         if (timeMinutes != null && earnedPoints > 0) {
           final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled && timeMinutes >= 30.0) {
-            // Award bonus for every 30-minute block beyond the first 30 minutes
-            final excessMinutes = timeMinutes - 30.0;
-            final bonusBlocks = (excessMinutes / 30.0).floor();
-            earnedPoints += bonusBlocks * habitPriority;
+          if (timeBonusEnabled) {
+            final baselineMinutes =
+                BinaryTimeBonusHelper.getBaselineMinutes(instance);
+            if (timeMinutes >= baselineMinutes) {
+              final excessMinutes = timeMinutes - baselineMinutes;
+              final bonus = BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                excessMinutes: excessMinutes,
+                priority: habitPriority,
+              );
+              earnedPoints += bonus;
+            }
           }
         }
 
@@ -202,19 +209,28 @@ class PointsService {
         final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
 
         if (timeBonusEnabled) {
-          // Effort mode:
+          // Effort mode with diminishing returns:
           // - Reward proportionally until the time target is met
-          // - Once the target is met, reward in 30-minute blocks
+          // - Once the target is met, base points = 1x priority, then diminishing returns for excess
           if (accumulatedMinutes <= 0) {
             earnedPoints = 0.0;
           } else {
             final targetMinutes = PointsValueHelper.targetValue(instance);
             if (targetMinutes > 0 && accumulatedMinutes < targetMinutes) {
+              // Below target: proportional
               earnedPoints =
                   (accumulatedMinutes / targetMinutes) * habitPriority;
             } else {
-              final blocks = (accumulatedMinutes / 30.0).floor();
-              earnedPoints = (blocks > 0 ? blocks : 1) * habitPriority;
+              // At/beyond target: base points + diminishing returns bonus
+              earnedPoints = habitPriority; // Base points for meeting target
+              if (targetMinutes > 0 && accumulatedMinutes > targetMinutes) {
+                final excessMinutes = accumulatedMinutes - targetMinutes;
+                final bonus = BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                  excessMinutes: excessMinutes,
+                  priority: habitPriority,
+                );
+                earnedPoints += bonus;
+              }
             }
           }
         } else {
@@ -288,14 +304,21 @@ class PointsService {
         }
 
         // Add time bonus if enabled and time is logged
+        // Uses diminishing returns: 0.7x multiplier per 30-minute block beyond baseline
         final timeMinutes = await _getTimeMinutesForInstance(instance, userId);
         if (timeMinutes != null && earnedPoints > 0) {
           final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled && timeMinutes >= 30.0) {
-            // Award bonus for every 30-minute block beyond the first 30 minutes
-            final excessMinutes = timeMinutes - 30.0;
-            final bonusBlocks = (excessMinutes / 30.0).floor();
-            earnedPoints += bonusBlocks * habitPriority;
+          if (timeBonusEnabled) {
+            final baselineMinutes =
+                BinaryTimeBonusHelper.getBaselineMinutes(instance);
+            if (timeMinutes >= baselineMinutes) {
+              final excessMinutes = timeMinutes - baselineMinutes;
+              final bonus = BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                excessMinutes: excessMinutes,
+                priority: habitPriority,
+              );
+              earnedPoints += bonus;
+            }
           }
         }
 
@@ -337,25 +360,28 @@ class PointsService {
         final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
 
         if (timeBonusEnabled) {
-          // Effort mode:
+          // Effort mode with diminishing returns:
           // - Reward proportionally until the time target is met
-          // - Once the target is met, reward in 30-minute blocks
-          //
-          // Example (priority=1, target=20m):
-          // - 10m => 0.5 pts
-          // - 20m => 1 pt
-          // - 30m => 1 pt
-          // - 60m => 2 pts
+          // - Once the target is met, base points = 1x priority, then diminishing returns for excess
           if (accumulatedMinutes <= 0) {
             earnedPoints = 0.0;
           } else {
             final targetMinutes = PointsValueHelper.targetValue(instance);
             if (targetMinutes > 0 && accumulatedMinutes < targetMinutes) {
+              // Below target: proportional
               earnedPoints =
                   (accumulatedMinutes / targetMinutes) * habitPriority;
             } else {
-              final blocks = (accumulatedMinutes / 30.0).floor();
-              earnedPoints = (blocks > 0 ? blocks : 1) * habitPriority;
+              // At/beyond target: base points + diminishing returns bonus
+              earnedPoints = habitPriority; // Base points for meeting target
+              if (targetMinutes > 0 && accumulatedMinutes > targetMinutes) {
+                final excessMinutes = accumulatedMinutes - targetMinutes;
+                final bonus = BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                  excessMinutes: excessMinutes,
+                  priority: habitPriority,
+                );
+                earnedPoints += bonus;
+              }
             }
           }
         } else {
@@ -391,6 +417,11 @@ class PointsService {
   }
 
   /// Calculate total daily target for all habit instances
+  ///
+  /// **Note:** This does NOT include time bonus target adjustment (unlike tasks).
+  /// For habits, over-achievement (doing more time than target) earns bonus points
+  /// but keeps the target fixed, allowing users to "bank" extra points for future days.
+  /// See `calculateBinaryTimeBonusTargetAdjustment` documentation for full rationale.
   static double calculateTotalDailyTarget(
     List<ActivityInstanceRecord> instances,
   ) {
@@ -407,6 +438,10 @@ class PointsService {
 
   /// Calculate total daily target with template data (enhanced version)
   /// Use this when you have access to template data for accurate frequency calculation
+  ///
+  /// **Note:** This does NOT include time bonus target adjustment (unlike tasks).
+  /// For habits, over-achievement earns bonus points but keeps target fixed.
+  /// See `calculateBinaryTimeBonusTargetAdjustment` documentation for full rationale.
   static Future<double> calculateTotalDailyTargetWithTemplates(
     List<ActivityInstanceRecord> instances,
     String userId,
@@ -544,6 +579,21 @@ class PointsService {
   }
 
   /// Calculate extra target to match binary time bonus awards (tasks only)
+  ///
+  /// **Design Rationale - Why Tasks Only:**
+  ///
+  /// **Tasks (e.g., "Pay electric bill"):**
+  /// - If a task takes 2 hours instead of the estimated 1 hour, the original estimate was wrong.
+  /// - The target should be adjusted upward to reflect the actual time needed.
+  /// - Result: Completion % stays at 100% (earned = target), reflecting corrected estimate.
+  ///
+  /// **Habits (e.g., "Work out for 1 hour"):**
+  /// - If done for 2 hours instead of 1 hour, this is over-achievement, not estimation error.
+  /// - Target stays fixed at 1 hour; user earns bonus points (2x).
+  /// - Result: User can "bank" extra points to skip another day while maintaining weekly/monthly average.
+  ///
+  /// This method is only called for tasks in `_calculateTaskTargetFromActivityInstances`.
+  /// Habit targets use `calculateTotalDailyTarget` which does NOT call this adjustment.
   static double calculateBinaryTimeBonusTargetAdjustment(
     ActivityInstanceRecord instance,
   ) {

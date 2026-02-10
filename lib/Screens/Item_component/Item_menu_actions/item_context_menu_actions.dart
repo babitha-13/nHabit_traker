@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:intl/intl.dart';
 
 class ItemManagementHelper {
   static Future<void> copyHabit({
@@ -125,12 +126,27 @@ class ItemManagementHelper {
           setUpdating: setUpdating,
           onRefresh: onRefresh);
     } else if (selected == 'delete') {
+      final DateTime cutoffDate;
+      if (instance.templateCategoryType == 'habit') {
+        final d = instance.belongsToDate;
+        cutoffDate = d != null
+            ? DateTime(d.year, d.month, d.day)
+            : DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      } else {
+        final d = instance.dueDate;
+        cutoffDate = d != null
+            ? DateTime(d.year, d.month, d.day)
+            : DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day);
+      }
+      final dateStr = DateFormat('MMM d, yyyy').format(cutoffDate);
       final shouldDelete = await showDialog<bool>(
         context: context,
         builder: (context) => AlertDialog(
-          title: const Text('Delete Activity'),
+          title: const Text('End activity from this date'),
           content: Text(
-              'Delete "${instance.templateName}"? This will delete the activity and all its history. This cannot be undone.'),
+            'End "${instance.templateName}" from $dateStr onward?\n\n'
+            'All past instances will be kept. Instances on or after this date will be removed, and no new instances will be created. This cannot be undone.',
+          ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(context).pop(false),
@@ -151,9 +167,16 @@ class ItemManagementHelper {
         onInstanceDeleted(deletedInstance);
         InstanceEvents.broadcastInstanceDeleted(deletedInstance);
         try {
-          await deleteHabit(templateRef);
-          await ActivityInstanceService.deleteInstancesForTemplate(
-              templateId: instance.templateId);
+          if (instance.templateCategoryType == 'task') {
+            await deleteTask(templateRef);
+          } else {
+            await deleteHabit(templateRef);
+          }
+          await ActivityInstanceService.deleteInstancesFromDateOnward(
+            templateId: instance.templateId,
+            fromDate: cutoffDate,
+            templateCategoryType: instance.templateCategoryType,
+          );
           if (isMounted()) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Activity deleted')),

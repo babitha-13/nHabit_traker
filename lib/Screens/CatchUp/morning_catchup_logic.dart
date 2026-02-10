@@ -6,6 +6,8 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';
 
 /// Controller class for managing morning catch-up dialog business logic
 /// Separates business logic from UI concerns
@@ -272,7 +274,7 @@ class MorningCatchUpDialogLogic {
   }
 
   /// Save state on dispose - recalculates record if items were processed
-  /// Recalculates with suppressToasts: true to store updated toast data
+  /// Recalculates with storeToastData: true to store updated toast data
   /// Toasts will be shown after this completes via showPendingToasts()
   /// This runs in background after dialog closes
   Future<void> saveStateOnDispose() async {
@@ -290,20 +292,26 @@ class MorningCatchUpDialogLogic {
 
       // If items were processed, recalculate the record to ensure cumulative score is updated
       if (processedItemIds.isNotEmpty) {
-        // Recalculate with suppressToasts: true to store updated toast data
-        // The updated data will overwrite the initial pending toast data
+        // Recalculate with storeToastData: true to store updated toast data
+        // The updated data will overwrite any initial pending toast data
         await MorningCatchUpService.recalculateDailyProgressRecordForDate(
           userId: userId,
           targetDate: DateService.yesterdayStart,
-          suppressToasts: true, // Store updated toast data, don't show yet
+          storeToastData: true, // Store updated toast data to show after catch-up completes
         );
+
+        // Clear caches to force UI reload after recalculation
+        DailyProgressQueryService.invalidateUserCache(userId);
+        AggregateScoreStatisticsService.clearCache(userId);
+
+        // Notify Progress page to reload
+        NotificationCenter.post('progressDataRecalculated', null);
       } else if (items.isNotEmpty) {
         // If dialog is closed without action, ensure record exists
-        // Use suppressToasts: true to maintain consistency
+        // Don't store toast data since nothing was processed
         await MorningCatchUpService.createDailyProgressRecordForDate(
           userId: userId,
           targetDate: DateService.yesterdayStart,
-          suppressToasts: true,
         );
       }
     } catch (e) {
@@ -313,7 +321,7 @@ class MorningCatchUpDialogLogic {
   }
 
   /// Recalculate daily progress record in background
-  /// Uses suppressToasts: true to store updated toast data
+  /// Uses storeToastData: true to store updated toast data
   Future<void> recalculateProgressRecord() async {
     if (processedItemIds.isNotEmpty) {
       final userId = await waitForCurrentUserUid();
@@ -321,7 +329,7 @@ class MorningCatchUpDialogLogic {
       MorningCatchUpService.recalculateDailyProgressRecordForDate(
         userId: userId,
         targetDate: DateService.yesterdayStart,
-        suppressToasts: true, // Store updated toast data, don't show yet
+        storeToastData: true, // Store updated toast data, don't show yet
       ).catchError((error) {
         // Silent error handling - recalculation failure shouldn't block dialog close
         print('Background recalculation error on close (non-critical): $error');

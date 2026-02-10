@@ -14,6 +14,8 @@ import 'package:habit_tracker/Screens/Alarm/alarm_ringing_page.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
 import 'package:habit_tracker/Screens/Timer/Helpers/timer_notification_service.dart';
+import 'package:habit_tracker/Screens/Timer/Helpers/TimeManager.dart';
+import 'package:habit_tracker/Screens/Timer/timer_page.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/snooze_dialog.dart';
 import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
@@ -113,9 +115,97 @@ class NotificationService {
     else if (payload.startsWith('routine:')) {
       _handleRoutineReminderNotificationTap(payload);
     }
+    // Handle timer notification (open Timer page with running timer)
+    else if (payload == 'timer_notification') {
+      _handleTimerNotificationTap();
+    }
     // Handle reminder notifications (open Queue page)
     else if (payload.isNotEmpty && !payload.startsWith('ALARM_RINGING:')) {
       _handleReminderNotificationTap(payload);
+    }
+  }
+
+  /// Handle timer notification tap: open Timer page with elapsed time running (or Home if no active timer).
+  /// Waits for auth to be ready before proceeding, especially important for cold-start scenarios.
+  static Future<void> _handleTimerNotificationTap() async {
+    // Wait for auth to be ready (with timeout)
+    final userId = await waitForCurrentUserUid(timeout: const Duration(seconds: 10));
+    
+    // If user is not logged in, just navigate to Home (they'll see login if needed)
+    if (userId.isEmpty) {
+      final context = navigatorKey.currentContext;
+      if (context != null) {
+        Navigator.of(context).pushNamedAndRemoveUntil(
+          home,
+          (route) => false,
+        );
+      } else {
+        // Cold-start: wait a bit for app to initialize, then navigate
+        Future.delayed(const Duration(milliseconds: 1000), () {
+          final delayedContext = navigatorKey.currentContext;
+          if (delayedContext != null) {
+            Navigator.of(delayedContext).pushNamedAndRemoveUntil(
+              home,
+              (route) => false,
+            );
+          }
+        });
+      }
+      return;
+    }
+
+    // User is authenticated - proceed to open timer page
+    void openTimerPage() async {
+      final context = navigatorKey.currentContext;
+      if (context == null) return;
+
+      // Navigate to Home first
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
+
+      // Wait for Home to be ready, then load active timers and open Timer page
+      Future.delayed(const Duration(milliseconds: 500), () async {
+        try {
+          // Load active timers from Firestore (ensures we have latest data)
+          await TimerManager().loadActiveTimers();
+          
+          final homeContext = navigatorKey.currentContext;
+          if (homeContext == null) return;
+          
+          final activeTimers = TimerManager().activeTimers;
+          if (activeTimers.isNotEmpty) {
+            // Open Timer page with the first active timer
+            final instance = activeTimers.first;
+            Navigator.of(homeContext).push(
+              MaterialPageRoute(
+                builder: (_) => TimerPage(
+                  initialTimerLogRef: instance.reference,
+                  taskTitle: instance.templateName,
+                  fromSwipe: true,
+                  fromNotification: true,
+                ),
+              ),
+            );
+          }
+          // If no active timers, user stays on Home (timer may have stopped)
+        } catch (e) {
+          // Handle errors gracefully - user stays on Home
+          debugPrint('Error opening timer page from notification: $e');
+        }
+      });
+    }
+
+    final context = navigatorKey.currentContext;
+    if (context != null) {
+      // App is already running - proceed immediately
+      openTimerPage();
+    } else {
+      // Cold-start: wait for app to initialize before navigating
+      Future.delayed(const Duration(milliseconds: 800), () {
+        openTimerPage();
+      });
     }
   }
 

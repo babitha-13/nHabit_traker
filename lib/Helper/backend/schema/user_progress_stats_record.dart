@@ -73,25 +73,42 @@ class UserProgressStatsRecord extends FirestoreRecord {
   bool hasLastUpdatedAt() => _lastUpdatedAt != null;
 
   // Aggregate statistics fields
-  // "averageDailyScore7Day" field - 7-day average daily score gain
+  // New field names (preferred)
+  // "averageDailyGain7Day" field - 7-day average daily effective gain
+  double? _averageDailyGain7Day;
+  double get averageDailyGain7Day => _averageDailyGain7Day ?? 0.0;
+  bool hasAverageDailyGain7Day() => _averageDailyGain7Day != null;
+
+  // "averageDailyGain30Day" field - 30-day average daily effective gain
+  double? _averageDailyGain30Day;
+  double get averageDailyGain30Day => _averageDailyGain30Day ?? 0.0;
+  bool hasAverageDailyGain30Day() => _averageDailyGain30Day != null;
+
+  // "bestDailyGain" field - highest single day gain
+  double? _bestDailyGain;
+  double get bestDailyGain => _bestDailyGain ?? 0.0;
+  bool hasBestDailyGain() => _bestDailyGain != null;
+
+  // "worstDailyGain" field - lowest single day gain
+  double? _worstDailyGain;
+  double get worstDailyGain => _worstDailyGain ?? 0.0;
+  bool hasWorstDailyGain() => _worstDailyGain != null;
+
+  // Backward compatibility getters (deprecated, use new names)
+  @Deprecated('Use averageDailyGain7Day instead')
+  double get averageDailyScore7Day => _averageDailyGain7Day ?? _averageDailyScore7Day ?? 0.0;
+  @Deprecated('Use averageDailyGain30Day instead')
+  double get averageDailyScore30Day => _averageDailyGain30Day ?? _averageDailyScore30Day ?? 0.0;
+  @Deprecated('Use bestDailyGain instead')
+  double get bestDailyScoreGain => _bestDailyGain ?? _bestDailyScoreGain ?? 0.0;
+  @Deprecated('Use worstDailyGain instead')
+  double get worstDailyScoreGain => _worstDailyGain ?? _worstDailyScoreGain ?? 0.0;
+
+  // Old field names (kept for backward compatibility during migration)
   double? _averageDailyScore7Day;
-  double get averageDailyScore7Day => _averageDailyScore7Day ?? 0.0;
-  bool hasAverageDailyScore7Day() => _averageDailyScore7Day != null;
-
-  // "averageDailyScore30Day" field - 30-day average daily score gain
   double? _averageDailyScore30Day;
-  double get averageDailyScore30Day => _averageDailyScore30Day ?? 0.0;
-  bool hasAverageDailyScore30Day() => _averageDailyScore30Day != null;
-
-  // "bestDailyScoreGain" field - highest single day gain
   double? _bestDailyScoreGain;
-  double get bestDailyScoreGain => _bestDailyScoreGain ?? 0.0;
-  bool hasBestDailyScoreGain() => _bestDailyScoreGain != null;
-
-  // "worstDailyScoreGain" field - lowest single day gain
   double? _worstDailyScoreGain;
-  double get worstDailyScoreGain => _worstDailyScoreGain ?? 0.0;
-  bool hasWorstDailyScoreGain() => _worstDailyScoreGain != null;
 
   // "positiveDaysCount7Day" field - count of positive days in last 7 days
   int? _positiveDaysCount7Day;
@@ -103,16 +120,6 @@ class UserProgressStatsRecord extends FirestoreRecord {
   int get positiveDaysCount30Day => _positiveDaysCount30Day ?? 0;
   bool hasPositiveDaysCount30Day() => _positiveDaysCount30Day != null;
 
-  // "scoreGrowthRate7Day" field - average daily growth rate (7-day)
-  double? _scoreGrowthRate7Day;
-  double get scoreGrowthRate7Day => _scoreGrowthRate7Day ?? 0.0;
-  bool hasScoreGrowthRate7Day() => _scoreGrowthRate7Day != null;
-
-  // "scoreGrowthRate30Day" field - average daily growth rate (30-day)
-  double? _scoreGrowthRate30Day;
-  double get scoreGrowthRate30Day => _scoreGrowthRate30Day ?? 0.0;
-  bool hasScoreGrowthRate30Day() => _scoreGrowthRate30Day != null;
-
   // "averageCumulativeScore7Day" field - 7-day rolling average of cumulative score
   double? _averageCumulativeScore7Day;
   double get averageCumulativeScore7Day => _averageCumulativeScore7Day ?? 0.0;
@@ -123,10 +130,10 @@ class UserProgressStatsRecord extends FirestoreRecord {
   double get averageCumulativeScore30Day => _averageCumulativeScore30Day ?? 0.0;
   bool hasAverageCumulativeScore30Day() => _averageCumulativeScore30Day != null;
 
-  // "lastAggregateStatsCalculationDate" field - when aggregate stats were last calculated
-  DateTime? _lastAggregateStatsCalculationDate;
-  DateTime? get lastAggregateStatsCalculationDate => _lastAggregateStatsCalculationDate;
-  bool hasLastAggregateStatsCalculationDate() => _lastAggregateStatsCalculationDate != null;
+  // "lastProcessedDate" field - date when cloud function last processed day-end for this user
+  DateTime? _lastProcessedDate;
+  DateTime? get lastProcessedDate => _lastProcessedDate;
+  bool hasLastProcessedDate() => _lastProcessedDate != null;
 
   void _initializeFields() {
     _userId = snapshotData['userId'] as String?;
@@ -142,17 +149,31 @@ class UserProgressStatsRecord extends FirestoreRecord {
     _achievedMilestones = snapshotData['achievedMilestones'] as int?;
     _createdAt = snapshotData['createdAt'] as DateTime?;
     _lastUpdatedAt = snapshotData['lastUpdatedAt'] as DateTime?;
+    // Read from new field names first, fallback to old names for backward compatibility
+    _averageDailyGain7Day = 
+      (snapshotData['averageDailyGain7Day'] as num?)?.toDouble() ??
+      (snapshotData['averageDailyScore7Day'] as num?)?.toDouble();
+    _averageDailyGain30Day = 
+      (snapshotData['averageDailyGain30Day'] as num?)?.toDouble() ??
+      (snapshotData['averageDailyScore30Day'] as num?)?.toDouble();
+    _bestDailyGain = 
+      (snapshotData['bestDailyGain'] as num?)?.toDouble() ??
+      (snapshotData['bestDailyScoreGain'] as num?)?.toDouble();
+    _worstDailyGain = 
+      (snapshotData['worstDailyGain'] as num?)?.toDouble() ??
+      (snapshotData['worstDailyScoreGain'] as num?)?.toDouble();
+    
+    // Keep old fields for backward compatibility
     _averageDailyScore7Day = (snapshotData['averageDailyScore7Day'] as num?)?.toDouble();
     _averageDailyScore30Day = (snapshotData['averageDailyScore30Day'] as num?)?.toDouble();
     _bestDailyScoreGain = (snapshotData['bestDailyScoreGain'] as num?)?.toDouble();
     _worstDailyScoreGain = (snapshotData['worstDailyScoreGain'] as num?)?.toDouble();
+    
     _positiveDaysCount7Day = snapshotData['positiveDaysCount7Day'] as int?;
     _positiveDaysCount30Day = snapshotData['positiveDaysCount30Day'] as int?;
-    _scoreGrowthRate7Day = (snapshotData['scoreGrowthRate7Day'] as num?)?.toDouble();
-    _scoreGrowthRate30Day = (snapshotData['scoreGrowthRate30Day'] as num?)?.toDouble();
     _averageCumulativeScore7Day = (snapshotData['averageCumulativeScore7Day'] as num?)?.toDouble();
     _averageCumulativeScore30Day = (snapshotData['averageCumulativeScore30Day'] as num?)?.toDouble();
-    _lastAggregateStatsCalculationDate = snapshotData['lastAggregateStatsCalculationDate'] as DateTime?;
+    _lastProcessedDate = snapshotData['lastProcessedDate'] as DateTime?;
   }
 
   static CollectionReference get collection =>
@@ -223,17 +244,20 @@ Map<String, dynamic> createUserProgressStatsRecordData({
   int? achievedMilestones,
   DateTime? createdAt,
   DateTime? lastUpdatedAt,
+  double? averageDailyGain7Day,
+  double? averageDailyGain30Day,
+  double? bestDailyGain,
+  double? worstDailyGain,
+  int? positiveDaysCount7Day,
+  int? positiveDaysCount30Day,
+  // Backward compatibility parameters
   double? averageDailyScore7Day,
   double? averageDailyScore30Day,
   double? bestDailyScoreGain,
   double? worstDailyScoreGain,
-  int? positiveDaysCount7Day,
-  int? positiveDaysCount30Day,
-  double? scoreGrowthRate7Day,
-  double? scoreGrowthRate30Day,
   double? averageCumulativeScore7Day,
   double? averageCumulativeScore30Day,
-  DateTime? lastAggregateStatsCalculationDate,
+  DateTime? lastProcessedDate,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -249,17 +273,20 @@ Map<String, dynamic> createUserProgressStatsRecordData({
       'achievedMilestones': achievedMilestones,
       'createdAt': createdAt,
       'lastUpdatedAt': lastUpdatedAt,
-      'averageDailyScore7Day': averageDailyScore7Day,
-      'averageDailyScore30Day': averageDailyScore30Day,
-      'bestDailyScoreGain': bestDailyScoreGain,
-      'worstDailyScoreGain': worstDailyScoreGain,
+      'averageDailyGain7Day': averageDailyGain7Day ?? averageDailyScore7Day,
+      'averageDailyGain30Day': averageDailyGain30Day ?? averageDailyScore30Day,
+      'bestDailyGain': bestDailyGain ?? bestDailyScoreGain,
+      'worstDailyGain': worstDailyGain ?? worstDailyScoreGain,
       'positiveDaysCount7Day': positiveDaysCount7Day,
       'positiveDaysCount30Day': positiveDaysCount30Day,
-      'scoreGrowthRate7Day': scoreGrowthRate7Day,
-      'scoreGrowthRate30Day': scoreGrowthRate30Day,
+      // Also write old field names for backward compatibility during migration
+      'averageDailyScore7Day': averageDailyGain7Day ?? averageDailyScore7Day,
+      'averageDailyScore30Day': averageDailyGain30Day ?? averageDailyScore30Day,
+      'bestDailyScoreGain': bestDailyGain ?? bestDailyScoreGain,
+      'worstDailyScoreGain': worstDailyGain ?? worstDailyScoreGain,
       'averageCumulativeScore7Day': averageCumulativeScore7Day,
       'averageCumulativeScore30Day': averageCumulativeScore30Day,
-      'lastAggregateStatsCalculationDate': lastAggregateStatsCalculationDate,
+      'lastProcessedDate': lastProcessedDate,
     }.withoutNulls,
   );
   return firestoreData;
@@ -286,17 +313,15 @@ class UserProgressStatsRecordDocumentEquality
         e1?.achievedMilestones == e2?.achievedMilestones &&
         e1?.createdAt == e2?.createdAt &&
         e1?.lastUpdatedAt == e2?.lastUpdatedAt &&
-        e1?.averageDailyScore7Day == e2?.averageDailyScore7Day &&
-        e1?.averageDailyScore30Day == e2?.averageDailyScore30Day &&
-        e1?.bestDailyScoreGain == e2?.bestDailyScoreGain &&
-        e1?.worstDailyScoreGain == e2?.worstDailyScoreGain &&
+        e1?.averageDailyGain7Day == e2?.averageDailyGain7Day &&
+        e1?.averageDailyGain30Day == e2?.averageDailyGain30Day &&
+        e1?.bestDailyGain == e2?.bestDailyGain &&
+        e1?.worstDailyGain == e2?.worstDailyGain &&
         e1?.positiveDaysCount7Day == e2?.positiveDaysCount7Day &&
         e1?.positiveDaysCount30Day == e2?.positiveDaysCount30Day &&
-        e1?.scoreGrowthRate7Day == e2?.scoreGrowthRate7Day &&
-        e1?.scoreGrowthRate30Day == e2?.scoreGrowthRate30Day &&
         e1?.averageCumulativeScore7Day == e2?.averageCumulativeScore7Day &&
         e1?.averageCumulativeScore30Day == e2?.averageCumulativeScore30Day &&
-        e1?.lastAggregateStatsCalculationDate == e2?.lastAggregateStatsCalculationDate;
+        e1?.lastProcessedDate == e2?.lastProcessedDate;
   }
 
   @override
@@ -313,16 +338,14 @@ class UserProgressStatsRecordDocumentEquality
         e?.achievedMilestones,
         e?.createdAt,
         e?.lastUpdatedAt,
-        e?.averageDailyScore7Day,
-        e?.averageDailyScore30Day,
-        e?.bestDailyScoreGain,
-        e?.worstDailyScoreGain,
+        e?.averageDailyGain7Day,
+        e?.averageDailyGain30Day,
+        e?.bestDailyGain,
+        e?.worstDailyGain,
         e?.positiveDaysCount7Day,
         e?.positiveDaysCount30Day,
-        e?.scoreGrowthRate7Day,
-        e?.scoreGrowthRate30Day,
         e?.averageCumulativeScore7Day,
         e?.averageCumulativeScore30Day,
-        e?.lastAggregateStatsCalculationDate,
+        e?.lastProcessedDate,
       ]);
 }

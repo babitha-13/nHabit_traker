@@ -104,6 +104,12 @@ class CalendarEventService {
     final queueItems = results[5] as Map<String, dynamic>;
     final routines = results[6] as List<RoutineRecord>;
 
+    // Extract routine data: map routineId -> itemIds for clash detection
+    final routineIdToItemIds = <String, List<String>>{};
+    for (final routine in routines) {
+      routineIdToItemIds[routine.reference.id] = routine.itemIds;
+    }
+
     // Optimize: Create category lookup maps once (O(1) lookup instead of O(n) firstWhere)
     final categoryById = <String, CategoryRecord>{};
     final categoryByName = <String, CategoryRecord>{};
@@ -491,6 +497,7 @@ class CalendarEventService {
     final result = CalendarEventsResult(
       completedEvents: cascadedEvents,
       plannedEvents: plannedEvents,
+      routineIdToItemIds: routineIdToItemIds,
     );
 
     // Cache the result
@@ -504,9 +511,11 @@ class CalendarEventService {
 class CalendarEventsResult {
   final List<CalendarEventData> completedEvents;
   final List<CalendarEventData> plannedEvents;
+  final Map<String, List<String>> routineIdToItemIds;
 
   CalendarEventsResult({
     required this.completedEvents,
     required this.plannedEvents,
-  });
+    Map<String, List<String>>? routineIdToItemIds,
+  }) : routineIdToItemIds = routineIdToItemIds ?? const {};
 }

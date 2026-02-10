@@ -77,6 +77,10 @@ class UsersRecord extends FirestoreRecord {
       _notificationOnboardingCompleted ?? false;
   bool hasNotificationOnboardingCompleted() =>
       _notificationOnboardingCompleted != null;
+  // "timezone_offset" field - timezone offset in hours from UTC (e.g., 5.5 for IST, -5 for EST)
+  double? _timezoneOffset;
+  double? get timezoneOffset => _timezoneOffset;
+  bool hasTimezoneOffset() => _timezoneOffset != null;
   void _initializeFields() {
     _email = snapshotData['email'] as String?;
     _uid = snapshotData['uid'] as String?;
@@ -99,6 +103,7 @@ class UsersRecord extends FirestoreRecord {
     _lastAppOpened = snapshotData['last_app_opened'] as DateTime?;
     _notificationOnboardingCompleted =
         snapshotData['notification_onboarding_completed'] as bool?;
+    _timezoneOffset = (snapshotData['timezone_offset'] as num?)?.toDouble();
   }
   static CollectionReference get collection =>
       FirebaseFirestore.instance.collection('users');
@@ -142,6 +147,7 @@ Map<String, dynamic> createUsersRecordData({
   Map<String, dynamic>? notificationPreferences,
   DateTime? lastAppOpened,
   bool? notificationOnboardingCompleted,
+  double? timezoneOffset,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -161,6 +167,7 @@ Map<String, dynamic> createUsersRecordData({
       'notification_preferences': notificationPreferences,
       'last_app_opened': lastAppOpened,
       'notification_onboarding_completed': notificationOnboardingCompleted,
+      'timezone_offset': timezoneOffset,
     }.withoutNulls,
   );
   return firestoreData;
@@ -184,7 +191,8 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e1?.eveningNotificationTime == e2?.eveningNotificationTime &&
         e1?.notificationPreferences == e2?.notificationPreferences &&
         e1?.lastAppOpened == e2?.lastAppOpened &&
-        e1?.notificationOnboardingCompleted == e2?.notificationOnboardingCompleted;
+        e1?.notificationOnboardingCompleted == e2?.notificationOnboardingCompleted &&
+        e1?.timezoneOffset == e2?.timezoneOffset;
   }
   @override
   int hash(UsersRecord? e) => const ListEquality().hash([
@@ -204,6 +212,7 @@ class UsersRecordDocumentEquality implements Equality<UsersRecord> {
         e?.notificationPreferences,
         e?.lastAppOpened,
         e?.notificationOnboardingCompleted,
+        e?.timezoneOffset,
       ]);
   @override
   bool isValidKey(Object? o) => o is UsersRecord;

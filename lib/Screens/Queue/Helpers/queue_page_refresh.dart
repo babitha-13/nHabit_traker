@@ -1,6 +1,7 @@
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_instance_service.dart';
 import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart';
 
 /// Service class for loading queue data
@@ -21,6 +22,7 @@ class QueueDataService {
       // Batch Firestore queries in parallel for faster loading
       final results = await Future.wait([
         queryAllInstances(userId: userId),
+        ActivityInstanceService.getRecentCompletedInstances(userId: userId),
         queryHabitCategoriesOnce(
           userId: userId,
           callerTag: 'QueuePage._loadData.habits',
@@ -31,9 +33,11 @@ class QueueDataService {
         ),
       ]);
 
-      final allInstances = results[0] as List<ActivityInstanceRecord>;
-      final habitCategories = results[1] as List<CategoryRecord>;
-      final taskCategories = results[2] as List<CategoryRecord>;
+      final baseInstances = results[0] as List<ActivityInstanceRecord>;
+      final recentCompleted = results[1] as List<ActivityInstanceRecord>;
+      final allInstances = [...baseInstances, ...recentCompleted];
+      final habitCategories = results[2] as List<CategoryRecord>;
+      final taskCategories = results[3] as List<CategoryRecord>;
       final allCategories = [...habitCategories, ...taskCategories];
 
       // Deduplicate instances by reference ID to prevent duplicates
@@ -79,6 +83,7 @@ class QueueDataService {
     // Batch Firestore queries in parallel for faster loading
     final results = await Future.wait([
       queryAllInstances(userId: userId),
+      ActivityInstanceService.getRecentCompletedInstances(userId: userId),
       queryHabitCategoriesOnce(
         userId: userId,
         callerTag: 'QueuePage._silentRefreshInstances.habits',
@@ -89,9 +94,11 @@ class QueueDataService {
       ),
     ]);
 
-    final allInstances = results[0] as List<ActivityInstanceRecord>;
-    final habitCategories = results[1] as List<CategoryRecord>;
-    final taskCategories = results[2] as List<CategoryRecord>;
+    final baseInstances = results[0] as List<ActivityInstanceRecord>;
+    final recentCompleted = results[1] as List<ActivityInstanceRecord>;
+    final allInstances = [...baseInstances, ...recentCompleted];
+    final habitCategories = results[2] as List<CategoryRecord>;
+    final taskCategories = results[3] as List<CategoryRecord>;
     final allCategories = [...habitCategories, ...taskCategories];
 
     // Deduplicate instances by reference ID to prevent duplicates

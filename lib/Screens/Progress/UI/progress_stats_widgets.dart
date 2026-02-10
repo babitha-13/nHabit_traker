@@ -129,20 +129,20 @@ class ProgressStatsWidgets {
             Expanded(
               child: buildAggregateStatCard(
                 context: context,
-                title: 'Avg Daily Score (7d)',
-                value: logic.averageDailyScore7Day.toStringAsFixed(1),
+                title: 'Avg Daily Gain (7d)',
+                value: logic.averageDailyGain7Day.toStringAsFixed(1),
                 icon: Icons.trending_up,
-                color: logic.averageDailyScore7Day >= 0 ? Colors.green : Colors.red,
+                color: logic.averageDailyGain7Day >= 0 ? Colors.green : Colors.red,
               ),
             ),
             const SizedBox(width: 12),
             Expanded(
               child: buildAggregateStatCard(
                 context: context,
-                title: 'Avg Daily Score (30d)',
-                value: logic.averageDailyScore30Day.toStringAsFixed(1),
+                title: 'Avg Daily Gain (30d)',
+                value: logic.averageDailyGain30Day.toStringAsFixed(1),
                 icon: Icons.calendar_month,
-                color: logic.averageDailyScore30Day >= 0 ? Colors.green : Colors.red,
+                color: logic.averageDailyGain30Day >= 0 ? Colors.green : Colors.red,
               ),
             ),
           ],
@@ -154,7 +154,7 @@ class ProgressStatsWidgets {
               child: buildAggregateStatCard(
                 context: context,
                 title: 'Best Day',
-                value: logic.bestDailyScoreGain.toStringAsFixed(1),
+                value: logic.bestDailyGain.toStringAsFixed(1),
                 icon: Icons.arrow_upward,
                 color: Colors.green,
               ),
@@ -164,7 +164,7 @@ class ProgressStatsWidgets {
               child: buildAggregateStatCard(
                 context: context,
                 title: 'Worst Day',
-                value: logic.worstDailyScoreGain.toStringAsFixed(1),
+                value: logic.worstDailyGain.toStringAsFixed(1),
                 icon: Icons.arrow_downward,
                 color: Colors.red,
               ),
@@ -272,7 +272,20 @@ class ProgressStatsWidgets {
     required Function(double) onShowBreakdown,
   }) {
     final sharedData = TodayProgressState().getCumulativeScoreData();
-    final displayScore = sharedData['cumulativeScore'] as double? ?? logic.projectedCumulativeScore;
+    
+    // Get yesterday's score from history if available (to avoid showing 0 while loading)
+    double? yesterdayScoreFromHistory;
+    if (logic.cumulativeScoreHistory.length >= 2) {
+      yesterdayScoreFromHistory = logic.cumulativeScoreHistory[logic.cumulativeScoreHistory.length - 2]['score'] as double?;
+    } else if (logic.cumulativeScoreHistory.length == 1) {
+      // If only one entry exists, it might be yesterday's
+      yesterdayScoreFromHistory = logic.cumulativeScoreHistory[0]['score'] as double?;
+    }
+    
+    // Use shared score, or projected score, or yesterday's score from history, or 0
+    final displayScore = sharedData['cumulativeScore'] as double? ?? 
+        (logic.projectedCumulativeScore > 0 ? logic.projectedCumulativeScore : yesterdayScoreFromHistory) ?? 
+        0.0;
 
     final todayScore = logic.cumulativeScoreHistory.isNotEmpty
         ? (logic.cumulativeScoreHistory.last['score'] as double)

@@ -42,7 +42,7 @@ class ItemBinaryControlsHelper {
     dynamic targetValue = 1;
     int? targetAccumulatedTime;
     dynamic undoValue = 0;
-    
+
     if (completed) {
       if (instance.templateTrackingType == 'quantitative') {
         if (treatAsBinary) {
@@ -126,7 +126,8 @@ class ItemBinaryControlsHelper {
           await ActivityInstanceService.completeInstance(
             instanceId: instance.reference.id,
             finalAccumulatedTime: targetAccumulatedTime,
-            skipOptimisticUpdate: true, // Skip - we already broadcasted optimistically above
+            skipOptimisticUpdate:
+                true, // Skip - we already broadcasted optimistically above
           );
         }
       } else {
@@ -147,7 +148,8 @@ class ItemBinaryControlsHelper {
           await ActivityInstanceService.uncompleteInstance(
             instanceId: instance.reference.id,
             deleteLogs: deleteLogs,
-            skipOptimisticUpdate: true, // Skip - we already broadcasted optimistically above
+            skipOptimisticUpdate:
+                true, // Skip - we already broadcasted optimistically above
           );
         }
       }
@@ -156,23 +158,23 @@ class ItemBinaryControlsHelper {
       final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
         instanceId: instance.reference.id,
       );
-      
+
       // Reconcile optimistic update with actual backend data
       OptimisticOperationTracker.reconcileOperation(
         operationId,
         updatedInstance,
       );
-      
+
       // Update with actual instance (in case there are any differences)
       onInstanceUpdated(updatedInstance);
-      
+
       if (instance.templateCategoryType == 'habit' && completed) {
         onRefresh?.call();
       }
     } catch (e) {
       // Rollback optimistic update on error
       OptimisticOperationTracker.rollbackOperation(operationId);
-      
+
       // Restore original instance
       onInstanceUpdated(instance);
       if (isMounted()) {

@@ -2,15 +2,18 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Schema for cumulative score history stored in a single document per user
 /// Stores last 100 days of score history to reduce Firestore reads
-/// Structure: { lastUpdated: Timestamp, scores: [{date, score, gain}, ...] }
+/// Structure: { lastUpdated: Timestamp, scores: [{date, score, gain, effectiveGain}, ...] }
 class CumulativeScoreHistoryRecord {
-  static CollectionReference get collection =>
-      FirebaseFirestore.instance.collection('cumulative_score_history');
+  static CollectionReference _userCollection(String userId) =>
+      FirebaseFirestore.instance
+          .collection('users')
+          .doc(userId)
+          .collection('cumulative_score_history');
 
   /// Get document reference for a specific user
   /// Single document per user storing last 100 days
   static DocumentReference getDocumentForUser(String userId) =>
-      collection.doc(userId);
+      _userCollection(userId).doc('history');
 
   /// Get the document snapshot for a user
   static Future<DocumentSnapshot> getDocument(String userId) async {

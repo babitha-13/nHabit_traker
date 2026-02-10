@@ -59,34 +59,7 @@ class QueueBucketService {
           .contains(searchQuery.toLowerCase());
     }).toList();
 
-    for (final instance in instancesToProcess) {
-      // Don't skip completed/skipped instances here - they'll be handled in the Completed/Skipped section
-      if (QueueUtils.isInstanceCompleted(instance)) {
-        continue;
-      }
-      // Skip snoozed instances from main processing (they'll be handled in Completed/Skipped section)
-      if (instance.snoozedUntil != null &&
-          DateTime.now().isBefore(instance.snoozedUntil!)) {
-        continue;
-      }
-      final dueDate = instance.dueDate;
-      if (dueDate == null) {
-        // Skip instances without due dates (no "Later" section)
-        continue;
-      }
-      final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      // OVERDUE: Only tasks that are overdue
-      if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
-        buckets['Overdue']!.add(instance);
-      }
-      // PENDING: Both habits and tasks for today
-      else if (QueueUtils.isTodayOrOverdue(instance)) {
-        buckets['Pending']!.add(instance);
-      }
-      // Skip anything beyond today (no "Later" section)
-    }
-
-    // Populate Completed bucket (completed TODAY only)
+    // Populate Completed bucket FIRST (completed TODAY only)
     final now = DateTime.now();
     final todayStart = DateTime(now.year, now.month, now.day);
     for (final instance in instancesToProcess) {
@@ -104,7 +77,7 @@ class QueueBucketService {
       }
     }
 
-    // Populate Skipped/Snoozed bucket (skipped TODAY or currently snoozed)
+    // Populate Skipped/Snoozed bucket SECOND (skipped TODAY or currently snoozed)
     for (final instance in instancesToProcess) {
       // For skipped items, check skipped date
       if (instance.status == 'skipped') {
@@ -135,6 +108,34 @@ class QueueBucketService {
           }
         }
       }
+    }
+
+    // THEN populate Overdue/Pending buckets (skip completed/skipped/snoozed)
+    for (final instance in instancesToProcess) {
+      // Skip completed/skipped instances - already handled above
+      if (QueueUtils.isInstanceCompleted(instance)) {
+        continue;
+      }
+      // Skip snoozed instances - already handled above
+      if (instance.snoozedUntil != null &&
+          DateTime.now().isBefore(instance.snoozedUntil!)) {
+        continue;
+      }
+      final dueDate = instance.dueDate;
+      if (dueDate == null) {
+        // Skip instances without due dates (no "Later" section)
+        continue;
+      }
+      final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+      // OVERDUE: Only tasks that are overdue
+      if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
+        buckets['Overdue']!.add(instance);
+      }
+      // PENDING: Both habits and tasks for today
+      else if (QueueUtils.isTodayOrOverdue(instance)) {
+        buckets['Pending']!.add(instance);
+      }
+      // Skip anything beyond today (no "Later" section)
     }
 
     // Sort items within each bucket

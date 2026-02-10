@@ -136,9 +136,9 @@ class _ProgressPageState extends State<ProgressPage> with ProgressPageLogic {
           const SizedBox(height: 16),
           ProgressStatsWidgets.buildSummaryCards(context: context, logic: this),
           const SizedBox(height: 16),
-          ProgressStatsWidgets.buildAggregateStatsSection(context: context, logic: this),
-          const SizedBox(height: 24),
           ProgressChartsBuilder.buildTrendChart(context: context, logic: this),
+          const SizedBox(height: 16),
+          ProgressStatsWidgets.buildAggregateStatsSection(context: context, logic: this),
         ],
       ),
     );

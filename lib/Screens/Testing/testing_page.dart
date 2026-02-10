@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/testing/simple_day_advancer_ui.dart';
+import 'package:habit_tracker/Screens/Testing/helpers/simple_day_advancer_ui.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Helper/Helpers/testing/duplicate_instance_cleanup.dart';
+import 'package:habit_tracker/Screens/Testing/helpers/duplicate_instance_cleanup.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 /// Testing page for day simulation and habit/task testing

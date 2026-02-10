@@ -46,6 +46,7 @@ class _CalendarPageState extends State<CalendarPage> {
   int _plannedOverlapPairCount = 0;
   final Set<String> _plannedOverlappedEventIds = {};
   List<PlannedOverlapGroup> _plannedOverlapGroups = const [];
+  Map<String, List<String>> _routineIdToItemIds = const {};
   GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
   Offset? _lastTapDownPosition;
   double? _initialZoomOnGestureStart;
@@ -558,6 +559,7 @@ class _CalendarPageState extends State<CalendarPage> {
             overlappedIds: _plannedOverlappedEventIds,
             groups: _plannedOverlapGroups,
           ),
+          routineIdToItemIds: _routineIdToItemIds,
         );
       } else {
         // Fallback to full recompute
@@ -609,6 +611,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   overlappedIds: _plannedOverlappedEventIds,
                   groups: _plannedOverlapGroups,
                 ),
+                routineIdToItemIds: _routineIdToItemIds,
               );
               _plannedOverlapPairCount = overlapInfo.pairCount;
               _plannedOverlappedEventIds
@@ -756,6 +759,7 @@ class _CalendarPageState extends State<CalendarPage> {
             overlappedIds: _plannedOverlappedEventIds,
             groups: _plannedOverlapGroups,
           ),
+          routineIdToItemIds: _routineIdToItemIds,
         );
       }
 
@@ -886,6 +890,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
       _sortedCompletedEvents = result.completedEvents;
       _sortedPlannedEvents = result.plannedEvents;
+      _routineIdToItemIds = result.routineIdToItemIds;
       final overlapInfo = _computePlannedOverlaps(result.plannedEvents);
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
@@ -952,7 +957,10 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   PlannedOverlapInfo _computePlannedOverlaps(List<CalendarEventData> planned) {
-    return CalendarOverlapCalculator.computePlannedOverlaps(planned);
+    return CalendarOverlapCalculator.computePlannedOverlaps(
+      planned,
+      routineIdToItemIds: _routineIdToItemIds,
+    );
   }
 
   Widget _buildEventTile(CalendarEventData event, bool isCompleted) {

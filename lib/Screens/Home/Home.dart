@@ -36,6 +36,11 @@ import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/Helper/Helpers/resource_tracker.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
+import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -96,17 +101,48 @@ class _HomeState extends State<Home> {
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       Future.wait([
+        _storeUserTimezone(),
         _checkMorningCatchUp(),
-        _checkGoalOnboarding(),
+        _checkOnboardingDialogs(), // Combined goal + notification onboarding
         _checkDailyGoal(),
         _initializeNotifications(),
-      ]).then((_) {
-        if (mounted) {
-          _checkNotificationOnboarding();
-        }
-      });
+        _preWarmCache(), // Pre-warm templates and categories cache for faster page loads
+      ]);
     });
     _scheduleDayTransitionTimer();
+  }
+
+  /// Store user's timezone offset in their profile
+  /// Called on app open to keep timezone up-to-date (handles timezone changes when traveling)
+  Future<void> _storeUserTimezone() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+
+      // Get device timezone offset in hours from UTC
+      final now = DateTime.now();
+      final timezoneOffset = now.timeZoneOffset.inHours +
+          (now.timeZoneOffset.inMinutes % 60) / 60.0;
+
+      // Get current user document
+      final userRef = UsersRecord.collection.doc(userId);
+      final userDoc = await userRef.get();
+
+      if (userDoc.exists) {
+        final currentUser = UsersRecord.fromSnapshot(userDoc);
+        // Only update if timezone has changed (to avoid unnecessary writes)
+        if ((currentUser.timezoneOffset ?? 0) != timezoneOffset) {
+          await userRef.update({
+            'timezone_offset': timezoneOffset,
+          });
+        }
+      }
+    } catch (e) {
+      // Silent error - timezone update is not critical
+      print('Error storing user timezone: $e');
+    }
   }
 
   void _onNavigateBottomTab(Object? param) {
@@ -243,22 +279,56 @@ class _HomeState extends State<Home> {
     }
   }
 
-  Future<void> _checkGoalOnboarding() async {
+  /// Check both goal and notification onboarding dialogs
+  /// Queries user document once and handles both sequentially
+  Future<void> _checkOnboardingDialogs() async {
     try {
       final userId = users.uid;
       if (userId == null || userId.isEmpty) {
         return;
       }
-      final shouldShow = await GoalService.shouldShowOnboardingGoal(userId);
-      if (shouldShow && mounted) {
+
+      // Query user document once
+      final userDoc = await UsersRecord.collection.doc(userId).get();
+      if (!userDoc.exists) {
+        return;
+      }
+      final userData = UsersRecord.fromSnapshot(userDoc);
+
+      // Check goal onboarding first
+      final goalOnboardingCompleted = userData.goalOnboardingCompleted;
+      final shouldShowGoalOnboarding = !userData.goalPromptSkipped &&
+          !goalOnboardingCompleted &&
+          userData.currentGoalId.isEmpty;
+
+      if (shouldShowGoalOnboarding && mounted) {
         showDialog(
           context: context,
           barrierDismissible: false,
           builder: (context) => const GoalOnboardingDialog(),
         );
+        return; // Don't show notification onboarding until goal onboarding is done
+      }
+
+      // Only check notification onboarding if goal onboarding is completed
+      if (goalOnboardingCompleted && mounted) {
+        final isNotificationOnboardingCompleted =
+            await NotificationPreferencesService
+                .isNotificationOnboardingCompleted(userId);
+        if (!isNotificationOnboardingCompleted) {
+          // Add a small delay to avoid showing multiple dialogs at once
+          await Future.delayed(const Duration(milliseconds: 500));
+          if (mounted) {
+            showDialog(
+              context: context,
+              barrierDismissible: false,
+              builder: (context) => const NotificationOnboardingDialog(),
+            );
+          }
+        }
       }
     } catch (e) {
-      print('Error checking goal onboarding: $e');
+      print('Error checking onboarding dialogs: $e');
     }
   }
 
@@ -330,21 +400,42 @@ class _HomeState extends State<Home> {
       final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
 
       if (!alreadyProcessedToday) {
-        await MorningCatchUpService.runInstanceMaintenanceForDayTransition(
-            userId);
+        // Check if we need to wait for cloud function or run as fallback
+        final shouldRunProcessing =
+            await _shouldRunDayEndProcessing(userId, now);
 
-        // Persist scores in background (non-blocking)
-        // Suppress toasts if catch-up dialog will be shown (toasts will show after dialog closes)
-        unawaited(MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
-            userId: userId));
-        unawaited(MorningCatchUpService.persistScoresForDate(
-          userId: userId,
-          targetDate: DateService.yesterdayStart,
-          suppressToasts: shouldShow, // Suppress toasts if dialog will be shown
-        ));
+        if (shouldRunProcessing) {
+          // Run UI processing as fallback (cloud function hasn't processed yet)
+          await MorningCatchUpService.runInstanceMaintenanceForDayTransition(
+              userId);
 
-        await prefs.setString(
-            'last_end_of_day_processed', today.toIso8601String());
+          // Check if there are missed days before deciding whether to await
+          final hasMissed =
+              await MorningCatchUpService.hasMissedDays(userId: userId);
+
+          if (hasMissed) {
+            // Await missed days persistence to ensure graphs have complete data
+            await MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
+                userId: userId);
+          } else {
+            // No missed days - run in background for performance
+            unawaited(MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
+                userId: userId));
+          }
+
+          // Persist yesterday's score (always await to ensure it's ready)
+          await MorningCatchUpService.persistScoresForDate(
+            userId: userId,
+            targetDate: DateService.yesterdayStart,
+          );
+
+          await prefs.setString(
+              'last_end_of_day_processed', today.toIso8601String());
+        } else {
+          // Cloud function already processed - just update SharedPreferences
+          await prefs.setString(
+              'last_end_of_day_processed', today.toIso8601String());
+        }
       }
 
       if (shouldShow && mounted) {
@@ -367,33 +458,85 @@ class _HomeState extends State<Home> {
     }
   }
 
-  Future<void> _checkNotificationOnboarding() async {
+  /// Check if UI should run day-end processing as fallback
+  /// Returns true if cloud function hasn't processed yet (after 5-minute wait)
+  /// Returns false if cloud function already processed or before midnight
+  Future<bool> _shouldRunDayEndProcessing(String userId, DateTime now) async {
     try {
-      final userId = users.uid;
-      if (userId == null || userId.isEmpty) {
-        return;
+      // Calculate midnight in user's local timezone
+      final localMidnight = DateTime(now.year, now.month, now.day);
+      final timeSinceMidnight = now.difference(localMidnight);
+
+      // If before midnight, no processing needed
+      if (timeSinceMidnight.isNegative) {
+        return false;
       }
-      // Only show if goal onboarding is completed
-      final goalOnboardingCompleted =
-          await GoalService.isGoalOnboardingCompleted(userId);
-      if (!goalOnboardingCompleted) {
-        return; // Wait for goal onboarding first
+
+      // If less than 5 minutes since midnight, wait for cloud function
+      if (timeSinceMidnight.inMinutes < 5) {
+        // Wait until 5 minutes have passed
+        final waitDuration = Duration(minutes: 5) - timeSinceMidnight;
+        await Future.delayed(waitDuration);
+        // After waiting, check cloud function status (don't recurse to avoid re-waiting)
+        final cloudFunctionProcessed =
+            await _checkCloudFunctionExecutionStatus(userId);
+        return !cloudFunctionProcessed; // Return true if not processed (should run UI)
       }
-      final isCompleted = await NotificationPreferencesService
-          .isNotificationOnboardingCompleted(userId);
-      if (!isCompleted && mounted) {
-        // Add a small delay to avoid showing multiple dialogs at once
-        await Future.delayed(const Duration(milliseconds: 500));
-        if (mounted) {
-          showDialog(
-            context: context,
-            barrierDismissible: false,
-            builder: (context) => const NotificationOnboardingDialog(),
-          );
-        }
+
+      // After 5 minutes, check if cloud function already processed
+      final cloudFunctionProcessed =
+          await _checkCloudFunctionExecutionStatus(userId);
+
+      if (cloudFunctionProcessed) {
+        // Cloud function already processed - don't run UI processing
+        return false;
       }
+
+      // Cloud function hasn't processed - run UI processing as fallback
+      return true;
     } catch (e) {
-      // Error checking notification onboarding
+      // On error, run UI processing as fallback to ensure processing happens
+      print('Error checking cloud function status: $e');
+      return true;
+    }
+  }
+
+  /// Check if cloud function has already processed yesterday's day-end
+  /// Returns true if lastProcessedDate matches yesterday, false otherwise
+  Future<bool> _checkCloudFunctionExecutionStatus(String userId) async {
+    try {
+      final yesterday = DateService.yesterdayStart;
+
+      // Get user progress stats
+      final statsRef =
+          UserProgressStatsRecord.collectionForUser(userId).doc('main');
+      final statsDoc = await statsRef.get();
+
+      if (!statsDoc.exists) {
+        // No stats document - cloud function hasn't processed
+        return false;
+      }
+
+      final stats = UserProgressStatsRecord.fromSnapshot(statsDoc);
+
+      if (!stats.hasLastProcessedDate()) {
+        // No lastProcessedDate - cloud function hasn't processed
+        return false;
+      }
+
+      final lastProcessedDate = stats.lastProcessedDate!;
+      final lastProcessedDateOnly = DateTime(
+        lastProcessedDate.year,
+        lastProcessedDate.month,
+        lastProcessedDate.day,
+      );
+
+      // Check if lastProcessedDate matches yesterday
+      return lastProcessedDateOnly.isAtSameMomentAs(yesterday);
+    } catch (e) {
+      // On error, assume cloud function hasn't processed
+      print('Error checking cloud function execution status: $e');
+      return false;
     }
   }
 
@@ -415,6 +558,52 @@ class _HomeState extends State<Home> {
       await ReminderScheduler.checkExpiredSnoozes();
     } catch (e) {
       // Error initializing notifications
+    }
+  }
+
+  /// Pre-warm cache with templates and categories during app startup
+  /// This reduces redundant queries when pages load, improving performance
+  Future<void> _preWarmCache() async {
+    try {
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) {
+        return;
+      }
+
+      final cache = FirestoreCacheService();
+
+      // Fetch templates and categories in parallel
+      final results = await Future.wait([
+        queryActivitiesRecordOnce(userId: userId, includeEssentialItems: true),
+        queryCategoriesRecordOnce(userId: userId),
+      ]);
+
+      final templates = results[0] as List<ActivityRecord>;
+      final categories = results[1] as List<CategoryRecord>;
+
+      // Cache all templates at once
+      final templatesMap = <String, ActivityRecord>{};
+      for (final template in templates) {
+        templatesMap[template.reference.id] = template;
+      }
+      cache.cacheTemplates(templatesMap);
+
+      // Cache categories (split by type for efficient access)
+      final habitCategories = categories
+          .where((c) => c.categoryType == 'habit')
+          .toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+      final taskCategories = categories
+          .where((c) => c.categoryType == 'task')
+          .toList()
+        ..sort((a, b) => a.name.compareTo(b.name));
+
+      cache.cacheHabitCategories(habitCategories);
+      cache.cacheTaskCategories(taskCategories);
+    } catch (e) {
+      // Silent error - cache pre-warming is non-critical
+      // Pages will fetch data on-demand if cache fails
+      print('Error pre-warming cache: $e');
     }
   }
 }

@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
@@ -10,12 +9,15 @@ class TimerPage extends StatefulWidget {
   final String? taskTitle;
   final bool fromSwipe;
   final bool isessential; // Indicates if this is a essential activity
+  /// When true, opens with an already-running timer (e.g. from notification tap) and shows elapsed time without calling startTimeLogging.
+  final bool fromNotification;
   const TimerPage({
     super.key,
     this.initialTimerLogRef,
     this.taskTitle,
     this.fromSwipe = false,
     this.isessential = false,
+    this.fromNotification = false,
   });
   @override
   State<TimerPage> createState() => _TimerPageState();

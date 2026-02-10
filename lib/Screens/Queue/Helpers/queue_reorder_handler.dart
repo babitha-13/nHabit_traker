@@ -1,10 +1,11 @@
+import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 
 /// Helper class for handling reordering in queue page
 class QueueReorderHandler {
   /// Handle reordering of items within a section
-  static Future<ReorderResult> handleReorder({
+  static Future<void> handleReorder({
     required List<ActivityInstanceRecord> items,
     required int oldIndex,
     required int newIndex,
@@ -12,13 +13,18 @@ class QueueReorderHandler {
     required Set<String> reorderingInstanceIds,
     required bool isSortActive,
     required String sectionKey,
+    required Function(List<ActivityInstanceRecord>) onInstancesUpdate,
+    required Function(Set<String>) onReorderingIdsUpdate,
+    required Function() onCacheInvalidate,
+    required Function() onLoadData,
+    required BuildContext context,
   }) async {
     // Allow dropping at the end (newIndex can equal items.length)
     if (oldIndex < 0 ||
         oldIndex >= items.length ||
         newIndex < 0 ||
         newIndex > items.length) {
-      return ReorderResult(success: false);
+      return;
     }
 
     // Create a copy of the items list for reordering
@@ -32,9 +38,11 @@ class QueueReorderHandler {
     final movedItem = reorderedItems.removeAt(oldIndex);
     reorderedItems.insert(adjustedNewIndex, movedItem);
 
-    // Update order values in the instances list
-    final updatedInstances = List<ActivityInstanceRecord>.from(allInstances);
+    // Track reordering IDs locally
     final reorderingIds = <String>{};
+
+    // Create optimistic updated instances list
+    final updatedInstances = List<ActivityInstanceRecord>.from(allInstances);
 
     for (int i = 0; i < reorderedItems.length; i++) {
       final instance = reorderedItems[i];
@@ -54,6 +62,14 @@ class QueueReorderHandler {
       }
     }
 
+    // Apply optimistic update
+    final updatedReorderingIds = Set<String>.from(reorderingInstanceIds);
+    updatedReorderingIds.addAll(reorderingIds);
+
+    onInstancesUpdate(updatedInstances);
+    onReorderingIdsUpdate(updatedReorderingIds);
+    onCacheInvalidate();
+
     // Perform database update in background
     try {
       await InstanceOrderService.reorderInstancesInSection(
@@ -62,35 +78,28 @@ class QueueReorderHandler {
         oldIndex,
         adjustedNewIndex,
       );
-      return ReorderResult(
-        success: true,
-        updatedInstances: updatedInstances,
-        reorderingIds: reorderingIds,
-        shouldClearSort: isSortActive,
-      );
+
+      // Remove ids from reordering set after success
+      final finalReorderingIds = Set<String>.from(updatedReorderingIds);
+      finalReorderingIds.removeAll(reorderingIds);
+      // We don't need to update instances again as they are already correct from optimistic update
+      // just clear the reordering flags
+      onReorderingIdsUpdate(finalReorderingIds);
     } catch (e) {
-      return ReorderResult(
-        success: false,
-        error: e,
-        reorderingIds: reorderingIds,
-      );
+      // Revert reordering ids on error
+      final finalReorderingIds = Set<String>.from(reorderingInstanceIds);
+      // We don't remove newly added ones because we are reverting to original state passed in
+      // Actually strictly speaking we should just revert to `reorderingInstanceIds`
+      onReorderingIdsUpdate(finalReorderingIds);
+
+      // Reload data to revert UI
+      await onLoadData();
+
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Error reordering items: $e')),
+        );
+      }
     }
   }
-}
-
-/// Result class for reorder operation
-class ReorderResult {
-  final bool success;
-  final List<ActivityInstanceRecord>? updatedInstances;
-  final Set<String>? reorderingIds;
-  final bool shouldClearSort;
-  final dynamic error;
-
-  ReorderResult({
-    required this.success,
-    this.updatedInstances,
-    this.reorderingIds,
-    this.shouldClearSort = false,
-    this.error,
-  });
 }

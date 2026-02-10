@@ -317,6 +317,14 @@ class DailyProgressCalculator {
 
   /// Calculate task target points from ActivityInstanceRecord list
   /// For tasks: target = priority (no category weightage)
+  ///
+  /// **Time Bonus Target Adjustment (Tasks Only):**
+  /// Includes time bonus target adjustment for tasks. This reflects the design philosophy
+  /// that if a task takes longer than estimated, the estimate was wrong and should be corrected.
+  /// See `calculateBinaryTimeBonusTargetAdjustment` documentation for full rationale.
+  ///
+  /// Note: Habits do NOT get target adjustment - they use `calculateTotalDailyTarget`
+  /// which keeps targets fixed, allowing over-achievement to "bank" bonus points.
   static double _calculateTaskTargetFromActivityInstances(
       List<ActivityInstanceRecord> taskInstances) {
     double totalTarget = 0.0;
