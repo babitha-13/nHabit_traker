@@ -1,8 +1,6 @@
-import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
 import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
@@ -76,8 +74,8 @@ class ActivityEditorInitializationService {
     }
     // Fall back to the instance's due time (or cached template due time) if needed.
     if (state.selectedDueTime == null && state.widget.instance != null) {
-      final instanceDueTime =
-          state.widget.instance!.dueTime ?? state.widget.instance!.templateDueTime;
+      final instanceDueTime = state.widget.instance!.dueTime ??
+          state.widget.instance!.templateDueTime;
       if (instanceDueTime != null && instanceDueTime.isNotEmpty) {
         state.selectedDueTime = TimeUtils.stringToTimeOfDay(instanceDueTime);
       }
@@ -85,7 +83,8 @@ class ActivityEditorInitializationService {
 
     // Load frequency config
     if (t != null && state.quickIsTaskRecurring) {
-      state.frequencyConfig = ActivityEditorFrequencyService.convertTaskFrequencyToConfig(t);
+      state.frequencyConfig =
+          ActivityEditorFrequencyService.convertTaskFrequencyToConfig(t);
       state.originalFrequencyConfig = state.frequencyConfig;
       state.originalStartDate = t.startDate;
     } else if (t == null && state.widget.isHabit) {
@@ -111,7 +110,8 @@ class ActivityEditorInitializationService {
   }
 
   /// Load default time estimate
-  static Future<void> loadDefaultTimeEstimate(ActivityEditorDialogState state) async {
+  static Future<void> loadDefaultTimeEstimate(
+      ActivityEditorDialogState state) async {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
@@ -126,7 +126,8 @@ class ActivityEditorInitializationService {
   }
 
   /// Load categories from backend if not provided
-  static Future<void> loadCategories(ActivityEditorDialogState state, {String? selectCategoryId}) async {
+  static Future<void> loadCategories(ActivityEditorDialogState state,
+      {String? selectCategoryId}) async {
     if (state.isLoadingCategories) return;
 
     if (!state.mounted) return;
@@ -178,7 +179,8 @@ class ActivityEditorInitializationService {
   }
 
   /// Initialize the selected category based on activity data
-  static void initializeCategory(ActivityEditorDialogState state, ActivityRecord? t) {
+  static void initializeCategory(
+      ActivityEditorDialogState state, ActivityRecord? t) {
     final categories = ActivityEditorHelperService.getCategories(state);
     if (t != null) {
       String? matchingCategoryId;
@@ -187,8 +189,7 @@ class ActivityEditorInitializationService {
         matchingCategoryId = t.categoryId;
       } else if (t.categoryName.isNotEmpty &&
           categories.any((c) => c.name == t.categoryName)) {
-        final category =
-            categories.firstWhere((c) => c.name == t.categoryName);
+        final category = categories.firstWhere((c) => c.name == t.categoryName);
         matchingCategoryId = category.reference.id;
       }
       if (state.mounted) {
@@ -203,7 +204,8 @@ class ActivityEditorInitializationService {
     } else if (state.selectedCategoryId == null && categories.isNotEmpty) {
       // Default to first category if creating new and nothing selected yet
       if (state.mounted) {
-        state.setState(() => state.selectedCategoryId = categories.first.reference.id);
+        state.setState(
+            () => state.selectedCategoryId = categories.first.reference.id);
       }
     }
   }

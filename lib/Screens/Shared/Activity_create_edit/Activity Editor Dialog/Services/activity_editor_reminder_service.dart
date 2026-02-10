@@ -1,4 +1,3 @@
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config_dialog.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Activity%20Editor%20Dialog/activity_editor_dialog.dart';
 import 'activity_editor_datetime_service.dart';
@@ -7,7 +6,8 @@ import 'activity_editor_helper_service.dart';
 /// Service for reminder operations
 class ActivityEditorReminderService {
   /// Open reminder dialog
-  static Future<void> openReminderDialog(ActivityEditorDialogState state) async {
+  static Future<void> openReminderDialog(
+      ActivityEditorDialogState state) async {
     final reminders = await ReminderConfigDialog.show(
       context: state.context,
       initialReminders: state.reminders,
@@ -17,7 +17,9 @@ class ActivityEditorReminderService {
     if (reminders != null) {
       state.setState(() {
         state.reminders = reminders;
-        if (state.reminders.isNotEmpty && !ActivityEditorHelperService.isRecurring(state) && state.dueDate == null) {
+        if (state.reminders.isNotEmpty &&
+            !ActivityEditorHelperService.isRecurring(state) &&
+            state.dueDate == null) {
           state.dueDate = DateTime.now();
         }
       });
@@ -27,7 +29,8 @@ class ActivityEditorReminderService {
   /// Get reminder summary text
   static String reminderSummary(ActivityEditorDialogState state) {
     if (state.reminders.isEmpty) return '+ Add Reminder';
-    if (state.reminders.length == 1) return state.reminders.first.getDescription();
+    if (state.reminders.length == 1)
+      return state.reminders.first.getDescription();
     return '${state.reminders.length} reminders';
   }
 

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_type_dropdown_helper.dart';
 import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_display_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_type_dropdown_helper.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Activity%20Editor%20Dialog/activity_editor_dialog.dart';
 import 'activity_editor_helper_service.dart';
 import 'activity_editor_frequency_service.dart';
@@ -69,15 +67,16 @@ class ActivityEditorUIBuildersService {
                 const SizedBox(height: 12),
                 buildCategoryDropdown(state, theme),
                 const SizedBox(height: 12),
-                buildTextField(
-                    state, theme, state.descriptionController, 'Description (optional)',
+                buildTextField(state, theme, state.descriptionController,
+                    'Description (optional)',
                     maxLines: 2),
                 const SizedBox(height: 12),
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     // Hide tracking type for essentials (always binary)
-                    if (!ActivityEditorHelperService.isEssential(state)) buildTaskTypeField(state, theme),
+                    if (!ActivityEditorHelperService.isEssential(state))
+                      buildTaskTypeField(state, theme),
                     if (!ActivityEditorHelperService.isEssential(state) &&
                         (state.selectedTrackingType == 'quantitative' ||
                             state.selectedTrackingType == 'time')) ...[
@@ -87,7 +86,9 @@ class ActivityEditorUIBuildersService {
                     const SizedBox(height: 12),
                     buildFrequencyField(state, theme),
                     // Hide due date for essentials (only due time)
-                    if (!ActivityEditorHelperService.isRecurring(state) && !state.widget.isHabit && !ActivityEditorHelperService.isEssential(state)) ...[
+                    if (!ActivityEditorHelperService.isRecurring(state) &&
+                        !state.widget.isHabit &&
+                        !ActivityEditorHelperService.isEssential(state)) ...[
                       const SizedBox(height: 12),
                       buildDueDateField(state, theme),
                     ],
@@ -134,8 +135,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build text field widget
-  static Widget buildTextField(
-      ActivityEditorDialogState state, FlutterFlowTheme theme, TextEditingController controller, String hint,
+  static Widget buildTextField(ActivityEditorDialogState state,
+      FlutterFlowTheme theme, TextEditingController controller, String hint,
       {int maxLines = 1}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
@@ -168,7 +169,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build category dropdown widget
-  static Widget buildCategoryDropdown(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildCategoryDropdown(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     // Use a key to force rebuild when categories or selected category changes
     final categories = ActivityEditorHelperService.getCategories(state);
     final dropdownKey = ValueKey(
@@ -238,7 +240,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build task type field widget
-  static Widget buildTaskTypeField(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildTaskTypeField(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     final taskTypes = ActivityTypeDropdownHelper.getAllTaskTypes();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
@@ -292,7 +295,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build tracking details widget
-  static Widget buildTrackingDetails(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildTrackingDetails(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     return Container(
       padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
@@ -352,20 +356,22 @@ class ActivityEditorUIBuildersService {
                   onChanged: (v) {
                     final h = int.tryParse(v) ?? 0;
                     state.setState(() => state.targetDuration = Duration(
-                        hours: h, minutes: state.targetDuration.inMinutes % 60));
+                        hours: h,
+                        minutes: state.targetDuration.inMinutes % 60));
                   },
                 )),
                 const SizedBox(width: 8),
                 Expanded(
                     child: TextFormField(
-                  initialValue: (state.targetDuration.inMinutes % 60).toString(),
+                  initialValue:
+                      (state.targetDuration.inMinutes % 60).toString(),
                   keyboardType: TextInputType.number,
                   style: theme.bodyMedium,
                   decoration: inputDecoration(theme, label: 'Min'),
                   onChanged: (v) {
                     final m = int.tryParse(v) ?? 0;
-                    state.setState(() => state.targetDuration =
-                        Duration(hours: state.targetDuration.inHours, minutes: m));
+                    state.setState(() => state.targetDuration = Duration(
+                        hours: state.targetDuration.inHours, minutes: m));
                   },
                 )),
               ],
@@ -374,7 +380,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build time estimate field widget
-  static Widget buildTimeEstimateField(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildTimeEstimateField(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     final hintText = state.defaultTimeEstimateMinutes != null
         ? '${state.defaultTimeEstimateMinutes!} mins (default)'
         : 'Leave empty to use default';
@@ -411,7 +418,8 @@ class ActivityEditorUIBuildersService {
               ),
               onChanged: (v) {
                 state.setState(() {
-                  state.timeEstimateMinutes = v.isEmpty ? null : int.tryParse(v);
+                  state.timeEstimateMinutes =
+                      v.isEmpty ? null : int.tryParse(v);
                 });
               },
             ),
@@ -421,7 +429,8 @@ class ActivityEditorUIBuildersService {
               icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-              onPressed: () => state.setState(() => state.timeEstimateMinutes = null),
+              onPressed: () =>
+                  state.setState(() => state.timeEstimateMinutes = null),
             ),
         ],
       ),
@@ -446,7 +455,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build frequency field widget
-  static Widget buildFrequencyField(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildFrequencyField(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     String displayText;
     if (ActivityEditorHelperService.isEssential(state)) {
       // Essentials: show "Manual only" if frequency disabled
@@ -454,10 +464,13 @@ class ActivityEditorUIBuildersService {
           ? ActivityEditorFrequencyService.formatFrequencySummary(state)
           : "Manual only (won't auto-schedule)";
     } else {
-      displayText = ActivityEditorHelperService.isRecurring(state) ? ActivityEditorFrequencyService.formatFrequencySummary(state) : 'One-time task';
+      displayText = ActivityEditorHelperService.isRecurring(state)
+          ? ActivityEditorFrequencyService.formatFrequencySummary(state)
+          : 'One-time task';
     }
     return InkWell(
-      onTap: () => ActivityEditorFrequencyService.handleOpenFrequencyConfig(state),
+      onTap: () =>
+          ActivityEditorFrequencyService.handleOpenFrequencyConfig(state),
       borderRadius: BorderRadius.circular(10),
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
@@ -472,8 +485,10 @@ class ActivityEditorUIBuildersService {
               child: Text(
                 displayText,
                 style: theme.bodyMedium.override(
-                  color: (ActivityEditorHelperService.isEssential(state) && !state.frequencyEnabled) ||
-                          (!ActivityEditorHelperService.isEssential(state) && !ActivityEditorHelperService.isRecurring(state))
+                  color: (ActivityEditorHelperService.isEssential(state) &&
+                              !state.frequencyEnabled) ||
+                          (!ActivityEditorHelperService.isEssential(state) &&
+                              !ActivityEditorHelperService.isRecurring(state))
                       ? theme.secondaryText
                       : theme.primaryText,
                   fontWeight: FontWeight.w500,
@@ -481,13 +496,17 @@ class ActivityEditorUIBuildersService {
                 overflow: TextOverflow.ellipsis,
               ),
             ),
-            if ((ActivityEditorHelperService.isRecurring(state) && !state.widget.isHabit && !ActivityEditorHelperService.isEssential(state)) ||
-                (ActivityEditorHelperService.isEssential(state) && state.frequencyEnabled))
+            if ((ActivityEditorHelperService.isRecurring(state) &&
+                    !state.widget.isHabit &&
+                    !ActivityEditorHelperService.isEssential(state)) ||
+                (ActivityEditorHelperService.isEssential(state) &&
+                    state.frequencyEnabled))
               IconButton(
                 icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: () => ActivityEditorFrequencyService.clearFrequency(state),
+                onPressed: () =>
+                    ActivityEditorFrequencyService.clearFrequency(state),
               ),
             const SizedBox(width: 6),
             Icon(Icons.keyboard_arrow_down,
@@ -499,7 +518,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build due date field widget
-  static Widget buildDueDateField(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildDueDateField(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     final label = state.dueDate != null
         ? DateFormat('MMM dd, yyyy').format(state.dueDate!)
         : 'Set due date';
@@ -538,7 +558,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build due time field widget
-  static Widget buildDueTimeField(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildDueTimeField(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     final label = state.selectedDueTime != null
         ? state.selectedDueTime!.format(state.context)
         : 'Set due time';
@@ -568,7 +589,8 @@ class ActivityEditorUIBuildersService {
                 icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
                 padding: EdgeInsets.zero,
                 constraints: const BoxConstraints(),
-                onPressed: () => state.setState(() => state.selectedDueTime = null),
+                onPressed: () =>
+                    state.setState(() => state.selectedDueTime = null),
               ),
           ],
         ),
@@ -577,7 +599,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build reminder field widget
-  static Widget buildReminderField(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildReminderField(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     final label = ActivityEditorReminderService.reminderSummary(state);
     return InkWell(
       onTap: () => ActivityEditorReminderService.openReminderDialog(state),
@@ -615,7 +638,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build priority slider widget
-  static Widget buildPrioritySlider(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildPrioritySlider(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -636,7 +660,8 @@ class ActivityEditorUIBuildersService {
               label: state.priority.toString(),
               activeColor: theme.primary,
               inactiveColor: theme.secondaryText.withOpacity(0.3),
-              onChanged: (value) => state.setState(() => state.priority = value.round()),
+              onChanged: (value) =>
+                  state.setState(() => state.priority = value.round()),
             ),
           ),
         ],
@@ -645,7 +670,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build action buttons widget
-  static Widget buildActionButtons(ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildActionButtons(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -669,7 +695,9 @@ class ActivityEditorUIBuildersService {
             borderRadius: BorderRadius.circular(theme.buttonRadius),
           ),
           child: ElevatedButton(
-            onPressed: state.isSaving ? null : () => ActivityEditorSaveService.save(state),
+            onPressed: state.isSaving
+                ? null
+                : () => ActivityEditorSaveService.save(state),
             style: ElevatedButton.styleFrom(
               backgroundColor: Colors.transparent,
               shadowColor: Colors.transparent,

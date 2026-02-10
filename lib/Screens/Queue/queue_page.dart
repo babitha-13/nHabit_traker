@@ -1716,7 +1716,7 @@ class _QueuePageState extends State<QueuePage>
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
 
-      final result = await QueueReorderHandler.handleReorder(
+      await QueueReorderHandler.handleReorder(
         items: items,
         oldIndex: oldIndex,
         newIndex: newIndex,
@@ -1724,36 +1724,38 @@ class _QueuePageState extends State<QueuePage>
         reorderingInstanceIds: _reorderingInstanceIds,
         isSortActive: _currentSort.isActive,
         sectionKey: sectionKey,
+        onOptimisticUpdate: (updatedInstances, reorderingIds) {
+          if (mounted) {
+            final newInstancesHash =
+                QueueBucketService.calculateInstancesHash(updatedInstances);
+            setState(() {
+              _instances = updatedInstances;
+              _reorderingInstanceIds.clear();
+              _reorderingInstanceIds.addAll(reorderingIds);
+              _cachedBucketedItems = null;
+              _instancesHashCode = newInstancesHash;
+            });
+          }
+        },
       );
 
-      if (!result.success) {
-        if (result.error != null) {
-          throw result.error;
-        }
-        return;
-      }
-
+      // Clear reordering IDs after successful update
       if (mounted) {
-        final updatedInstances = result.updatedInstances ?? _instances;
-        final newInstancesHash =
-            QueueBucketService.calculateInstancesHash(updatedInstances);
-
         setState(() {
-          _instances = updatedInstances;
-          if (result.reorderingIds != null) {
-            _reorderingInstanceIds.clear();
-            _reorderingInstanceIds.addAll(result.reorderingIds!);
-          }
-          _cachedBucketedItems = null;
-          _instancesHashCode = newInstancesHash;
+          _reorderingInstanceIds.clear();
         });
       }
     } catch (e) {
-      await _loadData();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Error reordering items: $e')),
-        );
+        setState(() {
+          _reorderingInstanceIds.clear();
+        });
+        await _loadData();
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Error reordering items: $e')),
+          );
+        }
       }
     }
   }

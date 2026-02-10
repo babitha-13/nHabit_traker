@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_preview_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_search_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_search_service.dart';
 
 /// Service for date and time picker operations
 class ManualTimeLogDateTimeService {
@@ -33,7 +33,8 @@ class ManualTimeLogDateTimeService {
         ));
         // Auto-adjust end time if it's before start time
         if (state.endTime.isBefore(state.startTime)) {
-          state.endTime = state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
+          state.endTime = state.startTime
+              .add(Duration(minutes: state.defaultDurationMinutes));
         }
         ManualTimeLogPreviewService.updatePreview(state);
       });

@@ -1,10 +1,10 @@
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Activity%20Editor%20Dialog/activity_editor_dialog.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
 
 /// Helper service for activity editor shared utilities
 class ActivityEditorHelperService {
-  static const String createNewCategoryValue = 'CREATE_NEW_CATEGORY_SPECIAL_VALUE';
+  static const String createNewCategoryValue =
+      'CREATE_NEW_CATEGORY_SPECIAL_VALUE';
 
   /// Check if this is an essential activity
   static bool isEssential(ActivityEditorDialogState state) {
@@ -14,7 +14,9 @@ class ActivityEditorHelperService {
 
   /// Get the categories to use - prefer loaded categories, fallback to widget categories
   static List<CategoryRecord> getCategories(ActivityEditorDialogState state) {
-    return state.loadedCategories.isNotEmpty ? state.loadedCategories : state.widget.categories;
+    return state.loadedCategories.isNotEmpty
+        ? state.loadedCategories
+        : state.widget.categories;
   }
 
   /// Check if recurring
@@ -27,7 +29,8 @@ class ActivityEditorHelperService {
   static String? getValidCategoryId(ActivityEditorDialogState state) {
     if (state.selectedCategoryId == null) return null;
     final categories = getCategories(state);
-    final isValid = categories.any((c) => c.reference.id == state.selectedCategoryId);
+    final isValid =
+        categories.any((c) => c.reference.id == state.selectedCategoryId);
     return isValid ? state.selectedCategoryId : null;
   }
 

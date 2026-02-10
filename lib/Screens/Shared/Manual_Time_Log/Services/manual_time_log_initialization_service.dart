@@ -1,14 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_helper_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_preview_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_search_service.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_search_service.dart';
 import 'package:collection/collection.dart';
 
 /// Service for initialization and loading operations
@@ -27,8 +24,12 @@ class ManualTimeLogInitializationService {
       );
     } else {
       final now = DateTime.now();
-      state.startTime = DateTime(state.widget.selectedDate.year, state.widget.selectedDate.month,
-          state.widget.selectedDate.day, now.hour, now.minute);
+      state.startTime = DateTime(
+          state.widget.selectedDate.year,
+          state.widget.selectedDate.month,
+          state.widget.selectedDate.day,
+          now.hour,
+          now.minute);
     }
 
     if (state.widget.initialEndTime != null) {
@@ -67,7 +68,8 @@ class ManualTimeLogInitializationService {
       }
     } else {
       // Default to user's configured duration only when no end time provided (manual calendar entry)
-      state.endTime = state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
+      state.endTime =
+          state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
     }
 
     // Ensure end time is after start time
@@ -75,7 +77,8 @@ class ManualTimeLogInitializationService {
     if (state.endTime.isBefore(state.startTime) ||
         state.endTime.isAtSameMomentAs(state.startTime)) {
       // This fallback should only happen for manual calendar entries
-      state.endTime = state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
+      state.endTime =
+          state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
     }
     loadDefaultDuration(state);
     loadActivities(state);
@@ -152,13 +155,13 @@ class ManualTimeLogInitializationService {
             // Update end time if no initial end time was provided (was set using default)
             // This ensures the end time uses the actual setting value instead of hardcoded 10
             if (state.widget.initialEndTime == null) {
-              state.endTime =
-                  state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
+              state.endTime = state.startTime
+                  .add(Duration(minutes: state.defaultDurationMinutes));
             } else if (state.endTime.isBefore(state.startTime) ||
                 state.endTime.isAtSameMomentAs(state.startTime)) {
               // Fallback for invalid end time even when initial was provided
-              state.endTime =
-                  state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
+              state.endTime = state.startTime
+                  .add(Duration(minutes: state.defaultDurationMinutes));
             }
           });
         }

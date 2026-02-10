@@ -1,5 +1,4 @@
 import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
 import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
 import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';

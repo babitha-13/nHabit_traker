@@ -2,12 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_preview_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_datetime_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_save_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_helper_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_search_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_datetime_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_save_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_search_service.dart';
 
 /// Service for building UI widgets
 class ManualTimeLogUIBuildersService {
@@ -68,7 +68,8 @@ class ManualTimeLogUIBuildersService {
                             const SizedBox(width: 8),
                             buildTypeChip(state, 'Habit', 'habit', theme),
                             const SizedBox(width: 8),
-                            buildTypeChip(state, 'essential', 'essential', theme),
+                            buildTypeChip(
+                                state, 'essential', 'essential', theme),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -105,7 +106,8 @@ class ManualTimeLogUIBuildersService {
                                   const EdgeInsets.symmetric(vertical: 10),
                               icon: const Icon(Icons.search,
                                   size: 20, color: Colors.grey),
-                              suffixIcon: state.activityController.text.isNotEmpty
+                              suffixIcon: state
+                                      .activityController.text.isNotEmpty
                                   ? IconButton(
                                       padding: const EdgeInsets.all(8),
                                       constraints: const BoxConstraints(),
@@ -114,9 +116,11 @@ class ManualTimeLogUIBuildersService {
                                         state.activityController.clear();
                                         state.setState(() {
                                           state.selectedTemplate = null;
-                                          ManualTimeLogHelperService.updateDefaultCategory(state);
+                                          ManualTimeLogHelperService
+                                              .updateDefaultCategory(state);
                                         });
-                                        ManualTimeLogSearchService.removeOverlay(state);
+                                        ManualTimeLogSearchService
+                                            .removeOverlay(state);
                                       },
                                     )
                                   : null,
@@ -136,7 +140,9 @@ class ManualTimeLogUIBuildersService {
                           children: [
                             Expanded(
                               child: InkWell(
-                                onTap: () => ManualTimeLogDateTimeService.pickStartTime(state),
+                                onTap: () =>
+                                    ManualTimeLogDateTimeService.pickStartTime(
+                                        state),
                                 borderRadius: BorderRadius.circular(10),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -168,7 +174,9 @@ class ManualTimeLogUIBuildersService {
                             ),
                             Expanded(
                               child: InkWell(
-                                onTap: () => ManualTimeLogDateTimeService.pickEndTime(state),
+                                onTap: () =>
+                                    ManualTimeLogDateTimeService.pickEndTime(
+                                        state),
                                 borderRadius: BorderRadius.circular(10),
                                 child: Container(
                                   padding: const EdgeInsets.symmetric(
@@ -211,7 +219,10 @@ class ManualTimeLogUIBuildersService {
                           children: [
                             Expanded(
                               child: ElevatedButton(
-                                onPressed: state.isLoading ? null : () => ManualTimeLogSaveService.saveEntry(state),
+                                onPressed: state.isLoading
+                                    ? null
+                                    : () => ManualTimeLogSaveService.saveEntry(
+                                        state),
                                 style: ElevatedButton.styleFrom(
                                   backgroundColor: theme.primary,
                                   foregroundColor: Colors.white,
@@ -248,7 +259,11 @@ class ManualTimeLogUIBuildersService {
                                 icon: const Icon(Icons.delete),
                                 color: Colors.red,
                                 tooltip: 'Delete entry',
-                                onPressed: state.isLoading ? null : () => ManualTimeLogSaveService.deleteEntry(state),
+                                onPressed: state.isLoading
+                                    ? null
+                                    : () =>
+                                        ManualTimeLogSaveService.deleteEntry(
+                                            state),
                               ),
                             ],
                           ],
@@ -266,7 +281,8 @@ class ManualTimeLogUIBuildersService {
   }
 
   /// Build type chip widget
-  static Widget buildTypeChip(ManualTimeLogModalState state, String label, String value, FlutterFlowTheme theme) {
+  static Widget buildTypeChip(ManualTimeLogModalState state, String label,
+      String value, FlutterFlowTheme theme) {
     final isSelected = state.selectedType == value;
     Color color;
     if (value == 'habit') {
@@ -306,7 +322,8 @@ class ManualTimeLogUIBuildersService {
   }
 
   /// Build category dropdown widget
-  static Widget buildCategoryDropdown(ManualTimeLogModalState state, FlutterFlowTheme theme) {
+  static Widget buildCategoryDropdown(
+      ManualTimeLogModalState state, FlutterFlowTheme theme) {
     // If habit is selected, we usually don't allow changing category for existing ones
     final isLocked = state.selectedTemplate != null;
 
@@ -315,8 +332,9 @@ class ManualTimeLogUIBuildersService {
         : state.allCategories
             .where((category) => category.categoryType == state.selectedType)
             .toList();
-    final dropdownCategories =
-        filteredCategories.isNotEmpty ? filteredCategories : state.allCategories;
+    final dropdownCategories = filteredCategories.isNotEmpty
+        ? filteredCategories
+        : state.allCategories;
 
     // Ensure the selected category exists in the dropdown items
     // If not, set it to null to avoid assertion errors
@@ -396,7 +414,8 @@ class ManualTimeLogUIBuildersService {
   }
 
   /// Build completion controls widget
-  static Widget buildCompletionControls(ManualTimeLogModalState state, FlutterFlowTheme theme) {
+  static Widget buildCompletionControls(
+      ManualTimeLogModalState state, FlutterFlowTheme theme) {
     if (state.selectedTemplate == null) return const SizedBox.shrink();
 
     final trackingType = state.selectedTemplate!.trackingType;

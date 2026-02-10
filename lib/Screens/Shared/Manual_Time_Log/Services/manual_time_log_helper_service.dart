@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:collection/collection.dart';
-import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
 
 /// Service for shared utility methods
 class ManualTimeLogHelperService {
@@ -21,8 +19,8 @@ class ManualTimeLogHelperService {
     } else if (state.selectedType == 'habit') {
       // For habits, set to null initially - user must select from existing habit categories
       // Or find the first habit category as a default
-      state.selectedCategory =
-          state.allCategories.firstWhereOrNull((c) => c.categoryType == 'habit');
+      state.selectedCategory = state.allCategories
+          .firstWhereOrNull((c) => c.categoryType == 'habit');
     } else if (state.selectedType == 'essential') {
       state.selectedCategory = state.allCategories.firstWhereOrNull((c) =>
           (c.name == 'Others' || c.name == 'Other') &&

@@ -4,7 +4,7 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance
 /// Helper class for handling reordering in queue page
 class QueueReorderHandler {
   /// Handle reordering of items within a section
-  static Future<ReorderResult> handleReorder({
+  static Future<void> handleReorder({
     required List<ActivityInstanceRecord> items,
     required int oldIndex,
     required int newIndex,
@@ -12,13 +12,15 @@ class QueueReorderHandler {
     required Set<String> reorderingInstanceIds,
     required bool isSortActive,
     required String sectionKey,
+    required Function(List<ActivityInstanceRecord>, Set<String>)
+        onOptimisticUpdate,
   }) async {
     // Allow dropping at the end (newIndex can equal items.length)
     if (oldIndex < 0 ||
         oldIndex >= items.length ||
         newIndex < 0 ||
         newIndex > items.length) {
-      return ReorderResult(success: false);
+      return;
     }
 
     // Create a copy of the items list for reordering
@@ -54,43 +56,15 @@ class QueueReorderHandler {
       }
     }
 
+    // Update UI immediately (Optimistic Update)
+    onOptimisticUpdate(updatedInstances, reorderingIds);
+
     // Perform database update in background
-    try {
-      await InstanceOrderService.reorderInstancesInSection(
-        reorderedItems,
-        'queue',
-        oldIndex,
-        adjustedNewIndex,
-      );
-      return ReorderResult(
-        success: true,
-        updatedInstances: updatedInstances,
-        reorderingIds: reorderingIds,
-        shouldClearSort: isSortActive,
-      );
-    } catch (e) {
-      return ReorderResult(
-        success: false,
-        error: e,
-        reorderingIds: reorderingIds,
-      );
-    }
+    await InstanceOrderService.reorderInstancesInSection(
+      reorderedItems,
+      'queue',
+      oldIndex,
+      adjustedNewIndex,
+    );
   }
-}
-
-/// Result class for reorder operation
-class ReorderResult {
-  final bool success;
-  final List<ActivityInstanceRecord>? updatedInstances;
-  final Set<String>? reorderingIds;
-  final bool shouldClearSort;
-  final dynamic error;
-
-  ReorderResult({
-    required this.success,
-    this.updatedInstances,
-    this.reorderingIds,
-    this.shouldClearSort = false,
-    this.error,
-  });
 }

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_preview_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
 import 'package:collection/collection.dart';
 
 /// Service for search and suggestions overlay management
@@ -102,7 +100,8 @@ class ManualTimeLogSearchService {
                         state.showSuggestions = false;
 
                         // Auto-select category from template
-                        state.selectedCategory = state.allCategories.firstWhereOrNull(
+                        state.selectedCategory =
+                            state.allCategories.firstWhereOrNull(
                           (c) =>
                               c.reference.id == item.categoryId ||
                               c.name == item.categoryName,
@@ -118,7 +117,8 @@ class ManualTimeLogSearchService {
 
                         // Initialize completion controls based on tracking type
                         // If from timer and binary task, auto-mark as complete
-                        if (state.widget.fromTimer && item.trackingType == 'binary') {
+                        if (state.widget.fromTimer &&
+                            item.trackingType == 'binary') {
                           state.markAsComplete = true;
                         } else {
                           state.markAsComplete = false; // Reset checkbox

@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Task%20Instance%20Service/task_instance_service.dart';
@@ -9,8 +8,8 @@ import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 import 'package:collection/collection.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual Time Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
 
 /// Service for save and delete operations
 class ManualTimeLogSaveService {
@@ -48,7 +47,8 @@ class ManualTimeLogSaveService {
     }
 
     // Validate time range
-    if (state.startTime.isAfter(state.endTime) || state.startTime.isAtSameMomentAs(state.endTime)) {
+    if (state.startTime.isAfter(state.endTime) ||
+        state.startTime.isAtSameMomentAs(state.endTime)) {
       ScaffoldMessenger.of(state.context).showSnackBar(
         const SnackBar(
           content: Text('End time must be after start time.'),
@@ -134,7 +134,8 @@ class ManualTimeLogSaveService {
         // Check if name or type has changed and update instance metadata
         // Use template name if template is selected, otherwise use typed name
         final finalName = state.selectedTemplate?.name ?? name;
-        final hasNameChanged = finalName != state.widget.editMetadata!.activityName;
+        final hasNameChanged =
+            finalName != state.widget.editMetadata!.activityName;
         final hasTypeChanged =
             state.selectedType != state.widget.editMetadata!.activityType;
 
@@ -169,10 +170,12 @@ class ManualTimeLogSaveService {
 
           // Update category if changed
           if (state.selectedCategory != null) {
-            updateData['templateCategoryId'] = state.selectedCategory!.reference.id;
+            updateData['templateCategoryId'] =
+                state.selectedCategory!.reference.id;
             updateData['templateCategoryName'] = state.selectedCategory!.name;
             if (state.selectedCategory!.color.isNotEmpty) {
-              updateData['templateCategoryColor'] = state.selectedCategory!.color;
+              updateData['templateCategoryColor'] =
+                  state.selectedCategory!.color;
             }
           }
 
@@ -243,7 +246,8 @@ class ManualTimeLogSaveService {
         }
       } else {
         // Create new entry
-        final shouldMarkComplete = ManualTimeLogHelperService.shouldMarkCompleteOnSave(state);
+        final shouldMarkComplete =
+            ManualTimeLogHelperService.shouldMarkCompleteOnSave(state);
 
         await TaskInstanceService.logManualTimeEntry(
           taskName: state.selectedTemplate?.name ?? name,
@@ -266,7 +270,8 @@ class ManualTimeLogSaveService {
       // Error saving time entry
 
       // Get root context before closing modal
-      final rootContext = Navigator.of(state.context, rootNavigator: true).context;
+      final rootContext =
+          Navigator.of(state.context, rootNavigator: true).context;
 
       // Close modal first, then show error
       if (state.mounted) {
@@ -397,7 +402,8 @@ class ManualTimeLogSaveService {
         state.widget.onSave();
       }
     } catch (e) {
-      final rootContext = Navigator.of(state.context, rootNavigator: true).context;
+      final rootContext =
+          Navigator.of(state.context, rootNavigator: true).context;
       if (state.mounted) {
         Navigator.of(state.context).pop();
         Future.delayed(const Duration(milliseconds: 300), () {
