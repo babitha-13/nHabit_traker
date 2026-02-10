@@ -1716,7 +1716,7 @@ class _QueuePageState extends State<QueuePage>
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
 
-      await QueueReorderHandler.handleReorder(
+      final result = await QueueReorderHandler.handleReorder(
         items: items,
         oldIndex: oldIndex,
         newIndex: newIndex,
@@ -1724,32 +1724,30 @@ class _QueuePageState extends State<QueuePage>
         reorderingInstanceIds: _reorderingInstanceIds,
         isSortActive: _currentSort.isActive,
         sectionKey: sectionKey,
-        context: context,
-        onInstancesUpdate: (updatedInstances) {
-          if (mounted) {
-            setState(() {
-              _instances = updatedInstances;
-            });
-          } else {
-            _instances = updatedInstances;
-          }
-        },
-        onReorderingIdsUpdate: (updatedIds) {
-          _reorderingInstanceIds.clear();
-          _reorderingInstanceIds.addAll(updatedIds);
-        },
-        onCacheInvalidate: () {
-          if (mounted) {
-            final newInstancesHash =
-                QueueBucketService.calculateInstancesHash(_instances);
-            setState(() {
-              _cachedBucketedItems = null;
-              _instancesHashCode = newInstancesHash;
-            });
-          }
-        },
-        onLoadData: _loadData,
       );
+
+      if (!result.success) {
+        if (result.error != null) {
+          throw result.error;
+        }
+        return;
+      }
+
+      if (mounted) {
+        final updatedInstances = result.updatedInstances ?? _instances;
+        final newInstancesHash =
+            QueueBucketService.calculateInstancesHash(updatedInstances);
+
+        setState(() {
+          _instances = updatedInstances;
+          if (result.reorderingIds != null) {
+            _reorderingInstanceIds.clear();
+            _reorderingInstanceIds.addAll(result.reorderingIds!);
+          }
+          _cachedBucketedItems = null;
+          _instancesHashCode = newInstancesHash;
+        });
+      }
     } catch (e) {
       await _loadData();
       if (mounted) {
