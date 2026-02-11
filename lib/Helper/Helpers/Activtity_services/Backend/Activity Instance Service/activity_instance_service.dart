@@ -149,6 +149,19 @@ class ActivityInstanceService {
     );
   }
 
+  /// Delete future instances for a template (for stopping recurring activities)
+  static Future<void> deleteFutureInstances({
+    required String templateId,
+    required DateTime fromDate,
+    String? userId,
+  }) async {
+    return ActivityInstanceUtilityService.deleteFutureInstances(
+      templateId: templateId,
+      fromDate: fromDate,
+      userId: userId,
+    );
+  }
+
   /// Get updated instance data after changes
   static Future<ActivityInstanceRecord> getUpdatedInstance({
     required String instanceId,

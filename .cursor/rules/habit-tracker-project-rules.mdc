@@ -6,43 +6,31 @@ alwaysApply: true
 
 # Code Structure Rules 
 
-## Placement (ask in this order)
-1. **Used by 2+ features?** → `lib/Helper/`
-   - **Shared DB/Firebase/notifications/schedulers** → `lib/Helper/backend/`
-   - **Auth** → `lib/Helper/auth/`
-   - **Shared utils/validation/date formatting** → `lib/Helper/utils/`
-   - **Firebase config/init** → `lib/Helper/Firebase/`
-2. **Used by exactly 1 feature and not UI?** → `lib/Screens/<Feature>/Logic/`
-3. **UI/widgets/navigation?** → `lib/Screens/<Feature>/` or `lib/Screens/<Feature>/Components/`
+## Folder Structure & Placement
+1. **Feature-First Architecture** (`lib/features/`)
+   - **New Feature?** → Create `lib/features/<FeatureName>/`
+   - **UI/Pages?** → `lib/features/<feature>/presentation/`
+   - **State/Logic?** → `lib/features/<feature>/logic/`
+   - **Feature-specific helpers?** → `lib/features/<feature>/logic/` or `.presentation/utils/`
+
+2. **Core & Shared**
+   - **Global Utilities (Dates, Strings)?** → `lib/core/utils/`
+   - **Global UI (Themes, Colors)?** → `lib/core/theme/`
+   - **Infrastructure (Auth, API, DB)?** → `lib/services/` (or `lib/core/services/`)
+   - **Shared Widgets (Buttons, Dialogs)?** → `lib/shared_ui/`
 
 ## Hard limits
 - **Max 750 lines/file** → `#SPLIT_FILE`
 - **Max 150 lines/function** → `#REFACTOR_NOW`
 - **No business logic in `build()`** → `#EXTRACT_LOGIC`
 
-## Never do (anti-patterns)
-- **Direct Firestore in UI**: no `FirebaseFirestore.instance` (or raw queries) inside `lib/Screens/**` → wrap in a service in `Helper/backend/`
-- **Validation mixed with UI**: no validation/business rules inside widget trees or event handlers
-- **Wrong placement**: no feature-specific logic in `Helper/` (unless reused by 2+ features)
-- **Cross-feature coupling**: `Screens/A/Logic` must not import `Screens/B/Logic` → extract shared code to `Helper/`
-- **Logic building widgets**: Logic/services must not return Widgets or depend on `BuildContext`
+## Anti-patterns (Never do)
+- **Tangled Dependencies**: Feature A should not import Feature B's *logic* directly. Use a shared service or event bus.
+- **Fat Controllers**: Don't put UI code in Logic classes, and don't put Logic in UI classes.
+- **"Helper" Dumping**: Avoid vague `Helper` folders. Ask: Is it a *Service*? A *Util*? Or *Logic*?
+- **Direct Database in UI**: UI widgets should call a **Logic** or **Service** class, never `Firestore.instance` directly.
 
-## Prefer
-- **UI calls logic; logic returns data/decisions** (pure or service-based; testable)
-- **Feature folders are self-contained**; shared code stays small and intentionally shared
-
-## Tags (use sparingly)
-- `#CHECK_LOCATION`: verify correct folder based on reuse scope
-- `#SHARED_CODE`: should move to `Helper/` (used by 2+ features)
-- `#EXTRACT_LOGIC`: move business logic out of UI/build()
-- `#REFACTOR_NOW`: function too long or mixed concerns
-- `#SPLIT_FILE`: file too large
-- `#VALIDATE_INPUT`: add explicit validation
-- `#TEST_SEPARATELY`: ensure logic is unit-testable without UI
-
-## Quick checklist (before adding/changing code)
-- [ ] Is it **shared** (2+ features) or **feature-specific** (1 feature)?
-- [ ] Any **DB/Firebase** usage: is it behind a `Helper/backend/` service?
-- [ ] Any **business rules/validation** accidentally living in UI?
-- [ ] Any **cross-feature Logic imports**?
-- [ ] Under **750 lines/file** and **150 lines/function**?
+## Quick checklist (before creating files)
+- [ ] Am I creating a new feature? → `lib/features/`
+- [ ] Is this used by multiple features? → `lib/core/` or `lib/services/`
+- [ ] Is this purely logic? → `logic/` directory (not inside a Widget file)

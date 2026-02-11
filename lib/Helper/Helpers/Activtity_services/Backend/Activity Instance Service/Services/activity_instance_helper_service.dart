@@ -7,12 +7,14 @@ import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dar
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
-import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart' as schema;
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart'
+    as schema;
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
 import 'package:habit_tracker/Helper/Helpers/Activtity_services/recurrence_calculator.dart';
 import 'activity_instance_utility_service.dart';
 import 'activity_instance_creation_service.dart';
+import 'activity_instance_completion_service.dart';
 
 /// Helper service for activity instance calculations and utilities
 class ActivityInstanceHelperService {
@@ -56,7 +58,8 @@ class ActivityInstanceHelperService {
   /// Calculate days remaining in current period
   static int getDaysRemainingInPeriod(DateTime currentDate, String periodType) {
     final periodEnd = getPeriodEnd(currentDate, periodType);
-    final today = DateTime(currentDate.year, currentDate.month, currentDate.day);
+    final today =
+        DateTime(currentDate.year, currentDate.month, currentDate.day);
     final endDate = DateTime(periodEnd.year, periodEnd.month, periodEnd.day);
     return endDate.difference(today).inDays + 1; // +1 to include today
   }
@@ -64,8 +67,10 @@ class ActivityInstanceHelperService {
   /// Calculate days elapsed in current period
   static int getDaysElapsedInPeriod(DateTime currentDate, String periodType) {
     final periodStart = getPeriodStart(currentDate, periodType);
-    final today = DateTime(currentDate.year, currentDate.month, currentDate.day);
-    final startDate = DateTime(periodStart.year, periodStart.month, periodStart.day);
+    final today =
+        DateTime(currentDate.year, currentDate.month, currentDate.day);
+    final startDate =
+        DateTime(periodStart.year, periodStart.month, periodStart.day);
     return today.difference(startDate).inDays + 1; // +1 to include today
   }
 
@@ -147,9 +152,12 @@ class ActivityInstanceHelperService {
           template: template,
           currentDate: currentDate,
         );
-        final daysElapsed = getDaysElapsedInPeriod(currentDate, template.periodType);
-        final targetRate = template.timesPerPeriod / getPeriodDays(template.periodType);
-        final currentRate = daysElapsed > 0 ? completedCount / daysElapsed : 0.0;
+        final daysElapsed =
+            getDaysElapsedInPeriod(currentDate, template.periodType);
+        final targetRate =
+            template.timesPerPeriod / getPeriodDays(template.periodType);
+        final currentRate =
+            daysElapsed > 0 ? completedCount / daysElapsed : 0.0;
         final rate = currentRate - targetRate;
         if (completedCount >= template.timesPerPeriod) {
           return 0; // Period target met, no new instance needed
@@ -183,7 +191,8 @@ class ActivityInstanceHelperService {
       if (instance.windowEndDate == null) {
         return;
       }
-      final templateRef = ActivityRecord.collectionForUser(userId).doc(instance.templateId);
+      final templateRef =
+          ActivityRecord.collectionForUser(userId).doc(instance.templateId);
       final templateDoc = await templateRef.get();
       if (!templateDoc.exists) {
         return;
@@ -202,15 +211,20 @@ class ActivityInstanceHelperService {
           template: template,
           currentDate: DateService.currentDate,
         );
-        final daysElapsed = getDaysElapsedInPeriod(DateService.currentDate, template.periodType);
-        final targetRate = template.timesPerPeriod / getPeriodDays(template.periodType);
-        final currentRate = daysElapsed > 0 ? completedCount / daysElapsed : 0.0;
+        final daysElapsed = getDaysElapsedInPeriod(
+            DateService.currentDate, template.periodType);
+        final targetRate =
+            template.timesPerPeriod / getPeriodDays(template.periodType);
+        final currentRate =
+            daysElapsed > 0 ? completedCount / daysElapsed : 0.0;
         final rate = currentRate - targetRate;
 
         if (rate >= 0) {
-          nextBelongsToDate = instance.windowEndDate!.add(const Duration(days: 1));
+          nextBelongsToDate =
+              instance.windowEndDate!.add(const Duration(days: 1));
         } else {
-          nextBelongsToDate = DateService.currentDate.add(const Duration(days: 1));
+          nextBelongsToDate =
+              DateService.currentDate.add(const Duration(days: 1));
         }
         nextWindowDuration = await calculateAdaptiveWindowDuration(
           template: template,
@@ -221,7 +235,8 @@ class ActivityInstanceHelperService {
           return;
         }
       } else {
-        nextBelongsToDate = instance.windowEndDate!.add(const Duration(days: 1));
+        nextBelongsToDate =
+            instance.windowEndDate!.add(const Duration(days: 1));
         nextWindowDuration = await calculateAdaptiveWindowDuration(
           template: template,
           userId: userId,
@@ -232,7 +247,8 @@ class ActivityInstanceHelperService {
         }
       }
 
-      final nextWindowEndDate = nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
+      final nextWindowEndDate =
+          nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
       try {
         final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
             .where('templateId', isEqualTo: instance.templateId)
@@ -256,7 +272,8 @@ class ActivityInstanceHelperService {
               inst.belongsToDate!.month,
               inst.belongsToDate!.day,
             );
-            return belongsToDateOnly.isAtSameMomentAs(today) || belongsToDateOnly.isAfter(today);
+            return belongsToDateOnly.isAtSameMomentAs(today) ||
+                belongsToDateOnly.isAfter(today);
           }
           if (inst.windowEndDate != null) {
             final windowEndDateOnly = DateTime(
@@ -264,23 +281,29 @@ class ActivityInstanceHelperService {
               inst.windowEndDate!.month,
               inst.windowEndDate!.day,
             );
-            return windowEndDateOnly.isAtSameMomentAs(today) || windowEndDateOnly.isAfter(today);
+            return windowEndDateOnly.isAtSameMomentAs(today) ||
+                windowEndDateOnly.isAfter(today);
           }
           return false;
         }).toList();
         if (futurePendingInstances.isNotEmpty) {
           return;
         }
-      } catch (e) {//
+      } catch (e) {
+        //
       }
       int? queueOrder;
       int? habitsOrder;
       int? tasksOrder;
       try {
-        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(instance.templateId, 'queue', userId);
-        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(instance.templateId, 'habits', userId);
-        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(instance.templateId, 'tasks', userId);
-      } catch (e) {//
+        queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'queue', userId);
+        habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'habits', userId);
+        tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
+            instance.templateId, 'tasks', userId);
+      } catch (e) {
+        //
       }
       final nextInstanceData = schema.createActivityInstanceRecordData(
         templateId: instance.templateId,
@@ -315,7 +338,8 @@ class ActivityInstanceHelperService {
         habitsOrder: habitsOrder,
         tasksOrder: tasksOrder,
       );
-      final tempRef = ActivityInstanceRecord.collectionForUser(userId).doc('temp_${DateTime.now().millisecondsSinceEpoch}');
+      final tempRef = ActivityInstanceRecord.collectionForUser(userId)
+          .doc('temp_${DateTime.now().millisecondsSinceEpoch}');
       final optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
         nextInstanceData,
         tempRef,
@@ -326,21 +350,27 @@ class ActivityInstanceHelperService {
         instanceId: optimisticInstance.reference.id, // Use actual temp ID
         operationType: 'create',
         optimisticInstance: optimisticInstance,
-        originalInstance: optimisticInstance, // For creation, use optimistic as original since there's no existing instance
+        originalInstance:
+            optimisticInstance, // For creation, use optimistic as original since there's no existing instance
       );
-      InstanceEvents.broadcastInstanceCreatedOptimistic(optimisticInstance, operationId);
+      InstanceEvents.broadcastInstanceCreatedOptimistic(
+          optimisticInstance, operationId);
       try {
-        final newInstanceRef = await ActivityInstanceRecord.collectionForUser(userId).add(nextInstanceData);
+        final newInstanceRef =
+            await ActivityInstanceRecord.collectionForUser(userId)
+                .add(nextInstanceData);
         final newInstance = await getUpdatedInstance(
           instanceId: newInstanceRef.id,
           userId: userId,
         );
-        OptimisticOperationTracker.reconcileInstanceCreation(operationId, newInstance);
+        OptimisticOperationTracker.reconcileInstanceCreation(
+            operationId, newInstance);
       } catch (e) {
         OptimisticOperationTracker.rollbackOperation(operationId);
       }
-    } catch (e) {//
-       }
+    } catch (e) {
+      //
+    }
   }
 
   static int calculateMissingInstancesCount({
@@ -458,7 +488,8 @@ class ActivityInstanceHelperService {
   }) async {
     final uid = userId ?? getCurrentUserId();
     try {
-      final query = ActivityInstanceRecord.collectionForUser(uid).where('templateId', isEqualTo: templateId);
+      final query = ActivityInstanceRecord.collectionForUser(uid)
+          .where('templateId', isEqualTo: templateId);
       final instances = await query.get();
       for (final doc in instances.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
@@ -503,6 +534,7 @@ class ActivityInstanceHelperService {
       rethrow;
     }
   }
+
   static Future<void> updateActivityInstancesCascade({
     required String templateId,
     required Map<String, dynamic> updates,
@@ -514,8 +546,9 @@ class ActivityInstanceHelperService {
     final operationIds = <String, String>{}; // instanceId -> operationId
 
     try {
-      final instances = await ActivityInstanceUtilityService.getInstancesForTemplate(
-          templateId: templateId, userId: uid);
+      final instances =
+          await ActivityInstanceUtilityService.getInstancesForTemplate(
+              templateId: templateId, userId: uid);
       final now = DateTime.now();
       final oneYearAgo = now.subtract(const Duration(days: 365));
       final batches = <List<ActivityInstanceRecord>>[];
@@ -525,8 +558,7 @@ class ActivityInstanceHelperService {
         bool shouldUpdate = false;
         if (instance.status != 'completed' && instance.status != 'skipped') {
           shouldUpdate = true;
-        }
-        else if (updateHistorical) {
+        } else if (updateHistorical) {
           final refDate =
               instance.completedAt ?? instance.dueDate ?? instance.createdTime;
           if (refDate != null && refDate.isAfter(oneYearAgo)) {
@@ -535,7 +567,8 @@ class ActivityInstanceHelperService {
         }
 
         if (shouldUpdate) {
-          final optimisticInstance = InstanceEvents.createOptimisticPropertyUpdateInstance(
+          final optimisticInstance =
+              InstanceEvents.createOptimisticPropertyUpdateInstance(
             instance,
             updates,
           );
@@ -547,7 +580,8 @@ class ActivityInstanceHelperService {
             optimisticInstance: optimisticInstance,
             originalInstance: instance,
           );
-          InstanceEvents.broadcastInstanceUpdatedOptimistic(optimisticInstance, operationId);
+          InstanceEvents.broadcastInstanceUpdatedOptimistic(
+              optimisticInstance, operationId);
           operationIds[instance.reference.id] = operationId;
           currentBatch.add(instance);
           if (currentBatch.length >= 450) {
@@ -595,6 +629,72 @@ class ActivityInstanceHelperService {
               }
             } catch (e) {
               print('Error updating reminder for ${instance.reference.id}: $e');
+            }
+          }
+
+          // Check if we need to auto-complete/uncomplete due to target change
+          // ONLY for the current live instance (today) or future instances
+          // STRICTLY PRESERVE HISTORICAL INSTANCES unless updateHistorical is true
+          if (updates.containsKey('templateTarget')) {
+            final now = DateTime.now();
+            final today = DateTime(now.year, now.month, now.day);
+            bool isHistorical = false;
+
+            if (instance.belongsToDate != null) {
+              final belongsTo = DateTime(instance.belongsToDate!.year,
+                  instance.belongsToDate!.month, instance.belongsToDate!.day);
+              if (belongsTo.isBefore(today)) {
+                isHistorical = true;
+              }
+            } else if (instance.dueDate != null) {
+              final due = DateTime(instance.dueDate!.year,
+                  instance.dueDate!.month, instance.dueDate!.day);
+              if (due.isBefore(today)) {
+                isHistorical = true;
+              }
+            } else if (instance.createdTime != null) {
+              final created = DateTime(instance.createdTime!.year,
+                  instance.createdTime!.month, instance.createdTime!.day);
+              if (created.isBefore(today)) {
+                isHistorical = true;
+              }
+            }
+
+            // Only proceed if it's NOT historical OR if user explicitly requested historical update
+            if (!isHistorical || updateHistorical) {
+              final newTarget = updates['templateTarget'];
+              // Re-fetch latest instance data to get current progress
+              //(currentValue might have changed since the initial fetch at start of function)
+              try {
+                final refreshedDoc = await instance.reference.get();
+                if (refreshedDoc.exists) {
+                  final refreshedInstance =
+                      ActivityInstanceRecord.fromSnapshot(refreshedDoc);
+                  final dataset =
+                      refreshedInstance.currentValue; // This is the progress
+                  if (dataset is num && newTarget is num) {
+                    if (dataset >= newTarget &&
+                        refreshedInstance.status != 'completed') {
+                      // Auto-complete
+                      await ActivityInstanceCompletionService.completeInstance(
+                        instanceId: refreshedInstance.reference.id,
+                        userId: uid,
+                      );
+                    } else if (dataset < newTarget &&
+                        refreshedInstance.status == 'completed') {
+                      // Auto-uncomplete
+                      await ActivityInstanceCompletionService
+                          .uncompleteInstance(
+                        instanceId: refreshedInstance.reference.id,
+                        userId: uid,
+                      );
+                    }
+                  }
+                }
+              } catch (e) {
+                print(
+                    'Error auto-updating status for ${instance.reference.id}: $e');
+              }
             }
           }
         }
