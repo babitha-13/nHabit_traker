@@ -1,4 +1,4 @@
-import 'package:habit_tracker/Screens/toasts/score_bonus_toast_service.dart';
+import 'package:habit_tracker/features/toasts/score_bonus_toast_service.dart';
 
 /// Helper to format and display bonus/penalty notifications from score data
 /// Separates UI formatting concerns from backend calculation logic

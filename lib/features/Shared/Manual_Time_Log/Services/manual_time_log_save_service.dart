@@ -3,13 +3,13 @@ import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Task%20Instance%20Service/task_instance_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/optimistic_operation_tracker.dart';
+import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
+import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
+import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
 import 'package:collection/collection.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
 
 /// Service for save and delete operations
 class ManualTimeLogSaveService {

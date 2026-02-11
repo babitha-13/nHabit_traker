@@ -1,6 +1,6 @@
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Service to calculate aggregate statistics from daily scores and cumulative scores
 /// Uses in-memory caching to avoid repetitive Firestore reads

@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Widget to display completion calendar/heatmap similar to GitHub contributions
 class CompletionCalendarWidget extends StatelessWidget {
   final Map<DateTime, String> completionHistory;
   final int daysToShow;
+
   /// Dates that had partial progress even if final status is 'skipped'.
   /// Allows UI to show a different color for skipped-but-started days.
   final Set<DateTime> progressDates;

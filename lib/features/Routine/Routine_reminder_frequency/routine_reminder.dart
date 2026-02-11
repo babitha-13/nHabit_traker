@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config_dialog.dart';
-import 'package:habit_tracker/Screens/Routine/Routine_reminder_frequency/routine_frequency_editor.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config_dialog.dart';
+import 'package:habit_tracker/features/Routine/Routine_reminder_frequency/routine_frequency_editor.dart';
 
 /// Combined dialog for configuring routine reminders and repeat settings
 class RoutineReminderSettingsDialog extends StatefulWidget {

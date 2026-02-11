@@ -1,7 +1,7 @@
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart';
+import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_state_manager.dart';
 
 /// Service class for loading queue data
 class QueueDataService {

@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/app_state.dart';
+import 'package:habit_tracker/services/app_state.dart';
 
 /// Helper utilities for calculating binary time bonus behavior
 class BinaryTimeBonusHelper {

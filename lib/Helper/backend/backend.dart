@@ -8,15 +8,15 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/work_session_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/activity_update_broadcast.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/services/Activtity/activity_update_broadcast.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_date_calculator.dart';
+import 'package:habit_tracker/services/Activtity/instance_date_calculator.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
-import 'package:habit_tracker/Helper/Helpers/resource_tracker.dart';
+import 'package:habit_tracker/services/resource_tracker.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 
 /// Functions to query UsersRecords (as a Stream and as a Future).

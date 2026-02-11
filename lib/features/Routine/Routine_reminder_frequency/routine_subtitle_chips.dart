@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
-import 'package:habit_tracker/Screens/Routine/Routine_reminder_frequency/routine_reminder.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/features/Routine/Routine_reminder_frequency/routine_reminder.dart';
 
 /// Widget section for routine reminder configuration
 class RoutineReminderSection extends StatelessWidget {

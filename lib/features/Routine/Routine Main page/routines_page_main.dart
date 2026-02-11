@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Routine/Routine%20Main%20page/Logic/routines_page_logic.dart';
-import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Routine/Routine%20Main%20page/Logic/routines_page_logic.dart';
+import 'package:habit_tracker/features/Shared/Search/search_fab.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 
 class Routines extends StatefulWidget {
   const Routines({super.key});
@@ -49,8 +49,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
                 : Column(
                     children: [
                       // Search indicator banner when search is active
-                      if (searchQuery.isNotEmpty &&
-                          filteredRoutines.isNotEmpty)
+                      if (searchQuery.isNotEmpty && filteredRoutines.isNotEmpty)
                         Container(
                           width: double.infinity,
                           padding: const EdgeInsets.symmetric(
@@ -176,7 +175,6 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
     );
   }
 
-
   Widget _buildRoutineTile(
     RoutineRecord routine,
     List<String> itemNames, {
@@ -289,5 +287,4 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
       ),
     );
   }
-
 }

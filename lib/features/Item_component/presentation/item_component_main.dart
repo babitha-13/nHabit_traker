@@ -4,22 +4,22 @@ import 'package:flutter_slidable/flutter_slidable.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart'; // Keep for fetching template on edit
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
-import 'package:habit_tracker/Screens/Timer/Helpers/timer_logic_helper.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Item_component/Item_menu_actions/item_context_menu_actions.dart';
-import 'package:habit_tracker/Screens/Item_component/Item_menu_actions/item_menu_actions.dart';
-import 'package:habit_tracker/Screens/Item_component/Item_controls_helper/item_binary_controls_helper.dart';
-import 'package:habit_tracker/Screens/Item_component/Item_controls_helper/item_quantitative_controls_helper.dart';
-import 'package:habit_tracker/Screens/Item_component/item_component_subtitle.dart';
-import 'package:habit_tracker/Screens/Item_component/Item_controls_helper/item_time_controls_helper.dart';
-import 'package:habit_tracker/Screens/Item_component/item_component_ui.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Activity%20Editor%20Dialog/activity_editor_dialog.dart';
-import 'package:habit_tracker/Screens/Timer/timer_page.dart';
-import 'package:habit_tracker/Screens/Progress/Pages/habit_detail_statistics_page.dart';
+import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/features/Timer/Helpers/timer_logic_helper.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Item_component/helper/item_context_menu_actions.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_menu_actions.dart';
+import 'package:habit_tracker/features/Item_component/helper/item_binary_controls_helper.dart';
+import 'package:habit_tracker/features/Item_component/helper/item_quantitative_controls_helper.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_component_subtitle.dart';
+import 'package:habit_tracker/features/Item_component/helper/item_time_controls_helper.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_component_ui.dart';
+import 'package:habit_tracker/features/activity%20editor/presentation/activity_editor_dialog.dart';
+import 'package:habit_tracker/features/Timer/timer_page.dart';
+import 'package:habit_tracker/features/Progress/Pages/habit_detail_statistics_page.dart';
 import 'package:firebase_auth/firebase_auth.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
-import 'package:habit_tracker/Screens/Item_component/item_component_expanded.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_component_expanded.dart';
 
 class ItemComponent extends StatefulWidget {
   final ActivityInstanceRecord instance;

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 
 class GradientButton extends StatelessWidget {
   final String text;

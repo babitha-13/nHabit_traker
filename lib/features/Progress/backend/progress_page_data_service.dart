@@ -1,9 +1,9 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/daily_points_calculator.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/daily_points_calculator.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 
 /// Service to fetch data needed by Progress page UI
 /// Encapsulates Firestore access for progress page to maintain separation of concerns

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_datetime_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_save_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_search_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_datetime_service.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_save_service.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_search_service.dart';
 
 /// Service for building UI widgets
 class ManualTimeLogUIBuildersService {

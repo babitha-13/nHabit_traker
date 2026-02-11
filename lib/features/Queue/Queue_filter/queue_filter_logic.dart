@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart';
+import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_state_manager.dart';
 
 /// Business logic for queue filter state management
 class QueueFilterLogic {

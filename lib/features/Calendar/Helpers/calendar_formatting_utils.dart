@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:from_css_color/from_css_color.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/duration_format_helper.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/core/utils/Date_time/duration_format_helper.dart';
 
 /// Utility functions for calendar formatting
 class CalendarFormattingUtils {

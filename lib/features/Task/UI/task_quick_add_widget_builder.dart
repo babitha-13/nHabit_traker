@@ -1,38 +1,39 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/activity_type_dropdown_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
-import 'package:habit_tracker/Screens/Task/Logic/task_quick_add_logic_helper.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/activity%20editor/activity_type_dropdown_helper.dart';
+import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_dialog.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_model.dart';
+import 'package:habit_tracker/features/Task/Logic/task_quick_add_logic_helper.dart';
 import 'package:intl/intl.dart';
 
 class TaskQuickAddWidgetBuilder {
   static Widget buildQuickAdd(
-      BuildContext context,
-      void Function(VoidCallback) updateState,
-      TextEditingController quickAddController,
-      String? selectedQuickTrackingType,
-      DateTime? selectedQuickDueDate,
-      TimeOfDay? selectedQuickDueTime,
-      int? quickTimeEstimateMinutes,
-      bool quickIsRecurring,
-      FrequencyConfig? quickFrequencyConfig,
-      List<ReminderConfig> quickReminders,
-      int quickTargetNumber,
-      Duration quickTargetDuration,
-      TextEditingController quickTargetNumberController,
-      TextEditingController quickHoursController,
-      TextEditingController quickMinutesController,
-      TextEditingController quickUnitController,
-      Function(String?) onTrackingTypeChanged,
-      Function(DateTime?) onDueDateChanged,
-      Function(TimeOfDay?) onDueTimeChanged,
-      Function(int?) onTimeEstimateChanged,
-      Function(bool, FrequencyConfig?) onRecurringChanged,
-      Function(List<ReminderConfig>) onRemindersChanged,
-      Function() onSubmit,
-      ) {
+    BuildContext context,
+    void Function(VoidCallback) updateState,
+    TextEditingController quickAddController,
+    String? selectedQuickTrackingType,
+    DateTime? selectedQuickDueDate,
+    TimeOfDay? selectedQuickDueTime,
+    int? quickTimeEstimateMinutes,
+    bool quickIsRecurring,
+    FrequencyConfig? quickFrequencyConfig,
+    List<ReminderConfig> quickReminders,
+    int quickTargetNumber,
+    Duration quickTargetDuration,
+    TextEditingController quickTargetNumberController,
+    TextEditingController quickHoursController,
+    TextEditingController quickMinutesController,
+    TextEditingController quickUnitController,
+    Function(String?) onTrackingTypeChanged,
+    Function(DateTime?) onDueDateChanged,
+    Function(TimeOfDay?) onDueTimeChanged,
+    Function(int?) onTimeEstimateChanged,
+    Function(bool, FrequencyConfig?) onRecurringChanged,
+    Function(List<ReminderConfig>) onRemindersChanged,
+    Function() onSubmit,
+  ) {
     final theme = FlutterFlowTheme.of(context);
     final quickAddWidget = Container(
       margin: EdgeInsets.zero,
@@ -54,7 +55,7 @@ class TaskQuickAddWidgetBuilder {
                 Expanded(
                   child: Container(
                     padding:
-                    const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                     decoration: BoxDecoration(
                       color: theme.tertiary.withOpacity(0.3),
                       borderRadius: BorderRadius.circular(10),
@@ -165,7 +166,8 @@ class TaskQuickAddWidgetBuilder {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              onTap: () => TaskQuickAddLogicHelper.selectQuickDueDate(
+                              onTap: () =>
+                                  TaskQuickAddLogicHelper.selectQuickDueDate(
                                 context,
                                 updateState,
                                 selectedQuickDueDate,
@@ -203,7 +205,8 @@ class TaskQuickAddWidgetBuilder {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              onTap: () => TaskQuickAddLogicHelper.selectQuickDueDate(
+                              onTap: () =>
+                                  TaskQuickAddLogicHelper.selectQuickDueDate(
                                 context,
                                 updateState,
                                 selectedQuickDueDate,
@@ -225,7 +228,7 @@ class TaskQuickAddWidgetBuilder {
                                       quickIsRecurring
                                           ? 'From ${DateFormat('MMM dd').format(selectedQuickDueDate)}'
                                           : DateFormat('MMM dd')
-                                          .format(selectedQuickDueDate),
+                                              .format(selectedQuickDueDate),
                                       style: TextStyle(
                                         fontSize: 11,
                                         color: theme.accent1,
@@ -269,7 +272,8 @@ class TaskQuickAddWidgetBuilder {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              onTap: () => TaskQuickAddLogicHelper.selectQuickDueTime(
+                              onTap: () =>
+                                  TaskQuickAddLogicHelper.selectQuickDueTime(
                                 context,
                                 updateState,
                                 selectedQuickDueTime,
@@ -304,7 +308,8 @@ class TaskQuickAddWidgetBuilder {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              onTap: () => TaskQuickAddLogicHelper.selectQuickDueTime(
+                              onTap: () =>
+                                  TaskQuickAddLogicHelper.selectQuickDueTime(
                                 context,
                                 updateState,
                                 selectedQuickDueTime,
@@ -348,7 +353,8 @@ class TaskQuickAddWidgetBuilder {
                           ),
                         ),
                       // Time estimate icon/chip (always show when not time-target)
-                      if (!TaskQuickAddLogicHelper.isQuickTimeTarget(selectedQuickTrackingType, quickTargetDuration))
+                      if (!TaskQuickAddLogicHelper.isQuickTimeTarget(
+                          selectedQuickTrackingType, quickTargetDuration))
                         if (quickTimeEstimateMinutes == null)
                           Container(
                             decoration: BoxDecoration(
@@ -363,7 +369,8 @@ class TaskQuickAddWidgetBuilder {
                               color: Colors.transparent,
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(10),
-                                onTap: () => TaskQuickAddLogicHelper.selectQuickTimeEstimate(
+                                onTap: () => TaskQuickAddLogicHelper
+                                    .selectQuickTimeEstimate(
                                   context,
                                   updateState,
                                   quickTimeEstimateMinutes,
@@ -386,7 +393,7 @@ class TaskQuickAddWidgetBuilder {
                               color: theme.accent1.withOpacity(0.1),
                               borderRadius: BorderRadius.circular(10),
                               border:
-                              Border.all(color: theme.accent1, width: 1),
+                                  Border.all(color: theme.accent1, width: 1),
                               boxShadow: [
                                 BoxShadow(
                                   color: theme.accent1.withOpacity(0.2),
@@ -399,7 +406,8 @@ class TaskQuickAddWidgetBuilder {
                               color: Colors.transparent,
                               child: InkWell(
                                 borderRadius: BorderRadius.circular(10),
-                                onTap: () => TaskQuickAddLogicHelper.selectQuickTimeEstimate(
+                                onTap: () => TaskQuickAddLogicHelper
+                                    .selectQuickTimeEstimate(
                                   context,
                                   updateState,
                                   quickTimeEstimateMinutes,
@@ -456,7 +464,8 @@ class TaskQuickAddWidgetBuilder {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              onTap: () => TaskQuickAddLogicHelper.selectQuickReminders(
+                              onTap: () =>
+                                  TaskQuickAddLogicHelper.selectQuickReminders(
                                 context,
                                 updateState,
                                 quickReminders,
@@ -493,7 +502,8 @@ class TaskQuickAddWidgetBuilder {
                             color: Colors.transparent,
                             child: InkWell(
                               borderRadius: BorderRadius.circular(10),
-                              onTap: () => TaskQuickAddLogicHelper.selectQuickReminders(
+                              onTap: () =>
+                                  TaskQuickAddLogicHelper.selectQuickReminders(
                                 context,
                                 updateState,
                                 quickReminders,
@@ -513,7 +523,7 @@ class TaskQuickAddWidgetBuilder {
                                     Text(
                                       quickReminders.length == 1
                                           ? quickReminders.first
-                                          .getDescription()
+                                              .getDescription()
                                           : '${quickReminders.length} reminders',
                                       style: TextStyle(
                                         fontSize: 11,
@@ -650,8 +660,9 @@ class TaskQuickAddWidgetBuilder {
                                     const SizedBox(width: 6),
                                     Flexible(
                                       child: Text(
-                                        TaskQuickAddLogicHelper.getQuickFrequencyDescription(
-                                            quickFrequencyConfig),
+                                        TaskQuickAddLogicHelper
+                                            .getQuickFrequencyDescription(
+                                                quickFrequencyConfig),
                                         style: TextStyle(
                                           fontSize: 11,
                                           color: theme.accent1,
@@ -777,7 +788,7 @@ class TaskQuickAddWidgetBuilder {
                                     horizontal: 12, vertical: 8),
                                 hintText: 'e.g., pages, reps',
                                 hintStyle:
-                                TextStyle(color: theme.secondaryText),
+                                    TextStyle(color: theme.secondaryText),
                                 isDense: true,
                                 filled: true,
                                 fillColor: theme.secondaryBackground,
@@ -843,7 +854,7 @@ class TaskQuickAddWidgetBuilder {
                                     horizontal: 12, vertical: 8),
                                 labelText: 'Hours',
                                 labelStyle:
-                                TextStyle(color: theme.secondaryText),
+                                    TextStyle(color: theme.secondaryText),
                                 isDense: true,
                                 filled: true,
                                 fillColor: theme.secondaryBackground,
@@ -879,7 +890,7 @@ class TaskQuickAddWidgetBuilder {
                                     horizontal: 12, vertical: 8),
                                 labelText: 'Minutes',
                                 labelStyle:
-                                TextStyle(color: theme.secondaryText),
+                                    TextStyle(color: theme.secondaryText),
                                 isDense: true,
                                 filled: true,
                                 fillColor: theme.secondaryBackground,
@@ -905,4 +916,3 @@ class TaskQuickAddWidgetBuilder {
     return quickAddWidget;
   }
 }
-

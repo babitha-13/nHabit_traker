@@ -1,6 +1,6 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/today_points_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/today_points_service.dart';
 
 /// Service class for calculating today's completion points (target/earned/percentage)
 /// Uses TodayCompletionPointsService for consistency

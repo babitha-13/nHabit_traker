@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
-import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_preferences_service.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_preferences_service.dart';
 
 /// Service for tracking app usage and engagement
 /// All business logic for engagement tracking is centralized here (#REFACTOR_NOW compliance)

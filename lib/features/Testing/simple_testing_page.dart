@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/testing/simple_day_advancer_ui.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/testing/duplicate_instance_cleanup.dart';
+import 'package:habit_tracker/services/testing/simple_day_advancer_ui.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/services/testing/duplicate_instance_cleanup.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 /// Simple testing page for day advancement

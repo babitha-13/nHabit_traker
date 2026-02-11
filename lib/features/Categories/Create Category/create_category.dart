@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/category_color_util.dart';
+import 'package:habit_tracker/services/category_color_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/polished_dialog.dart';
-import 'package:habit_tracker/Screens/Categories/Create Category/Logic/create_category_logic.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Shared/polished_dialog.dart';
+import 'package:habit_tracker/features/Categories/Create%20Category/Logic/create_category_logic.dart';
 
 class CreateCategory extends StatefulWidget {
   final CategoryRecord? category;

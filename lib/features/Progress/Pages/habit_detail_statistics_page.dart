@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Progress/backend/habit_statistics_data_service.dart';
+import 'package:habit_tracker/features/Progress/backend/habit_statistics_data_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Screens/Progress/Charts/completion_stats_calendar_view.dart';
-import 'package:habit_tracker/Screens/Progress/Charts/habit_trend_chart_widget.dart';
-import 'package:habit_tracker/Screens/Progress/Charts/habit_distribution_chart_widget.dart';
-import 'package:habit_tracker/Screens/Progress/Charts/habit_period_comparison_widget.dart';
-import 'package:habit_tracker/Screens/Progress/Charts/habit_progress_trend_widget.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/features/Progress/Charts/completion_stats_calendar_view.dart';
+import 'package:habit_tracker/features/Progress/Charts/habit_trend_chart_widget.dart';
+import 'package:habit_tracker/features/Progress/Charts/habit_distribution_chart_widget.dart';
+import 'package:habit_tracker/features/Progress/Charts/habit_period_comparison_widget.dart';
+import 'package:habit_tracker/features/Progress/Charts/habit_progress_trend_widget.dart';
 
 class HabitDetailStatisticsPage extends StatefulWidget {
   final String habitName;

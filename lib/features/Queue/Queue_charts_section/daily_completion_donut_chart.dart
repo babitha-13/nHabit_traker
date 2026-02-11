@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 
 /// Daily progress chart widget showing donut chart with progress details
 class DailyProgressChart extends StatelessWidget {

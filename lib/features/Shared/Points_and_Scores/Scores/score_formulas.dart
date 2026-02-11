@@ -2,7 +2,7 @@ import 'dart:math';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Pure mathematical formulas for score calculations
 /// No database access, no state management, no side effects
@@ -101,27 +101,30 @@ class ScoreFormulas {
       final todayHabits = habitInstances.where((inst) {
         // Must be in this category
         if (inst.templateCategoryId != category.reference.id) return false;
-        
+
         // For habits, check if belongs to target date
         if (inst.templateCategoryType == 'habit') {
           // For completed habits, use completedAt date (the day it was actually completed)
           if (inst.status == 'completed' && inst.completedAt != null) {
-            final completedDate = DateService.normalizeToStartOfDay(inst.completedAt!);
+            final completedDate =
+                DateService.normalizeToStartOfDay(inst.completedAt!);
             return completedDate.isAtSameMomentAs(normalizedDate);
           }
-          
+
           // For pending/in-progress habits, use belongsToDate (or dueDate) - the day they belong to
           if (inst.belongsToDate != null) {
-            final belongsDate = DateService.normalizeToStartOfDay(inst.belongsToDate!);
+            final belongsDate =
+                DateService.normalizeToStartOfDay(inst.belongsToDate!);
             return belongsDate.isAtSameMomentAs(normalizedDate);
           }
-          
+
           // Fallback: if no belongsToDate, check dueDate
           if (inst.dueDate != null) {
-            final dueDateOnly = DateService.normalizeToStartOfDay(inst.dueDate!);
+            final dueDateOnly =
+                DateService.normalizeToStartOfDay(inst.dueDate!);
             return dueDateOnly.isAtSameMomentAs(normalizedDate);
           }
-          
+
           // Check if has current activity (currentValue or accumulatedTime) for today
           // This handles habits that are in progress today
           if (inst.currentValue != null) {
@@ -129,7 +132,7 @@ class ScoreFormulas {
             if (value is num && value > 0) return true;
           }
           if (inst.accumulatedTime > 0) return true;
-          
+
           return false;
         }
         return false;

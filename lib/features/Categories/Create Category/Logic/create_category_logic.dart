@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/Helpers/category_color_util.dart';
+import 'package:habit_tracker/services/category_color_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 
 /// Logic mixin for CreateCategory that contains all business logic
@@ -58,8 +58,7 @@ mixin CreateCategoryLogic<T extends StatefulWidget> on State<T> {
       final newName = nameController.text.trim().toLowerCase();
       final nameExists = freshCategories.any((cat) {
         // Skip the current category when editing
-        if (isEdit &&
-            cat.reference.id == category!.reference.id) {
+        if (isEdit && cat.reference.id == category!.reference.id) {
           return false;
         }
         final existingName = cat.name.trim().toLowerCase();
@@ -69,8 +68,7 @@ mixin CreateCategoryLogic<T extends StatefulWidget> on State<T> {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content:
-                  Text('Category with this name already exists!'),
+              content: Text('Category with this name already exists!'),
               backgroundColor: Colors.red,
             ),
           );
@@ -97,8 +95,7 @@ mixin CreateCategoryLogic<T extends StatefulWidget> on State<T> {
               : null,
           weight: 1.0,
           color: selectedColor,
-          categoryType:
-              categoryType, // Only update if provided
+          categoryType: categoryType, // Only update if provided
         );
         // If metadata changed, cascade the update to all templates and instances
         if (nameChanged || colorChanged) {
@@ -107,8 +104,7 @@ mixin CreateCategoryLogic<T extends StatefulWidget> on State<T> {
               categoryId: category.reference.id,
               userId: currentUserUid,
               newCategoryName: nameChanged ? newNameValue : null,
-              newCategoryColor:
-                  colorChanged ? selectedColor : null,
+              newCategoryColor: colorChanged ? selectedColor : null,
             );
           } catch (e) {
             // Show warning but don't fail the operation
@@ -133,8 +129,8 @@ mixin CreateCategoryLogic<T extends StatefulWidget> on State<T> {
               : null,
           weight: 1.0,
           color: selectedColor,
-          categoryType: categoryType ??
-              'habit', // Default to habit if not specified
+          categoryType:
+              categoryType ?? 'habit', // Default to habit if not specified
         );
         return newCategoryRef.id;
       }
@@ -145,8 +141,7 @@ mixin CreateCategoryLogic<T extends StatefulWidget> on State<T> {
         if (errorMessage.contains('already exists')) {
           ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(
-              content:
-                  Text('Category with this name already exists!'),
+              content: Text('Category with this name already exists!'),
               backgroundColor: Colors.red,
             ),
           );

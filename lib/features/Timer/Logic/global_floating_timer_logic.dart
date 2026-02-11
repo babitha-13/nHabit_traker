@@ -1,18 +1,21 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
-import 'package:habit_tracker/Screens/Timer/Helpers/TimeManager.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Helper/Helpers/sound_helper.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Task%20Instance%20Service/task_instance_service.dart';
+import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/features/Timer/Helpers/TimeManager.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/services/sound_helper.dart';
+import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Screens/Timer/Helpers/timer_stop_flow.dart';
+import 'package:habit_tracker/features/Timer/Helpers/timer_stop_flow.dart';
 import '../global_floating_timer.dart';
 
-mixin GlobalFloatingTimerLogic on State<GlobalFloatingTimer>, SingleTickerProviderStateMixin<GlobalFloatingTimer> {
+mixin GlobalFloatingTimerLogic
+    on
+        State<GlobalFloatingTimer>,
+        SingleTickerProviderStateMixin<GlobalFloatingTimer> {
   final TimerManager timerManager = TimerManager();
   bool isExpanded = false;
   late AnimationController pulseController;

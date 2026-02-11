@@ -9,11 +9,11 @@ import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_formulas.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_formulas.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/services/milestone_service.dart';
+import 'package:habit_tracker/features/Progress/backend/aggregate_score_statistics_service.dart';
 
 /// Legacy compatibility class - delegates to new services
 /// New code should use ScoreFormulas, ScorePersistenceService, and ScoreCoordinator directly

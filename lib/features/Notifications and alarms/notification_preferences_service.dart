@@ -1,6 +1,6 @@
 import 'package:habit_tracker/Helper/backend/schema/users_record.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 
 /// Service for managing user notification preferences
 /// All business logic for notification preferences is centralized here (#REFACTOR_NOW compliance)

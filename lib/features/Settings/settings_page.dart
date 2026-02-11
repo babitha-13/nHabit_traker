@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/app_state.dart';
-import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
-import 'package:habit_tracker/Screens/Settings/calendar_settings_page.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/services/app_state.dart';
+import 'package:habit_tracker/features/Settings/notification_settings_page.dart';
+import 'package:habit_tracker/features/Settings/calendar_settings_page.dart';
 
 /// Main settings page for managing app preferences
 class SettingsPage extends StatefulWidget {

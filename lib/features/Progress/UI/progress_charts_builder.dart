@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_charts_section/cumulative_score_line_painter.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/features/Queue/Queue_charts_section/cumulative_score_line_painter.dart';
 import '../Logic/progress_page_logic.dart';
 
 class ProgressChartsBuilder {
@@ -34,7 +34,8 @@ class ProgressChartsBuilder {
           const SizedBox(height: 16),
           SizedBox(
             height: 160,
-            child: build7DayColumnChart(context: context, data: last7Days, logic: logic),
+            child: build7DayColumnChart(
+                context: context, data: last7Days, logic: logic),
           ),
         ],
       ),
@@ -63,7 +64,11 @@ class ProgressChartsBuilder {
             crossAxisAlignment: CrossAxisAlignment.end,
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: chartData.map((dayData) {
-              return buildSingleDayColumn(context: context, dayData: dayData, maxTarget: maxTarget, logic: logic);
+              return buildSingleDayColumn(
+                  context: context,
+                  dayData: dayData,
+                  maxTarget: maxTarget,
+                  logic: logic);
             }).toList(),
           ),
         ),
@@ -124,7 +129,8 @@ class ProgressChartsBuilder {
           children: [
             Expanded(
               child: GestureDetector(
-                onTap: () => logic.showProgressBreakdown(context, dayData['date'] as DateTime),
+                onTap: () => logic.showProgressBreakdown(
+                    context, dayData['date'] as DateTime),
                 child: Stack(
                   alignment: Alignment.bottomCenter,
                   children: [
@@ -264,9 +270,11 @@ class ProgressChartsBuilder {
               GestureDetector(
                 onTap: onToggleRange,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color: FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+                    color:
+                        FlutterFlowTheme.of(context).primary.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(

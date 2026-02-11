@@ -1,10 +1,10 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Settings/faq_page.dart';
-import 'package:habit_tracker/Screens/Categories/Manage%20Category/manage_categories.dart';
-import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
-import 'package:habit_tracker/Screens/Settings/settings_page.dart';
-import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
+import 'package:habit_tracker/features/Settings/faq_page.dart';
+import 'package:habit_tracker/features/Categories/Manage%20Category/manage_categories.dart';
+import 'package:habit_tracker/features/Progress/Pages/progress_page.dart';
+import 'package:habit_tracker/features/Settings/settings_page.dart';
+import 'package:habit_tracker/features/Testing/simple_testing_page.dart';
 
 /// Drawer item widget for consistent menu item styling
 class DrawerItem extends StatelessWidget {

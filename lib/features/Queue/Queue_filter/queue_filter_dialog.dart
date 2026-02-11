@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart'
+import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_state_manager.dart'
     show QueueFilterState;
 
 Widget buildFilterButton({

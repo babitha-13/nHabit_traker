@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Task/task_tabs_UI.dart';
-import 'package:habit_tracker/Screens/Task/task_page.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Task/task_tabs_UI.dart';
+import 'package:habit_tracker/features/Task/task_page.dart';
 
 class TaskTab extends StatefulWidget {
   const TaskTab({super.key});

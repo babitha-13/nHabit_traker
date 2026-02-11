@@ -3,12 +3,12 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Activity%20Instance%20Service/activity_instance_service.dart';
-import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
-import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
-import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
+import 'package:habit_tracker/features/Habits/presentation/window_display_helper.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 

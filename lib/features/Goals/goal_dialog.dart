@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/goal_record.dart';
-import 'package:habit_tracker/Screens/Goals/goal_data_service.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Goals/goal_data_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
-import 'package:habit_tracker/Screens/Goals/goal_history_page.dart';
+import 'package:habit_tracker/features/Goals/goal_history_page.dart';
 
 /// Goal dialog for displaying and editing user goals
 /// Supports both view and edit modes

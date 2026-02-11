@@ -9,7 +9,7 @@ import 'package:habit_tracker/main.dart';
 import 'dart:math' show pow, pi, sin;
 import 'package:intl/intl.dart';
 import 'package:json_path/json_path.dart';
-export '../Helpers/lat_lng.dart';
+export '../../core/utils/geo_location.dart';
 export 'flutter_flow_model.dart';
 export 'dart:math' show min, max;
 export 'dart:typed_data' show Uint8List;

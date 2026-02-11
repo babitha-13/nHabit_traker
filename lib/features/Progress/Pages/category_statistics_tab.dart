@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Progress/backend/category_statistics_data_service.dart';
+import 'package:habit_tracker/features/Progress/backend/category_statistics_data_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 class CategoryStatisticsTab extends StatefulWidget {
   const CategoryStatisticsTab({Key? key}) : super(key: key);

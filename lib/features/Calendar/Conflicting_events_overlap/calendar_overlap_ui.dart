@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
 
 /// Helper class for building overlap UI components
 class CalendarOverlapUI {

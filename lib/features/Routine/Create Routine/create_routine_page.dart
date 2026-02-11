@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Item_component/item_dotted_line_painter.dart';
-import 'package:habit_tracker/Screens/Routine/Create Routine/Logic/create_routine_page_logic.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_dotted_line_painter.dart';
+import 'package:habit_tracker/features/Routine/Create%20Routine/Logic/create_routine_page_logic.dart';
 
 class CreateRoutinePage extends StatefulWidget {
   final RoutineRecord? existingRoutine;
@@ -25,7 +25,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage>
   void initState() {
     super.initState();
     if (widget.existingRoutine != null) {
-      fetchLatestRoutineAndLoadActivities(widget.existingRoutine).then((routineName) {
+      fetchLatestRoutineAndLoadActivities(widget.existingRoutine)
+          .then((routineName) {
         if (mounted && routineName != null) {
           _nameController.text = routineName;
         } else if (mounted) {
@@ -398,7 +399,8 @@ class _CreateRoutinePageState extends State<CreateRoutinePage>
                                           theme.buttonRadius),
                                     ),
                                     child: ElevatedButton.icon(
-                                      onPressed: () => createNewEssentialItem((_) {}),
+                                      onPressed: () =>
+                                          createNewEssentialItem((_) {}),
                                       style: ElevatedButton.styleFrom(
                                         backgroundColor: Colors.transparent,
                                         shadowColor: Colors.transparent,

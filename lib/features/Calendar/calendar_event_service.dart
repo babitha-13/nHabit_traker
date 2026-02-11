@@ -1,17 +1,17 @@
 import 'dart:async';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_activity_data_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Task%20Instance%20Service/task_instance_service.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_activity_data_service.dart';
+import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/planned_duration_resolver.dart';
-import 'package:habit_tracker/Screens/Routine/Backend_data/routine_planned_calendar_service.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_formatting_utils.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/planned_duration_resolver.dart';
+import 'package:habit_tracker/features/Routine/Backend_data/routine_planned_calendar_service.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_formatting_utils.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 /// Service class for loading and processing calendar events

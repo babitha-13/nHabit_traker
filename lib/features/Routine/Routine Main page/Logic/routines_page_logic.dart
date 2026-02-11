@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Screens/Routine/Backend_data/routine_service.dart';
+import 'package:habit_tracker/features/Routine/Backend_data/routine_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Screens/Routine/Backend_data/routine_order_service.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
-import 'package:habit_tracker/Screens/Routine/Create%20Routine/create_routine_page.dart';
-import 'package:habit_tracker/Screens/Routine/Routine_reminder_frequency/routine_reminder.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Routine/routine_detail_page.dart';
+import 'package:habit_tracker/features/Routine/Backend_data/routine_order_service.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/features/Routine/Create%20Routine/create_routine_page.dart';
+import 'package:habit_tracker/features/Routine/Routine_reminder_frequency/routine_reminder.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Routine/routine_detail_page.dart';
 
 /// Routine Main page mixin for Routines page that contains all business logic
 /// This separates business logic from UI code
@@ -45,15 +45,15 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
     // Check if cache is still valid
     final currentRoutinesHash = routines.length.hashCode ^
         routines.fold(0, (sum, r) => sum ^ r.reference.id.hashCode);
-    
+
     final cacheInvalid = cachedFilteredRoutines == null ||
         currentRoutinesHash != routinesHashCode ||
         searchQuery != lastSearchQuery;
-    
+
     if (!cacheInvalid && cachedFilteredRoutines != null) {
       return cachedFilteredRoutines!;
     }
-    
+
     // Recalculate filtered list
     List<RoutineRecord> filtered;
     if (searchQuery.isEmpty) {
@@ -67,12 +67,12 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
         return nameMatch || descriptionMatch;
       }).toList();
     }
-    
+
     // Update cache
     cachedFilteredRoutines = filtered;
     routinesHashCode = currentRoutinesHash;
     lastSearchQuery = searchQuery;
-    
+
     return filtered;
   }
 
@@ -93,18 +93,18 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
           queryActivitiesRecordOnce(userId: userId),
         ]);
         if (!mounted) return;
-        
+
         final routinesResult = results[0] as List<RoutineRecord>;
         final habitsResult = results[1] as List<ActivityRecord>;
-        
+
         // Sort routines by order to ensure consistent display
         final sortedRoutines =
             RoutineOrderService.sortRoutinesByOrder(routinesResult);
-        
+
         // Calculate hash code when data changes (not in getter)
         final newHash = sortedRoutines.length.hashCode ^
             sortedRoutines.fold(0, (sum, r) => sum ^ r.reference.id.hashCode);
-        
+
         if (mounted) {
           setState(() {
             routines = sortedRoutines;

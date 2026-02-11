@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/login_response.dart';
-import 'package:habit_tracker/Helper/Helpers/constants.dart';
-import 'package:habit_tracker/Helper/Helpers/sharedPreference.dart';
+import 'package:habit_tracker/services/login_response.dart';
+import 'package:habit_tracker/core/constants.dart';
+import 'package:habit_tracker/core/services/local_storage_services.dart';
 import 'package:habit_tracker/main.dart';
 
 class Splash extends StatefulWidget {

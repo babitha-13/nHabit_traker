@@ -1,8 +1,8 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:from_css_color/from_css_color.dart';
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
-import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/features/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
 
 /// Utility class for calculating time breakdown from calendar events
 class CalendarTimeBreakdownCalculator {

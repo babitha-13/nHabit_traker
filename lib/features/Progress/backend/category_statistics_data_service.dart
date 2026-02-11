@@ -1,8 +1,8 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Progress/backend/habit_statistics_data_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/features/Progress/backend/habit_statistics_data_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 
 /// Service to aggregate category-wise statistics
 class CategoryStatisticsService {

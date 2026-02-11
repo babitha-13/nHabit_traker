@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/main.dart';
-import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
+import 'package:habit_tracker/services/milestone_service.dart';
 
 class MilestoneToastService {
   /// Show milestone celebration toast

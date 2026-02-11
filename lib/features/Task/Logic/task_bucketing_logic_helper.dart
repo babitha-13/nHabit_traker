@@ -1,6 +1,6 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 
 class TaskBucketingLogicHelper {
   static Map<String, List<dynamic>> getBucketedItems({
@@ -48,7 +48,6 @@ class TaskBucketingLogicHelper {
           .toLowerCase()
           .contains(searchQuery.toLowerCase());
     }).toList();
-
 
     final today = DateService.todayStart;
     final tomorrow = DateService.tomorrowStart;

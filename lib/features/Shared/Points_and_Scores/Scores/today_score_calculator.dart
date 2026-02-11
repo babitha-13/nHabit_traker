@@ -2,10 +2,10 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_formulas.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_formulas.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Service for calculating today's score gain based on current completion
 /// Today's score = base daily score + bonuses - penalties

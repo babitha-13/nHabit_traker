@@ -1,12 +1,12 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Screens/Shared/Search/search_fab.dart';
-import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
-import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
-import 'package:habit_tracker/Screens/Essential/Logic/essential_templates_page_logic.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/features/Shared/Search/search_fab.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_component_main.dart';
+import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/features/Essential/Logic/essential_templates_page_logic.dart';
 
 class essentialTemplatesPage extends StatefulWidget {
   const essentialTemplatesPage({Key? key}) : super(key: key);

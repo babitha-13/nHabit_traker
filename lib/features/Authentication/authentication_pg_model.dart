@@ -1,7 +1,8 @@
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_model.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-import 'package:habit_tracker/Screens/Authentication/authentication.dart';
+import 'package:habit_tracker/features/Authentication/authentication.dart';
 import 'package:flutter/material.dart';
+
 class AuthenticationPgModel extends FlutterFlowModel<SignIn> {
   ///  State fields for stateful widgets in this page.
   // State field(s) for TabBar widget.
@@ -48,6 +49,7 @@ class AuthenticationPgModel extends FlutterFlowModel<SignIn> {
     passwordCreateTextControllerValidator = _passwordStrengthValidator;
     passwordConfirmTextControllerValidator = _passwordConfirmValidator;
   }
+
   // Email validation function
   String? _emailValidator(BuildContext context, String? val) {
     if (val == null || val.isEmpty) {
@@ -60,6 +62,7 @@ class AuthenticationPgModel extends FlutterFlowModel<SignIn> {
     }
     return null;
   }
+
   // Password validation for sign-in (basic)
   String? _passwordValidator(BuildContext context, String? val) {
     if (val == null || val.isEmpty) {
@@ -70,6 +73,7 @@ class AuthenticationPgModel extends FlutterFlowModel<SignIn> {
     }
     return null;
   }
+
   // Password validation for sign-up (simplified - no strength requirements)
   String? _passwordStrengthValidator(BuildContext context, String? val) {
     if (val == null || val.isEmpty) {
@@ -80,6 +84,7 @@ class AuthenticationPgModel extends FlutterFlowModel<SignIn> {
     }
     return null;
   }
+
   // Password confirmation validation
   String? _passwordConfirmValidator(BuildContext context, String? val) {
     if (val == null || val.isEmpty) {
@@ -91,6 +96,7 @@ class AuthenticationPgModel extends FlutterFlowModel<SignIn> {
     }
     return null;
   }
+
   @override
   void dispose() {
     tabBarController?.dispose();

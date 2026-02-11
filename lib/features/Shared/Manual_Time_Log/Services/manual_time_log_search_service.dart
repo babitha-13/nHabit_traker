@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/manual_time_log_helper.dart';
-import 'package:habit_tracker/Screens/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_preview_service.dart';
 import 'package:collection/collection.dart';
 
 /// Service for search and suggestions overlay management

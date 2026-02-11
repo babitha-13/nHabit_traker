@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Categories/Manage Category/Logic/manage_categories_logic.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Categories/Manage%20Category/Logic/manage_categories_logic.dart';
 
 class ManageCategories extends StatefulWidget {
   const ManageCategories({super.key});
@@ -87,14 +87,14 @@ class _ManageCategoriesState extends State<ManageCategories>
                                     const SizedBox(height: 16),
                                     Text(
                                       'No categories yet',
-                                      style:
-                                          FlutterFlowTheme.of(context).titleMedium,
+                                      style: FlutterFlowTheme.of(context)
+                                          .titleMedium,
                                     ),
                                     const SizedBox(height: 8),
                                     Text(
                                       'Create categories to organize your habits and tasks!',
-                                      style:
-                                          FlutterFlowTheme.of(context).bodyMedium,
+                                      style: FlutterFlowTheme.of(context)
+                                          .bodyMedium,
                                     ),
                                     const SizedBox(height: 16),
                                     ElevatedButton(
@@ -343,5 +343,4 @@ class _ManageCategoriesState extends State<ManageCategories>
       ),
     );
   }
-
 }

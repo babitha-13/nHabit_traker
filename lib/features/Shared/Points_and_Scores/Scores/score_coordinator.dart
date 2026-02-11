@@ -1,9 +1,9 @@
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_state_service.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_history_service.dart';
-import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_state_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_history_service.dart';
+import 'package:habit_tracker/features/Progress/Statemanagement/today_progress_state.dart';
 
 /// Coordinator/orchestrator for score calculations and state management
 /// Coordinates all score-related services to provide a unified interface

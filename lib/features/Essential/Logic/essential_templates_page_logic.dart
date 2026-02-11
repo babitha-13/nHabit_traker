@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Screens/Essential/essential_data_service.dart';
+import 'package:habit_tracker/features/Essential/essential_data_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Activity%20Editor%20Dialog/activity_editor_dialog.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
-import 'package:habit_tracker/Screens/Shared/section_expansion_state_manager.dart';
-import 'package:habit_tracker/Screens/Categories/Create%20Category/create_category.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/Task%20Instance%20Service/task_instance_service.dart';
-import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
+import 'package:habit_tracker/features/activity%20editor/presentation/activity_editor_dialog.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
+import 'package:habit_tracker/features/Categories/Create%20Category/create_category.dart';
+import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
+import 'package:habit_tracker/features/Settings/default_time_estimates_service.dart';
 
 mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   List<ActivityRecord> templates = [];
@@ -227,7 +227,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
         isLoadingData = false;
         return;
       }
-      
+
       final templatesResult = results[0] as List<ActivityRecord>;
       final categoriesResult = results[1] as List<CategoryRecord>;
       final statsData = results[2] as Map<String, dynamic>;
@@ -235,7 +235,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       final todayMinutesResult = statsData['minutes'] as Map<String, int>;
       final newHash = templatesResult.length.hashCode ^
           templatesResult.fold(0, (sum, t) => sum ^ t.reference.id.hashCode);
-      
+
       if (mounted) {
         setState(() {
           templates = templatesResult;
@@ -477,8 +477,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
           (t) => t.reference.id == templateId,
         );
         deleteTemplate(template);
-      } catch (e) {
-      }
+      } catch (e) {}
     }
   }
 
@@ -535,8 +534,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
               try {
                 final userId = await waitForCurrentUserUid();
                 if (userId.isEmpty) return;
-                await deleteCategory(category.reference.id,
-                    userId: userId);
+                await deleteCategory(category.reference.id, userId: userId);
                 await loadTemplates();
                 if (mounted) {
                   ScaffoldMessenger.of(context).showSnackBar(

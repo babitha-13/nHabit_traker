@@ -3,7 +3,7 @@ import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
-import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_service.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:vibration/vibration.dart';
 
 /// Service for managing system alarms (Android)

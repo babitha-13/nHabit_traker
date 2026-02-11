@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/activity_service.dart';
+import 'package:habit_tracker/services/Activtity/activity_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Helper/Helpers/category_color_util.dart';
-import 'package:habit_tracker/Screens/Essential/create_essential_item_dialog.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
-import 'package:habit_tracker/Screens/Routine/Backend_data/routine_service.dart';
+import 'package:habit_tracker/services/category_color_util.dart';
+import 'package:habit_tracker/features/Essential/create_essential_item_dialog.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/features/Routine/Backend_data/routine_service.dart';
 
 /// Routine Main page mixin for CreateRoutinePage that contains all business logic
 /// This separates business logic from UI code
@@ -49,9 +49,8 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
         RoutineRecord.collectionForUser(userId)
             .doc(existingRoutine.reference.id)
             .get()
-            .then((doc) => doc.exists
-                ? RoutineRecord.fromSnapshot(doc)
-                : existingRoutine),
+            .then((doc) =>
+                doc.exists ? RoutineRecord.fromSnapshot(doc) : existingRoutine),
         queryActivitiesRecordOnce(
           userId: userId,
           includeEssentialItems: true,
@@ -77,8 +76,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           // - Exclude if inactive (completed tasks get marked inactive)
           // - Exclude if status is explicitly 'complete' or 'skipped'
           if (!activity.isActive) return false;
-          return activity.status != 'complete' &&
-              activity.status != 'skipped';
+          return activity.status != 'complete' && activity.status != 'skipped';
         }
         // Keep everything else by default
         return true;
@@ -96,7 +94,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
       initializeFromRoutine(latestRoutine);
       // Load existing items from current routine
       loadExistingItems();
-      
+
       // Return routine name for UI to set controller
       return latestRoutine.name;
     } catch (e) {
@@ -151,7 +149,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           includeEssentialItems: true,
         );
         if (!mounted) return;
-        
+
         // Filter out completed/skipped one-time tasks (keep recurring tasks, habits, and Essential Activities)
         final filteredActivitiesResult = activities.where((activity) {
           // Keep all habits (always recurring)
@@ -172,7 +170,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           // Keep everything else by default
           return true;
         }).toList();
-        
+
         // Batch state updates
         if (mounted) {
           setState(() {
@@ -361,11 +359,9 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
       final itemIds = selectedItems.map((item) => item.reference.id).toList();
-      final itemOrder =
-          selectedItems.map((item) => item.reference.id).toList();
+      final itemOrder = selectedItems.map((item) => item.reference.id).toList();
       final itemNames = selectedItems.map((item) => item.name).toList();
-      final itemTypes =
-          selectedItems.map((item) => item.categoryType).toList();
+      final itemTypes = selectedItems.map((item) => item.categoryType).toList();
       print('🔍 DEBUG: - name: ${nameController.text.trim()}');
       if (currentRoutine != null) {
         // Update existing routine using current routine's ID
@@ -382,8 +378,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
               ? ReminderConfigList.toMapList(reminders)
               : null,
           reminderFrequencyType: reminderFrequencyType,
-          everyXValue:
-              reminderFrequencyType == 'every_x' ? everyXValue : null,
+          everyXValue: reminderFrequencyType == 'every_x' ? everyXValue : null,
           everyXPeriodType:
               reminderFrequencyType == 'every_x' ? everyXPeriodType : null,
           specificDays: reminderFrequencyType == 'specific_days' &&
@@ -422,8 +417,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
               ? ReminderConfigList.toMapList(reminders)
               : null,
           reminderFrequencyType: reminderFrequencyType,
-          everyXValue:
-              reminderFrequencyType == 'every_x' ? everyXValue : null,
+          everyXValue: reminderFrequencyType == 'every_x' ? everyXValue : null,
           everyXPeriodType:
               reminderFrequencyType == 'every_x' ? everyXPeriodType : null,
           specificDays: reminderFrequencyType == 'specific_days' &&

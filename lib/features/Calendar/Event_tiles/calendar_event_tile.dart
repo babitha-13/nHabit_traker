@@ -1,12 +1,12 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/diagonal_stripe_painter.dart';
-import 'package:habit_tracker/Screens/Calendar/Event_tiles/dotted_diagonal_painter.dart';
-import 'package:habit_tracker/Screens/Calendar/Event_tiles/double_diagonal_painter.dart';
+import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/diagonal_stripe_painter.dart';
+import 'package:habit_tracker/features/Calendar/Event_tiles/dotted_diagonal_painter.dart';
+import 'package:habit_tracker/features/Calendar/Event_tiles/double_diagonal_painter.dart';
 import 'dart:math' as math;
 
-import 'package:habit_tracker/Screens/Calendar/Helpers/calendar_models.dart';
-import 'package:habit_tracker/Screens/Calendar/Conflicting_events_overlap/calendar_overlap_calculator.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/calendar_overlap_calculator.dart';
 
 /// Helper class for building calendar event tiles
 class CalendarEventTileBuilder {
@@ -31,7 +31,8 @@ class CalendarEventTileBuilder {
     // Create hash from event IDs and order
     return events.map((e) {
       final eventId = CalendarOverlapCalculator.stableEventId(e);
-      return eventId ?? '${e.startTime?.millisecondsSinceEpoch}_${e.endTime?.millisecondsSinceEpoch}';
+      return eventId ??
+          '${e.startTime?.millisecondsSinceEpoch}_${e.endTime?.millisecondsSinceEpoch}';
     }).join('|');
   }
 
@@ -136,10 +137,10 @@ class CalendarEventTileBuilder {
     if (event.startTime == null || event.endTime == null) {
       return const SizedBox.shrink();
     }
-    
+
     // Invalidate cache if event lists have changed
     _invalidateCacheIfNeeded(sortedCompletedEvents, sortedPlannedEvents);
-    
+
     final eventList = isCompleted ? sortedCompletedEvents : sortedPlannedEvents;
     final labelOffset = calculateLabelOffset(event, eventList, isCompleted);
     final duration = event.endTime!.difference(event.startTime!);
@@ -196,7 +197,8 @@ class CalendarEventTileBuilder {
       }
     } else if (event.startTime != null && event.endTime != null) {
       // Fallback key based on time if no event ID
-      widgetKey = 'event_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
+      widgetKey =
+          'event_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
     }
 
     final keyedWidget = widgetKey != null ? Key(widgetKey) : null;

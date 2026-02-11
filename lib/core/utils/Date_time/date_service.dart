@@ -1,4 +1,4 @@
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_period_helper.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_period_helper.dart';
 
 /// Centralized date service that provides the current date for the entire app
 /// This allows switching between real time and test time for testing purposes

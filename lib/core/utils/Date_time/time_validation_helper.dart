@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/timer_activities_util.dart';
+import 'package:habit_tracker/services/Activtity/timer_activities_util.dart';
 
 /// Helper class for time logging validation
 class TimeValidationHelper {

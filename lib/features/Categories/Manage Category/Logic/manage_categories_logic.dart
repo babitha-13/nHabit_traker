@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Screens/Categories/Create%20Category/create_category.dart';
-import 'package:habit_tracker/Screens/Shared/polished_dialog.dart';
+import 'package:habit_tracker/features/Categories/Create%20Category/create_category.dart';
+import 'package:habit_tracker/features/Shared/polished_dialog.dart';
 
 /// Logic mixin for ManageCategories that contains all business logic
 /// This separates business logic from UI code

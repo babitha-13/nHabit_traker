@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:calendar_view/calendar_view.dart';
-import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
-import 'package:habit_tracker/Screens/Calendar/Time_breakdown_chart/time_breakdown_calculator.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
+import 'package:habit_tracker/features/Calendar/Time_breakdown_chart/time_breakdown_calculator.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 
 /// Helper class for time breakdown chart modal
 class TimeBreakdownModal {

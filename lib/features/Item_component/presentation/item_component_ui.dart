@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_display_helper.dart';
-import 'package:habit_tracker/Screens/Item_component/item_dotted_line_painter.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_display_helper.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_dotted_line_painter.dart';
 
 class ItemUIBuildingHelper {
   /// Check if an activity instance is recurring

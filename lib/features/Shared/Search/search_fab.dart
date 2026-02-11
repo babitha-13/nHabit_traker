@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/global_route_observer.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Screens/Shared/Search/search_state_manager.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/services/global_route_observer.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 
 /// Reusable Search FAB component that displays at bottom-left
 /// Opens a bottom sheet modal for search input
@@ -112,7 +112,8 @@ class _SearchFABState extends State<SearchFAB> with RouteAware {
     super.initState();
     // Use a static counter combined with object identity for stability during hot reload
     // This ensures each widget instance gets a unique tag even during hot reload
-    _stableIdentifier = '${widget.hashCode}_${Object.hash(widget.key, runtimeType)}';
+    _stableIdentifier =
+        '${widget.hashCode}_${Object.hash(widget.key, runtimeType)}';
     NotificationCenter.addObserver(this, 'closeSearch', (_) {
       if (_isSearchOpen && mounted) {
         _closeBottomSheet();

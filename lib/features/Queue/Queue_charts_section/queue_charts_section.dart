@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
-import 'package:habit_tracker/Screens/Progress/Pages/progress_page.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_charts_section/cumulative_score_chart.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_charts_section/daily_completion_donut_chart.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/features/Progress/Pages/progress_page.dart';
+import 'package:habit_tracker/features/Queue/Queue_charts_section/cumulative_score_chart.dart';
+import 'package:habit_tracker/features/Queue/Queue_charts_section/daily_completion_donut_chart.dart';
 
 /// Helper class for building queue UI components
 class QueueUIBuilders {

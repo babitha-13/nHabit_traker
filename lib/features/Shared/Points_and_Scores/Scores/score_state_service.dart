@@ -1,4 +1,4 @@
-import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/features/Progress/Statemanagement/today_progress_state.dart';
 
 /// Service for managing shared score state (TodayProgressState)
 /// Handles synchronization of score data across pages

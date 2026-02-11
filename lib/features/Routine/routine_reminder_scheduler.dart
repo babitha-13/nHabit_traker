@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
-import 'package:habit_tracker/Screens/Notifications%20and%20alarms/notification_service.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';

@@ -1,8 +1,8 @@
 import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/score_formulas.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/services/milestone_service.dart';
+import 'package:habit_tracker/features/Progress/backend/aggregate_score_statistics_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_formulas.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Service for database read/write operations for user score data

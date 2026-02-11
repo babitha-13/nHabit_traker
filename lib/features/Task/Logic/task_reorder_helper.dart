@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/Backend/instance_order_service.dart';
+import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 
 class TaskReorderHelper {
   static Future<void> handleReorder({

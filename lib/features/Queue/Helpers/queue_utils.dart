@@ -1,11 +1,11 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
-import 'package:habit_tracker/Screens/Habits/window_display_helper.dart';
-import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_filter/queue_filter_state_manager.dart';
-import 'package:habit_tracker/Screens/Queue/Helpers/queue_sort_state_manager.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/features/Habits/presentation/window_display_helper.dart';
+import 'package:habit_tracker/features/Progress/Point_system_helper/points_service.dart';
+import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_state_manager.dart';
+import 'package:habit_tracker/features/Queue/Helpers/queue_sort_state_manager.dart';
 import 'package:intl/intl.dart';
 import 'package:collection/collection.dart';
 

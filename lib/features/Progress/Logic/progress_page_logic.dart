@@ -3,18 +3,18 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
-import 'package:habit_tracker/Screens/Progress/Pages/progress_breakdown_dialog.dart';
-import 'package:habit_tracker/Screens/Progress/backend/progress_page_data_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/aggregate_score_statistics_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
-import 'package:habit_tracker/Screens/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
-import 'package:habit_tracker/Helper/Helpers/milestone_service.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Progress/UI/progress_stats_widgets.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/features/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/features/Progress/Pages/progress_breakdown_dialog.dart';
+import 'package:habit_tracker/features/Progress/backend/progress_page_data_service.dart';
+import 'package:habit_tracker/features/Progress/backend/aggregate_score_statistics_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
+import 'package:habit_tracker/services/milestone_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Progress/UI/progress_stats_widgets.dart';
 import 'dart:async';
 
 mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
@@ -68,8 +68,10 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
         setState(() {
           final data = TodayProgressState().getCumulativeScoreData();
           final hasLiveScore = data['hasLiveScore'] as bool? ?? false;
-          projectedCumulativeScore = data['cumulativeScore'] as double? ?? projectedCumulativeScore;
-          projectedDailyGain = data['todayScore'] as double? ?? projectedDailyGain;
+          projectedCumulativeScore =
+              data['cumulativeScore'] as double? ?? projectedCumulativeScore;
+          projectedDailyGain =
+              data['todayScore'] as double? ?? projectedDailyGain;
           final breakdown = data['breakdown'] as Map<String, double>?;
           if (breakdown != null) {
             dailyScore = breakdown['dailyScore'] ?? 0.0;
@@ -178,7 +180,8 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
     }
   }
 
-  void showCalculatedBreakdown(BuildContext context, DateTime date, DailyProgressRecord dayData) {
+  void showCalculatedBreakdown(
+      BuildContext context, DateTime date, DailyProgressRecord dayData) {
     showDialog(
       context: context,
       barrierDismissible: false,
@@ -300,21 +303,26 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       if (hasLiveScore) {
         if (mounted) {
           setState(() {
-            projectedCumulativeScore = (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
-            projectedDailyGain = (sharedScoreData['todayScore'] as double?) ?? 0.0;
-            final breakdown = sharedScoreData['breakdown'] as Map<String, double>?;
+            projectedCumulativeScore =
+                (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
+            projectedDailyGain =
+                (sharedScoreData['todayScore'] as double?) ?? 0.0;
+            final breakdown =
+                sharedScoreData['breakdown'] as Map<String, double>?;
             if (breakdown != null) {
               dailyScore = breakdown['dailyScore'] ?? 0.0;
               consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
               recoveryBonus = breakdown['recoveryBonus'] ?? 0.0;
               decayPenalty = breakdown['decayPenalty'] ?? 0.0;
-              categoryNeglectPenalty = breakdown['categoryNeglectPenalty'] ?? 0.0;
+              categoryNeglectPenalty =
+                  breakdown['categoryNeglectPenalty'] ?? 0.0;
             }
             hasProjection = true;
           });
         }
       } else {
-        final userStats = await CumulativeScoreService.getCumulativeScore(userId);
+        final userStats =
+            await CumulativeScoreService.getCumulativeScore(userId);
         if (userStats != null && mounted) {
           setState(() {
             cumulativeScore = userStats.cumulativeScore;
@@ -355,9 +363,12 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       if (hasLiveScore) {
         if (!mounted) return;
         setState(() {
-          projectedCumulativeScore = (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
-          projectedDailyGain = (sharedScoreData['todayScore'] as double?) ?? 0.0;
-          final breakdown = sharedScoreData['breakdown'] as Map<String, double>?;
+          projectedCumulativeScore =
+              (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
+          projectedDailyGain =
+              (sharedScoreData['todayScore'] as double?) ?? 0.0;
+          final breakdown =
+              sharedScoreData['breakdown'] as Map<String, double>?;
           if (breakdown != null) {
             dailyScore = breakdown['dailyScore'] ?? 0.0;
             consistencyBonus = breakdown['consistencyBonus'] ?? 0.0;
@@ -382,14 +393,17 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
 
       if (!mounted) return;
       setState(() {
-        projectedCumulativeScore = (result['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
+        projectedCumulativeScore =
+            (result['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
         projectedDailyGain = (result['todayScore'] as num?)?.toDouble() ?? 0.0;
         hasProjection = true;
         dailyScore = (result['dailyScore'] as num?)?.toDouble() ?? 0.0;
-        consistencyBonus = (result['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
+        consistencyBonus =
+            (result['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
         recoveryBonus = (result['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
         decayPenalty = (result['decayPenalty'] as num?)?.toDouble() ?? 0.0;
-        categoryNeglectPenalty = (result['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
+        categoryNeglectPenalty =
+            (result['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
       });
       updateHistoryWithTodayScore();
     } catch (e) {}
@@ -407,7 +421,8 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       double? currentTodayScore;
 
       if (hasLiveScore) {
-        currentCumulativeScore = (sharedScoreData['cumulativeScore'] as double?);
+        currentCumulativeScore =
+            (sharedScoreData['cumulativeScore'] as double?);
         currentTodayScore = (sharedScoreData['todayScore'] as double?);
       } else if (hasProjection) {
         currentCumulativeScore = projectedCumulativeScore;
@@ -415,13 +430,16 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       }
 
       final daysToLoad = show30Days ? 30 : 7;
-      final historyResult = await CumulativeScoreCalculator.loadCumulativeScoreHistory(
+      final historyResult =
+          await CumulativeScoreCalculator.loadCumulativeScoreHistory(
         userId: userId,
         days: daysToLoad,
         cumulativeScore: currentCumulativeScore,
         todayScore: currentTodayScore,
       );
-      final history = (historyResult['history'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+      final history =
+          (historyResult['history'] as List?)?.cast<Map<String, dynamic>>() ??
+              [];
 
       if (mounted) {
         setState(() {
@@ -450,11 +468,15 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
 
-      final stats = await AggregateScoreStatisticsService.calculateStatisticsFromHistory(
+      final stats =
+          await AggregateScoreStatisticsService.calculateStatisticsFromHistory(
         userId: userId,
         progressHistory: progressHistory,
-        projectedCumulativeScore: hasProjection && todayPercentage > 0 ? projectedCumulativeScore : null,
-        projectedDailyGain: hasProjection && todayPercentage > 0 ? projectedDailyGain : null,
+        projectedCumulativeScore: hasProjection && todayPercentage > 0
+            ? projectedCumulativeScore
+            : null,
+        projectedDailyGain:
+            hasProjection && todayPercentage > 0 ? projectedDailyGain : null,
         cumulativeScore: cumulativeScore,
         dailyScoreGain: dailyScoreGain,
         todayPercentage: todayPercentage,
@@ -469,8 +491,10 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           worstDailyScoreGain = stats['worstDailyScoreGain'] as double;
           positiveDaysCount7Day = stats['positiveDaysCount7Day'] as int;
           positiveDaysCount30Day = stats['positiveDaysCount30Day'] as int;
-          averageCumulativeScore7Day = stats['averageCumulativeScore7Day'] as double;
-          averageCumulativeScore30Day = stats['averageCumulativeScore30Day'] as double;
+          averageCumulativeScore7Day =
+              stats['averageCumulativeScore7Day'] as double;
+          averageCumulativeScore30Day =
+              stats['averageCumulativeScore30Day'] as double;
         });
       }
     } catch (e) {}
@@ -496,7 +520,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
     if (historicalRecords.isEmpty) {
       return todayPercentage;
     }
-    final total = historicalRecords.fold(0.0, (sum, record) => sum + record.completionPercentage) + todayPercentage;
+    final total = historicalRecords.fold(
+            0.0, (sum, record) => sum + record.completionPercentage) +
+        todayPercentage;
     final count = historicalRecords.length + 1;
     return total / count;
   }
@@ -511,7 +537,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
     if (historicalRecords.isEmpty) {
       return todayTarget;
     }
-    final total = historicalRecords.fold(0.0, (sum, record) => sum + record.targetPoints) + todayTarget;
+    final total = historicalRecords.fold(
+            0.0, (sum, record) => sum + record.targetPoints) +
+        todayTarget;
     final count = historicalRecords.length + 1;
     return total / count;
   }
@@ -526,7 +554,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
     if (historicalRecords.isEmpty) {
       return todayEarned;
     }
-    final total = historicalRecords.fold(0.0, (sum, record) => sum + record.earnedPoints) + todayEarned;
+    final total = historicalRecords.fold(
+            0.0, (sum, record) => sum + record.earnedPoints) +
+        todayEarned;
     final count = historicalRecords.length + 1;
     return total / count;
   }
@@ -545,7 +575,8 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
     final normalizedDate = DateTime(date.year, date.month, date.day);
     try {
       return progressHistory.firstWhere(
-        (record) => record.date != null && isSameDay(record.date!, normalizedDate),
+        (record) =>
+            record.date != null && isSameDay(record.date!, normalizedDate),
       );
     } catch (e) {
       return null;
@@ -567,7 +598,8 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
   Widget buildMilestoneProgress(double currentScore) {
     final nextMilestone = MilestoneService.getNextMilestone(currentScore);
     final progress = MilestoneService.getProgressToNextMilestone(currentScore);
-    final achievedMilestonesCount = MilestoneService.getAchievedMilestones(achievedMilestones);
+    final achievedMilestonesCount =
+        MilestoneService.getAchievedMilestones(achievedMilestones);
 
     if (nextMilestone == null) {
       return Container(
@@ -752,9 +784,13 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           final userId = await waitForCurrentUserUid();
           if (userId.isEmpty) return;
 
-          final instancesData = await ProgressPageDataService.fetchInstancesForBreakdown(userId: userId);
-          final categoriesResult = instancesData['categories'] as List<CategoryRecord>;
-          final habitInstances = instancesData['habits'] as List<ActivityInstanceRecord>;
+          final instancesData =
+              await ProgressPageDataService.fetchInstancesForBreakdown(
+                  userId: userId);
+          final categoriesResult =
+              instancesData['categories'] as List<CategoryRecord>;
+          final habitInstances =
+              instancesData['habits'] as List<ActivityInstanceRecord>;
 
           final result = await CumulativeScoreCalculator.updateTodayScore(
             userId: userId,
@@ -769,10 +805,14 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           if (mounted) {
             setState(() {
               dailyScore = (result['dailyScore'] as num?)?.toDouble() ?? 0.0;
-              consistencyBonus = (result['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
-              recoveryBonus = (result['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
-              decayPenalty = (result['decayPenalty'] as num?)?.toDouble() ?? 0.0;
-              categoryNeglectPenalty = (result['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
+              consistencyBonus =
+                  (result['consistencyBonus'] as num?)?.toDouble() ?? 0.0;
+              recoveryBonus =
+                  (result['recoveryBonus'] as num?)?.toDouble() ?? 0.0;
+              decayPenalty =
+                  (result['decayPenalty'] as num?)?.toDouble() ?? 0.0;
+              categoryNeglectPenalty =
+                  (result['categoryNeglectPenalty'] as num?)?.toDouble() ?? 0.0;
             });
           }
         } catch (e) {}
@@ -800,7 +840,11 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
             builder: (context, setDialogState) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 if (mounted && hasProjection) {
-                  final totalCheck = dailyScore + consistencyBonus + recoveryBonus - decayPenalty - categoryNeglectPenalty;
+                  final totalCheck = dailyScore +
+                      consistencyBonus +
+                      recoveryBonus -
+                      decayPenalty -
+                      categoryNeglectPenalty;
                   if (totalCheck != 0.0 || projectedDailyGain != 0.0) {
                     setDialogState(() {});
                   }
@@ -822,7 +866,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
                         children: [
                           Text(
                             'Score Breakdown',
-                            style: FlutterFlowTheme.of(context).titleLarge.override(
+                            style: FlutterFlowTheme.of(context)
+                                .titleLarge
+                                .override(
                                   fontFamily: 'Readex Pro',
                                   fontWeight: FontWeight.bold,
                                 ),
@@ -874,21 +920,30 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
                       ] else ...[
                         Text(
                           'Breakdown available only for today\'s live score',
-                          style: FlutterFlowTheme.of(context).bodyMedium.override(
+                          style: FlutterFlowTheme.of(context)
+                              .bodyMedium
+                              .override(
                                 fontFamily: 'Readex Pro',
-                                color: FlutterFlowTheme.of(context).secondaryText,
+                                color:
+                                    FlutterFlowTheme.of(context).secondaryText,
                               ),
                         ),
                       ],
                       const SizedBox(height: 16),
                       Builder(
                         builder: (context) {
-                          final totalFromBreakdown = dailyScore + consistencyBonus + recoveryBonus - decayPenalty - categoryNeglectPenalty;
+                          final totalFromBreakdown = dailyScore +
+                              consistencyBonus +
+                              recoveryBonus -
+                              decayPenalty -
+                              categoryNeglectPenalty;
 
                           return Container(
                             padding: const EdgeInsets.all(12),
                             decoration: BoxDecoration(
-                              color: FlutterFlowTheme.of(context).primary.withOpacity(0.1),
+                              color: FlutterFlowTheme.of(context)
+                                  .primary
+                                  .withOpacity(0.1),
                               borderRadius: BorderRadius.circular(8),
                             ),
                             child: Row(
@@ -896,7 +951,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
                               children: [
                                 Text(
                                   'Total Change',
-                                  style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodyMedium
+                                      .override(
                                         fontFamily: 'Readex Pro',
                                         fontWeight: FontWeight.w600,
                                       ),
@@ -905,10 +962,14 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
                                   totalFromBreakdown >= 0
                                       ? '+${totalFromBreakdown.toStringAsFixed(1)}'
                                       : totalFromBreakdown.toStringAsFixed(1),
-                                  style: FlutterFlowTheme.of(context).bodyMedium.override(
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodyMedium
+                                      .override(
                                         fontFamily: 'Readex Pro',
                                         fontWeight: FontWeight.bold,
-                                        color: totalFromBreakdown >= 0 ? Colors.green : Colors.red,
+                                        color: totalFromBreakdown >= 0
+                                            ? Colors.green
+                                            : Colors.red,
                                       ),
                                 ),
                               ],

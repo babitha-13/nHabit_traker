@@ -1,7 +1,7 @@
-import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
+import 'package:habit_tracker/features/Progress/Point_system_helper/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Service to calculate daily progress for a specific date
 /// Used by both Queue page (for today) and DayEndProcessor (for historical dates)

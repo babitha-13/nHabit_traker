@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Reminder_config/reminder_config.dart';
-import 'package:habit_tracker/Screens/Task/UI/task_quick_add_widget_builder.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+
+import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/features/Task/UI/task_quick_add_widget_builder.dart';
+import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_model.dart';
 
 class TaskQuickAddUIHelper {
   static Widget buildQuickAddWithState(

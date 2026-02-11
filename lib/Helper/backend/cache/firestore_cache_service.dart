@@ -1,10 +1,10 @@
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/notification_center_broadcast.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Activtity_services/instance_optimistic_update.dart';
-import 'package:habit_tracker/Screens/Calendar/calendar_event_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
+import 'package:habit_tracker/features/Calendar/calendar_event_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Centralized cache service for Firestore data
 /// Reduces redundant reads by caching frequently accessed data

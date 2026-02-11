@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Testing/simple_testing_page.dart';
 import 'package:flutter/foundation.dart';
-import 'package:habit_tracker/Screens/Progress/Pages/habit_statistics_tab.dart';
-import 'package:habit_tracker/Screens/Progress/Pages/category_statistics_tab.dart';
+import 'package:habit_tracker/features/Progress/Pages/habit_statistics_tab.dart';
+import 'package:habit_tracker/features/Progress/Pages/category_statistics_tab.dart';
 import '../Logic/progress_page_logic.dart';
 import '../UI/progress_charts_builder.dart';
 import '../UI/progress_stats_widgets.dart';

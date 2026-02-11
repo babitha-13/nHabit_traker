@@ -1,7 +1,7 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/scheduler.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:intl/intl.dart';
 
 class CalendarDayViewBody extends StatelessWidget {

@@ -1,9 +1,9 @@
-import 'package:habit_tracker/Screens/Progress/Point_system_helper/binary_time_bonus_helper.dart';
-import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_value_helper.dart';
-import 'package:habit_tracker/Screens/Progress/backend/activity_template_service.dart';
+import 'package:habit_tracker/features/Progress/Point_system_helper/binary_time_bonus_helper.dart';
+import 'package:habit_tracker/features/Progress/Point_system_helper/points_value_helper.dart';
+import 'package:habit_tracker/features/Progress/backend/activity_template_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:habit_tracker/Helper/Helpers/app_state.dart';
+import 'package:habit_tracker/services/app_state.dart';
 
 /// Service for calculating fractional points and daily targets for habit tracking
 class PointsService {

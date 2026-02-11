@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Settings/default_time_estimates_service.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Settings/default_time_estimates_service.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/main.dart';
 
 /// Settings page for managing calendar time logging preferences

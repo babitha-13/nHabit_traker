@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Queue/Queue_charts_section/cumulative_score_line_painter.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Queue/Queue_charts_section/cumulative_score_line_painter.dart';
 import 'package:intl/intl.dart';
 
 class CumulativeScoreGraph extends StatefulWidget {

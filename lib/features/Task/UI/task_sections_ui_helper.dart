@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Item_component/item_component_main.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/time_utils.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_component_main.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:intl/intl.dart';
 
 class TaskSectionsUIHelper {

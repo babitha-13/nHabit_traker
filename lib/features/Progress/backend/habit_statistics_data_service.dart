@@ -1,9 +1,9 @@
 import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Screens/Progress/Point_system_helper/points_service.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
-import 'package:habit_tracker/Screens/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/features/Progress/Point_system_helper/points_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 
 /// Service to aggregate historical habit statistics from DailyProgressRecord (primary) and ActivityInstanceRecord (for additional details)
 /// Uses DailyProgressRecord as primary to minimize Firestore reads (1 doc/day vs potentially many instance docs/day)

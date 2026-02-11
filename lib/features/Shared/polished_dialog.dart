@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
 
 /// A polished dialog component with neumorphic styling that matches the app theme
 class PolishedDialog extends StatelessWidget {

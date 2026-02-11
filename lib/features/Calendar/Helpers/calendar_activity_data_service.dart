@@ -2,7 +2,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/Helpers/Date_time_services/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Service to fetch tasks and habits from the queue that are due today
 /// for display in the calendar

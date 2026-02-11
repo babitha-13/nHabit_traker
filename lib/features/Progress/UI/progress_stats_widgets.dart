@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Screens/Progress/Statemanagement/today_progress_state.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/features/Progress/Statemanagement/today_progress_state.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/auth/logout_cleanup.dart';
-import 'package:habit_tracker/Helper/Helpers/sharedPreference.dart';
-import 'package:habit_tracker/Helper/Helpers/login_response.dart';
+import 'package:habit_tracker/core/services/local_storage_services.dart';
+import 'package:habit_tracker/services/login_response.dart';
 import 'package:habit_tracker/main.dart';
-import 'package:habit_tracker/Screens/Testing/simple_testing_page.dart';
-import 'package:habit_tracker/Screens/Habits/habits_page.dart';
-import 'package:habit_tracker/Screens/Categories/Manage%20Category/manage_categories.dart';
-import 'package:habit_tracker/Screens/Essential/essential_templates_page_main.dart';
-import 'package:habit_tracker/Screens/Settings/notification_settings_page.dart';
-import 'package:habit_tracker/Helper/Helpers/constants.dart';
+import 'package:habit_tracker/features/Testing/simple_testing_page.dart';
+import 'package:habit_tracker/features/Habits/presentation/habits_page.dart';
+import 'package:habit_tracker/features/Categories/Manage%20Category/manage_categories.dart';
+import 'package:habit_tracker/features/Essential/essential_templates_page_main.dart';
+import 'package:habit_tracker/features/Settings/notification_settings_page.dart';
+import 'package:habit_tracker/core/constants.dart';
 import 'package:flutter/foundation.dart';
 import '../Logic/progress_page_logic.dart';
 import 'progress_charts_builder.dart';
@@ -36,7 +36,8 @@ class ProgressStatsWidgets {
             context: context,
             title: '7-Day Avg',
             value: '${avg7Day.toStringAsFixed(0)}%',
-            subtitle: '${avg7DayEarned.toStringAsFixed(0)}/${avg7DayTarget.toStringAsFixed(0)} pts',
+            subtitle:
+                '${avg7DayEarned.toStringAsFixed(0)}/${avg7DayTarget.toStringAsFixed(0)} pts',
             icon: Icons.trending_up,
             color: logic.getPerformanceColor(avg7Day),
           ),
@@ -47,7 +48,8 @@ class ProgressStatsWidgets {
             context: context,
             title: '30-Day Avg',
             value: '${avg30Day.toStringAsFixed(0)}%',
-            subtitle: '${avg30DayEarned.toStringAsFixed(0)}/${avg30DayTarget.toStringAsFixed(0)} pts',
+            subtitle:
+                '${avg30DayEarned.toStringAsFixed(0)}/${avg30DayTarget.toStringAsFixed(0)} pts',
             icon: Icons.calendar_month,
             color: logic.getPerformanceColor(avg30Day),
           ),
@@ -132,7 +134,9 @@ class ProgressStatsWidgets {
                 title: 'Avg Daily Score (7d)',
                 value: logic.averageDailyScore7Day.toStringAsFixed(1),
                 icon: Icons.trending_up,
-                color: logic.averageDailyScore7Day >= 0 ? Colors.green : Colors.red,
+                color: logic.averageDailyScore7Day >= 0
+                    ? Colors.green
+                    : Colors.red,
               ),
             ),
             const SizedBox(width: 12),
@@ -142,7 +146,9 @@ class ProgressStatsWidgets {
                 title: 'Avg Daily Score (30d)',
                 value: logic.averageDailyScore30Day.toStringAsFixed(1),
                 icon: Icons.calendar_month,
-                color: logic.averageDailyScore30Day >= 0 ? Colors.green : Colors.red,
+                color: logic.averageDailyScore30Day >= 0
+                    ? Colors.green
+                    : Colors.red,
               ),
             ),
           ],
@@ -180,7 +186,9 @@ class ProgressStatsWidgets {
                 title: 'Positive Days (7d)',
                 value: '${logic.positiveDaysCount7Day}/7',
                 icon: Icons.check_circle,
-                color: logic.positiveDaysCount7Day >= 5 ? Colors.green : Colors.orange,
+                color: logic.positiveDaysCount7Day >= 5
+                    ? Colors.green
+                    : Colors.orange,
               ),
             ),
             const SizedBox(width: 12),
@@ -190,7 +198,9 @@ class ProgressStatsWidgets {
                 title: 'Positive Days (30d)',
                 value: '${logic.positiveDaysCount30Day}/30',
                 icon: Icons.check_circle_outline,
-                color: logic.positiveDaysCount30Day >= 20 ? Colors.green : Colors.orange,
+                color: logic.positiveDaysCount30Day >= 20
+                    ? Colors.green
+                    : Colors.orange,
               ),
             ),
           ],
@@ -272,22 +282,28 @@ class ProgressStatsWidgets {
     required Function(double) onShowBreakdown,
   }) {
     final sharedData = TodayProgressState().getCumulativeScoreData();
-    final displayScore = sharedData['cumulativeScore'] as double? ?? logic.projectedCumulativeScore;
+    final displayScore = sharedData['cumulativeScore'] as double? ??
+        logic.projectedCumulativeScore;
 
     final todayScore = logic.cumulativeScoreHistory.isNotEmpty
         ? (logic.cumulativeScoreHistory.last['score'] as double)
         : displayScore;
     double displayGain = 0.0;
     if (logic.cumulativeScoreHistory.length >= 2) {
-      final yesterdayScore = logic.cumulativeScoreHistory[logic.cumulativeScoreHistory.length - 2]['score'] as double;
+      final yesterdayScore =
+          logic.cumulativeScoreHistory[logic.cumulativeScoreHistory.length - 2]
+              ['score'] as double;
       displayGain = todayScore - yesterdayScore;
     } else if (logic.cumulativeScoreHistory.length == 1) {
-      displayGain = sharedData['dailyGain'] as double? ?? logic.projectedDailyGain;
+      displayGain =
+          sharedData['dailyGain'] as double? ?? logic.projectedDailyGain;
     }
 
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;
-    final gainText = displayGain >= 0 ? '+${displayGain.toStringAsFixed(1)}' : displayGain.toStringAsFixed(1);
+    final gainText = displayGain >= 0
+        ? '+${displayGain.toStringAsFixed(1)}'
+        : displayGain.toStringAsFixed(1);
 
     return Container(
       padding: const EdgeInsets.all(16),

@@ -3,11 +3,11 @@ import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_animations.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/Helpers/flutter_flow_widgets.dart';
-import 'package:habit_tracker/Helper/Helpers/constants.dart';
-import 'package:habit_tracker/Screens/Authentication/authentication_pg_model.dart';
+import 'package:habit_tracker/services/flutter_flow_animations.dart';
+import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/services/flutter_flow_widgets.dart';
+import 'package:habit_tracker/core/constants.dart';
+import 'package:habit_tracker/features/Authentication/authentication_pg_model.dart';
 import 'package:habit_tracker/main.dart';
 
 class SignUpCard extends StatefulWidget {

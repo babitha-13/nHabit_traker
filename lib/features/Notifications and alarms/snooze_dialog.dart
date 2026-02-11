@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:habit_tracker/Screens/Notifications%20and%20alarms/reminder_scheduler.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/reminder_scheduler.dart';
 
 /// Dialog for selecting snooze duration
 class SnoozeDialog {

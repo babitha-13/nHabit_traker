@@ -1,5 +1,5 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Screens/Shared/Activity_create_edit/Frequency_config/frequency_config_dialog.dart';
+import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_dialog.dart';
 
 /// Shared utility for formatting frequency display strings
 /// Handles both ActivityInstanceRecord (for display) and FrequencyConfig (for editing)
