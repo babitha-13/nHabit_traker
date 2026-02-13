@@ -1,49 +1,89 @@
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
-import 'package:habit_tracker/features/Shared/Points_and_Scores/daily_points_calculator.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/features/Progress/Statemanagement/today_progress_state.dart';
 import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/daily_points_calculator.dart';
 
 /// Service to fetch data needed by Progress page UI
 /// Encapsulates Firestore access for progress page to maintain separation of concerns
 class ProgressPageDataService {
-  /// Fetch all instances needed for breakdown calculation
-  /// Returns: {habits, tasks, categories}
+  /// Fetch all instances needed for breakdown/score calculation.
+  /// Uses cache first to avoid redundant reads.
   static Future<Map<String, dynamic>> fetchInstancesForBreakdown({
     required String userId,
+    bool useCacheOnly = false,
   }) async {
+    final cache = FirestoreCacheService();
+
+    final cachedAll = cache.getCachedAllInstances();
+    final cachedHabits = cache.getCachedHabitInstances() ??
+        cachedAll
+            ?.where((inst) => inst.templateCategoryType == 'habit')
+            .toList();
+    final cachedTasks = cache.getCachedTaskInstances() ??
+        cachedAll
+            ?.where((inst) => inst.templateCategoryType == 'task')
+            .toList();
+    final cachedCategories = cache.getCachedHabitCategories();
+
+    if (cachedHabits != null &&
+        cachedTasks != null &&
+        cachedCategories != null) {
+      return {
+        'habits': cachedHabits,
+        'tasks': cachedTasks,
+        'categories': cachedCategories,
+      };
+    }
+
+    if (useCacheOnly) {
+      return {
+        'habits': <ActivityInstanceRecord>[],
+        'tasks': <ActivityInstanceRecord>[],
+        'categories': <CategoryRecord>[],
+      };
+    }
+
     try {
-      // Get all habit instances
       final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'habit');
-      final habitSnapshot = await habitQuery.get();
-      final allHabits = habitSnapshot.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
-
-      // Get all task instances
       final taskQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('templateCategoryType', isEqualTo: 'task');
-      final taskSnapshot = await taskQuery.get();
-      final allTasks = taskSnapshot.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
-
-      // Get categories
       final categoryQuery = CategoryRecord.collectionForUser(userId)
           .where('categoryType', isEqualTo: 'habit');
-      final categorySnapshot = await categoryQuery.get();
-      final categories = categorySnapshot.docs
-          .map((doc) => CategoryRecord.fromSnapshot(doc))
+
+      final results = await Future.wait([
+        habitQuery.get(),
+        taskQuery.get(),
+        categoryQuery.get(),
+      ]);
+
+      final habits = (results[0] as dynamic).docs
+          .map<ActivityInstanceRecord>(
+              (doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      final tasks = (results[1] as dynamic).docs
+          .map<ActivityInstanceRecord>(
+              (doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      final categories = (results[2] as dynamic).docs
+          .map<CategoryRecord>((doc) => CategoryRecord.fromSnapshot(doc))
           .toList();
 
+      cache.cacheHabitInstances(habits);
+      cache.cacheTaskInstances(tasks);
+      cache.cacheAllInstances([...habits, ...tasks]);
+      cache.cacheHabitCategories(categories);
+
       return {
-        'habits': allHabits,
-        'tasks': allTasks,
+        'habits': habits,
+        'tasks': tasks,
         'categories': categories,
       };
-    } catch (e) {
+    } catch (_) {
       return {
         'habits': <ActivityInstanceRecord>[],
         'tasks': <ActivityInstanceRecord>[],
@@ -52,39 +92,88 @@ class ProgressPageDataService {
     }
   }
 
-  /// Calculate breakdown for a specific date
-  /// Returns: {habitBreakdown, taskBreakdown}
+  /// Get breakdown for a specific date from stored DailyProgressRecord only.
+  /// For today only, if DailyProgressRecord does not exist yet, use already
+  /// fetched in-memory data (shared state/cache) without re-fetching.
   static Future<Map<String, dynamic>> calculateBreakdownForDate({
     required String userId,
     required DateTime date,
   }) async {
-    try {
-      final instances = await fetchInstancesForBreakdown(userId: userId);
-      final allHabits = instances['habits'] as List<ActivityInstanceRecord>;
-      final allTasks = instances['tasks'] as List<ActivityInstanceRecord>;
-      final categories = instances['categories'] as List<CategoryRecord>;
+    final normalizedDate = DateService.normalizeToStartOfDay(date);
+    final records = await DailyProgressQueryService.queryDailyProgress(
+      userId: userId,
+      startDate: normalizedDate,
+      endDate: normalizedDate,
+      orderDescending: false,
+    );
+    if (records.isEmpty) {
+      final today = DateService.todayStart;
+      final isToday = normalizedDate.year == today.year &&
+          normalizedDate.month == today.month &&
+          normalizedDate.day == today.day;
+      if (!isToday) {
+        throw Exception(
+          'No daily progress record found for ${normalizedDate.toIso8601String().split('T').first}.',
+        );
+      }
 
-      // Calculate breakdown using the daily progress calculator
-      final result = await DailyProgressCalculator.calculateDailyProgress(
+      final sharedBreakdown = TodayProgressState().getTodayActivityBreakdown();
+      final sharedHabits =
+          sharedBreakdown['habitBreakdown'] as List<Map<String, dynamic>>? ?? [];
+      final sharedTasks =
+          sharedBreakdown['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
+      if (sharedHabits.isNotEmpty || sharedTasks.isNotEmpty) {
+        return {
+          'habitBreakdown': sharedHabits,
+          'taskBreakdown': sharedTasks,
+          'totalHabits': sharedHabits.length,
+          'totalTasks': sharedTasks.length,
+        };
+      }
+
+      final cachedData = await fetchInstancesForBreakdown(
         userId: userId,
-        targetDate: date,
-        allInstances: allHabits,
-        categories: categories,
-        taskInstances: allTasks,
+        useCacheOnly: true,
+      );
+      final cachedHabits =
+          cachedData['habits'] as List<ActivityInstanceRecord>? ?? const [];
+      final cachedTasks =
+          cachedData['tasks'] as List<ActivityInstanceRecord>? ?? const [];
+      final cachedCategories =
+          cachedData['categories'] as List<CategoryRecord>? ?? const [];
+
+      if (cachedHabits.isEmpty && cachedTasks.isEmpty) {
+        throw Exception(
+          'Today breakdown is unavailable. Open Queue once to hydrate local cache.',
+        );
+      }
+
+      final optimistic = DailyProgressCalculator.calculateTodayProgressOptimistic(
+        userId: userId,
+        allInstances: cachedHabits,
+        categories: cachedCategories,
+        taskInstances: cachedTasks,
       );
 
       return {
-        'habitBreakdown':
-            result['habitBreakdown'] as List<Map<String, dynamic>>? ?? [],
-        'taskBreakdown':
-            result['taskBreakdown'] as List<Map<String, dynamic>>? ?? [],
-      };
-    } catch (e) {
-      return {
-        'habitBreakdown': <Map<String, dynamic>>[],
-        'taskBreakdown': <Map<String, dynamic>>[],
+        'habitBreakdown': (optimistic['habitBreakdown']
+                as List<Map<String, dynamic>>?) ??
+            <Map<String, dynamic>>[],
+        'taskBreakdown': (optimistic['taskBreakdown']
+                as List<Map<String, dynamic>>?) ??
+            <Map<String, dynamic>>[],
+        'totalHabits': optimistic['totalHabits'] as int? ?? cachedHabits.length,
+        'totalTasks': optimistic['totalTasks'] as int? ?? cachedTasks.length,
       };
     }
+
+    final record = records.first;
+    return {
+      'habitBreakdown': List<Map<String, dynamic>>.from(record.habitBreakdown),
+      'taskBreakdown': List<Map<String, dynamic>>.from(record.taskBreakdown),
+      'totalHabits': record.totalHabits,
+      'totalTasks': record.totalTasks,
+    };
   }
 
   /// Fetch progress history for a date range

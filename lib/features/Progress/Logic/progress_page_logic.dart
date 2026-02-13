@@ -10,8 +10,8 @@ import 'package:habit_tracker/features/Progress/Pages/progress_breakdown_dialog.
 import 'package:habit_tracker/features/Progress/backend/progress_page_data_service.dart';
 import 'package:habit_tracker/features/Progress/backend/aggregate_score_statistics_service.dart';
 import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
-import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/old_cumulative_score_calculator.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_finalization_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_coordinator.dart';
 import 'package:habit_tracker/services/milestone_service.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Progress/UI/progress_stats_widgets.dart';
@@ -128,7 +128,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           children: [
             CircularProgressIndicator(),
             SizedBox(width: 16),
-            Text('Calculating today\'s breakdown...'),
+            Text('Loading today\'s breakdown...'),
           ],
         ),
       ),
@@ -150,7 +150,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
     }).catchError((error) {
       Navigator.of(context).pop();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error calculating today\'s breakdown: $error')),
+        SnackBar(content: Text('Error loading today\'s breakdown: $error')),
       );
     });
   }
@@ -163,88 +163,62 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       );
       return;
     }
-    if (dayData.habitBreakdown.isEmpty && dayData.taskBreakdown.isEmpty) {
-      showCalculatedBreakdown(context, date, dayData);
-    } else {
-      showDialog(
-        context: context,
-        builder: (context) => ProgressBreakdownDialog(
-          date: date,
-          totalEarned: dayData.earnedPoints,
-          totalTarget: dayData.targetPoints,
-          percentage: dayData.completionPercentage,
-          habitBreakdown: dayData.habitBreakdown,
-          taskBreakdown: dayData.taskBreakdown,
+
+    final hasBreakdown =
+        dayData.habitBreakdown.isNotEmpty || dayData.taskBreakdown.isNotEmpty;
+    final hadTrackedItems = dayData.totalHabits > 0 || dayData.totalTasks > 0;
+    if (!hasBreakdown && hadTrackedItems) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Stored daily breakdown is missing for this date. Recompute fallback is disabled.',
+          ),
+          backgroundColor: Colors.orange,
         ),
       );
+      return;
     }
-  }
 
-  void showCalculatedBreakdown(
-      BuildContext context, DateTime date, DailyProgressRecord dayData) {
     showDialog(
       context: context,
-      barrierDismissible: false,
-      builder: (context) => const AlertDialog(
-        content: Row(
-          children: [
-            CircularProgressIndicator(),
-            SizedBox(width: 16),
-            Text('Calculating breakdown...'),
-          ],
-        ),
+      builder: (context) => ProgressBreakdownDialog(
+        date: date,
+        totalEarned: dayData.earnedPoints,
+        totalTarget: dayData.targetPoints,
+        percentage: dayData.completionPercentage,
+        habitBreakdown: dayData.habitBreakdown,
+        taskBreakdown: dayData.taskBreakdown,
       ),
     );
-    calculateBreakdownForDate(date).then((breakdown) {
-      Navigator.of(context).pop();
-      showDialog(
-        context: context,
-        builder: (context) => ProgressBreakdownDialog(
-          date: date,
-          totalEarned: dayData.earnedPoints,
-          totalTarget: dayData.targetPoints,
-          percentage: dayData.completionPercentage,
-          habitBreakdown: breakdown['habitBreakdown'] ?? [],
-          taskBreakdown: breakdown['taskBreakdown'] ?? [],
-        ),
-      );
-    }).catchError((error) {
-      Navigator.of(context).pop();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Error calculating breakdown: $error')),
-      );
-    });
   }
 
   Future<Map<String, dynamic>> calculateTodayBreakdown() async {
-    try {
-      final userId = await waitForCurrentUserUid();
-      final today = DateService.currentDate;
-      return await ProgressPageDataService.calculateBreakdownForDate(
-        userId: userId,
-        date: today,
-      );
-    } catch (e) {
-      return {
-        'habitBreakdown': <Map<String, dynamic>>[],
-        'taskBreakdown': <Map<String, dynamic>>[],
-      };
+    final userId = await waitForCurrentUserUid();
+    if (userId.isEmpty) {
+      throw Exception('User not authenticated');
     }
-  }
+    final today = DateService.currentDate;
+    final breakdown = await ProgressPageDataService.calculateBreakdownForDate(
+      userId: userId,
+      date: today,
+    );
 
-  Future<Map<String, dynamic>> calculateBreakdownForDate(DateTime date) async {
-    try {
-      final userId = await waitForCurrentUserUid();
-      return await ProgressPageDataService.calculateBreakdownForDate(
-        userId: userId,
-        date: date,
+    final habitBreakdown =
+        breakdown['habitBreakdown'] as List<Map<String, dynamic>>? ?? [];
+    final taskBreakdown =
+        breakdown['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
+    final totalHabits = breakdown['totalHabits'] as int? ?? 0;
+    final totalTasks = breakdown['totalTasks'] as int? ?? 0;
+    final hasBreakdown =
+        habitBreakdown.isNotEmpty || taskBreakdown.isNotEmpty;
+
+    if (!hasBreakdown && (totalHabits > 0 || totalTasks > 0)) {
+      throw Exception(
+        'Stored daily breakdown is missing for today. Recompute fallback is disabled.',
       );
-    } catch (e) {
-      return {
-        'habitBreakdown': <Map<String, dynamic>>[],
-        'taskBreakdown': <Map<String, dynamic>>[],
-      };
     }
+
+    return breakdown;
   }
 
   Future<void> loadProgressHistory() async {
@@ -382,7 +356,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
         return;
       }
 
-      final result = await CumulativeScoreCalculator.updateTodayScore(
+      final result = await ScoreCoordinator.updateTodayScore(
         userId: userId,
         completionPercentage: todayPercentage,
         pointsEarned: todayEarned,
@@ -430,8 +404,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       }
 
       final daysToLoad = show30Days ? 30 : 7;
-      final historyResult =
-          await CumulativeScoreCalculator.loadCumulativeScoreHistory(
+      final historyResult = await ScoreCoordinator.loadScoreHistoryWithToday(
         userId: userId,
         days: daysToLoad,
         cumulativeScore: currentCumulativeScore,
@@ -452,7 +425,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
   void updateHistoryWithTodayScore() {
     if (!hasProjection) return;
 
-    final changed = CumulativeScoreCalculator.updateHistoryWithTodayScore(
+    final changed = ScoreCoordinator.updateHistoryWithTodayScore(
       cumulativeScoreHistory,
       projectedDailyGain,
       projectedCumulativeScore,
@@ -792,7 +765,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           final habitInstances =
               instancesData['habits'] as List<ActivityInstanceRecord>;
 
-          final result = await CumulativeScoreCalculator.updateTodayScore(
+          final result = await ScoreCoordinator.updateTodayScore(
             userId: userId,
             completionPercentage: todayPercentage,
             pointsEarned: todayEarned,

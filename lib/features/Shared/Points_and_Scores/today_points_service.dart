@@ -86,12 +86,23 @@ class TodayCompletionPointsService {
     final target = (progressData['target'] as num?)?.toDouble() ?? 0.0;
     final earned = (progressData['earned'] as num?)?.toDouble() ?? 0.0;
     final percentage = (progressData['percentage'] as num?)?.toDouble() ?? 0.0;
+    final habitBreakdown =
+        (progressData['habitBreakdown'] as List<dynamic>?)
+            ?.whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+    final taskBreakdown = (progressData['taskBreakdown'] as List<dynamic>?)
+        ?.whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
 
     // Publish to shared state for other pages
     TodayProgressState().updateProgress(
       target: target,
       earned: earned,
       percentage: percentage,
+      habitBreakdown: habitBreakdown,
+      taskBreakdown: taskBreakdown,
     );
 
     return {
@@ -128,12 +139,23 @@ class TodayCompletionPointsService {
     final target = (progressData['target'] as num?)?.toDouble() ?? 0.0;
     final earned = (progressData['earned'] as num?)?.toDouble() ?? 0.0;
     final percentage = (progressData['percentage'] as num?)?.toDouble() ?? 0.0;
+    final habitBreakdown =
+        (progressData['habitBreakdown'] as List<dynamic>?)
+            ?.whereType<Map>()
+            .map((item) => Map<String, dynamic>.from(item))
+            .toList();
+    final taskBreakdown = (progressData['taskBreakdown'] as List<dynamic>?)
+        ?.whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
 
     // Publish to shared state for other pages
     TodayProgressState().updateProgress(
       target: target,
       earned: earned,
       percentage: percentage,
+      habitBreakdown: habitBreakdown,
+      taskBreakdown: taskBreakdown,
     );
 
     return {

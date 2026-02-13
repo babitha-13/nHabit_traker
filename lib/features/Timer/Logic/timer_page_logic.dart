@@ -365,6 +365,7 @@ mixin TimerPageLogic on State<TimerPage>, WidgetsBindingObserver {
           initialStartTime: startTime,
           initialEndTime: endTime,
           markCompleteOnSave: markCompleteOnSave,
+          optimisticUiOnSave: true,
           fromTimer: true,
           onSave: () {
             saveState[0] = true;

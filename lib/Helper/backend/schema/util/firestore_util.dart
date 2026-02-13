@@ -1,17 +1,22 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/util/schema_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
+
 typedef RecordBuilder<T> = T Function(DocumentSnapshot snapshot);
+
 abstract class FirestoreRecord {
   FirestoreRecord(this.reference, this.snapshotData);
   Map<String, dynamic> snapshotData;
   DocumentReference reference;
 }
+
 abstract class FFFirebaseStruct extends BaseStruct {
   FFFirebaseStruct(this.firestoreUtilData);
+
   /// Utility class for Firestore updates
   FirestoreUtilData firestoreUtilData = const FirestoreUtilData();
 }
+
 class FirestoreUtilData {
   const FirestoreUtilData({
     this.fieldValues = const {},
@@ -25,6 +30,7 @@ class FirestoreUtilData {
   final bool delete;
   static String get name => 'firestoreUtilData';
 }
+
 Map<String, dynamic> mapFromFirestore(Map<String, dynamic> data) =>
     mergeNestedFields(data)
         .where((k, _) => k != FirestoreUtilData.name)
@@ -89,12 +95,15 @@ Map<String, dynamic> mapToFirestore(Map<String, dynamic> data) =>
     });
 List<GeoPoint>? convertToGeoPointList(List<LatLng>? list) =>
     list?.map((e) => e.toGeoPoint()).toList();
+
 extension GeoPointExtension on LatLng {
   GeoPoint toGeoPoint() => GeoPoint(latitude, longitude);
 }
+
 extension LatLngExtension on GeoPoint {
   LatLng toLatLng() => LatLng(latitude, longitude);
 }
+
 DocumentReference toRef(String ref) => FirebaseFirestore.instance.doc(ref);
 T? safeGet<T>(T Function() func, [Function(dynamic)? reportError]) {
   try {
@@ -104,6 +113,16 @@ T? safeGet<T>(T Function() func, [Function(dynamic)? reportError]) {
   }
   return null;
 }
+
+/// Safely convert a value to DateTime, handling both DateTime and Timestamp types
+/// Returns null if the value is null or cannot be converted
+DateTime? safeDateTime(dynamic value) {
+  if (value == null) return null;
+  if (value is DateTime) return value;
+  if (value is Timestamp) return value.toDate();
+  return null;
+}
+
 Map<String, dynamic> mergeNestedFields(Map<String, dynamic> data) {
   final nestedData = data.where((k, _) => k.contains('.'));
   final fieldNames = nestedData.keys.map((k) => k.split('.').first).toSet();
@@ -128,6 +147,7 @@ Map<String, dynamic> mergeNestedFields(Map<String, dynamic> data) {
   });
   return data;
 }
+
 extension _WhereMapExtension<K, V> on Map<K, V> {
   Map<K, V> where(bool Function(K, V) test) =>
       Map.fromEntries(entries.where((e) => test(e.key, e.value)));

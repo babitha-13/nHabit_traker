@@ -105,25 +105,12 @@ class QueueUIBuilders {
                         const SizedBox(width: 8),
                         Builder(
                           builder: (context) {
-                            // Calculate daily gain consistently: today's score (from shared state) - yesterday's score (from graph history)
-                            // This ensures both pages show the same value
-                            final todayScore = miniGraphHistory.isNotEmpty
-                                ? (miniGraphHistory.last['score'] as double)
-                                : TodayProgressState().cumulativeScore;
-
-                            double dailyGain = 0.0;
-                            if (miniGraphHistory.length >= 2) {
-                              // Use yesterday's score from history to match the graph
-                              final yesterdayScore =
-                                  miniGraphHistory[miniGraphHistory.length - 2]
-                                      ['score'] as double;
-                              dailyGain = todayScore - yesterdayScore;
-                            } else if (miniGraphHistory.length == 1) {
-                              // Only one day in history, can't calculate difference - use fallback
-                              dailyGain =
-                                  (miniGraphHistory.last['gain'] as double?) ??
-                                      0.0;
-                            }
+                            // Use the same displayed history point as the chart.
+                            // This keeps chart movement and delta text in sync.
+                            final dailyGain =
+                                (miniGraphHistory.last['gain'] as num?)
+                                        ?.toDouble() ??
+                                    0.0;
 
                             if (dailyGain == 0) return const SizedBox.shrink();
                             return Text(

@@ -3,7 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/daily_points_calculator.dart';
-import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_finalization_service.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
 import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 import 'package:habit_tracker/features/toasts/bonus_notification_formatter.dart';

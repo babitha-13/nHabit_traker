@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
+
+import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Queue/Queue_charts_section/cumulative_score_line_painter.dart';
 import 'package:intl/intl.dart';
@@ -219,7 +221,9 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
     if (history.isEmpty) return [];
     // Only show today's label (last point)
     final lastIndex = history.length - 1;
-    return [_DateLabel(lastIndex, history[lastIndex]['date'] as DateTime)];
+    final dateTime = safeDateTime(history[lastIndex]['date']);
+    if (dateTime == null) return [];
+    return [_DateLabel(lastIndex, dateTime)];
   }
 
   /// Build optimized chart with split painters for better performance

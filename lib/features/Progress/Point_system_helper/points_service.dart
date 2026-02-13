@@ -144,8 +144,18 @@ class PointsService {
 
         if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
           // Has counter: calculate proportional points (counter / target), allowing over-completion
-          final target = instance.templateTarget ?? 1;
-          earnedPoints = (countValue / target) * habitPriority;
+          final rawTarget = PointsValueHelper.targetValue(instance);
+          final target = rawTarget > 0 ? rawTarget : 1.0;
+          final forceCompletionScoring =
+              BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
+                  BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
+                    instance: instance,
+                    countValue: countValue,
+                    targetValue: target,
+                  );
+          earnedPoints = forceCompletionScoring
+              ? habitPriority
+              : (countValue / target) * habitPriority;
         } else if (instance.status == 'completed') {
           // No counter but completed: base points
           earnedPoints = habitPriority;
@@ -155,13 +165,33 @@ class PointsService {
 
         // Add time bonus if enabled and time is logged (SYNCHRONOUS - uses cached data)
         final timeMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
-        if (timeMinutes != null && earnedPoints > 0) {
+        final rawTarget = PointsValueHelper.targetValue(instance);
+        final target = rawTarget > 0 ? rawTarget : 1.0;
+        final skipTimePoints =
+            BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
+                BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
+                  instance: instance,
+                  countValue: countValue,
+                  targetValue: target,
+                );
+        if (timeMinutes != null && earnedPoints > 0 && !skipTimePoints) {
           final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled && timeMinutes >= 30.0) {
-            // Award bonus for every 30-minute block beyond the first 30 minutes
-            final excessMinutes = timeMinutes - 30.0;
-            final bonusBlocks = (excessMinutes / 30.0).floor();
-            earnedPoints += bonusBlocks * habitPriority;
+          if (timeBonusEnabled) {
+            // Baseline is templateTimeEstimateMinutes if available (and > 0), otherwise 30.0
+            final baselineMinutes =
+                (instance.templateTimeEstimateMinutes != null &&
+                        instance.templateTimeEstimateMinutes! > 0)
+                    ? instance.templateTimeEstimateMinutes!.toDouble()
+                    : 30.0;
+
+            if (timeMinutes > baselineMinutes) {
+              final excessMinutes = timeMinutes - baselineMinutes;
+              earnedPoints +=
+                  BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                excessMinutes: excessMinutes,
+                priority: habitPriority,
+              );
+            }
           }
         }
 
@@ -204,17 +234,28 @@ class PointsService {
         if (timeBonusEnabled) {
           // Effort mode:
           // - Reward proportionally until the time target is met
-          // - Once the target is met, reward in 30-minute blocks
+          // - Once the target is met, reward base points + diminishing bonus for excess
           if (accumulatedMinutes <= 0) {
             earnedPoints = 0.0;
           } else {
             final targetMinutes = PointsValueHelper.targetValue(instance);
-            if (targetMinutes > 0 && accumulatedMinutes < targetMinutes) {
+            if (targetMinutes <= 0) {
+              earnedPoints = 0.0;
+            } else if (accumulatedMinutes < targetMinutes) {
               earnedPoints =
                   (accumulatedMinutes / targetMinutes) * habitPriority;
             } else {
-              final blocks = (accumulatedMinutes / 30.0).floor();
-              earnedPoints = (blocks > 0 ? blocks : 1) * habitPriority;
+              // Target met or exceeded
+              earnedPoints = habitPriority; // Base points
+
+              final excessMinutes = accumulatedMinutes - targetMinutes;
+              if (excessMinutes > 0) {
+                earnedPoints +=
+                    BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                  excessMinutes: excessMinutes,
+                  priority: habitPriority,
+                );
+              }
             }
           }
         } else {
@@ -278,8 +319,18 @@ class PointsService {
 
         if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
           // Has counter: calculate proportional points (counter / target), allowing over-completion
-          final target = instance.templateTarget ?? 1;
-          earnedPoints = (countValue / target) * habitPriority;
+          final rawTarget = PointsValueHelper.targetValue(instance);
+          final target = rawTarget > 0 ? rawTarget : 1.0;
+          final forceCompletionScoring =
+              BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
+                  BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
+                    instance: instance,
+                    countValue: countValue,
+                    targetValue: target,
+                  );
+          earnedPoints = forceCompletionScoring
+              ? habitPriority
+              : (countValue / target) * habitPriority;
         } else if (instance.status == 'completed') {
           // No counter but completed: base points
           earnedPoints = habitPriority;
@@ -288,14 +339,34 @@ class PointsService {
         }
 
         // Add time bonus if enabled and time is logged
-        final timeMinutes = await _getTimeMinutesForInstance(instance, userId);
-        if (timeMinutes != null && earnedPoints > 0) {
+        final timeMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+        final rawTarget = PointsValueHelper.targetValue(instance);
+        final target = rawTarget > 0 ? rawTarget : 1.0;
+        final skipTimePoints =
+            BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
+                BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
+                  instance: instance,
+                  countValue: countValue,
+                  targetValue: target,
+                );
+        if (timeMinutes != null && earnedPoints > 0 && !skipTimePoints) {
           final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled && timeMinutes >= 30.0) {
-            // Award bonus for every 30-minute block beyond the first 30 minutes
-            final excessMinutes = timeMinutes - 30.0;
-            final bonusBlocks = (excessMinutes / 30.0).floor();
-            earnedPoints += bonusBlocks * habitPriority;
+          if (timeBonusEnabled) {
+            // Baseline is templateTimeEstimateMinutes if available (and > 0), otherwise 30.0
+            final baselineMinutes =
+                (instance.templateTimeEstimateMinutes != null &&
+                        instance.templateTimeEstimateMinutes! > 0)
+                    ? instance.templateTimeEstimateMinutes!.toDouble()
+                    : 30.0;
+
+            if (timeMinutes > baselineMinutes) {
+              final excessMinutes = timeMinutes - baselineMinutes;
+              earnedPoints +=
+                  BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                excessMinutes: excessMinutes,
+                priority: habitPriority,
+              );
+            }
           }
         }
 
@@ -339,23 +410,33 @@ class PointsService {
         if (timeBonusEnabled) {
           // Effort mode:
           // - Reward proportionally until the time target is met
-          // - Once the target is met, reward in 30-minute blocks
+          // - Once the target is met, reward base points + diminishing bonus for excess
           //
           // Example (priority=1, target=20m):
           // - 10m => 0.5 pts
           // - 20m => 1 pt
-          // - 30m => 1 pt
-          // - 60m => 2 pts
+          // - 50m => 1 pt + 0.7 pt (for 30m excess) = 1.7 pts
           if (accumulatedMinutes <= 0) {
             earnedPoints = 0.0;
           } else {
             final targetMinutes = PointsValueHelper.targetValue(instance);
-            if (targetMinutes > 0 && accumulatedMinutes < targetMinutes) {
+            if (targetMinutes <= 0) {
+              earnedPoints = 0.0;
+            } else if (accumulatedMinutes < targetMinutes) {
               earnedPoints =
                   (accumulatedMinutes / targetMinutes) * habitPriority;
             } else {
-              final blocks = (accumulatedMinutes / 30.0).floor();
-              earnedPoints = (blocks > 0 ? blocks : 1) * habitPriority;
+              // Target met or exceeded
+              earnedPoints = habitPriority; // Base points
+
+              final excessMinutes = accumulatedMinutes - targetMinutes;
+              if (excessMinutes > 0) {
+                earnedPoints +=
+                    BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
+                  excessMinutes: excessMinutes,
+                  priority: habitPriority,
+                );
+              }
             }
           }
         } else {
@@ -505,35 +586,6 @@ class PointsService {
     final percentage = (pointsEarned / totalTarget) * 100.0;
     return percentage.clamp(
         0.0, double.infinity); // Allow >100% for overachievement
-  }
-
-  /// Get time in minutes for an instance using priority order:
-  /// 1. Manual/recorded time (accumulatedTime or totalTimeLogged)
-  /// 2. Activity-specific estimate (template.timeEstimateMinutes)
-  /// 3. Returns null if no time source found
-  static Future<double?> _getTimeMinutesForInstance(
-    ActivityInstanceRecord instance,
-    String userId,
-  ) async {
-    // Priority 1: Manual/recorded time
-    final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
-    if (loggedMinutes != null) {
-      return loggedMinutes;
-    }
-
-    // Priority 2: Activity-specific estimate
-    if (instance.hasTemplateId()) {
-      final template = await ActivityTemplateService.getTemplateById(
-        userId: userId,
-        templateId: instance.templateId,
-      );
-      if (template != null && template.hasTimeEstimateMinutes()) {
-        return template.timeEstimateMinutes!.toDouble();
-      }
-    }
-
-    // Priority 3: No time source
-    return null;
   }
 
   /// Calculate duration multiplier based on target minutes

@@ -3,13 +3,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/Helper/services/Activtity_services/Backend/Task%20Instance%20Service/Services/task_instance_helper_service.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/features/Essential/essential_data_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_validation_helper.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
+import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_helper_service.dart';
 import 'package:habit_tracker/services/Activtity/timer_activities_util.dart';
 import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_task_service.dart';
 import 'task_instance_timer_task_service.dart';
@@ -793,7 +793,10 @@ class TaskInstanceTimeLoggingService {
         optimisticData['accumulatedTime'] = totalTime;
         optimisticData['currentValue'] =
             markComplete ? 1 : 0; // Binary one-offs: 1 if complete
-        optimisticData['templateTarget'] = totalTime / 60000.0; // Minutes
+        // One-off manual logs forced to binary should be completion-based for points.
+        // Keep time only for calendar display, not for point scaling.
+        optimisticData['templateTarget'] = 1;
+        optimisticData['disableTimeScoringForPoints'] = true;
         optimisticData['templateName'] = taskName;
         optimisticData['templateCategoryType'] = 'task';
         optimisticData['templateTrackingType'] =
@@ -829,7 +832,9 @@ class TaskInstanceTimeLoggingService {
           'accumulatedTime': totalTime,
           'currentValue':
               markComplete ? 1 : 0, // Binary one-offs: 1 if complete
-          'templateTarget': totalTime / 60000.0, // Minutes
+          // One-off manual logs forced to binary should be completion-based for points.
+          'templateTarget': 1,
+          'disableTimeScoringForPoints': true,
           'templateName': taskName,
           'templateCategoryType': 'task',
           'templateTrackingType': 'binary',

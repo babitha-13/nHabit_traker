@@ -793,7 +793,10 @@ class TaskInstanceTimeLoggingService {
         optimisticData['accumulatedTime'] = totalTime;
         optimisticData['currentValue'] =
             markComplete ? 1 : 0; // Binary one-offs: 1 if complete
-        optimisticData['templateTarget'] = totalTime / 60000.0; // Minutes
+        // One-off manual logs forced to binary should be completion-based for points.
+        // Keep time only for calendar display, not for point scaling.
+        optimisticData['templateTarget'] = 1;
+        optimisticData['disableTimeScoringForPoints'] = true;
         optimisticData['templateName'] = taskName;
         optimisticData['templateCategoryType'] = 'task';
         optimisticData['templateTrackingType'] =
@@ -829,7 +832,9 @@ class TaskInstanceTimeLoggingService {
           'accumulatedTime': totalTime,
           'currentValue':
               markComplete ? 1 : 0, // Binary one-offs: 1 if complete
-          'templateTarget': totalTime / 60000.0, // Minutes
+          // One-off manual logs forced to binary should be completion-based for points.
+          'templateTarget': 1,
+          'disableTimeScoringForPoints': true,
           'templateName': taskName,
           'templateCategoryType': 'task',
           'templateTrackingType': 'binary',

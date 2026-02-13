@@ -57,6 +57,7 @@ class TimerStopFlow {
             initialStartTime: startTime,
             initialEndTime: endTime,
             markCompleteOnSave: markComplete,
+            optimisticUiOnSave: true,
             fromTimer: true,
             onSave: () {
               saveState[0] = true; // Mark as saved

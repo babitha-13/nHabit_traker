@@ -3,6 +3,7 @@ import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/services/app_state.dart';
 import 'package:habit_tracker/features/Settings/notification_settings_page.dart';
 import 'package:habit_tracker/features/Settings/calendar_settings_page.dart';
+import 'package:habit_tracker/features/Testing/simple_testing_page.dart';
 
 /// Main settings page for managing app preferences
 class SettingsPage extends StatefulWidget {
@@ -65,6 +66,9 @@ class _SettingsPageState extends State<SettingsPage> {
             // Notification Settings Navigation
             _buildNotificationSettingsCard(theme),
             const SizedBox(height: 16),
+            // Developer Tools (Testing Page)
+            _buildDeveloperToolsCard(theme),
+            const SizedBox(height: 16),
             Text(
               'Changes are saved automatically.',
               style: theme.bodySmall.override(
@@ -72,6 +76,50 @@ class _SettingsPageState extends State<SettingsPage> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDeveloperToolsCard(FlutterFlowTheme theme) {
+    return Card(
+      child: InkWell(
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (context) => const SimpleTestingPage(),
+            ),
+          );
+        },
+        child: Padding(
+          padding: const EdgeInsets.all(16),
+          child: Row(
+            children: [
+              Icon(Icons.build_circle, color: theme.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Developer Tools',
+                      style: theme.titleMedium.override(
+                        fontFamily: 'Outfit',
+                        fontWeight: FontWeight.w600,
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Cleanup duplicates and test time travel',
+                      style: theme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              Icon(Icons.chevron_right, color: Colors.grey),
+            ],
+          ),
         ),
       ),
     );
@@ -151,7 +199,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               subtitle: Text(
-                'ON: points reward time spent (30-min blocks). OFF: points follow your targets.',
+                'ON: extra time can award extra points (diminishing returns). OFF: points follow your targets.',
                 style: theme.bodySmall,
               ),
               value: _timeBonusEnabled,
@@ -178,7 +226,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   Expanded(
                     child: Text(
                       _timeBonusEnabled
-                          ? 'Effort Mode is ON. Binary and time-based activities award more points for more time spent (in 30-min blocks). Quantity activities still score by quantity.'
+                          ? 'Effort Mode is ON. Binary tasks and time activities can earn extra points from extra time (with diminishing returns). Binary habits treat extra time as over-completion. Quantity activities still score by quantity.'
                           : 'Effort Mode is OFF. Binary is completion-based, time-based scores vs your time target, and quantity scores vs your quantity target. Logged time is still recorded.',
                       style: theme.bodySmall.override(
                         color: Colors.blue.shade700,

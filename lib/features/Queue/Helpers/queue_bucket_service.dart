@@ -104,19 +104,41 @@ class QueueBucketService {
       }
     }
 
-    // Populate Skipped/Snoozed bucket (skipped TODAY or currently snoozed)
+    // Populate Skipped/Snoozed bucket
     for (final instance in instancesToProcess) {
-      // For skipped items, check skipped date
       if (instance.status == 'skipped') {
-        if (instance.skippedAt == null) {
+        // Habits: show in skipped list while today's date is within the habit window
+        // [belongsToDate, windowEndDate], regardless of when it was skipped.
+        if (instance.templateCategoryType == 'habit') {
+          final startSource = instance.belongsToDate ?? instance.dueDate;
+          final endSource = instance.windowEndDate;
+          final startDateOnly = startSource != null
+              ? DateTime(startSource.year, startSource.month, startSource.day)
+              : null;
+          final endDateOnly = endSource != null
+              ? DateTime(endSource.year, endSource.month, endSource.day)
+              : null;
+
+          final isTodayHabitSkip = startDateOnly != null &&
+              endDateOnly != null &&
+              !todayStart.isBefore(startDateOnly) &&
+              !todayStart.isAfter(endDateOnly);
+
+          if (isTodayHabitSkip) {
+            buckets['Skipped/Snoozed']!.add(instance);
+          }
           continue;
         }
-        final skippedAt = instance.skippedAt!;
-        final skippedDateOnly =
-            DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
-        final isToday = skippedDateOnly.isAtSameMomentAs(todayStart);
-        if (isToday) {
-          buckets['Skipped/Snoozed']!.add(instance);
+
+        // Tasks: keep existing behavior (show only if skipped today).
+        if (instance.skippedAt != null) {
+          final skippedAt = instance.skippedAt!;
+          final skippedDateOnly =
+              DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
+          final isToday = skippedDateOnly.isAtSameMomentAs(todayStart);
+          if (isToday) {
+            buckets['Skipped/Snoozed']!.add(instance);
+          }
         }
       }
     }
@@ -135,6 +157,18 @@ class QueueBucketService {
           }
         }
       }
+    }
+
+    // De-duplicate Skipped/Snoozed items (can overlap in edge cases)
+    if (buckets['Skipped/Snoozed']!.isNotEmpty) {
+      final seenIds = <String>{};
+      final deduped = <ActivityInstanceRecord>[];
+      for (final inst in buckets['Skipped/Snoozed']!) {
+        if (seenIds.add(inst.reference.id)) {
+          deduped.add(inst);
+        }
+      }
+      buckets['Skipped/Snoozed'] = deduped;
     }
 
     // Sort items within each bucket

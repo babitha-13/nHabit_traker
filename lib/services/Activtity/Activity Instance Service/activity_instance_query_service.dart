@@ -13,6 +13,8 @@ class ActivityInstanceQueryService {
     required String uid,
     bool includePending = true,
     bool includeRecentCompleted = false,
+    bool includeRecentSkipped = false,
+    bool includeLiveWindowSkippedHabits = false,
   }) async {
     final List<ActivityInstanceRecord> allInstances = [];
 
@@ -69,7 +71,69 @@ class ActivityInstanceQueryService {
       }
     }
 
-    return allInstances;
+    if (includeRecentSkipped) {
+      try {
+        final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+        final skippedQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('skippedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+            .orderBy('skippedAt', descending: true)
+            .limit(200);
+
+        final skippedResult = await skippedQuery.get().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw TimeoutException('Skipped query timed out');
+          },
+        );
+
+        final skippedInstances = skippedResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((inst) => inst.status == 'skipped')
+            .toList();
+        allInstances.addAll(skippedInstances);
+      } catch (e) {
+        // Continue silently
+      }
+    }
+
+    if (includeLiveWindowSkippedHabits) {
+      try {
+        final today = DateService.todayStart;
+        final liveWindowQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('windowEndDate', isGreaterThanOrEqualTo: today)
+            .limit(500);
+
+        final liveWindowResult = await liveWindowQuery.get().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw TimeoutException('Live skipped habits query timed out');
+          },
+        );
+
+        final liveSkippedHabits = liveWindowResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((inst) {
+          if (inst.templateCategoryType != 'habit') return false;
+          if (inst.status != 'skipped') return false;
+
+          final startSource = inst.belongsToDate ?? inst.dueDate;
+          final endSource = inst.windowEndDate;
+          if (startSource == null || endSource == null) return false;
+
+          final startDateOnly = DateTime(
+              startSource.year, startSource.month, startSource.day);
+          final endDateOnly =
+              DateTime(endSource.year, endSource.month, endSource.day);
+          return !today.isBefore(startDateOnly) && !today.isAfter(endDateOnly);
+        }).toList();
+
+        allInstances.addAll(liveSkippedHabits);
+      } catch (e) {
+        // Continue silently
+      }
+    }
+
+    return allInstances.cast<ActivityInstanceRecord>();
   }
 
   /// Get recent completed instances (for Weekly View)
@@ -295,7 +359,7 @@ class ActivityInstanceQueryService {
 
   /// Get habit instances whose window includes a specific date
   /// Used for calendar time logging to find instances for past/future dates
-  /// Similar to getCurrentHabitInstances but uses targetDate instead of today
+  /// OPTIMIZED: Uses belongsToDate to fetch only relevant instances
   static Future<List<ActivityInstanceRecord>> getHabitInstancesForDate({
     required DateTime targetDate,
     String? userId,
@@ -306,57 +370,26 @@ class ActivityInstanceQueryService {
       final targetDateStart =
           DateTime(targetDate.year, targetDate.month, targetDate.day);
 
-      // Fetch ALL habit instances regardless of status to include completed/skipped/snoozed
+      // OPTIMIZED: Fetch ONLY habits whose window includes the target date
+      // Instead of fetching ALL habits (~1,800 docs), fetch only those whose window ends on or after target
+      // This captures all active habits (including multi-day) while excluding historical ones
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit');
+          .where('templateCategoryType', isEqualTo: 'habit')
+          .where('windowEndDate', isGreaterThanOrEqualTo: targetDateStart);
       final result = await query.get();
-      final allHabitInstances = result.docs
+      final habitInstances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
 
-      // Group instances by templateId and apply window-based filtering
-      final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
-      for (final instance in allHabitInstances) {
-        final templateId = instance.templateId;
-        (instancesByTemplate[templateId] ??= []).add(instance);
-      }
-      final List<ActivityInstanceRecord> relevantInstances = [];
-
-      for (final templateId in instancesByTemplate.keys) {
-        final instances = instancesByTemplate[templateId]!;
-        // Sort instances by due date (earliest first)
-        instances.sort((a, b) {
-          if (a.dueDate == null && b.dueDate == null) return 0;
-          if (a.dueDate == null) return 1;
-          if (b.dueDate == null) return -1;
-          return a.dueDate!.compareTo(b.dueDate!);
-        });
-        // Find instances to include for this template
-        final instancesToInclude = <ActivityInstanceRecord>[];
-        for (final instance in instances) {
-          // Include instance if targetDate falls within its window [dueDate, windowEndDate]
-          if (instance.dueDate != null && instance.windowEndDate != null) {
-            final windowStart = DateTime(instance.dueDate!.year,
-                instance.dueDate!.month, instance.dueDate!.day);
-            final windowEnd = DateTime(instance.windowEndDate!.year,
-                instance.windowEndDate!.month, instance.windowEndDate!.day);
-            if (!targetDateStart.isBefore(windowStart) &&
-                !targetDateStart.isAfter(windowEnd)) {
-              instancesToInclude.add(instance);
-            }
-          }
-        }
-        relevantInstances.addAll(instancesToInclude);
-      }
       // Sort: instances with due dates first (oldest first), then nulls last
-      relevantInstances.sort((a, b) {
+      habitInstances.sort((a, b) {
         if (a.dueDate == null && b.dueDate == null) return 0;
         if (a.dueDate == null) return 1; // a goes after b
         if (b.dueDate == null) return -1; // a goes before b
         return a.dueDate!.compareTo(b.dueDate!);
       });
 
-      return relevantInstances;
+      return habitInstances;
     } catch (e) {
       return [];
     }
@@ -567,6 +600,8 @@ class ActivityInstanceQueryService {
         uid: uid,
         includePending: true,
         includeRecentCompleted: true,
+        includeRecentSkipped: true,
+        includeLiveWindowSkippedHabits: true,
       );
 
       // Separate tasks and habits for different filtering logic

@@ -57,6 +57,7 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _isFetching = false;
   bool _pendingRefresh = false;
   Timer? _loadingStateSafetyTimer;
+  Map<String, List<String>> _routineItemMap = {};
 
   CalendarEventTileBuilder get _eventTileBuilder {
     return CalendarEventTileBuilder(
@@ -353,6 +354,7 @@ class _CalendarPageState extends State<CalendarPage> {
         _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
+        _applyOptimisticCompletedPatch(instance);
         _loadEvents(isSilent: true);
       }
     } else {
@@ -360,6 +362,12 @@ class _CalendarPageState extends State<CalendarPage> {
         _optimisticOperations.remove(operationId);
       }
       _optimisticInstances.remove(instance.reference.id);
+      if (affectsPlannedSection) {
+        _applyOptimisticPlannedPatch(instance);
+      }
+      if (affectsSelectedDate) {
+        _applyOptimisticCompletedPatch(instance);
+      }
       if (affectsPlannedSection || affectsSelectedDate) {
         _loadEvents(isSilent: true);
       }
@@ -455,6 +463,7 @@ class _CalendarPageState extends State<CalendarPage> {
         _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
+        _applyOptimisticCompletedPatch(instance);
         _loadEvents(isSilent: true);
       }
     } else {
@@ -462,7 +471,13 @@ class _CalendarPageState extends State<CalendarPage> {
         _optimisticOperations.remove(operationId);
       }
       _optimisticInstances.remove(instance.reference.id);
+      if (affectsPlannedSection) {
+        _applyOptimisticPlannedPatch(instance);
+      }
       if (affectsSelectedDate) {
+        _applyOptimisticCompletedPatch(instance);
+      }
+      if (affectsPlannedSection || affectsSelectedDate) {
         _loadEvents(isSilent: true);
       }
     }
@@ -554,6 +569,7 @@ class _CalendarPageState extends State<CalendarPage> {
             overlappedIds: _plannedOverlappedEventIds,
             groups: _plannedOverlapGroups,
           ),
+          routineItemMap: _routineItemMap,
         );
       } else {
         // Fallback to full recompute
@@ -605,6 +621,7 @@ class _CalendarPageState extends State<CalendarPage> {
                   overlappedIds: _plannedOverlappedEventIds,
                   groups: _plannedOverlapGroups,
                 ),
+                routineItemMap: _routineItemMap,
               );
               _plannedOverlapPairCount = overlapInfo.pairCount;
               _plannedOverlappedEventIds
@@ -621,6 +638,178 @@ class _CalendarPageState extends State<CalendarPage> {
         _loadEvents();
       }
     }
+  }
+
+  void _applyOptimisticCompletedPatch(ActivityInstanceRecord instance) {
+    if (!mounted) return;
+
+    final instanceId = instance.reference.id;
+
+    // Remove old rendered sessions for this instance first.
+    _sortedCompletedEvents.removeWhere((event) {
+      final metadata = CalendarEventMetadata.fromMap(event.event);
+      return metadata?.instanceId == instanceId;
+    });
+
+    final optimisticEvents = _buildCompletedEventsForSelectedDate(instance);
+    _sortedCompletedEvents.addAll(optimisticEvents);
+    _sortedCompletedEvents = _cascadeCompletedEvents(_sortedCompletedEvents);
+
+    _completedEventController.removeWhere((e) => true);
+    _completedEventController.addAll(_sortedCompletedEvents);
+
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  List<CalendarEventData> _buildCompletedEventsForSelectedDate(
+    ActivityInstanceRecord instance,
+  ) {
+    final events = <CalendarEventData>[];
+
+    if (instance.timeLogSessions.isEmpty) {
+      return events;
+    }
+
+    Color categoryColor = Colors.blue;
+    if (instance.templateCategoryColor.isNotEmpty) {
+      try {
+        categoryColor = _parseColor(instance.templateCategoryColor);
+      } catch (_) {}
+    }
+
+    final selectedDateStart = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+      0,
+      0,
+      0,
+    );
+    final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
+
+    for (int i = 0; i < instance.timeLogSessions.length; i++) {
+      final session = instance.timeLogSessions[i];
+      final sessionStart = session['startTime'] as DateTime?;
+      final sessionEnd = session['endTime'] as DateTime?;
+      if (sessionStart == null || sessionEnd == null) {
+        continue;
+      }
+
+      var validStartTime = sessionStart;
+      var validEndTime = sessionEnd;
+      if (validEndTime.difference(validStartTime).inSeconds < 60) {
+        validEndTime = validStartTime.add(const Duration(minutes: 1));
+      }
+
+      if (validStartTime.isBefore(selectedDateStart)) {
+        validStartTime = selectedDateStart;
+      } else if (!validStartTime.isBefore(selectedDateEnd)) {
+        continue;
+      }
+
+      if (validEndTime.isAfter(selectedDateEnd)) {
+        validEndTime = selectedDateEnd.subtract(const Duration(seconds: 1));
+      }
+
+      if (!validEndTime.isAfter(validStartTime)) {
+        validEndTime = validStartTime.add(const Duration(minutes: 1));
+      }
+
+      final startDateOnly = DateTime(
+        validStartTime.year,
+        validStartTime.month,
+        validStartTime.day,
+      );
+      final selectedDateOnly = DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
+      if (!startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+        continue;
+      }
+
+      final metadata = CalendarEventMetadata(
+        instanceId: instance.reference.id,
+        sessionIndex: i,
+        activityName: instance.templateName,
+        activityType: instance.templateCategoryType,
+        templateId: instance.templateId,
+        categoryId: instance.templateCategoryId.isNotEmpty
+            ? instance.templateCategoryId
+            : null,
+        categoryName: instance.templateCategoryName.isNotEmpty
+            ? instance.templateCategoryName
+            : null,
+        categoryColorHex: instance.templateCategoryColor.isNotEmpty
+            ? instance.templateCategoryColor
+            : null,
+      );
+
+      final prefix = instance.status == 'completed' ? '✓ ' : '';
+      events.add(
+        CalendarEventData(
+          date: _selectedDate,
+          startTime: validStartTime,
+          endTime: validEndTime,
+          title: '$prefix${instance.templateName}',
+          color: categoryColor,
+          description:
+              'Session: ${_formatDuration(validEndTime.difference(validStartTime))}',
+          event: metadata.toMap(),
+        ),
+      );
+    }
+
+    return events;
+  }
+
+  List<CalendarEventData> _cascadeCompletedEvents(
+    List<CalendarEventData> sourceEvents,
+  ) {
+    final events = List<CalendarEventData>.from(sourceEvents)
+        .where((e) => e.startTime != null && e.endTime != null)
+        .toList();
+
+    events.sort((a, b) {
+      final endCompare = b.endTime!.compareTo(a.endTime!);
+      if (endCompare != 0) return endCompare;
+      return b.startTime!.compareTo(a.startTime!);
+    });
+
+    DateTime? earliestStartTime;
+    final cascaded = <CalendarEventData>[];
+    for (final event in events) {
+      DateTime startTime = event.startTime!;
+      DateTime endTime = event.endTime!;
+      final duration = endTime.difference(startTime);
+
+      if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
+        endTime = earliestStartTime;
+        startTime = endTime.subtract(duration);
+      }
+
+      if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
+        earliestStartTime = startTime;
+      }
+
+      cascaded.add(
+        CalendarEventData(
+          date: _selectedDate,
+          startTime: startTime,
+          endTime: endTime,
+          title: event.title,
+          color: event.color,
+          description: event.description,
+          event: event.event,
+        ),
+      );
+    }
+
+    cascaded.sort((a, b) => a.startTime!.compareTo(b.startTime!));
+    return cascaded;
   }
 
   void _applyOptimisticPlannedPatch(ActivityInstanceRecord instance) {
@@ -752,6 +941,7 @@ class _CalendarPageState extends State<CalendarPage> {
             overlappedIds: _plannedOverlappedEventIds,
             groups: _plannedOverlapGroups,
           ),
+          routineItemMap: _routineItemMap,
         );
       }
 
@@ -890,6 +1080,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
       _sortedCompletedEvents = result.completedEvents;
       _sortedPlannedEvents = result.plannedEvents;
+      _routineItemMap = result.routineItemMap;
       final overlapInfo = _computePlannedOverlaps(result.plannedEvents);
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
@@ -951,7 +1142,8 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   PlannedOverlapInfo _computePlannedOverlaps(List<CalendarEventData> planned) {
-    return CalendarOverlapCalculator.computePlannedOverlaps(planned);
+    return CalendarOverlapCalculator.computePlannedOverlaps(planned,
+        routineItemMap: _routineItemMap);
   }
 
   Widget _buildEventTile(CalendarEventData event, bool isCompleted) {

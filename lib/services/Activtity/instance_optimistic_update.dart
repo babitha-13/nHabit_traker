@@ -10,6 +10,7 @@ class InstanceEvents {
   static const String instanceUpdated = 'instanceUpdated';
   static const String instanceDeleted = 'instanceDeleted';
   static const String progressRecalculated = 'progressRecalculated';
+  static const int _defaultOptimisticSessionMs = 10 * 60 * 1000;
 
   /// Broadcast when a new instance is created
   static void broadcastInstanceCreated(ActivityInstanceRecord instance) {
@@ -115,6 +116,32 @@ class InstanceEvents {
       updatedData['totalTimeLogged'] = totalTimeLogged;
     }
 
+    if (!_hasSessions(updatedData['timeLogSessions'])) {
+      final durationMs = _inferOptimisticCompletionDurationMs(
+        original,
+        finalAccumulatedTime: finalAccumulatedTime,
+        totalTimeLogged: totalTimeLogged,
+      );
+      final sessionEnd = now;
+      final sessionStart =
+          sessionEnd.subtract(Duration(milliseconds: durationMs));
+      updatedData['timeLogSessions'] = [
+        {
+          'startTime': sessionStart,
+          'endTime': sessionEnd,
+          'durationMilliseconds': durationMs,
+        }
+      ];
+      updatedData['totalTimeLogged'] = totalTimeLogged ?? durationMs;
+
+      if (original.templateTrackingType == 'time') {
+        updatedData['accumulatedTime'] = finalAccumulatedTime ?? durationMs;
+        if (finalValue == null) {
+          updatedData['currentValue'] = durationMs;
+        }
+      }
+    }
+
     // Clear skipped status if present
     updatedData['skippedAt'] = null;
 
@@ -125,6 +152,41 @@ class InstanceEvents {
       updatedData,
       original.reference,
     );
+  }
+
+  static bool _hasSessions(dynamic sessions) {
+    return sessions is List && sessions.isNotEmpty;
+  }
+
+  static int _inferOptimisticCompletionDurationMs(
+    ActivityInstanceRecord original, {
+    int? finalAccumulatedTime,
+    int? totalTimeLogged,
+  }) {
+    int inferredMs = _defaultOptimisticSessionMs;
+
+    if (finalAccumulatedTime != null && finalAccumulatedTime > 0) {
+      inferredMs = finalAccumulatedTime;
+    } else if (totalTimeLogged != null && totalTimeLogged > 0) {
+      inferredMs = totalTimeLogged;
+    } else if (original.accumulatedTime > 0) {
+      inferredMs = original.accumulatedTime;
+    } else if (original.totalTimeLogged > 0) {
+      inferredMs = original.totalTimeLogged;
+    } else if (original.templateTrackingType == 'time') {
+      final target = original.templateTarget;
+      final targetMinutes = (target is num)
+          ? target.toDouble()
+          : (target is String ? double.tryParse(target) ?? 0.0 : 0.0);
+      if (targetMinutes > 0) {
+        inferredMs = (targetMinutes * 60000).round();
+      }
+    }
+
+    if (inferredMs < 60000) {
+      inferredMs = 60000;
+    }
+    return inferredMs;
   }
 
   /// Create optimistic instance for uncompletion

@@ -30,6 +30,7 @@ class CalendarModals {
           initialEndTime: endTime,
           onPreviewChange: onPreviewChange,
           onSave: onSave,
+          optimisticUiOnSave: true,
           // Manual calendar logs should not auto-complete by default
           markCompleteOnSave: false,
         );
@@ -90,6 +91,7 @@ class CalendarModals {
             onPreviewChange: onPreviewChange,
             onSave: onSave,
             editMetadata: metadata,
+            optimisticUiOnSave: true,
             // Editing an entry should not auto-complete implicitly
             markCompleteOnSave: false,
           );

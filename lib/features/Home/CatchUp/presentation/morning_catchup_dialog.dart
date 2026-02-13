@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
-import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/ist_day_boundary_service.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_component_main.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_logic.dart';
 import 'package:intl/intl.dart';
+
+enum MorningCatchUpDialogResult {
+  completed,
+  snoozed,
+  autoResolved,
+}
 
 /// Morning catch-up dialog for handling yesterday's incomplete items
 /// UI-only component - business logic is in MorningCatchUpDialogLogic
@@ -14,9 +21,13 @@ class MorningCatchUpDialog extends StatefulWidget {
   const MorningCatchUpDialog({
     super.key,
     this.isDayTransition = false,
+    this.initialItems,
+    required this.baselineProcessedAtOpen,
   });
 
   final bool isDayTransition;
+  final List<ActivityInstanceRecord>? initialItems;
+  final bool baselineProcessedAtOpen;
 
   @override
   State<MorningCatchUpDialog> createState() => _MorningCatchUpDialogState();
@@ -28,7 +39,10 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   @override
   void initState() {
     super.initState();
-    _logic = MorningCatchUpDialogLogic();
+    _logic = MorningCatchUpDialogLogic(
+      initialItems: widget.initialItems,
+      baselineProcessedAtOpen: widget.baselineProcessedAtOpen,
+    );
     _initializeDialog();
   }
 
@@ -49,30 +63,29 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
   @override
   void dispose() {
-    // Note: saveStateOnDispose is called explicitly in _closeDialogAndRefresh
+    // Note: saveStateOnDispose is called explicitly in _closeDialog
     // and other close paths to ensure recalculation completes before showing toasts
     super.dispose();
   }
 
-  /// Close dialog and trigger refresh of habit and queue pages
-  /// Closes immediately, runs background operations after dismissal
-  Future<void> _closeDialogAndRefresh() async {
-    // Close dialog immediately - don't wait for background operations
+  Future<void> _closeDialog({
+    required MorningCatchUpDialogResult result,
+    bool runBackgroundOperations = true,
+  }) async {
     if (mounted) {
-      Navigator.of(context).pop();
+      Navigator.of(context).pop(result);
     }
-
-    // Run all background operations after dialog is dismissed
-    // This allows user to continue using the app while these complete
-    _runBackgroundOperations();
+    if (runBackgroundOperations) {
+      unawaited(_runBackgroundOperations());
+    }
   }
 
   /// Run background operations after dialog closes
-  /// Includes: ensuring instances exist, saving progress, showing toasts
+  /// Includes: clearing snooze/pending state, saving progress, showing toasts
   Future<void> _runBackgroundOperations() async {
     try {
-      // Ensure all instances exist (background operation)
-      await _logic.ensureInstancesExistInBackground();
+      await MorningCatchUpService.clearSnooze();
+      await MorningCatchUpService.resetReminderCount();
 
       // Save state and recalculate progress (background operation)
       await _logic.saveStateOnDispose();
@@ -81,12 +94,24 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       await _logic.prepareForClose();
 
       // Show pending toasts after all background operations complete
+      final hasPendingToasts = MorningCatchUpService.hasPendingToasts();
       MorningCatchUpService.showPendingToasts();
+      if (hasPendingToasts) {
+        await MorningCatchUpService.markFinalizationToastsShownForDate(
+          IstDayBoundaryService.yesterdayStartIst(),
+        );
+      }
     } catch (e) {
       // Silent error handling - background operations shouldn't affect user experience
       print('Error in background operations after dialog close: $e');
       // Still try to show toasts even if other operations failed
+      final hasPendingToasts = MorningCatchUpService.hasPendingToasts();
       MorningCatchUpService.showPendingToasts();
+      if (hasPendingToasts) {
+        await MorningCatchUpService.markFinalizationToastsShownForDate(
+          IstDayBoundaryService.yesterdayStartIst(),
+        );
+      }
     }
   }
 
@@ -104,8 +129,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       if (mounted) {
         final shouldAutoClose = await _logic.checkAndAutoClose();
         if (shouldAutoClose) {
-          // Close immediately, background operations run after
-          await _closeDialogAndRefresh();
+          await _closeDialog(
+            result: MorningCatchUpDialogResult.completed,
+          );
         }
       }
     } catch (e) {
@@ -130,7 +156,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
     if (remainingHabits.isEmpty) {
       // If no habits to skip, just close
-      await _closeDialogAndRefresh();
+      await _closeDialog(
+        result: MorningCatchUpDialogResult.completed,
+      );
       return;
     }
 
@@ -158,17 +186,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     );
 
     if (shouldSkip != true) {
-      // User canceled - still ensure record exists
-      try {
-        final userId = await waitForCurrentUserUid();
-        if (userId.isEmpty) return;
-        await MorningCatchUpService.createDailyProgressRecordForDate(
-          userId: userId,
-          targetDate: DateService.yesterdayStart,
-        );
-      } catch (e) {
-        print('Error creating record after cancel: $e');
-      }
+      // User canceled skip-all prompt.
       return;
     }
 
@@ -199,8 +217,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
           if (!result.hasRemainingItems) {
             // All items processed, close dialog immediately
-            // Background operations will run after dismissal
-            await _closeDialogAndRefresh();
+            await _closeDialog(
+              result: MorningCatchUpDialogResult.completed,
+            );
           } else {
             // Still have items, update UI to show them
             setState(() {});
@@ -231,16 +250,12 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
   Future<void> _snoozeDialog() async {
     try {
-      final result = await _logic.snoozeDialog();
+      await _logic.snoozeDialog();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'You\'ll be reminded on your next app open${result.newReminderCount >= MorningCatchUpService.maxReminderCount ? ' (${result.newReminderCount} of ${MorningCatchUpService.maxReminderCount} reminders)' : ''}'),
-          ),
+        await _closeDialog(
+          result: MorningCatchUpDialogResult.snoozed,
+          runBackgroundOperations: false,
         );
-        // Close immediately, background operations run after
-        await _closeDialogAndRefresh();
       }
     } catch (e) {
       if (mounted) {
@@ -272,7 +287,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-    final yesterday = DateService.yesterdayStart;
+    final yesterday = IstDayBoundaryService.yesterdayStartIst();
     final yesterdayLabel = DateFormat('EEEE, MMM d').format(yesterday);
     final yesterdayEnd = DateTime(
       yesterday.year,
@@ -290,16 +305,11 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       onWillPop: () async {
         // Allow dismissal if all items are processed (including optimistic ones)
         if (_logic.canCloseDialog()) {
-          // Mark dialog as shown immediately
-          await MorningCatchUpService.markDialogAsShown();
-          // Return true to allow dismissal - background operations will run after
-          // Schedule background operations to run after dialog closes
-          WidgetsBinding.instance.addPostFrameCallback((_) {
-            _runBackgroundOperations();
-          });
-          return true;
+          await _closeDialog(
+            result: MorningCatchUpDialogResult.completed,
+          );
         }
-        // Prevent dismissing - user must choose skip or remind me later
+        // Prevent dismissing via system back while pending items remain.
         return false;
       },
       child: Dialog(
@@ -539,7 +549,9 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                             await MorningCatchUpService.markDialogAsShown();
                             if (mounted) {
                               // Close immediately, background operations run after
-                              await _closeDialogAndRefresh();
+                              await _closeDialog(
+                                result: MorningCatchUpDialogResult.completed,
+                              );
                             }
                           },
                           style: ElevatedButton.styleFrom(
@@ -567,7 +579,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         ),
                       ),
                       const SizedBox(height: 8),
-                      // Only show "Remind Me Later" if reminder count is below the limit
+                      // Only show snooze/dismiss if reminder count is below the limit.
                       if (_logic.reminderCount <
                           MorningCatchUpService.maxReminderCount)
                         SizedBox(
@@ -580,7 +592,13 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
-                            child: const Text('Remind Me Later'),
+                            child: Text(
+                              _logic.reminderCount ==
+                                      MorningCatchUpService.maxReminderCount -
+                                          1
+                                  ? 'Dismiss'
+                                  : 'Remind Me Later',
+                            ),
                           ),
                         ),
                     ],

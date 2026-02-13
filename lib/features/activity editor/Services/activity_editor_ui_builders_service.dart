@@ -125,7 +125,7 @@ class ActivityEditorUIBuildersService {
                   ),
                 ),
                 const SizedBox(height: 16),
-                buildActionButtons(state, theme),
+                buildActionButtons(state, context, theme),
               ],
             ),
           ),
@@ -670,8 +670,8 @@ class ActivityEditorUIBuildersService {
   }
 
   /// Build action buttons widget
-  static Widget buildActionButtons(
-      ActivityEditorDialogState state, FlutterFlowTheme theme) {
+  static Widget buildActionButtons(ActivityEditorDialogState state,
+      BuildContext context, FlutterFlowTheme theme) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.end,
       children: [
@@ -679,12 +679,11 @@ class ActivityEditorUIBuildersService {
           onPressed: state.isSaving
               ? null
               : () {
-                  // Defer pop to next frame to avoid Navigator lock conflicts
-                  Future.microtask(() {
-                    if (state.mounted) {
-                      Navigator.of(state.context).pop(false);
-                    }
-                  });
+                  if (!state.mounted) return;
+                  final navigator = Navigator.maybeOf(context);
+                  if (navigator != null && navigator.canPop()) {
+                    navigator.pop();
+                  }
                 },
           child: Text('Cancel', style: theme.bodyMedium),
         ),

@@ -216,10 +216,17 @@ class CumulativeScoreService {
         aggregateStats: aggregateStats,
       );
 
+      // Calculate effective gain (change in cumulative score)
+      // This accounts for the floor at 0.0
+      final effectiveGain = newCumulativeScore - userStats.cumulativeScore;
+
       return {
         'cumulativeScore': newCumulativeScore,
+        'previousCumulativeScore': userStats.cumulativeScore,
         'dailyGain': dailyGain,
+        'effectiveGain': effectiveGain,
         'dailyScore': dailyScore,
+        'dailyPoints': dailyScore,
         'consistencyBonus': consistencyBonus,
         'decayPenalty': penalty,
         'recoveryBonus': recoveryBonus,

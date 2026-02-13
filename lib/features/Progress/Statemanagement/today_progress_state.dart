@@ -18,6 +18,8 @@ class TodayProgressState {
   bool _hasLiveScore = false;
   DateTime _lastUpdateDate = DateService.todayStart;
   Map<String, double> _scoreBreakdown = {};
+  List<Map<String, dynamic>> _todayHabitBreakdown = [];
+  List<Map<String, dynamic>> _todayTaskBreakdown = [];
 
   double get dailyTarget {
     _checkDayTransition();
@@ -70,6 +72,8 @@ class TodayProgressState {
       _todayScore = 0.0;
       _hasLiveScore = false;
       _scoreBreakdown = {};
+      _todayHabitBreakdown = [];
+      _todayTaskBreakdown = [];
       // Carry forward yesterday's cumulative as baseline for new day
       _yesterdayCumulativeScore = _cumulativeScore;
       _lastUpdateDate = today;
@@ -84,11 +88,21 @@ class TodayProgressState {
     required double target,
     required double earned,
     required double percentage,
+    List<Map<String, dynamic>>? habitBreakdown,
+    List<Map<String, dynamic>>? taskBreakdown,
   }) {
     _checkDayTransition();
     _dailyTarget = target;
     _pointsEarned = earned;
     _dailyPercentage = percentage;
+    if (habitBreakdown != null) {
+      _todayHabitBreakdown =
+          habitBreakdown.map((item) => Map<String, dynamic>.from(item)).toList();
+    }
+    if (taskBreakdown != null) {
+      _todayTaskBreakdown =
+          taskBreakdown.map((item) => Map<String, dynamic>.from(item)).toList();
+    }
     _lastUpdateDate = DateService.todayStart;
     // Notify other pages about the update
     NotificationCenter.post('todayProgressUpdated');
@@ -149,6 +163,17 @@ class TodayProgressState {
       'yesterdayCumulative': _yesterdayCumulativeScore,
       'hasLiveScore': _hasLiveScore,
       'breakdown': Map<String, double>.from(_scoreBreakdown),
+    };
+  }
+
+  Map<String, dynamic> getTodayActivityBreakdown() {
+    _checkDayTransition();
+    return {
+      'habitBreakdown': _todayHabitBreakdown
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(),
+      'taskBreakdown':
+          _todayTaskBreakdown.map((item) => Map<String, dynamic>.from(item)).toList(),
     };
   }
 

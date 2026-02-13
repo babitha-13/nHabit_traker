@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Essential/essential_data_service.dart';
@@ -28,6 +30,86 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   Map<String, int> todayMinutes = {};
   int? defaultTimeEstimateMinutes;
   bool isLoadingData = false; // Guard against concurrent loads
+
+  int _computeTemplatesHash(List<ActivityRecord> records) {
+    return records.length.hashCode ^
+        records.fold(0, (sum, t) => sum ^ t.reference.id.hashCode);
+  }
+
+  int _findTemplateIndex({
+    required String templateId,
+    String? optimisticOperationId,
+  }) {
+    return templates.indexWhere((t) {
+      if (t.reference.id == templateId) return true;
+      if (optimisticOperationId == null) return false;
+      return t.snapshotData['optimisticOperationId'] == optimisticOperationId;
+    });
+  }
+
+  ActivityRecord _stripOptimisticMetadata(ActivityRecord record) {
+    final cleanedData = Map<String, dynamic>.from(record.snapshotData)
+      ..remove('optimisticOperationId')
+      ..remove('optimisticPending')
+      ..remove('optimisticFailed')
+      ..remove('optimisticError');
+    return ActivityRecord.getDocumentFromData(cleanedData, record.reference);
+  }
+
+  void _handleOptimisticTemplateSave(ActivityRecord? record) {
+    if (!mounted || record == null) return;
+
+    final operationId = record.snapshotData['optimisticOperationId'] as String?;
+    final optimisticFailed = record.snapshotData['optimisticFailed'] == true;
+    final optimisticPending = record.snapshotData['optimisticPending'] == true;
+    final optimisticError = record.snapshotData['optimisticError'] as String?;
+    final isTempTemplate = record.reference.id.startsWith('tmp_essential_');
+    final matchIndex = _findTemplateIndex(
+      templateId: record.reference.id,
+      optimisticOperationId: operationId,
+    );
+
+    if (optimisticFailed) {
+      setState(() {
+        if (isTempTemplate) {
+          if (matchIndex >= 0) {
+            templates.removeAt(matchIndex);
+          }
+        } else {
+          final rollbackRecord = _stripOptimisticMetadata(record);
+          if (matchIndex >= 0) {
+            templates[matchIndex] = rollbackRecord;
+          } else {
+            templates.add(rollbackRecord);
+          }
+        }
+        cachedGroupedByCategory = null;
+        templatesHashCode = _computeTemplatesHash(templates);
+      });
+
+      if (optimisticError != null && optimisticError.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Save failed: $optimisticError'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    setState(() {
+      final templateToApply =
+          optimisticPending ? record : _stripOptimisticMetadata(record);
+      if (matchIndex >= 0) {
+        templates[matchIndex] = templateToApply;
+      } else {
+        templates.add(templateToApply);
+      }
+      cachedGroupedByCategory = null;
+      templatesHashCode = _computeTemplatesHash(templates);
+    });
+  }
 
   Future<void> loadExpansionState() async {
     final expandedSections =
@@ -116,28 +198,48 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
     }
 
     final startTime = now.subtract(Duration(minutes: estimate));
+    final templateId = template.reference.id;
 
-    try {
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      await essentialService.createessentialInstance(
-        templateId: template.reference.id,
-        startTime: startTime,
-        endTime: now,
-        userId: userId,
+    if (mounted) {
+      setState(() {
+        todayCounts[templateId] = (todayCounts[templateId] ?? 0) + 1;
+        todayMinutes[templateId] = (todayMinutes[templateId] ?? 0) + estimate;
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Logged ${template.name} (${estimate}m)'),
+          backgroundColor: Colors.green,
+          duration: const Duration(seconds: 1),
+        ),
       );
-      await loadTodayStats();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Logged ${template.name} (${estimate}m)'),
-            backgroundColor: Colors.green,
-            duration: const Duration(seconds: 1),
-          ),
+    }
+
+    unawaited(() async {
+      try {
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) throw Exception('User not signed in');
+        await essentialService.createessentialInstance(
+          templateId: templateId,
+          startTime: startTime,
+          endTime: now,
+          userId: userId,
         );
-      }
-    } catch (e) {
-      if (mounted) {
+      } catch (e) {
+        if (!mounted) return;
+        setState(() {
+          final nextCount = (todayCounts[templateId] ?? 0) - 1;
+          final nextMinutes = (todayMinutes[templateId] ?? 0) - estimate;
+          if (nextCount <= 0) {
+            todayCounts.remove(templateId);
+          } else {
+            todayCounts[templateId] = nextCount;
+          }
+          if (nextMinutes <= 0) {
+            todayMinutes.remove(templateId);
+          } else {
+            todayMinutes[templateId] = nextMinutes;
+          }
+        });
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error logging activity: $e'),
@@ -145,7 +247,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
           ),
         );
       }
-    }
+    }());
   }
 
   Map<String, List<ActivityRecord>> getGroupedByCategory() {
@@ -233,8 +335,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       final statsData = results[2] as Map<String, dynamic>;
       final todayCountsResult = statsData['counts'] as Map<String, int>;
       final todayMinutesResult = statsData['minutes'] as Map<String, int>;
-      final newHash = templatesResult.length.hashCode ^
-          templatesResult.fold(0, (sum, t) => sum ^ t.reference.id.hashCode);
+      final newHash = _computeTemplatesHash(templatesResult);
 
       if (mounted) {
         setState(() {
@@ -280,18 +381,16 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> showCreateDialog() async {
-    final result = await showDialog<ActivityRecord>(
+    await showDialog<ActivityRecord>(
       context: context,
       builder: (context) => ActivityEditorDialog(
         activity: null,
         isHabit: false, // Essentials are not habits
         isEssential: true,
         categories: categories,
+        onSave: _handleOptimisticTemplateSave,
       ),
     );
-    if (result != null && mounted) {
-      await loadTemplates();
-    }
   }
 
   Future<void> deleteTemplate(ActivityRecord template) async {
@@ -394,18 +493,16 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   }
 
   Future<void> showEditDialog(ActivityRecord template) async {
-    final result = await showDialog<ActivityRecord>(
+    await showDialog<ActivityRecord>(
       context: context,
       builder: (context) => ActivityEditorDialog(
         activity: template,
         isHabit: false, // Essentials are not habits
         isEssential: true,
         categories: categories,
+        onSave: _handleOptimisticTemplateSave,
       ),
     );
-    if (result != null && mounted) {
-      await loadTemplates();
-    }
   }
 
   Future<void> showOverflowMenu(

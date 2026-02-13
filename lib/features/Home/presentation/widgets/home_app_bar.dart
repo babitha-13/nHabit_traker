@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Goals/goal_dialog.dart';
 import 'package:habit_tracker/features/Home/presentation/dialogs/catchup_dialog.dart';
@@ -94,6 +95,35 @@ class HomeAppBar extends StatelessWidget implements PreferredSizeWidget {
           showDialog(
             context: context,
             builder: (_) => const GoalDialog(),
+          );
+        },
+        onLongPress: () {
+          if (!kDebugMode) return;
+          showModalBottomSheet(
+            context: context,
+            builder: (sheetContext) => SafeArea(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  ListTile(
+                    leading: const Icon(Icons.calculate_outlined),
+                    title: const Text('Force Recalculate Yesterday'),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await forceRecalculateYesterdayDev(context);
+                    },
+                  ),
+                  ListTile(
+                    leading: const Icon(Icons.history),
+                    title: const Text('Open Catch-up Dialog'),
+                    onTap: () async {
+                      Navigator.of(sheetContext).pop();
+                      await showCatchUpDialogManually(context);
+                    },
+                  ),
+                ],
+              ),
+            ),
           );
         },
         child: Text(

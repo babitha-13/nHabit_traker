@@ -6,7 +6,6 @@ import 'package:habit_tracker/features/activity%20editor/Frequency_config/freque
 import 'package:habit_tracker/features/activity%20editor/Services/activity_editor_helper_service.dart';
 import 'package:habit_tracker/features/activity%20editor/Services/activity_editor_initialization_service.dart';
 import 'package:habit_tracker/features/activity%20editor/Services/activity_editor_ui_builders_service.dart';
-import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_dialog.dart';
 import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
 
 // Public typedef for services to reference the state class

@@ -356,7 +356,10 @@ class essentialService {
             : null;
       }
 
-      if (dueTime != null) updateData['dueTime'] = dueTime;
+      // Persist dueTime clears as null (required when user removes due time).
+      if (dueTime != template.dueTime) {
+        updateData['dueTime'] = dueTime;
+      }
       if (frequencyType != null) {
         updateData['frequencyType'] = frequencyType;
         updateData['isRecurring'] = frequencyType.isNotEmpty;
@@ -388,7 +391,9 @@ class essentialService {
         instanceUpdates['templateTimeEstimateMinutes'] =
             updateData['timeEstimateMinutes'];
       }
-      if (dueTime != null) instanceUpdates['templateDueTime'] = dueTime;
+      if (updateData.containsKey('dueTime')) {
+        instanceUpdates['templateDueTime'] = updateData['dueTime'];
+      }
       if (frequencyType != null) {
         instanceUpdates['templateFrequencyType'] = frequencyType;
         instanceUpdates['templateIsRecurring'] = frequencyType.isNotEmpty;
@@ -414,7 +419,8 @@ class essentialService {
         context: {
           'action': 'updated',
           'categoryType': 'essential',
-          if (updateData.containsKey('dueTime')) 'hasDueTime': true,
+          if (updateData.containsKey('dueTime'))
+            'hasDueTime': updateData['dueTime'] != null,
           if (updateData.containsKey('timeEstimateMinutes'))
             'timeEstimateMinutes': updateData['timeEstimateMinutes'],
         },

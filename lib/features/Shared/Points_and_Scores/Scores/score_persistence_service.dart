@@ -123,7 +123,7 @@ class ScorePersistenceService {
 
       if (yesterdayRecords.isNotEmpty) {
         final yesterdayRecord = yesterdayRecords.first;
-        if (yesterdayRecord.cumulativeScoreSnapshot > 0) {
+        if (yesterdayRecord.hasCumulativeScoreSnapshot()) {
           return yesterdayRecord.cumulativeScoreSnapshot;
         }
         // If snapshot is 0 but we have a gain, calculate from previous day
@@ -139,7 +139,7 @@ class ScorePersistenceService {
           );
           if (dayBeforeRecords.isNotEmpty) {
             final dayBeforeRecord = dayBeforeRecords.first;
-            if (dayBeforeRecord.cumulativeScoreSnapshot > 0) {
+            if (dayBeforeRecord.hasCumulativeScoreSnapshot()) {
               return dayBeforeRecord.cumulativeScoreSnapshot +
                   yesterdayRecord.dailyScoreGain;
             }
@@ -150,7 +150,7 @@ class ScorePersistenceService {
       // Fallback: Get from UserProgressStatsRecord
       // This represents the last known cumulative score
       final userStats = await getUserStats(userId);
-      if (userStats != null && userStats.cumulativeScore > 0) {
+      if (userStats != null) {
         // If last calculation was today, subtract today's gain to get yesterday's
         final lastCalcDate = userStats.lastCalculationDate;
         if (lastCalcDate != null) {

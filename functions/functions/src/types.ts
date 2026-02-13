@@ -40,7 +40,7 @@ export interface ActivityInstance {
   templateCategoryType?: 'habit' | 'task' | 'essential';
   templateCategoryColor?: string;
   templatePriority?: number;
-  templateTrackingType?: 'binary' | 'quantity' | 'time';
+  templateTrackingType?: 'binary' | 'quantity' | 'quantitative' | 'time';
   templateTarget?: number | string;
   templateUnit?: string;
   templateDescription?: string;
@@ -179,11 +179,30 @@ export interface CategoryRecord {
   lastUpdated?: FirestoreTimestamp;
 }
 
-// Helper function to normalize date to start of day (UTC)
+// IST offset: UTC + 5 hours 30 minutes
+const IST_OFFSET_HOURS = 5;
+const IST_OFFSET_MINUTES = 30;
+const IST_OFFSET_MS = (IST_OFFSET_HOURS * 60 + IST_OFFSET_MINUTES) * 60 * 1000;
+
+// Helper function to get current time in IST
+function getISTDate(date: Date = new Date()): Date {
+  // Convert to IST by adding offset to UTC
+  return new Date(date.getTime() + IST_OFFSET_MS);
+}
+
+// Helper function to normalize date to start of day in IST
+// Returns a Date whose UTC time represents midnight IST
 export function normalizeToStartOfDay(date: Date): Date {
-  const normalized = new Date(date);
-  normalized.setUTCHours(0, 0, 0, 0);
-  return normalized;
+  // Convert to IST to get the correct IST date components
+  const istDate = getISTDate(date);
+  // Extract IST date components (they appear as UTC components since we added the offset)
+  const year = istDate.getUTCFullYear();
+  const month = istDate.getUTCMonth();
+  const day = istDate.getUTCDate();
+  // Create midnight IST = 18:30 UTC previous day
+  // midnight IST in UTC = year/month/day 00:00 IST = year/month/day 00:00 - 5:30 = previous day 18:30 UTC
+  const midnightIST = new Date(Date.UTC(year, month, day) - IST_OFFSET_MS);
+  return midnightIST;
 }
 
 // Helper function to convert Firestore Timestamp to Date
@@ -194,21 +213,34 @@ export function timestampToDate(timestamp: FirestoreTimestamp | undefined): Date
   return undefined; // FieldValue cannot be converted to Date locally
 }
 
-// Helper function to check if two dates are the same day
+// Helper function to check if two dates are the same day (in IST)
 export function isSameDay(date1: Date, date2: Date): boolean {
-  return date1.getUTCFullYear() === date2.getUTCFullYear() &&
-    date1.getUTCMonth() === date2.getUTCMonth() &&
-    date1.getUTCDate() === date2.getUTCDate();
+  // Convert both to IST to compare IST day boundaries
+  const ist1 = getISTDate(date1);
+  const ist2 = getISTDate(date2);
+  return ist1.getUTCFullYear() === ist2.getUTCFullYear() &&
+    ist1.getUTCMonth() === ist2.getUTCMonth() &&
+    ist1.getUTCDate() === ist2.getUTCDate();
 }
 
-// Helper function to get yesterday's date (normalized to start of day)
+// Helper function to get yesterday's date (normalized to start of day in IST)
 export function getYesterdayStart(): Date {
-  const yesterday = new Date();
-  yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+  const now = new Date();
+  // Subtract 1 day from current time, then normalize to IST start of day
+  const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
   return normalizeToStartOfDay(yesterday);
 }
 
-// Helper function to get today's date (normalized to start of day)
+// Helper function to get today's date (normalized to start of day in IST)
 export function getTodayStart(): Date {
   return normalizeToStartOfDay(new Date());
+}
+
+// Format date as YYYY-MM-DD using IST date components
+export function formatDateKeyIST(date: Date): string {
+  const istDate = getISTDate(date);
+  const year = istDate.getUTCFullYear();
+  const month = String(istDate.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(istDate.getUTCDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }

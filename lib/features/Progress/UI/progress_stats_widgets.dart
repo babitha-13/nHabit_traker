@@ -285,19 +285,10 @@ class ProgressStatsWidgets {
     final displayScore = sharedData['cumulativeScore'] as double? ??
         logic.projectedCumulativeScore;
 
-    final todayScore = logic.cumulativeScoreHistory.isNotEmpty
-        ? (logic.cumulativeScoreHistory.last['score'] as double)
-        : displayScore;
-    double displayGain = 0.0;
-    if (logic.cumulativeScoreHistory.length >= 2) {
-      final yesterdayScore =
-          logic.cumulativeScoreHistory[logic.cumulativeScoreHistory.length - 2]
-              ['score'] as double;
-      displayGain = todayScore - yesterdayScore;
-    } else if (logic.cumulativeScoreHistory.length == 1) {
-      displayGain =
-          sharedData['dailyGain'] as double? ?? logic.projectedDailyGain;
-    }
+    // Use authoritative todayScore from shared state (matches Score Breakdown)
+    // instead of computing from history diff which can diverge
+    final displayGain =
+        (sharedData['todayScore'] as double?) ?? logic.projectedDailyGain;
 
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;

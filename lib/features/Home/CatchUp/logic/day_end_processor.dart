@@ -3,7 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/daily_points_calculator.dart';
-import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/old_score_formula_service.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_finalization_service.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
 import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 import 'package:habit_tracker/features/toasts/bonus_notification_formatter.dart';
@@ -256,11 +256,13 @@ class DayEndProcessor {
   ) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
-    // Check if record already exists
-    final existingQuery = DailyProgressRecord.collectionForUser(userId)
-        .where('date', isEqualTo: normalizedDate);
-    final existingSnapshot = await existingQuery.get();
-    if (existingSnapshot.docs.isNotEmpty) {
+    // Use date-based doc ID for duplicate detection (YYYY-MM-DD)
+    final dateDocId =
+        '${normalizedDate.year}-${normalizedDate.month.toString().padLeft(2, '0')}-${normalizedDate.day.toString().padLeft(2, '0')}';
+    final existingDoc = await DailyProgressRecord.collectionForUser(userId)
+        .doc(dateDocId)
+        .get();
+    if (existingDoc.exists) {
       return;
     }
     // Get all habit instances (we'll filter them using the shared calculator)
@@ -330,9 +332,12 @@ class DayEndProcessor {
         taskEarnedPoints: 0.0,
         categoryBreakdown: {},
         createdAt: DateTime.now(),
+        effectiveGain: 0.0,
+        previousDayCumulativeScore: 0.0,
       );
       await DailyProgressRecord.collectionForUser(userId)
-          .add(emptyProgressData);
+          .doc(dateDocId)
+          .set(emptyProgressData);
       return;
     }
     // Count habit statistics using allForMath and completion-on-date rule
@@ -499,12 +504,21 @@ class DayEndProcessor {
       }
     }
 
+    // Calculate effectiveGain (actual change in cumulative score, accounting for floor at 0)
+    final cumulativeAtStartOfTargetDay =
+        (cumulativeScoreAtEndOfDay - dailyScoreGain)
+            .clamp(0.0, double.infinity);
+    final effectiveGain =
+        cumulativeScoreAtEndOfDay - cumulativeAtStartOfTargetDay;
+
     // Update single-document score history to ensure graph continuity
     try {
       await ScoreHistoryService.updateScoreHistoryDocument(
         userId: userId,
         cumulativeScore: cumulativeScoreAtEndOfDay,
         todayScore: dailyScoreGain,
+        effectiveGain: effectiveGain,
+        targetDate: targetDate,
       );
     } catch (e) {
       // Continue even if history update fails
@@ -532,9 +546,25 @@ class DayEndProcessor {
       taskBreakdown: taskBreakdown,
       cumulativeScoreSnapshot: cumulativeScoreAtEndOfDay,
       dailyScoreGain: dailyScoreGain,
+      effectiveGain: effectiveGain,
+      previousDayCumulativeScore: cumulativeAtStartOfTargetDay,
+      decayPenalty:
+          (cumulativeScoreData['decayPenalty'] as num?)?.toDouble() ?? 0.0,
+      categoryNeglectPenalty:
+          (cumulativeScoreData['categoryNeglectPenalty'] as num?)?.toDouble() ??
+              0.0,
+      consistencyBonus:
+          (cumulativeScoreData['consistencyBonus'] as num?)?.toDouble() ?? 0.0,
+      dailyPoints:
+          (cumulativeScoreData['dailyPoints'] as num?)?.toDouble() ?? 0.0,
+      recoveryBonus:
+          (cumulativeScoreData['recoveryBonus'] as num?)?.toDouble() ?? 0.0,
       createdAt: DateTime.now(),
     );
-    await DailyProgressRecord.collectionForUser(userId).add(progressData);
+    // Use date-based doc ID (YYYY-MM-DD) for consistent lookup across cloud + Dart
+    await DailyProgressRecord.collectionForUser(userId)
+        .doc(dateDocId)
+        .set(progressData);
   }
 
   /// Check if day-end processing is needed

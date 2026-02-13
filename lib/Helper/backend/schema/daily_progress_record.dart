@@ -99,6 +99,26 @@ class DailyProgressRecord extends FirestoreRecord {
   double? _dailyScoreGain;
   double get dailyScoreGain => _dailyScoreGain ?? 0.0;
   bool hasDailyScoreGain() => _dailyScoreGain != null;
+  // "decayPenalty" field
+  double? _decayPenalty;
+  double get decayPenalty => _decayPenalty ?? 0.0;
+  bool hasDecayPenalty() => _decayPenalty != null;
+  // "categoryNeglectPenalty" field
+  double? _categoryNeglectPenalty;
+  double get categoryNeglectPenalty => _categoryNeglectPenalty ?? 0.0;
+  bool hasCategoryNeglectPenalty() => _categoryNeglectPenalty != null;
+  // "consistencyBonus" field
+  double? _consistencyBonus;
+  double get consistencyBonus => _consistencyBonus ?? 0.0;
+  bool hasConsistencyBonus() => _consistencyBonus != null;
+  // "dailyPoints" field
+  double? _dailyPoints;
+  double get dailyPoints => _dailyPoints ?? 0.0;
+  bool hasDailyPoints() => _dailyPoints != null;
+  // "recoveryBonus" field
+  double? _recoveryBonus;
+  double get recoveryBonus => _recoveryBonus ?? 0.0;
+  bool hasRecoveryBonus() => _recoveryBonus != null;
   void _initializeFields() {
     _userId = snapshotData['userId'] as String?;
     _date = snapshotData['date'] as DateTime?;
@@ -127,6 +147,12 @@ class DailyProgressRecord extends FirestoreRecord {
     _cumulativeScoreSnapshot =
         (snapshotData['cumulativeScoreSnapshot'] as num?)?.toDouble();
     _dailyScoreGain = (snapshotData['dailyScoreGain'] as num?)?.toDouble();
+    _decayPenalty = (snapshotData['decayPenalty'] as num?)?.toDouble();
+    _categoryNeglectPenalty =
+        (snapshotData['categoryNeglectPenalty'] as num?)?.toDouble();
+    _consistencyBonus = (snapshotData['consistencyBonus'] as num?)?.toDouble();
+    _dailyPoints = (snapshotData['dailyPoints'] as num?)?.toDouble();
+    _recoveryBonus = (snapshotData['recoveryBonus'] as num?)?.toDouble();
   }
 
   static CollectionReference get collection =>
@@ -191,6 +217,13 @@ Map<String, dynamic> createDailyProgressRecordData({
   DateTime? lastEditedAt,
   double? cumulativeScoreSnapshot,
   double? dailyScoreGain,
+  double? effectiveGain,
+  double? previousDayCumulativeScore,
+  double? decayPenalty,
+  double? categoryNeglectPenalty,
+  double? consistencyBonus,
+  double? dailyPoints,
+  double? recoveryBonus,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -216,6 +249,13 @@ Map<String, dynamic> createDailyProgressRecordData({
       'lastEditedAt': lastEditedAt,
       'cumulativeScoreSnapshot': cumulativeScoreSnapshot,
       'dailyScoreGain': dailyScoreGain,
+      'effectiveGain': effectiveGain,
+      'previousDayCumulativeScore': previousDayCumulativeScore,
+      'decayPenalty': decayPenalty,
+      'categoryNeglectPenalty': categoryNeglectPenalty,
+      'consistencyBonus': consistencyBonus,
+      'dailyPoints': dailyPoints,
+      'recoveryBonus': recoveryBonus,
     }.withoutNulls,
   );
   return firestoreData;
@@ -248,7 +288,12 @@ class DailyProgressRecordDocumentEquality
         e1?.createdAt == e2?.createdAt &&
         e1?.lastEditedAt == e2?.lastEditedAt &&
         e1?.cumulativeScoreSnapshot == e2?.cumulativeScoreSnapshot &&
-        e1?.dailyScoreGain == e2?.dailyScoreGain;
+        e1?.dailyScoreGain == e2?.dailyScoreGain &&
+        e1?.decayPenalty == e2?.decayPenalty &&
+        e1?.categoryNeglectPenalty == e2?.categoryNeglectPenalty &&
+        e1?.consistencyBonus == e2?.consistencyBonus &&
+        e1?.dailyPoints == e2?.dailyPoints &&
+        e1?.recoveryBonus == e2?.recoveryBonus;
   }
 
   @override
@@ -273,5 +318,10 @@ class DailyProgressRecordDocumentEquality
         e?.lastEditedAt,
         e?.cumulativeScoreSnapshot,
         e?.dailyScoreGain,
+        e?.decayPenalty,
+        e?.categoryNeglectPenalty,
+        e?.consistencyBonus,
+        e?.dailyPoints,
+        e?.recoveryBonus,
       ]);
 }

@@ -362,6 +362,42 @@ class _QueuePageState extends State<QueuePage>
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
+  bool _isHistoryEntryEquivalent(
+      Map<String, dynamic> a, Map<String, dynamic> b) {
+    DateTime parseHistoryDate(dynamic value) {
+      if (value is DateTime) return value;
+      if (value != null) {
+        try {
+          final maybeDate = (value as dynamic).toDate();
+          if (maybeDate is DateTime) return maybeDate;
+        } catch (_) {}
+      }
+      if (value is String) {
+        return DateTime.tryParse(value) ?? DateTime(1970);
+      }
+      return DateTime(1970);
+    }
+
+    final rawADate = parseHistoryDate(a['date']);
+    final rawBDate = parseHistoryDate(b['date']);
+    final aDate = DateTime(rawADate.year, rawADate.month, rawADate.day);
+    final bDate = DateTime(rawBDate.year, rawBDate.month, rawBDate.day);
+    final aScore = (a['score'] as num?)?.toDouble() ?? 0.0;
+    final bScore = (b['score'] as num?)?.toDouble() ?? 0.0;
+    final aGain = (a['gain'] as num?)?.toDouble() ?? 0.0;
+    final bGain = (b['gain'] as num?)?.toDouble() ?? 0.0;
+    return aDate == bDate && aScore == bScore && aGain == bGain;
+  }
+
+  bool _isHistoryEquivalent(
+      List<Map<String, dynamic>> a, List<Map<String, dynamic>> b) {
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (!_isHistoryEntryEquivalent(a[i], b[i])) return false;
+    }
+    return true;
+  }
+
   @override
   void didUpdateWidget(covariant QueuePage oldWidget) {
     super.didUpdateWidget(oldWidget);
@@ -771,12 +807,9 @@ class _QueuePageState extends State<QueuePage>
 
       _queueHistoryOverlay(finalCumulativeScore, finalTodayScore);
 
-      // Update single document history (non-blocking)
-      unawaited(ScoreHistoryService.updateScoreHistoryDocument(
-        userId: userId,
-        cumulativeScore: finalCumulativeScore,
-        todayScore: finalTodayScore,
-      ));
+      // NOTE: We do NOT persist today's score to history here.
+      // Today's score is live-only (in-memory overlay) until midnight.
+      // Persistence happens in day_end_processor.dart for YESTERDAY's score.
     } catch (e) {
       // #region agent log
       _logQueueCrashDebug('_updateTodayScore', {
@@ -827,6 +860,8 @@ class _QueuePageState extends State<QueuePage>
     }
     final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) return 0.0;
+    // This already checks time bonus via PointsService.calculatePointsEarned
+    // which reads FFAppState.instance.timeBonusEnabled
     return await PointsService.calculatePointsEarned(instance, userId);
   }
 
@@ -845,20 +880,107 @@ class _QueuePageState extends State<QueuePage>
     final calculationVersion = ++_progressCalculationVersion;
 
     try {
+      // Detect what changed
+      bool needsFullRecalculation = false;
+      bool targetChanged = false;
+      bool earnedChanged = false;
+      // bool isActiveChanged = false; // Unused for now, but helpful for debugging
+
+      if (oldInstance != null && newInstance != null) {
+        // Priority change affects both target and earned
+        if (oldInstance.templatePriority != newInstance.templatePriority) {
+          targetChanged = true;
+          earnedChanged = true;
+        }
+
+        // Due date change (for tasks) - affects isActive status
+        if (oldInstance.dueDate != newInstance.dueDate) {
+          // isActiveChanged = true;
+          targetChanged = true; // Task may move in/out of "due" status
+        }
+
+        // Status change affects earned points
+        if (oldInstance.status != newInstance.status) {
+          earnedChanged = true;
+          // Skip/reschedule: status becomes "skipped" or due date moved
+          if (newInstance.status == 'skipped' ||
+              (oldInstance.dueDate != null &&
+                  newInstance.dueDate != null &&
+                  !_isTaskDueToday(newInstance))) {
+            targetChanged = true; // Task no longer counts toward target
+          }
+        }
+
+        // Window state change (for habits) - affects target
+        if (oldInstance.templateCategoryType == 'habit') {
+          final oldInWindow =
+              _isWithinWindow(oldInstance, DateService.currentDate);
+          final newInWindow =
+              _isWithinWindow(newInstance, DateService.currentDate);
+          if (oldInWindow != newInWindow) {
+            targetChanged = true;
+            earnedChanged =
+                true; // May affect earned if item appears/disappears
+          }
+        }
+
+        // Time logged change (for time-based) - affects earned (time bonus)
+        if (oldInstance.templateTrackingType == 'time' &&
+            (oldInstance.accumulatedTime != newInstance.accumulatedTime ||
+                oldInstance.totalTimeLogged != newInstance.totalTimeLogged)) {
+          earnedChanged = true;
+        }
+
+        // Current value change (for quantitative) - affects earned
+        if (oldInstance.currentValue != newInstance.currentValue) {
+          earnedChanged = true;
+        }
+
+        // Template ID change - full recalculation needed
+        if (oldInstance.templateId != newInstance.templateId) {
+          needsFullRecalculation = true;
+        }
+      } else {
+        // One is null (create or delete), so everything changed
+        targetChanged = true;
+        earnedChanged = true;
+      }
+
+      // If template changed, fall back to full calculation
+      if (needsFullRecalculation) {
+        await _calculateProgress(optimistic: false);
+        return;
+      }
+
+      // Optimization: if nothing affecting points changed, return early
+      if (!targetChanged && !earnedChanged) {
+        return;
+      }
+
       // Calculate old contribution (if instance existed)
       double oldTarget = 0.0;
       double oldEarned = 0.0;
       if (oldInstance != null) {
-        oldTarget = await _getInstanceTargetContribution(oldInstance);
-        oldEarned = await _getInstanceEarnedContribution(oldInstance);
+        // Only calculate if item was active (due/in-window)
+        final wasActive = _wasInstanceActive(oldInstance);
+        if (wasActive) {
+          // If active, fetch contribution (mock or real)
+          // Use cached/calculated values if available, else fetch
+          oldTarget = await _getInstanceTargetContribution(oldInstance);
+          oldEarned = await _getInstanceEarnedContribution(oldInstance);
+        }
       }
 
       // Calculate new contribution (if instance exists)
       double newTarget = 0.0;
       double newEarned = 0.0;
       if (newInstance != null) {
-        newTarget = await _getInstanceTargetContribution(newInstance);
-        newEarned = await _getInstanceEarnedContribution(newInstance);
+        // Only calculate if item is active (due/in-window)
+        final isActive = _isInstanceActive(newInstance);
+        if (isActive) {
+          newTarget = await _getInstanceTargetContribution(newInstance);
+          newEarned = await _getInstanceEarnedContribution(newInstance);
+        }
       }
 
       // Apply delta
@@ -892,6 +1014,63 @@ class _QueuePageState extends State<QueuePage>
     } finally {
       _isCalculatingProgress = false;
     }
+  }
+
+  /// Check if instance is active (counts toward today's target)
+  /// For tasks: due on/before today
+  /// For habits: within window
+  bool _isInstanceActive(ActivityInstanceRecord instance) {
+    final today = DateService.currentDate;
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+
+    if (instance.templateCategoryType == 'task') {
+      return _isTaskDueToday(instance);
+    } else if (instance.templateCategoryType == 'habit') {
+      return _isWithinWindow(instance, normalizedToday);
+    }
+    return false;
+  }
+
+  /// Check if instance was active (for old instance comparison)
+  bool _wasInstanceActive(ActivityInstanceRecord instance) {
+    return _isInstanceActive(instance); // Same logic for now
+  }
+
+  /// Check if task is due today (or overdue)
+  bool _isTaskDueToday(ActivityInstanceRecord instance) {
+    if (instance.dueDate == null) return false;
+    final today = DateService.currentDate;
+    final normalizedToday = DateTime(today.year, today.month, today.day);
+    final dueDate = DateTime(
+      instance.dueDate!.year,
+      instance.dueDate!.month,
+      instance.dueDate!.day,
+    );
+    // Keep overdue tasks in the list (so they count towards target/progress)
+    return !dueDate.isAfter(normalizedToday);
+  }
+
+  /// Check if habit is within window for target date
+  bool _isWithinWindow(ActivityInstanceRecord instance, DateTime targetDate) {
+    if (instance.dueDate == null) return true;
+    final dueDate = DateTime(
+      instance.dueDate!.year,
+      instance.dueDate!.month,
+      instance.dueDate!.day,
+    );
+    final windowEnd = instance.windowEndDate;
+    if (windowEnd != null) {
+      final windowEndNormalized = DateTime(
+        windowEnd.year,
+        windowEnd.month,
+        windowEnd.day,
+      );
+      // Within [start, end] inclusive
+      return !targetDate.isBefore(dueDate) &&
+          !targetDate.isAfter(windowEndNormalized);
+    }
+    // No window end? Then it's only for that specific day (unlikely for habits, but possible)
+    return dueDate.isAtSameMomentAs(targetDate);
   }
 
   Future<void> _loadCumulativeScoreHistory(
@@ -929,7 +1108,7 @@ class _QueuePageState extends State<QueuePage>
         userId: userId,
         days: 30,
         cumulativeScore: _cumulativeScore > 0 ? _cumulativeScore : null,
-        todayScore: _dailyScoreGain > 0 ? _dailyScoreGain : null,
+        todayScore: _dailyScoreGain != 0 ? _dailyScoreGain : null,
       );
 
       final currentCumulativeScore =
@@ -954,16 +1133,23 @@ class _QueuePageState extends State<QueuePage>
         }
         return;
       }
-      // Only update if values actually changed
-      final scoreChanged = currentCumulativeScore != _cumulativeScore ||
-          currentTodayScore != _dailyScoreGain;
+      // Only update score from history if we don't already have a live score
+      // Live score from _updateTodayScore() is authoritative; history values are stale
+      final hasLiveScore = _dailyScoreGain != 0;
+      final effectiveCumulativeScore =
+          hasLiveScore ? _cumulativeScore : currentCumulativeScore;
+      final effectiveTodayScore =
+          hasLiveScore ? _dailyScoreGain : currentTodayScore;
+
+      final scoreChanged = effectiveCumulativeScore != _cumulativeScore ||
+          effectiveTodayScore != _dailyScoreGain;
       final historyChanged =
-          history.length != _cumulativeScoreHistory.length || !_historyLoaded;
+          !_historyLoaded || !_isHistoryEquivalent(history, _cumulativeScoreHistory);
 
       if (mounted && (scoreChanged || historyChanged)) {
         setState(() {
-          _cumulativeScore = currentCumulativeScore;
-          _dailyScoreGain = currentTodayScore;
+          _cumulativeScore = effectiveCumulativeScore;
+          _dailyScoreGain = effectiveTodayScore;
           _cumulativeScoreHistory = history;
           _historyLoaded = true;
           // Clear loading state on initial load after history is loaded
@@ -972,8 +1158,8 @@ class _QueuePageState extends State<QueuePage>
           }
         });
       } else if (!mounted) {
-        _cumulativeScore = currentCumulativeScore;
-        _dailyScoreGain = currentTodayScore;
+        _cumulativeScore = effectiveCumulativeScore;
+        _dailyScoreGain = effectiveTodayScore;
         _cumulativeScoreHistory = history;
         _historyLoaded = true;
       } else if (isInitialLoad && mounted) {
@@ -1600,6 +1786,22 @@ class _QueuePageState extends State<QueuePage>
     bool isOptimistic = false;
     if (param is Map) {
       isOptimistic = param['isOptimistic'] as bool? ?? false;
+    }
+
+    // Use incremental update if initial load is complete
+    if (_isInitialLoadComplete && instance != null) {
+      // Pass both old and new (updated) instance to detect changes
+      // The updated instance is now in _instances, so we find it there
+      // (or just use the passed 'instance' which should have the new values)
+      // Actually 'instance' from param has the new values.
+      Future.microtask(() => _calculateProgressIncremental(
+            oldInstance: oldInstance,
+            newInstance: instance,
+          ));
+    } else {
+      // Full calculation for initial load
+      _calculateProgress(optimistic: true);
+      _scheduleFullSync();
     }
 
     // Use incremental update if initial load is complete, otherwise use full calculation

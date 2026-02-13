@@ -70,7 +70,7 @@ class CalendarEventService {
           startDate: selectedDateStart,
           endDate: selectedDateEnd,
         ),
-        CalendarQueueService.getQueueItems(
+        CalendarQueueService.getPlannedItems(
           userId: userId,
           date: selectedDate,
         ),
@@ -102,8 +102,17 @@ class CalendarEventService {
     final timeLoggedTasks = List<ActivityInstanceRecord>.from(results[3] ?? []);
     final essentialInstances =
         List<ActivityInstanceRecord>.from(results[4] ?? []);
-    final queueItems = results[5] as Map<String, dynamic>;
+    final plannedItemsFromBackend =
+        List<ActivityInstanceRecord>.from(results[5] ?? []);
     final routines = List<RoutineRecord>.from(results[6] ?? []);
+
+    final routineItemMap = <String, List<String>>{};
+    for (final routine in routines) {
+      routineItemMap[routine.reference.id] = routine.itemIds;
+      if (routine.uid.isNotEmpty) {
+        routineItemMap[routine.uid] = routine.itemIds;
+      }
+    }
 
     // Optimize: Create category lookup maps once (O(1) lookup instead of O(n) firstWhere)
     final categoryById = <String, CategoryRecord>{};
@@ -333,8 +342,9 @@ class CalendarEventService {
       return a.startTime!.compareTo(b.startTime!);
     });
 
-    final plannedItems =
-        List<ActivityInstanceRecord>.from(queueItems['planned'] ?? []);
+    final plannedItems = List<ActivityInstanceRecord>.from(
+      plannedItemsFromBackend,
+    );
     final selectedDateOnly = DateTime(
       selectedDate.year,
       selectedDate.month,
@@ -492,6 +502,7 @@ class CalendarEventService {
     final result = CalendarEventsResult(
       completedEvents: cascadedEvents,
       plannedEvents: plannedEvents,
+      routineItemMap: routineItemMap,
     );
 
     // Cache the result
@@ -505,9 +516,11 @@ class CalendarEventService {
 class CalendarEventsResult {
   final List<CalendarEventData> completedEvents;
   final List<CalendarEventData> plannedEvents;
+  final Map<String, List<String>> routineItemMap;
 
   CalendarEventsResult({
     required this.completedEvents,
     required this.plannedEvents,
+    this.routineItemMap = const {},
   });
 }

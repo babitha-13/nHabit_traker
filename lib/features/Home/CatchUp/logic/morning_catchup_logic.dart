@@ -1,15 +1,29 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_service.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/ist_day_boundary_service.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 
 /// Controller class for managing morning catch-up dialog business logic
 /// Separates business logic from UI concerns
 class MorningCatchUpDialogLogic {
+  MorningCatchUpDialogLogic({
+    List<ActivityInstanceRecord>? initialItems,
+    required this.baselineProcessedAtOpen,
+  }) {
+    if (initialItems != null) {
+      items = List<ActivityInstanceRecord>.from(initialItems);
+      isLoading = false;
+    }
+  }
+
+  final bool baselineProcessedAtOpen;
+
   // State
   bool isLoading = true;
   bool isProcessing = false;
@@ -21,59 +35,23 @@ class MorningCatchUpDialogLogic {
   String processingStatus = '';
   int processedCount = 0;
   int totalToProcess = 0;
+  bool hasUserProvidedUpdates = false;
+  bool hadHabitItemsAtLaunch = false;
 
   /// Initialize the dialog logic
   Future<void> initialize() async {
-    await loadItems();
-    await loadReminderCount();
+    if (isLoading) {
+      await Future.wait([
+        loadItems(),
+        loadReminderCount(),
+      ]);
+    } else {
+      await loadReminderCount();
+    }
+    hadHabitItemsAtLaunch =
+        items.any((item) => item.templateCategoryType == 'habit');
     // Mark as shown immediately to prevent re-showing
-    MorningCatchUpService.markDialogAsShown();
-    await ensureRecordCreated();
-    // Ensure instances exist when dialog opens (handles edge cases)
-    await ensureInstancesExist();
-  }
-
-  /// Ensure instances exist for pending items
-  Future<void> ensureInstancesExist() async {
-    try {
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      await MorningCatchUpService.ensurePendingInstancesExist(userId);
-      // Reload items after ensuring instances exist
-      await loadItems();
-    } catch (e) {
-      print('Error ensuring instances exist in dialog: $e');
-    }
-  }
-
-  /// Ensure instances exist in background (after dialog closes)
-  /// Doesn't reload items since dialog is already closed
-  Future<void> ensureInstancesExistInBackground() async {
-    try {
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      await MorningCatchUpService.ensurePendingInstancesExist(userId);
-    } catch (e) {
-      print('Error ensuring instances exist in background: $e');
-      // Silent error - don't block user
-    }
-  }
-
-  /// Ensure daily progress record is created
-  Future<void> ensureRecordCreated() async {
-    try {
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      final yesterday = DateService.yesterdayStart;
-      // Check if record exists, create if not
-      await MorningCatchUpService.createDailyProgressRecordForDate(
-        userId: userId,
-        targetDate: yesterday,
-      );
-    } catch (e) {
-      print('Error ensuring record creation: $e');
-      // Don't block dialog if record creation fails
-    }
+    unawaited(MorningCatchUpService.markDialogAsShown());
   }
 
   /// Load reminder count
@@ -88,6 +66,10 @@ class MorningCatchUpDialogLogic {
       if (userId.isEmpty) return;
       items =
           await MorningCatchUpService.getIncompleteItemsFromYesterday(userId);
+      if (!hadHabitItemsAtLaunch) {
+        hadHabitItemsAtLaunch =
+            items.any((item) => item.templateCategoryType == 'habit');
+      }
       isLoading = false;
     } catch (e) {
       isLoading = false;
@@ -157,10 +139,10 @@ class MorningCatchUpDialogLogic {
       return;
     }
 
-    final yesterday = DateService.yesterdayStart;
+    final yesterday = IstDayBoundaryService.yesterdayStartIst();
     final yesterdayEnd =
         DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
-    final today = DateService.todayStart;
+    final today = IstDayBoundaryService.todayStartIst();
 
     // Differentiate between progress updates and status changes (completion/skip)
     final isStatusChange = updatedInstance.status == 'completed' ||
@@ -222,6 +204,7 @@ class MorningCatchUpDialogLogic {
 
       // Clear optimistic state now that backend operation succeeded
       clearOptimisticState(instanceId);
+      hasUserProvidedUpdates = true;
 
       // Only reload if we need to check for new instances (e.g., habit completion may create new instance)
       // For most cases, optimistic removal is sufficient
@@ -231,23 +214,7 @@ class MorningCatchUpDialogLogic {
         await loadItems();
       }
 
-      // RECALCULATE daily progress record in background after user completes/skips items
-      // This ensures cumulative score includes the user's updates
-      // Run in background without blocking UI - fire and forget with error handling
-      Future.delayed(const Duration(milliseconds: 300)).then((_) async {
-        // Background recalculation - don't await, let it run asynchronously
-        final userId = await waitForCurrentUserUid();
-        if (userId.isEmpty) return;
-        MorningCatchUpService.recalculateDailyProgressRecordForDate(
-          userId: userId,
-          targetDate: yesterday,
-          suppressToasts: true, // Suppress toasts during catch-up updates
-        ).catchError((error) {
-          // Silent error handling - recalculation failure shouldn't affect UI
-          // The record will be recalculated when dialog closes anyway
-          print('Background recalculation error (non-critical): $error');
-        });
-      });
+      // Recalculation is deferred to dialog close and done once.
     } catch (e) {
       // ROLLBACK: Revert optimistic update on error
       revertOptimisticState(instanceId);
@@ -280,30 +247,16 @@ class MorningCatchUpDialogLogic {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
-      // Ensure all active habits have pending instances (background operation)
-      await MorningCatchUpService.ensurePendingInstancesExist(userId);
-
-      // Reload items to reflect any new instances that were generated
-      await loadItems();
 
       // Broadcast progress recalculated to refresh other parts of UI
       InstanceEvents.broadcastProgressRecalculated();
 
-      // If items were processed, recalculate the record to ensure cumulative score is updated
-      if (processedItemIds.isNotEmpty) {
-        // Recalculate with suppressToasts: true to store updated toast data
-        // The updated data will overwrite the initial pending toast data
-        await MorningCatchUpService.recalculateDailyProgressRecordForDate(
+      // If user changed anything, decide cloud write mode using latest processed marker.
+      if (hasUserProvidedUpdates || processedItemIds.isNotEmpty) {
+        await MorningCatchUpService.finalizeAfterCatchUpEdits(
           userId: userId,
-          targetDate: DateService.yesterdayStart,
-          suppressToasts: true, // Store updated toast data, don't show yet
-        );
-      } else if (items.isNotEmpty) {
-        // If dialog is closed without action, ensure record exists
-        // Use suppressToasts: true to maintain consistency
-        await MorningCatchUpService.createDailyProgressRecordForDate(
-          userId: userId,
-          targetDate: DateService.yesterdayStart,
+          targetDate: IstDayBoundaryService.yesterdayStartIst(),
+          baselineProcessedAtOpen: baselineProcessedAtOpen,
           suppressToasts: true,
         );
       }
@@ -316,17 +269,19 @@ class MorningCatchUpDialogLogic {
   /// Recalculate daily progress record in background
   /// Uses suppressToasts: true to store updated toast data
   Future<void> recalculateProgressRecord() async {
-    if (processedItemIds.isNotEmpty) {
+    if (hasUserProvidedUpdates || processedItemIds.isNotEmpty) {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
-      MorningCatchUpService.recalculateDailyProgressRecordForDate(
-        userId: userId,
-        targetDate: DateService.yesterdayStart,
-        suppressToasts: true, // Store updated toast data, don't show yet
-      ).catchError((error) {
-        // Silent error handling - recalculation failure shouldn't block dialog close
+      try {
+        await MorningCatchUpService.finalizeAfterCatchUpEdits(
+          userId: userId,
+          targetDate: IstDayBoundaryService.yesterdayStartIst(),
+          baselineProcessedAtOpen: baselineProcessedAtOpen,
+          suppressToasts: true,
+        );
+      } catch (error) {
         print('Background recalculation error on close (non-critical): $error');
-      });
+      }
     }
   }
 
@@ -334,7 +289,7 @@ class MorningCatchUpDialogLogic {
   /// [onProgressUpdate] - Optional callback to notify UI to rebuild during processing
   Future<SkipAllResult> skipAllRemaining(
       {VoidCallback? onProgressUpdate}) async {
-    final today = DateService.todayStart;
+    final today = IstDayBoundaryService.todayStartIst();
     // Only skip habits where window has ended (exclude habits with active windows)
     final remainingHabits = items
         .where((item) =>
@@ -361,7 +316,7 @@ class MorningCatchUpDialogLogic {
     onProgressUpdate?.call();
 
     try {
-      final yesterday = DateService.yesterdayStart;
+      final yesterday = IstDayBoundaryService.yesterdayStartIst();
       final yesterdayEnd =
           DateTime(yesterday.year, yesterday.month, yesterday.day, 23, 59, 59);
 
@@ -382,6 +337,7 @@ class MorningCatchUpDialogLogic {
       for (final item in remainingHabits) {
         processedItemIds.add(item.reference.id);
       }
+      hasUserProvidedUpdates = true;
       processedCount = remainingHabits.length;
       onProgressUpdate?.call();
 
@@ -435,24 +391,30 @@ class MorningCatchUpDialogLogic {
   void handleInstanceDeleted(ActivityInstanceRecord deletedInstance) {
     // Optimistically remove deleted item immediately
     applyOptimisticState(deletedInstance);
+    hasUserProvidedUpdates = true;
   }
 
   /// Check if all habits are processed (for auto-close)
   /// Only checks habits, not tasks, since tasks cannot be skipped via the dialog
   Future<bool> checkAndAutoClose() async {
     final remainingAfterUpdate = getRemainingItems();
-    // Only check if habits are processed, ignore tasks
     final remainingHabits = remainingAfterUpdate
         .where((item) => item.templateCategoryType == 'habit')
         .toList();
-    if (remainingHabits.isEmpty) {
+    final shouldClose = hadHabitItemsAtLaunch
+        ? remainingHabits.isEmpty
+        : remainingAfterUpdate.isEmpty;
+    if (shouldClose) {
       // Wait a brief moment for any final state updates
       await Future.delayed(const Duration(milliseconds: 500));
       final finalRemaining = getRemainingItems();
       final finalRemainingHabits = finalRemaining
           .where((item) => item.templateCategoryType == 'habit')
           .toList();
-      if (finalRemainingHabits.isEmpty) {
+      final finalShouldClose = hadHabitItemsAtLaunch
+          ? finalRemainingHabits.isEmpty
+          : finalRemaining.isEmpty;
+      if (finalShouldClose) {
         await MorningCatchUpService.markDialogAsShown();
         return true;
       }

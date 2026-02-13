@@ -20,6 +20,7 @@ class ManualTimeLogModal extends StatefulWidget {
   final DateTime selectedDate;
   final VoidCallback onSave;
   final bool markCompleteOnSave;
+  final bool optimisticUiOnSave;
 
   const ManualTimeLogModal({
     super.key,
@@ -31,6 +32,7 @@ class ManualTimeLogModal extends StatefulWidget {
     this.fromTimer = false,
     this.editMetadata,
     this.markCompleteOnSave = true,
+    this.optimisticUiOnSave = false,
   });
 
   final DateTime? initialStartTime;

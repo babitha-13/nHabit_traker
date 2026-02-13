@@ -1,12 +1,19 @@
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/daily_progress_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/cumulative_score_history_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/util/firestore_util.dart';
 import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 import 'package:intl/intl.dart';
 
 /// Service for loading and managing score history for UI
 /// Handles history data loading, formatting, and updates
 class ScoreHistoryService {
+  static double _entryClosingScore(Map<String, dynamic> entry) {
+    return (entry['closingScore'] as num?)?.toDouble() ??
+        (entry['score'] as num?)?.toDouble() ??
+        0.0;
+  }
+
   /// Load cumulative score history for the last N days with today's live score
   ///
   /// If [cumulativeScore]/[todayScore] are provided, they are used for today's overlay.
@@ -62,13 +69,13 @@ class ScoreHistoryService {
       );
       if (priorRecords.isNotEmpty) {
         final prior = priorRecords.first;
-        if (prior.cumulativeScoreSnapshot > 0) {
+        if (prior.hasCumulativeScoreSnapshot()) {
           lastKnownScore = prior.cumulativeScoreSnapshot;
         }
       } else if (recordMap.isNotEmpty) {
         final sortedDates = recordMap.keys.toList()..sort();
         final first = recordMap[sortedDates.first]!;
-        if (first.cumulativeScoreSnapshot > 0) {
+        if (first.hasCumulativeScoreSnapshot()) {
           lastKnownScore = first.cumulativeScoreSnapshot - first.dailyScoreGain;
           if (lastKnownScore < 0) lastKnownScore = 0;
         }
@@ -87,7 +94,7 @@ class ScoreHistoryService {
 
       if (recordMap.containsKey(key)) {
         final record = recordMap[key]!;
-        if (record.cumulativeScoreSnapshot > 0) {
+        if (record.hasCumulativeScoreSnapshot()) {
           lastKnownScore = record.cumulativeScoreSnapshot;
         } else if (record.hasDailyScoreGain()) {
           lastKnownScore = (lastKnownScore + record.dailyScoreGain)
@@ -156,7 +163,8 @@ class ScoreHistoryService {
     }
 
     final lastIndex = history.length - 1;
-    final lastDate = history[lastIndex]['date'] as DateTime;
+    final lastDate = safeDateTime(history[lastIndex]['date']);
+    if (lastDate == null) return false;
 
     if (isSameDay(lastDate, todayStart)) {
       // Update today's entry
@@ -236,9 +244,7 @@ class ScoreHistoryService {
           scores.length > days ? scores.sublist(scores.length - days) : scores;
 
       // Get latest score values
-      final latestScore = scores.isNotEmpty
-          ? (scores.last['score'] as num?)?.toDouble() ?? 0.0
-          : 0.0;
+      final latestScore = scores.isNotEmpty ? _entryClosingScore(scores.last) : 0.0;
       final latestGain = scores.isNotEmpty
           ? (scores.last['gain'] as num?)?.toDouble() ?? 0.0
           : 0.0;
@@ -252,8 +258,8 @@ class ScoreHistoryService {
       final todayStart = DateService.todayStart;
       if (history.isNotEmpty) {
         final lastEntry = history.last;
-        final lastDate = lastEntry['date'];
-        if (lastDate is DateTime) {
+        final lastDate = safeDateTime(lastEntry['date']);
+        if (lastDate != null) {
           final isToday = lastDate.year == todayStart.year &&
               lastDate.month == todayStart.month &&
               lastDate.day == todayStart.day;
@@ -262,6 +268,7 @@ class ScoreHistoryService {
             history[history.length - 1] = {
               'date': lastDate,
               'score': finalCumulativeScore,
+              'closingScore': finalCumulativeScore,
               'gain': finalTodayScore,
             };
           }
@@ -289,12 +296,24 @@ class ScoreHistoryService {
     required String userId,
     required double cumulativeScore,
     required double todayScore,
+    double? effectiveGain,
+    DateTime? targetDate, // Optional date, defaults to yesterday
   }) async {
     if (userId.isEmpty) return;
 
     try {
+      final date = targetDate ?? DateService.yesterdayStart;
       final today = DateService.todayStart;
-      final dateKey = DateFormat('yyyy-MM-dd').format(today);
+
+      // GUARD: Don't persist today's score (it's live-only)
+      // This prevents write amplification and ensures history only contains finalized days
+      if (date.year == today.year &&
+          date.month == today.month &&
+          date.day == today.day) {
+        return;
+      }
+
+      final dateKey = DateFormat('yyyy-MM-dd').format(date);
 
       // Get current document
       final doc = await CumulativeScoreHistoryRecord.getDocument(userId);
@@ -302,25 +321,33 @@ class ScoreHistoryService {
       final scores =
           (data['scores'] as List?)?.cast<Map<String, dynamic>>() ?? [];
 
-      // Remove today's entry if it exists
+      // Remove entry for this date if it exists
       scores.removeWhere((s) {
-        final sDate = s['date'];
-        if (sDate is DateTime) {
-          return sDate.year == today.year &&
-              sDate.month == today.month &&
-              sDate.day == today.day;
-        } else if (sDate is String) {
-          return sDate == dateKey;
+        final sDate = safeDateTime(s['date']);
+        if (sDate != null) {
+          return sDate.year == date.year &&
+              sDate.month == date.month &&
+              sDate.day == date.day;
+        } else if (s['date'] is String) {
+          return s['date'] == dateKey;
         }
         return false;
       });
 
-      // Add today's entry
-      scores.add({
-        'date': today,
+      // Add entry (include effectiveGain for schema consistency with cloud function)
+      final openingScore =
+          (cumulativeScore - (effectiveGain ?? todayScore)).clamp(0.0, double.infinity);
+      final entry = <String, dynamic>{
+        'date': date,
         'score': cumulativeScore,
+        'openingScore': openingScore,
+        'closingScore': cumulativeScore,
         'gain': todayScore,
-      });
+      };
+      if (effectiveGain != null) {
+        entry['effectiveGain'] = effectiveGain;
+      }
+      scores.add(entry);
 
       // Keep only last 100 days
       if (scores.length > 100) {

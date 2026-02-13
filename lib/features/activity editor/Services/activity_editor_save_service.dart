@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
@@ -8,7 +10,6 @@ import 'package:habit_tracker/services/Activtity/start_date_change_dialog.dart';
 import 'package:habit_tracker/services/Activtity/activity_update_broadcast.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:habit_tracker/features/Essential/essential_data_service.dart';
-import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_dialog.dart';
 import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
 import 'package:habit_tracker/features/activity%20editor/presentation/activity_editor_dialog.dart';
 import 'activity_editor_helper_service.dart';
@@ -99,6 +100,91 @@ class ActivityEditorSaveService {
     }
   }
 
+  static int? _normalizedTimeEstimate(ActivityEditorDialogState state) {
+    return state.timeEstimateMinutes != null
+        ? state.timeEstimateMinutes!.clamp(1, 600)
+        : null;
+  }
+
+  static String? _selectedDueTime(ActivityEditorDialogState state) {
+    return state.selectedDueTime != null
+        ? TimeUtils.timeOfDayToString(state.selectedDueTime!)
+        : null;
+  }
+
+  static ActivityRecord _buildOptimisticEssentialUpdateRecord({
+    required ActivityEditorDialogState state,
+    required CategoryRecord selectedCategory,
+    required String operationId,
+    required String userId,
+    required ActivityRecord original,
+  }) {
+    final freqPayload =
+        ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
+    final optimisticData = Map<String, dynamic>.from(original.snapshotData)
+      ..['name'] = state.titleController.text.trim()
+      ..['description'] = state.descriptionController.text.trim().isNotEmpty
+          ? state.descriptionController.text.trim()
+          : null
+      ..['categoryId'] = state.selectedCategoryId
+      ..['categoryName'] = selectedCategory.name
+      ..['trackingType'] = 'binary'
+      ..['target'] = null
+      ..['unit'] = null
+      ..['userId'] = userId
+      ..['timeEstimateMinutes'] = _normalizedTimeEstimate(state)
+      ..['dueTime'] = _selectedDueTime(state)
+      ..['frequencyType'] = freqPayload.frequencyType
+      ..['everyXValue'] = freqPayload.everyXValue
+      ..['everyXPeriodType'] = freqPayload.everyXPeriodType
+      ..['specificDays'] = freqPayload.specificDays
+      ..['isRecurring'] = (freqPayload.frequencyType ?? '').isNotEmpty
+      ..['lastUpdated'] = DateTime.now()
+      ..['optimisticOperationId'] = operationId
+      ..['optimisticPending'] = true;
+    return ActivityRecord.getDocumentFromData(optimisticData, original.reference);
+  }
+
+  static ActivityRecord _buildOptimisticEssentialCreateRecord({
+    required ActivityEditorDialogState state,
+    required CategoryRecord selectedCategory,
+    required String operationId,
+    required String userId,
+  }) {
+    final now = DateTime.now();
+    final freqPayload =
+        ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
+    final optimisticData = createActivityRecordData(
+      name: state.titleController.text.trim(),
+      description: state.descriptionController.text.trim().isNotEmpty
+          ? state.descriptionController.text.trim()
+          : null,
+      categoryId: state.selectedCategoryId,
+      categoryName: selectedCategory.name,
+      categoryType: 'essential',
+      trackingType: 'binary',
+      target: null,
+      unit: null,
+      isActive: true,
+      isRecurring: (freqPayload.frequencyType ?? '').isNotEmpty,
+      createdTime: now,
+      lastUpdated: now,
+      userId: userId,
+      priority: 1,
+      timeEstimateMinutes: _normalizedTimeEstimate(state),
+      dueTime: _selectedDueTime(state),
+      frequencyType: freqPayload.frequencyType,
+      everyXValue: freqPayload.everyXValue,
+      everyXPeriodType: freqPayload.everyXPeriodType,
+      specificDays: freqPayload.specificDays,
+    )
+      ..['optimisticOperationId'] = operationId
+      ..['optimisticPending'] = true;
+    final optimisticRef =
+        ActivityRecord.collectionForUser(userId).doc('tmp_essential_$operationId');
+    return ActivityRecord.getDocumentFromData(optimisticData, optimisticRef);
+  }
+
   /// Create a new activity
   static Future<void> createNewActivity(
       ActivityEditorDialogState state, CategoryRecord selectedCategory) async {
@@ -186,58 +272,74 @@ class ActivityEditorSaveService {
     if (userId.isEmpty) return;
     final freqPayload =
         ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
-    final templateRef = await essentialService.createessentialTemplate(
-      name: state.titleController.text.trim(),
-      description: state.descriptionController.text.trim().isNotEmpty
-          ? state.descriptionController.text.trim()
-          : null,
-      categoryId: state.selectedCategoryId,
-      categoryName: selectedCategory.name,
-      trackingType: 'binary', // Essentials are always binary
-      target: null,
-      unit: null,
+    final operationId = 'essential_create_${DateTime.now().microsecondsSinceEpoch}';
+    final optimisticRecord = _buildOptimisticEssentialCreateRecord(
+      state: state,
+      selectedCategory: selectedCategory,
+      operationId: operationId,
       userId: userId,
-      timeEstimateMinutes: state.timeEstimateMinutes != null
-          ? state.timeEstimateMinutes!.clamp(1, 600)
-          : null,
-      dueTime: state.selectedDueTime != null
-          ? TimeUtils.timeOfDayToString(state.selectedDueTime!)
-          : null,
-      frequencyType: freqPayload.frequencyType,
-      everyXValue: freqPayload.everyXValue,
-      everyXPeriodType: freqPayload.everyXPeriodType,
-      specificDays: freqPayload.specificDays,
     );
-
-    // Fetch created template
-    ActivityRecord? created;
-    final createdDoc = await templateRef.get();
-    if (createdDoc.exists) {
-      created = ActivityRecord.fromSnapshot(createdDoc);
-    }
-
-    ActivityTemplateEvents.broadcastTemplateUpdated(
-      templateId: templateRef.id,
-      context: {
-        'action': 'created',
-        'source': 'ActivityEditorDialog',
-        'categoryType': 'essential',
-        if (state.timeEstimateMinutes != null)
-          'timeEstimateMinutes': state.timeEstimateMinutes,
-      },
-    );
+    final messenger = ScaffoldMessenger.maybeOf(state.context);
 
     if (state.mounted) {
-      Navigator.of(state.context).pop(created);
-      // Show snackbar after pop to avoid Navigator lock conflicts
-      ScaffoldMessenger.of(state.context).showSnackBar(
-        const SnackBar(
-          content: Text('Essential template created successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      Navigator.of(state.context).pop(optimisticRecord);
     }
-    state.widget.onSave?.call(created);
+    state.widget.onSave?.call(optimisticRecord);
+
+    unawaited(() async {
+      try {
+        final templateRef = await essentialService.createessentialTemplate(
+          name: state.titleController.text.trim(),
+          description: state.descriptionController.text.trim().isNotEmpty
+              ? state.descriptionController.text.trim()
+              : null,
+          categoryId: state.selectedCategoryId,
+          categoryName: selectedCategory.name,
+          trackingType: 'binary',
+          target: null,
+          unit: null,
+          userId: userId,
+          timeEstimateMinutes: _normalizedTimeEstimate(state),
+          dueTime: _selectedDueTime(state),
+          frequencyType: freqPayload.frequencyType,
+          everyXValue: freqPayload.everyXValue,
+          everyXPeriodType: freqPayload.everyXPeriodType,
+          specificDays: freqPayload.specificDays,
+        );
+
+        final createdDoc = await templateRef.get();
+        if (!createdDoc.exists) {
+          throw Exception('Template created but could not be loaded.');
+        }
+
+        final created = ActivityRecord.fromSnapshot(createdDoc);
+        final reconciledData = Map<String, dynamic>.from(created.snapshotData)
+          ..['optimisticOperationId'] = operationId;
+        final reconciled =
+            ActivityRecord.getDocumentFromData(reconciledData, created.reference);
+        state.widget.onSave?.call(reconciled);
+
+        messenger?.showSnackBar(
+          const SnackBar(
+            content: Text('Essential template created successfully!'),
+            backgroundColor: Colors.green,
+          ),
+        );
+      } catch (e) {
+        final failedData = Map<String, dynamic>.from(optimisticRecord.snapshotData)
+          ..['optimisticFailed'] = true
+          ..['optimisticError'] = e.toString();
+        final failedRecord =
+            ActivityRecord.getDocumentFromData(failedData, optimisticRecord.reference);
+        state.widget.onSave?.call(failedRecord);
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text('Error saving essential template: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }());
   }
 
   /// Update existing essential
@@ -245,63 +347,79 @@ class ActivityEditorSaveService {
       ActivityEditorDialogState state, CategoryRecord selectedCategory) async {
     final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) return;
-    final docRef = state.widget.activity!.reference;
+    final original = state.widget.activity!;
+    final docRef = original.reference;
     final freqPayload =
         ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
-
-    await essentialService.updateessentialTemplate(
-      templateId: docRef.id,
-      name: state.titleController.text.trim(),
-      description: state.descriptionController.text.trim().isNotEmpty
-          ? state.descriptionController.text.trim()
-          : null,
-      categoryId: state.selectedCategoryId,
-      categoryName: selectedCategory.name,
-      trackingType: 'binary', // Essentials are always binary
-      target: null,
-      unit: null,
+    final operationId =
+        'essential_update_${docRef.id}_${DateTime.now().microsecondsSinceEpoch}';
+    final optimisticRecord = _buildOptimisticEssentialUpdateRecord(
+      state: state,
+      selectedCategory: selectedCategory,
+      operationId: operationId,
       userId: userId,
-      timeEstimateMinutes: state.timeEstimateMinutes != null
-          ? state.timeEstimateMinutes!.clamp(1, 600)
-          : null,
-      dueTime: state.selectedDueTime != null
-          ? TimeUtils.timeOfDayToString(state.selectedDueTime!)
-          : null,
-      frequencyType: freqPayload.frequencyType,
-      everyXValue: freqPayload.everyXValue,
-      everyXPeriodType: freqPayload.everyXPeriodType,
-      specificDays: freqPayload.specificDays,
+      original: original,
     );
-
-    // Fetch updated template
-    final updatedDoc = await docRef.get();
-    ActivityRecord? updated;
-    if (updatedDoc.exists && state.mounted) {
-      updated = ActivityRecord.fromSnapshot(updatedDoc);
-    }
-
-    ActivityTemplateEvents.broadcastTemplateUpdated(
-      templateId: docRef.id,
-      context: {
-        'action': 'updated',
-        'source': 'ActivityEditorDialog',
-        'categoryType': 'essential',
-        if (state.timeEstimateMinutes != null)
-          'timeEstimateMinutes': state.timeEstimateMinutes,
-      },
-    );
+    final messenger = ScaffoldMessenger.maybeOf(state.context);
 
     if (state.mounted) {
-      Navigator.of(state.context).pop(updated);
-      // Show snackbar after pop to avoid Navigator lock conflicts
-      ScaffoldMessenger.of(state.context).showSnackBar(
-        const SnackBar(
-          content: Text('Essential template updated successfully!'),
-          backgroundColor: Colors.green,
-        ),
-      );
+      Navigator.of(state.context).pop(optimisticRecord);
     }
-    state.widget.onSave?.call(updated);
+    state.widget.onSave?.call(optimisticRecord);
+
+    unawaited(() async {
+      try {
+        await essentialService.updateessentialTemplate(
+          templateId: docRef.id,
+          name: state.titleController.text.trim(),
+          description: state.descriptionController.text.trim().isNotEmpty
+              ? state.descriptionController.text.trim()
+              : null,
+          categoryId: state.selectedCategoryId,
+          categoryName: selectedCategory.name,
+          trackingType: 'binary',
+          target: null,
+          unit: null,
+          userId: userId,
+          timeEstimateMinutes: _normalizedTimeEstimate(state),
+          dueTime: _selectedDueTime(state),
+          frequencyType: freqPayload.frequencyType,
+          everyXValue: freqPayload.everyXValue,
+          everyXPeriodType: freqPayload.everyXPeriodType,
+          specificDays: freqPayload.specificDays,
+        );
+
+        final updatedDoc = await docRef.get();
+        ActivityRecord reconciled;
+        if (updatedDoc.exists) {
+          final updated = ActivityRecord.fromSnapshot(updatedDoc);
+          final reconciledData = Map<String, dynamic>.from(updated.snapshotData)
+            ..['optimisticOperationId'] = operationId;
+          reconciled =
+              ActivityRecord.getDocumentFromData(reconciledData, updated.reference);
+        } else {
+          final fallbackData =
+              Map<String, dynamic>.from(optimisticRecord.snapshotData)
+                ..remove('optimisticPending');
+          reconciled = ActivityRecord.getDocumentFromData(fallbackData, docRef);
+        }
+        state.widget.onSave?.call(reconciled);
+      } catch (e) {
+        final rollbackData = Map<String, dynamic>.from(original.snapshotData)
+          ..['optimisticOperationId'] = operationId
+          ..['optimisticFailed'] = true
+          ..['optimisticError'] = e.toString();
+        final rollbackRecord =
+            ActivityRecord.getDocumentFromData(rollbackData, docRef);
+        state.widget.onSave?.call(rollbackRecord);
+        messenger?.showSnackBar(
+          SnackBar(
+            content: Text('Error saving essential template: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }());
   }
 
   /// Update existing activity

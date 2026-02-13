@@ -19,7 +19,7 @@ import 'package:habit_tracker/features/Progress/Pages/progress_page.dart';
 import 'package:habit_tracker/features/Goals/goal_dialog.dart';
 import 'package:habit_tracker/features/Home/CatchUp/presentation/morning_catchup_dialog.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_service.dart';
-import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/ist_day_boundary_service.dart';
 import 'package:habit_tracker/features/Settings/notification_onboarding_dialog.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_preferences_service.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/daily_notification_scheduler.dart';
@@ -35,7 +35,6 @@ import 'package:habit_tracker/features/Timer/global_floating_timer.dart';
 import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/resource_tracker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -60,6 +59,8 @@ class _HomeState extends State<Home> {
   };
   static bool _isCheckingCatchUp = false;
   Timer? _dayTransitionTimer;
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>?
+      _catchUpPendingSnackbar;
   @override
   void initState() {
     // CRITICAL: Reset observers on hot reload BEFORE widgets start adding new ones
@@ -127,6 +128,7 @@ class _HomeState extends State<Home> {
   @override
   void dispose() {
     _dayTransitionTimer?.cancel();
+    _clearCatchUpPendingSnackbar();
     NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
     super.dispose();
@@ -283,17 +285,10 @@ class _HomeState extends State<Home> {
 
   void _scheduleDayTransitionTimer() {
     _dayTransitionTimer?.cancel();
-    final now = DateTime.now();
-
-    // CLOUD FUNCTION SYNC: Target 12:05 AM to allow cloud functions (running at 12:00 AM) to complete
-    DateTime nextCheck = DateTime(now.year, now.month, now.day, 0, 5);
-
-    // If already past 12:05 AM today, schedule for tomorrow 12:05 AM
-    if (now.isAfter(nextCheck)) {
-      nextCheck = nextCheck.add(const Duration(days: 1));
-    }
-
-    final delay = nextCheck.difference(now);
+    final nextCheck = IstDayBoundaryService.nextIst005();
+    final delayMs =
+        nextCheck.millisecondsSinceEpoch - DateTime.now().millisecondsSinceEpoch;
+    final delay = Duration(milliseconds: delayMs > 0 ? delayMs : 0);
     _dayTransitionTimer = Timer(delay, _handleDayTransitionWhileOpen);
   }
 
@@ -303,12 +298,8 @@ class _HomeState extends State<Home> {
   }
 
   Future<void> _checkMorningCatchUp() async {
-    // CLOUD FUNCTION SYNC: Wait until 12:05 AM to allow cloud functions (running at 12:00 AM) to complete
-    final now = DateTime.now();
-    final today1205 = DateTime(now.year, now.month, now.day, 0, 5);
-
-    if (now.isBefore(today1205)) {
-      // Too early - let the timer handle it at 12:05
+    // Cloud-first day transition starts only after 00:05 IST.
+    if (!IstDayBoundaryService.hasReachedIst005()) {
       return;
     }
 
@@ -325,62 +316,121 @@ class _HomeState extends State<Home> {
         return;
       }
 
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
-      final prefs = await SharedPreferences.getInstance();
-      final lastProcessedDateString =
-          prefs.getString('last_end_of_day_processed');
-      DateTime? lastProcessedDate;
-      bool alreadyProcessedToday = false;
-      if (lastProcessedDateString != null) {
-        lastProcessedDate = DateTime.parse(lastProcessedDateString);
-        final lastProcessedDateOnly = DateTime(
-          lastProcessedDate.year,
-          lastProcessedDate.month,
-          lastProcessedDate.day,
-        );
-        alreadyProcessedToday = lastProcessedDateOnly.isAtSameMomentAs(today);
+      final targetDateIst = IstDayBoundaryService.yesterdayStartIst();
+      var alreadyProcessedInCloud =
+          await MorningCatchUpService.isDayTransitionProcessedInCloud(
+        userId: userId,
+        targetDateIst: targetDateIst,
+      );
+      bool ranFallback = false;
+
+      if (!alreadyProcessedInCloud) {
+        try {
+          await MorningCatchUpService.runDayTransitionForUser(
+            userId: userId,
+            targetDate: targetDateIst,
+          );
+          ranFallback = true;
+          alreadyProcessedInCloud =
+              await MorningCatchUpService.isDayTransitionProcessedInCloud(
+            userId: userId,
+            targetDateIst: targetDateIst,
+          );
+        } catch (e) {
+          if (kDebugMode) {
+            print('Cloud fallback day transition failed: $e');
+          }
+        }
       }
 
-      // Check if dialog should be shown before processing
-      final shouldShow = await MorningCatchUpService.shouldShowDialog(userId);
+      final launchState =
+          await MorningCatchUpService.getCatchUpLaunchState(userId);
 
-      if (!alreadyProcessedToday) {
-        await MorningCatchUpService.runInstanceMaintenanceForDayTransition(
-            userId);
-
-        // Persist scores in background (non-blocking)
-        // Suppress toasts if catch-up dialog will be shown (toasts will show after dialog closes)
-        unawaited(MorningCatchUpService.persistScoresForMissedDaysIfNeeded(
-            userId: userId));
-        unawaited(MorningCatchUpService.persistScoresForDate(
-          userId: userId,
-          targetDate: DateService.yesterdayStart,
-          suppressToasts: shouldShow, // Suppress toasts if dialog will be shown
-        ));
-
-        await prefs.setString(
-            'last_end_of_day_processed', today.toIso8601String());
+      if (launchState.shouldAutoResolveAfterCap) {
+        try {
+          await MorningCatchUpService.autoResolveAfterReminderCap(
+            userId: userId,
+            targetDate: targetDateIst,
+            baselineProcessedAtOpen: alreadyProcessedInCloud,
+          );
+          final hadPendingToasts = MorningCatchUpService.hasPendingToasts();
+          MorningCatchUpService.showPendingToasts();
+          if (hadPendingToasts) {
+            await MorningCatchUpService.markFinalizationToastsShownForDate(
+              targetDateIst,
+            );
+          }
+          _clearCatchUpPendingSnackbar();
+          NotificationCenter.post('loadHabits', null);
+          NotificationCenter.post('loadData', null);
+          return;
+        } catch (e) {
+          if (kDebugMode) {
+            print('Catch-up auto resolve after reminder cap failed: $e');
+          }
+        }
       }
 
-      if (shouldShow && mounted) {
-        showDialog(
+      if (launchState.shouldShow && mounted) {
+        final result = await showDialog<MorningCatchUpDialogResult>(
           context: context,
           barrierDismissible: false,
           builder: (context) => MorningCatchUpDialog(
             isDayTransition: showDayTransitionInfo,
+            initialItems: launchState.items,
+            baselineProcessedAtOpen: alreadyProcessedInCloud,
           ),
         );
-      } else if (!alreadyProcessedToday) {
-        // Refresh Queue/Progress views for the new day
-        NotificationCenter.post('loadHabits', null);
-        NotificationCenter.post('loadData', null);
+
+        if (!mounted) return;
+        if (result == MorningCatchUpDialogResult.snoozed) {
+          _showCatchUpPendingSnackbar();
+        } else {
+          _clearCatchUpPendingSnackbar();
+        }
+      } else {
+        if (alreadyProcessedInCloud || ranFallback) {
+          await MorningCatchUpService.showFinalizationToastsIfNeeded(
+            userId: userId,
+            targetDate: targetDateIst,
+          );
+        }
+        if (ranFallback) {
+          // Refresh Queue/Progress views for the new day
+          NotificationCenter.post('loadHabits', null);
+          NotificationCenter.post('loadData', null);
+        }
       }
     } catch (e) {
       // Error running day-end flow
     } finally {
       _isCheckingCatchUp = false;
     }
+  }
+
+  void _showCatchUpPendingSnackbar() {
+    if (!mounted) return;
+    _clearCatchUpPendingSnackbar();
+    _catchUpPendingSnackbar = ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        duration: const Duration(days: 1),
+        content: const Text(
+          'Catch-up is pending. Some instances/status may be outdated. Complete catch-up for accurate scores and latest instance visibility.',
+        ),
+        action: SnackBarAction(
+          label: 'Open catch-up',
+          onPressed: () {
+            _clearCatchUpPendingSnackbar();
+            unawaited(_runDayEndFlow(showDayTransitionInfo: false));
+          },
+        ),
+      ),
+    );
+  }
+
+  void _clearCatchUpPendingSnackbar() {
+    _catchUpPendingSnackbar?.close();
+    _catchUpPendingSnackbar = null;
   }
 
   Future<void> _checkNotificationOnboarding() async {

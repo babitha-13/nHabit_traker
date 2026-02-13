@@ -1,7 +1,9 @@
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:firebase_core/firebase_core.dart';
+import 'package:cloud_functions/cloud_functions.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:flutter/foundation.dart'
+    show kIsWeb, kDebugMode, defaultTargetPlatform, TargetPlatform;
 import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/services/login_response.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -29,6 +31,8 @@ SharedPref sharedPref = SharedPref();
 LoginResponse users = LoginResponse();
 // Global navigator key for notification navigation
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
+const bool _useFirebaseFunctionsEmulator =
+    bool.fromEnvironment('USE_FIREBASE_FUNCTIONS_EMULATOR', defaultValue: false);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -67,6 +71,16 @@ void main() async {
       print('Firebase initialization failed: $e');
       rethrow;
     }
+  }
+
+  if (kDebugMode && _useFirebaseFunctionsEmulator) {
+    final host = kIsWeb
+        ? 'localhost'
+        : (defaultTargetPlatform == TargetPlatform.android
+            ? '10.0.2.2'
+            : '127.0.0.1');
+    FirebaseFunctions.instance.useFunctionsEmulator(host, 5001);
+    print('Firebase Functions emulator enabled at $host:5001');
   }
 
   await FlutterFlowTheme.initialize();

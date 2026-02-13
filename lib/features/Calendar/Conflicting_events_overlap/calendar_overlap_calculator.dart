@@ -17,8 +17,9 @@ class CalendarOverlapCalculator {
   static PlannedOverlapInfo updateOverlapsAfterRemoval(
     String removedEventId,
     List<CalendarEventData> remainingEvents,
-    PlannedOverlapInfo previousOverlapInfo,
-  ) {
+    PlannedOverlapInfo previousOverlapInfo, {
+    Map<String, List<String>>? routineItemMap,
+  }) {
     // If the removed event wasn't in any overlap, just remove it from overlappedIds
     if (!previousOverlapInfo.overlappedIds.contains(removedEventId)) {
       final updatedOverlappedIds =
@@ -71,7 +72,8 @@ class CalendarOverlapCalculator {
 
     // If the removed event was in overlaps, recalculate (still faster than full recompute)
     // because we're working with a smaller list
-    return computePlannedOverlaps(remainingEvents);
+    return computePlannedOverlaps(remainingEvents,
+        routineItemMap: routineItemMap);
   }
 
   /// Incrementally update overlaps after adding a new event
@@ -79,8 +81,9 @@ class CalendarOverlapCalculator {
   static PlannedOverlapInfo updateOverlapsAfterAdd(
     CalendarEventData newEvent,
     List<CalendarEventData> allEvents,
-    PlannedOverlapInfo previousOverlapInfo,
-  ) {
+    PlannedOverlapInfo previousOverlapInfo, {
+    Map<String, List<String>>? routineItemMap,
+  }) {
     if (newEvent.startTime == null || newEvent.endTime == null) {
       return previousOverlapInfo;
     }
@@ -109,7 +112,9 @@ class CalendarOverlapCalculator {
               newEnd.isAfter(event.startTime!)) ||
           (event.startTime!.isBefore(newEnd) &&
               event.endTime!.isAfter(newStart))) {
-        overlappingEventIds.add(eventId);
+        if (!_isTaskHabitInRoutine(newEvent, event, routineItemMap)) {
+          overlappingEventIds.add(eventId);
+        }
       }
     }
 
@@ -192,8 +197,9 @@ class CalendarOverlapCalculator {
 
   /// Compute planned event overlaps
   static PlannedOverlapInfo computePlannedOverlaps(
-    List<CalendarEventData> planned,
-  ) {
+    List<CalendarEventData> planned, {
+    Map<String, List<String>>? routineItemMap,
+  }) {
     final events = planned
         .where((e) => e.startTime != null && e.endTime != null)
         .toList()
@@ -237,12 +243,29 @@ class CalendarOverlapCalculator {
       final end = e.endTime!;
       active.removeWhere((a) => !a.endTime!.isAfter(start));
       if (active.isNotEmpty) {
-        overlapPairs += active.length;
-        final id = stableEventId(e);
-        if (id != null) overlappedIds.add(id);
         for (final a in active) {
+          if (_isTaskHabitInRoutine(e, a, routineItemMap)) continue;
+
+          overlapPairs++; // Count overlap only if not excluded
           final aid = stableEventId(a);
           if (aid != null) overlappedIds.add(aid);
+          // Also add current event ID if it wasn't added yet (it's added outside the loop too, but good to be consistent with logic)
+        }
+        // If we found any valid overlaps (not excluded), we need to ensure the current event ID is added
+        // The original logic matched any overlap. Here we filter.
+        // We need to re-verify if 'e' overlaps with ANY 'a' that is NOT excluded.
+        bool hasValidOverlap = false;
+
+        for (final a in active) {
+          if (!_isTaskHabitInRoutine(e, a, routineItemMap)) {
+            hasValidOverlap = true;
+            break;
+          }
+        }
+
+        if (hasValidOverlap) {
+          final id = stableEventId(e);
+          if (id != null) overlappedIds.add(id);
         }
       }
       active.add(e);
@@ -270,5 +293,67 @@ class CalendarOverlapCalculator {
       overlappedIds: overlappedIds,
       groups: groups,
     );
+  }
+
+  /// Check if one event is a routine and the other is a task/habit belonging to that routine
+  static bool _isTaskHabitInRoutine(
+    CalendarEventData event1,
+    CalendarEventData event2,
+    Map<String, List<String>>? routineItemMap,
+  ) {
+    if (routineItemMap == null || routineItemMap.isEmpty) return false;
+
+    // Helper to get type and IDs
+    // We expect event.event to be populated with metadata
+    if (event1.event is! Map<String, dynamic> ||
+        event2.event is! Map<String, dynamic>) {
+      return false;
+    }
+    final meta1 = event1.event as Map<String, dynamic>;
+    final meta2 = event2.event as Map<String, dynamic>;
+
+    if (meta1 == null || meta2 == null) return false;
+
+    // Check 1 is routine, 2 is task
+    if (_checkRoutineTaskPair(meta1, meta2, routineItemMap)) return true;
+
+    // Check 2 is routine, 1 is task
+    if (_checkRoutineTaskPair(meta2, meta1, routineItemMap)) return true;
+
+    return false;
+  }
+
+  static bool _checkRoutineTaskPair(
+    Map<String, dynamic> routineMeta,
+    Map<String, dynamic> itemMeta,
+    Map<String, List<String>> routineItemMap,
+  ) {
+    // Check if first is routine
+    // 'activityType' for routine is 'routine' based on CalendarEventService
+    if (routineMeta['activityType'] != 'routine') return false;
+
+    // Check if second is task/habit/essential
+    // Tasks usually have 'task', 'habit', or 'essential'
+    final itemType = itemMeta['activityType'];
+    if (itemType == 'routine')
+      return false; // Both are routines (or conflicting routines)
+
+    // Get routineId
+    // In CalendarEventService: if (r.routineId != null) 'routineId': r.routineId
+    final routineId = routineMeta['routineId'] as String?;
+    if (routineId == null) return false;
+
+    // Get item templateId
+    // In CalendarEventService: templateId: item.templateId
+    final templateId = itemMeta['templateId'] as String?;
+    if (templateId == null) return false;
+
+    // Check if templateId is in the routine's items
+    final routineItems = routineItemMap[routineId];
+    if (routineItems != null && routineItems.contains(templateId)) {
+      return true;
+    }
+
+    return false;
   }
 }

@@ -114,7 +114,18 @@ class ManualTimeLogSaveService {
     }
 
     if (!state.mounted) return;
-    state.setState(() => state.isLoading = true);
+    final closeOptimistically = state.widget.optimisticUiOnSave;
+    final rootContext =
+        Navigator.of(state.context, rootNavigator: true).context;
+
+    if (!closeOptimistically) {
+      state.setState(() => state.isLoading = true);
+    } else {
+      Navigator.of(state.context).pop();
+      if (state.widget.fromTimer) {
+        state.widget.onSave();
+      }
+    }
 
     try {
       final userId = await waitForCurrentUserUid();
@@ -261,22 +272,28 @@ class ManualTimeLogSaveService {
         );
       }
 
-      // Close modal first, then call onSave
-      if (state.mounted) {
+      // In optimistic mode the modal is already closed before backend sync.
+      if (!closeOptimistically && state.mounted) {
         Navigator.of(state.context).pop();
         state.widget.onSave();
       }
     } catch (e) {
-      // Error saving time entry
+      if (closeOptimistically) {
+        if (rootContext.mounted) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            SnackBar(
+              content: Text('Failed to save entry: ${e.toString()}'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
 
-      // Get root context before closing modal
-      final rootContext =
-          Navigator.of(state.context, rootNavigator: true).context;
-
-      // Close modal first, then show error
       if (state.mounted) {
         Navigator.of(state.context).pop();
-        // Show error message after a short delay to ensure modal is closed
         Future.delayed(const Duration(milliseconds: 300), () {
           if (rootContext.mounted) {
             ScaffoldMessenger.of(rootContext).showSnackBar(
@@ -291,7 +308,7 @@ class ManualTimeLogSaveService {
         });
       }
     } finally {
-      if (state.mounted) {
+      if (!closeOptimistically && state.mounted) {
         state.setState(() => state.isLoading = false);
       }
     }
@@ -302,7 +319,13 @@ class ManualTimeLogSaveService {
     if (state.widget.editMetadata == null) return;
 
     if (!state.mounted) return;
-    state.setState(() => state.isLoading = true);
+    final closeOptimistically = state.widget.optimisticUiOnSave;
+    final rootContext =
+        Navigator.of(state.context, rootNavigator: true).context;
+
+    if (!closeOptimistically) {
+      state.setState(() => state.isLoading = true);
+    }
 
     try {
       final userId = await waitForCurrentUserUid();
@@ -346,7 +369,7 @@ class ManualTimeLogSaveService {
         );
 
         if (userChoice == null || userChoice == 'cancel') {
-          if (state.mounted) {
+          if (!closeOptimistically && state.mounted) {
             state.setState(() => state.isLoading = false);
           }
           return;
@@ -376,10 +399,17 @@ class ManualTimeLogSaveService {
         );
 
         if (confirmed != true) {
-          if (state.mounted) {
+          if (!closeOptimistically && state.mounted) {
             state.setState(() => state.isLoading = false);
           }
           return;
+        }
+      }
+
+      if (closeOptimistically && state.mounted) {
+        Navigator.of(state.context).pop();
+        if (state.widget.fromTimer) {
+          state.widget.onSave();
         }
       }
 
@@ -397,13 +427,25 @@ class ManualTimeLogSaveService {
         sessionIndex: state.widget.editMetadata!.sessionIndex,
       );
 
-      if (state.mounted) {
+      if (!closeOptimistically && state.mounted) {
         Navigator.of(state.context).pop();
         state.widget.onSave();
       }
     } catch (e) {
-      final rootContext =
-          Navigator.of(state.context, rootNavigator: true).context;
+      if (closeOptimistically) {
+        if (rootContext.mounted) {
+          ScaffoldMessenger.of(rootContext).showSnackBar(
+            SnackBar(
+              content: Text('Failed to delete entry: ${e.toString()}'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              duration: const Duration(seconds: 4),
+            ),
+          );
+        }
+        return;
+      }
+
       if (state.mounted) {
         Navigator.of(state.context).pop();
         Future.delayed(const Duration(milliseconds: 300), () {
@@ -420,7 +462,7 @@ class ManualTimeLogSaveService {
         });
       }
     } finally {
-      if (state.mounted) {
+      if (!closeOptimistically && state.mounted) {
         state.setState(() => state.isLoading = false);
       }
     }

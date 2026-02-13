@@ -128,6 +128,11 @@ class UserProgressStatsRecord extends FirestoreRecord {
   DateTime? get lastAggregateStatsCalculationDate => _lastAggregateStatsCalculationDate;
   bool hasLastAggregateStatsCalculationDate() => _lastAggregateStatsCalculationDate != null;
 
+  // "lastProcessedDate" field - cloud day-transition marker (IST day)
+  DateTime? _lastProcessedDate;
+  DateTime? get lastProcessedDate => _lastProcessedDate;
+  bool hasLastProcessedDate() => _lastProcessedDate != null;
+
   void _initializeFields() {
     _userId = snapshotData['userId'] as String?;
     _cumulativeScore = (snapshotData['cumulativeScore'] as num?)?.toDouble();
@@ -153,6 +158,7 @@ class UserProgressStatsRecord extends FirestoreRecord {
     _averageCumulativeScore7Day = (snapshotData['averageCumulativeScore7Day'] as num?)?.toDouble();
     _averageCumulativeScore30Day = (snapshotData['averageCumulativeScore30Day'] as num?)?.toDouble();
     _lastAggregateStatsCalculationDate = snapshotData['lastAggregateStatsCalculationDate'] as DateTime?;
+    _lastProcessedDate = snapshotData['lastProcessedDate'] as DateTime?;
   }
 
   static CollectionReference get collection =>
@@ -234,6 +240,7 @@ Map<String, dynamic> createUserProgressStatsRecordData({
   double? averageCumulativeScore7Day,
   double? averageCumulativeScore30Day,
   DateTime? lastAggregateStatsCalculationDate,
+  DateTime? lastProcessedDate,
 }) {
   final firestoreData = mapToFirestore(
     <String, dynamic>{
@@ -260,6 +267,7 @@ Map<String, dynamic> createUserProgressStatsRecordData({
       'averageCumulativeScore7Day': averageCumulativeScore7Day,
       'averageCumulativeScore30Day': averageCumulativeScore30Day,
       'lastAggregateStatsCalculationDate': lastAggregateStatsCalculationDate,
+      'lastProcessedDate': lastProcessedDate,
     }.withoutNulls,
   );
   return firestoreData;
@@ -296,7 +304,9 @@ class UserProgressStatsRecordDocumentEquality
         e1?.scoreGrowthRate30Day == e2?.scoreGrowthRate30Day &&
         e1?.averageCumulativeScore7Day == e2?.averageCumulativeScore7Day &&
         e1?.averageCumulativeScore30Day == e2?.averageCumulativeScore30Day &&
-        e1?.lastAggregateStatsCalculationDate == e2?.lastAggregateStatsCalculationDate;
+        e1?.lastAggregateStatsCalculationDate ==
+            e2?.lastAggregateStatsCalculationDate &&
+        e1?.lastProcessedDate == e2?.lastProcessedDate;
   }
 
   @override
@@ -324,5 +334,6 @@ class UserProgressStatsRecordDocumentEquality
         e?.averageCumulativeScore7Day,
         e?.averageCumulativeScore30Day,
         e?.lastAggregateStatsCalculationDate,
+        e?.lastProcessedDate,
       ]);
 }
