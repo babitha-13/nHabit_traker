@@ -3,6 +3,7 @@ import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:vibration/vibration.dart';
 
@@ -11,6 +12,8 @@ import 'package:vibration/vibration.dart';
 @pragma('vm:entry-point')
 class AlarmService {
   static bool _initialized = false;
+  static const Duration _maxFallbackAlarmFeedbackDuration =
+      Duration(minutes: 2);
 
   /// Initialize the alarm service
   static Future<bool> initialize() async {
@@ -139,6 +142,9 @@ class AlarmService {
       try {
         if (await Vibration.hasVibrator()) {
           Vibration.vibrate(pattern: [0, 1000, 1000, 1000], repeat: 1);
+          Timer(_maxFallbackAlarmFeedbackDuration, () {
+            Vibration.cancel();
+          });
         }
       } catch (e) {
         // Vibration failed, continue without it
@@ -155,11 +161,39 @@ class AlarmService {
         ringingPayload += '|$reminderId';
       }
 
+      final actions = <AndroidNotificationAction>[
+        AndroidNotificationAction(
+          'ALARM_DISMISS:${reminderId ?? id}',
+          'Dismiss',
+          cancelNotification: true,
+        ),
+      ];
+      if (reminderId != null && reminderId.isNotEmpty) {
+        actions.add(
+          AndroidNotificationAction(
+            'ALARM_SNOOZE_10:$reminderId',
+            'Snooze 10m',
+            cancelNotification: true,
+          ),
+        );
+      }
+      if (payload != null && payload.isNotEmpty) {
+        actions.add(
+          AndroidNotificationAction(
+            'ALARM_OPEN:$payload',
+            'Open task',
+            showsUserInterface: true,
+            cancelNotification: true,
+          ),
+        );
+      }
+
       await NotificationService.showImmediate(
         id: 'alarm_${reminderId ?? id}',
         title: title,
         body: body,
         payload: ringingPayload, // Special payload format
+        actions: actions,
       );
     } catch (e) {
       // Failed to show notification from alarm callback

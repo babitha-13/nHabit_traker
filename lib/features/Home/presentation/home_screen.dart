@@ -22,6 +22,7 @@ import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_servic
 import 'package:habit_tracker/core/utils/Date_time/ist_day_boundary_service.dart';
 import 'package:habit_tracker/features/Settings/notification_onboarding_dialog.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_preferences_service.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/daily_notification_scheduler.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/engagement_reminder_scheduler.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/reminder_scheduler.dart';
@@ -96,6 +97,7 @@ class _HomeState extends State<Home> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService.processPendingNotificationResponses();
       Future.wait([
         _checkMorningCatchUp(),
         _checkGoalOnboarding(),

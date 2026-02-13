@@ -8,6 +8,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Queue/queue_page.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/snooze_dialog.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/reminder_scheduler.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/core/constants.dart';
 import 'package:habit_tracker/main.dart';
 
@@ -73,13 +75,7 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
       }
 
       final instances = await queryAllInstances(userId: userId);
-      final instance = instances.firstWhere(
-        (i) => i.reference.id == instanceId,
-        orElse: () => instances.firstWhere(
-          (i) => i.templateId == instanceId,
-          orElse: () => instances.first,
-        ),
-      );
+      final instance = _resolveInstance(instances, instanceId);
 
       setState(() {
         _instance = instance;
@@ -89,6 +85,30 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
       print('AlarmRingingPage: Error loading instance: $e');
       setState(() => _isLoadingInstance = false);
     }
+  }
+
+  ActivityInstanceRecord? _resolveInstance(
+    List<ActivityInstanceRecord> instances,
+    String instanceId,
+  ) {
+    if (instances.isEmpty) return null;
+
+    for (final instance in instances) {
+      if (instance.reference.id == instanceId) {
+        return instance;
+      }
+    }
+
+    ActivityInstanceRecord? templateMatch;
+    for (final instance in instances) {
+      if (instance.templateId != instanceId) continue;
+      if (instance.status == 'pending' && instance.isActive) {
+        return instance;
+      }
+      templateMatch ??= instance;
+    }
+
+    return templateMatch;
   }
 
   Future<void> _initializeAlarm() async {
@@ -140,11 +160,15 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
 
   void _dismissAlarm() {
     _stopAlarm();
+    NotificationService.clearActiveAlarm();
     if (Navigator.canPop(context)) {
       Navigator.pop(context);
     } else {
       // Navigate to home if we can't pop
-      Navigator.of(context).pushReplacementNamed('/');
+      Navigator.of(context).pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
     }
   }
 
@@ -245,176 +269,263 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
   }
 
   Future<void> _handleSnooze() async {
-    if (_instance == null) return;
-
-    // Find reminder ID from payload or construct it
-    String reminderId;
-    // Check if payload contains the original reminder ID
-    if (widget.payload != null &&
-        widget.payload!.startsWith('ALARM_RINGING:')) {
-      // payload format: ALARM_RINGING:title|body|instanceId|reminderId
-      final parts =
-          widget.payload!.substring('ALARM_RINGING:'.length).split('|');
-      if (parts.length >= 4) {
-        reminderId = parts[3];
-      } else {
-        reminderId = '${_instance!.reference.id}_reminder';
-      }
-    } else {
-      reminderId = '${_instance!.reference.id}_reminder';
-    }
+    final reminderId = _extractReminderId();
+    if (reminderId == null) return;
 
     await SnoozeDialog.show(context: context, reminderId: reminderId);
     _dismissAlarm();
   }
 
+  String? _extractReminderId() {
+    if (widget.payload != null &&
+        widget.payload!.startsWith('ALARM_RINGING:')) {
+      final parts =
+          widget.payload!.substring('ALARM_RINGING:'.length).split('|');
+      if (parts.length >= 4 && parts[3].trim().isNotEmpty && parts[3] != 'null') {
+        return parts[3].trim();
+      }
+    }
+    if (_instance != null) {
+      return '${_instance!.reference.id}_reminder';
+    }
+    return null;
+  }
+
+  Future<void> _quickSnooze(int minutes) async {
+    final reminderId = _extractReminderId();
+    if (reminderId == null) return;
+    try {
+      await ReminderScheduler.snoozeReminder(
+        reminderId: reminderId,
+        durationMinutes: minutes,
+      );
+      _dismissAlarm();
+    } catch (e) {
+      print('AlarmRingingPage: Quick snooze failed: $e');
+    }
+  }
+
+  String _primaryActionLabel() {
+    final trackingType = _instance?.templateTrackingType ?? 'binary';
+    switch (trackingType) {
+      case 'quantitative':
+        return 'Add 1';
+      case 'time':
+        return 'Start timer';
+      case 'binary':
+      default:
+        return 'Mark as complete';
+    }
+  }
+
+  Future<void> _handlePrimaryAction() async {
+    final trackingType = _instance?.templateTrackingType ?? 'binary';
+    if (trackingType == 'quantitative') {
+      await _handleAdd();
+      return;
+    }
+    if (trackingType == 'time') {
+      await _handleTimer();
+      return;
+    }
+    await _handleComplete();
+  }
+
+  String? _buildDueContext() {
+    final instance = _instance;
+    if (instance == null) return null;
+    final dueDate = instance.dueDate;
+    final dueTime = instance.dueTime;
+    if (dueDate == null && (dueTime == null || dueTime.isEmpty)) {
+      return null;
+    }
+
+    if (dueDate != null && dueTime != null && dueTime.isNotEmpty) {
+      return 'Due ${dueDate.month}/${dueDate.day} at $dueTime';
+    }
+    if (dueDate != null) {
+      return 'Due ${dueDate.month}/${dueDate.day}';
+    }
+    return 'Due at $dueTime';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final title = _instance?.templateName.isNotEmpty == true
+        ? _instance!.templateName
+        : widget.title;
+    final subtitle = widget.body;
+    final dueContext = _buildDueContext();
+    final canSnooze = _extractReminderId() != null;
+
     return Scaffold(
-      backgroundColor: Colors.black,
+      backgroundColor: const Color(0xFF0F1115),
       body: SafeArea(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            const Icon(
-              Icons.alarm,
-              size: 80,
-              color: Colors.white,
-            ),
-            const SizedBox(height: 32),
-            Text(
-              widget.title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontSize: 28,
-                fontWeight: FontWeight.bold,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const Row(
+                children: [
+                  Icon(Icons.alarm, size: 28, color: Color(0xFFFF6B6B)),
+                  SizedBox(width: 10),
+                  Text(
+                    'Alarm ringing',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ],
               ),
-              textAlign: TextAlign.center,
-            ),
-            if (widget.body != null) ...[
               const SizedBox(height: 16),
-              Text(
-                widget.body!,
-                style: const TextStyle(
-                  color: Colors.white70,
-                  fontSize: 18,
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF1C2129),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: const Color(0xFF2F3743)),
                 ),
-                textAlign: TextAlign.center,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 24,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    if (subtitle != null && subtitle.trim().isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        subtitle,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 14,
+                        ),
+                      ),
+                    ],
+                    if (dueContext != null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        dueContext,
+                        style: const TextStyle(
+                          color: Color(0xFF9AD0FF),
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
+                    if (_instance != null) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        'Type: ${_instance!.templateTrackingType}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-            ],
-            const SizedBox(height: 64),
-            // Action buttons based on instance type
-            if (!_isLoadingInstance && _instance != null) ...[
-              _buildActionButtons(),
-              const SizedBox(height: 16),
-            ],
-            // Dismiss button
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32),
-              child: SizedBox(
+              const SizedBox(height: 20),
+              if (_isLoadingInstance)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 32),
+                  child: Center(child: CircularProgressIndicator()),
+                ),
+              if (!_isLoadingInstance && _instance == null)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 8),
+                  child: Text(
+                    'Task details are unavailable. You can still snooze or dismiss this alarm.',
+                    style: TextStyle(
+                      color: Colors.white60,
+                      fontSize: 13,
+                    ),
+                  ),
+                ),
+              if (!_isLoadingInstance && _instance != null) ...[
+                SizedBox(
+                  height: 64,
+                  child: ElevatedButton(
+                    onPressed: _handlePrimaryAction,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2EB67D),
+                      foregroundColor: Colors.white,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(14),
+                      ),
+                    ),
+                    child: Text(
+                      _primaryActionLabel(),
+                      style: const TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 18),
+              ],
+              Text(
+                'Quick snooze',
+                style: TextStyle(
+                  color: canSnooze ? Colors.white : Colors.white38,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: [
+                  for (final minutes in const [5, 10, 15, 30])
+                    ActionChip(
+                      label: Text('${minutes}m'),
+                      onPressed: canSnooze ? () => _quickSnooze(minutes) : null,
+                      backgroundColor: const Color(0xFF2A2F38),
+                      labelStyle: const TextStyle(color: Colors.white),
+                    ),
+                  ActionChip(
+                    label: const Text('More'),
+                    onPressed: canSnooze ? _handleSnooze : null,
+                    backgroundColor: const Color(0xFF2A2F38),
+                    labelStyle: const TextStyle(color: Colors.white),
+                  ),
+                ],
+              ),
+              const Spacer(),
+              SizedBox(
                 width: double.infinity,
-                height: 56,
+                height: 58,
                 child: ElevatedButton(
                   onPressed: _dismissAlarm,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.red,
+                    backgroundColor: const Color(0xFFD94B4B),
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(28),
+                      borderRadius: BorderRadius.circular(30),
                     ),
                   ),
                   child: const Text(
-                    'DISMISS',
+                    'Dismiss',
                     style: TextStyle(
                       fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      letterSpacing: 1.2,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 0.4,
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionButtons() {
-    if (_instance == null) return const SizedBox.shrink();
-
-    final trackingType = _instance!.templateTrackingType;
-    final buttons = <Widget>[];
-
-    // Add action button based on tracking type
-    switch (trackingType) {
-      case 'binary':
-        buttons.add(
-          _buildActionButton(
-            'Mark as complete',
-            Colors.green,
-            _handleComplete,
-          ),
-        );
-        break;
-      case 'quantitative':
-        buttons.add(
-          _buildActionButton(
-            'Add 1',
-            Colors.blue,
-            _handleAdd,
-          ),
-        );
-        break;
-      case 'time':
-        buttons.add(
-          _buildActionButton(
-            'Start timer',
-            Colors.orange,
-            _handleTimer,
-          ),
-        );
-        break;
-    }
-
-    // Always add snooze button
-    buttons.add(
-      _buildActionButton(
-        'Snooze',
-        Colors.grey,
-        _handleSnooze,
-      ),
-    );
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 32),
-      child: Wrap(
-        spacing: 12,
-        runSpacing: 12,
-        alignment: WrapAlignment.center,
-        children: buttons,
-      ),
-    );
-  }
-
-  Widget _buildActionButton(String label, Color color, VoidCallback onPressed) {
-    return SizedBox(
-      width: 140,
-      height: 48,
-      child: ElevatedButton(
-        onPressed: onPressed,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: Colors.white,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(24),
-          ),
-        ),
-        child: Text(
-          label,
-          style: const TextStyle(
-            fontSize: 14,
-            fontWeight: FontWeight.w600,
+            ],
           ),
         ),
       ),

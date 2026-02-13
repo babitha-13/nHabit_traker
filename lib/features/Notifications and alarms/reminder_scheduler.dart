@@ -583,6 +583,9 @@ class ReminderScheduler {
 
       // Try to find instance by parsing reminderId
       final instances = await queryAllInstances(userId: userId);
+      if (instances.isEmpty) {
+        return;
+      }
 
       // Check if reminderId starts with an instance ID
       for (final instance in instances) {
@@ -606,18 +609,19 @@ class ReminderScheduler {
           if (parts.length >= 2) {
             reminderConfigId = parts[1];
           }
-          // Find active instance for this template
-          final activeInstance = instances.firstWhere(
-            (i) =>
-                i.templateId == templateId &&
-                i.status == 'pending' &&
-                i.isActive,
-            orElse: () => instances.firstWhere(
-              (i) => i.templateId == templateId,
-              orElse: () => instances.first,
-            ),
-          );
-          instanceId = activeInstance.reference.id;
+          ActivityInstanceRecord? matchedInstance;
+          for (final instance in instances) {
+            if (instance.templateId != templateId) continue;
+            if (instance.status == 'pending' && instance.isActive) {
+              matchedInstance = instance;
+              break;
+            }
+            matchedInstance ??= instance;
+          }
+          if (matchedInstance != null) {
+            instanceId = matchedInstance.reference.id;
+            templateId = matchedInstance.templateId;
+          }
         }
       }
 
@@ -627,10 +631,16 @@ class ReminderScheduler {
       }
 
       // Get the instance
-      final instance = instances.firstWhere(
-        (i) => i.reference.id == instanceId,
-        orElse: () => instances.first,
-      );
+      ActivityInstanceRecord? instance;
+      for (final candidate in instances) {
+        if (candidate.reference.id == instanceId) {
+          instance = candidate;
+          break;
+        }
+      }
+      if (instance == null) {
+        return;
+      }
 
       // Get template to find reminder config
       final templateRef =
@@ -732,6 +742,7 @@ class ReminderScheduler {
             'COMPLETE:$instanceId',
             'Mark as complete',
             icon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+            showsUserInterface: true,
           ),
         );
         break;
@@ -741,6 +752,7 @@ class ReminderScheduler {
             'ADD:$instanceId',
             'Add 1',
             icon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+            showsUserInterface: true,
           ),
         );
         break;
@@ -750,6 +762,7 @@ class ReminderScheduler {
             'TIMER:$instanceId',
             'Start timer',
             icon: const DrawableResourceAndroidBitmap('@mipmap/ic_launcher'),
+            showsUserInterface: true,
           ),
         );
         break;

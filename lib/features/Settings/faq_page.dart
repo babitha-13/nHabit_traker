@@ -41,7 +41,7 @@ class FaqPage extends StatelessWidget {
                         'Can be one-off (Fix the AC) or recurring (Pay rent every month).',
                         'Have a due date. If missed, they become overdue and stay until completed, skipped, or deleted.',
                         'Cannot be snoozed.',
-                        'Historical progress isnâ€™t tracked (focus is on getting them done).',
+                        'Historical progress is not tracked (focus is on getting them done).',
                       ],
                     ),
                     const _CompareCard(
@@ -50,9 +50,9 @@ class FaqPage extends StatelessWidget {
                       bullets: [
                         'Things you want to build or aspire to do.',
                         'Always recurring (Daily/weekly patterns).',
-                        'Have a completion window (e.g., â€œjog once within 7 daysâ€).',
+                        'Have a completion window (e.g., "jog once within 7 days").',
                         'If not done within the window, it auto-skips and the next window/target appears.',
-                        'Can be snoozed within the window if you know you canâ€™t do it for a few days.',
+                        'Can be snoozed within the window if you know you cannot do it for a few days.',
                         'Historical progress is tracked (last 7/30 days, streak-style insights).',
                       ],
                     ),
@@ -81,7 +81,7 @@ class FaqPage extends StatelessWidget {
               ),
               const SizedBox(height: 10),
               Text(
-                'Both tasks and habits can be tracked as Binary, Quantity, or Time depending on what â€œprogressâ€ means for that activity.',
+                'Both tasks and habits can be tracked as Binary, Quantity, or Time depending on what "progress" means for that activity.',
                 style: theme.bodySmall,
               ),
             ],
@@ -106,7 +106,7 @@ class FaqPage extends StatelessWidget {
             title: 'Scoring (the basics)',
             children: [
               _Bullet(
-                'Your points are primarily driven by Priority. As a simple mental model: 1-star â‰ˆ 1 point, 3-star â‰ˆ 3 points for the same amount of progress.',
+                'Your points are primarily driven by Priority. As a simple mental model: 1-star ~ 1 point, 3-star ~ 3 points for the same amount of progress.',
               ),
               _Bullet(
                 'Quantity is scored by quantity progress. Time is scored by time progress. Binary is scored by completion (and optionally time spent if Effort Mode is ON).',
@@ -145,14 +145,14 @@ class FaqPage extends StatelessWidget {
                 title:
                     'When Effort Mode is OFF (examples for a 1-star activity)',
                 body: 'Binary:\n'
-                    '- Completed â†’ 1 pt\n'
-                    '- Not completed â†’ 0 pts\n'
-                    '- Time is still logged to the calendar, but doesnâ€™t affect binary scoring.\n'
+                    '- Completed -> 1 pt\n'
+                    '- Not completed -> 0 pts\n'
+                    '- Time is still logged to the calendar, but does not affect binary scoring.\n'
                     '\n'
                     'Time:\n'
                     '- Scored by actual time vs your time target.\n'
-                    '  Example: target 2h, logged 2h â†’ 1 pt.\n'
-                    '  Example: target 1h, logged 2h â†’ 2 pts.\n'
+                    '  Example: target 2h, logged 2h -> 1 pt.\n'
+                    '  Example: target 1h, logged 2h -> 2 pts.\n'
                     '\n'
                     'Quantity:\n'
                     '- Scored by actual quantity vs target quantity.',
@@ -164,13 +164,13 @@ class FaqPage extends StatelessWidget {
             title: 'Partial completion',
             children: [
               _Bullet(
-                  'You donâ€™t have to give up on an activity if you canâ€™t finish it fullyâ€”partial effort can still earn points (except Binary).'),
+                  'You do not have to give up on an activity if you cannot finish it fully - partial effort can still earn points (except Binary).'),
               _Bullet(
-                  'Binary: no partial points (itâ€™s either completed or not).'),
+                  'Binary: no partial points (it is either completed or not).'),
               _Bullet(
-                  'Quantity: points scale with completion ratio. Example: 4 out of 8 â†’ 0.5 points (for a 1-star item).'),
+                  'Quantity: points scale with completion ratio. Example: 4 out of 8 -> 0.5 points (for a 1-star item).'),
               _Bullet(
-                  'Time: points scale with completion ratio in Goal mode. Example: 15m out of 1h target â†’ 0.25 points (for a 1-star item).'),
+                  'Time: points scale with completion ratio in Goal mode. Example: 15m out of 1h target -> 0.25 points (for a 1-star item).'),
             ],
           ),
           const SizedBox(height: 16),
@@ -178,21 +178,21 @@ class FaqPage extends StatelessWidget {
             title: 'Over-completion',
             children: [
               _Bullet(
-                  'You can earn more points by exceeding your targetsâ€”extra effort is rewarded.'),
+                  'You can earn more points by exceeding your targets - extra effort is rewarded.'),
               _Bullet(
                   'Binary: over-completion is not a concept in Goal mode. In Effort mode, binary tasks scale target+earned together, while binary habits treat extra time as over-completion.'),
               _Bullet(
-                  'Quantity: over-completion earns more points in both modes. Example: 10 vs 8 target â†’ 1.25 points (for a 1-star item).'),
+                  'Quantity: over-completion earns more points in both modes. Example: 10 vs 8 target -> 1.25 points (for a 1-star item).'),
               _Bullet(
                 'Time: you can earn more points by spending more time in both modes, but the calculation differs.\n'
                 '- Effort mode ON: extra time uses diminishing returns (e.g., target 30m, logged 60m -> 1.7 pts for 1-star)\n'
-                '- Effort mode OFF: points are based on time vs your target (e.g., 2h on a 1h target â†’ 2 pts for 1-star)',
+                '- Effort mode OFF: points are based on time vs your target (e.g., 2h on a 1h target -> 2 pts for 1-star)',
               ),
             ],
           ),
           const SizedBox(height: 16),
           const _Section(
-            title: 'What does â€œPriorityâ€ mean?',
+            title: 'What does "Priority" mean?',
             children: [
               _Bullet(
                 'Priority is the main weight for points. Higher priority items award more points for the same progress/time.',
@@ -207,7 +207,7 @@ class FaqPage extends StatelessWidget {
                 'Essential Activities track time but do not earn points.',
               ),
               _Bullet(
-                'Windowed habits (multi-day windows) can award points based on todayâ€™s contribution within the window.',
+                'Windowed habits (multi-day windows) can award points based on today\'s contribution within the window.',
               ),
               _Bullet(
                 'Logged time can come from timers or manual time logs (depending on the activity).',

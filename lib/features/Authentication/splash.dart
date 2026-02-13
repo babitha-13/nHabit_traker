@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/services/login_response.dart';
 import 'package:habit_tracker/core/constants.dart';
 import 'package:habit_tracker/core/services/local_storage_services.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/main.dart';
 
 class Splash extends StatefulWidget {
@@ -28,6 +29,7 @@ class _SplashState extends State<Splash> {
 
     if (value.isNotEmpty) {
       users = LoginResponse.fromJson(value);
+      NotificationService.processPendingNotificationResponses();
       // Wait 3 seconds then navigate to home
       Timer(const Duration(seconds: 3), () {
         if (mounted) {
