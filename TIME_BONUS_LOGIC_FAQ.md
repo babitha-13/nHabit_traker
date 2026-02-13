@@ -1,205 +1,130 @@
-# Time Bonus Logic FAQ (Developer)
+# Time Bonus Logic FAQ (Planned Unified Design)
 
-This document explains the current scoring behavior in code for time bonus (Effort Mode), including task vs habit differences and edge cases.
+This document captures the planned scoring policy to finalize before full code rollout.
 
-## Source of Truth (Code)
+## Product Intent
 
-- `lib/features/Progress/Point_system_helper/points_service.dart`
-- `lib/features/Progress/Point_system_helper/binary_time_bonus_helper.dart`
-- `lib/features/Shared/Points_and_Scores/daily_points_calculator.dart`
-- `lib/services/Activtity/task_instance_service/task_instance_time_logging_service.dart`
-- `lib/services/app_state.dart` (`timeBonusEnabled`)
+- The app should allow over-completion (unlike many apps), especially for timer/time tracking.
+- Over-completion must always be diminishing to avoid one-activity domination.
+- Binary tracking remains completion-centric (done vs not done), with no binary over-completion percentage.
+- Quantity tracking is unaffected by this time-bonus design.
 
-## Quick Terms
+## Global Principle
 
-- `priority` = point weight (usually 1, 2, 3...)
-- `timeBonusEnabled`:
-  - `false` = Goal mode
-  - `true` = Effort mode
-- Bonus block size = `30 minutes`
-- Diminishing ratio = `0.7`
+All over-completion uses diminishing returns.
 
-## Core Bonus Formula
+- Diminishing ratio per additional block: `0.7`
+- Full blocks only for bonus steps (partial block does not trigger the next bonus step)
+- Rounded values may be shown in UI, but computation uses full precision
 
-For extra time:
+## Bonus ON (Effort Mode): 30-Minute Block System
 
-`bonus = priority * sum(0.7^i) for i = 1..N`
+When `timeBonusEnabled = true`, both binary and time tracking use 30-minute block logic.
 
-Where:
+### Shared Definitions
 
-- `N = floor(excessMinutes / 30)`
-- only full 30-minute excess blocks count
+- `targetMinutes`: planned/estimated duration
+- `loggedMinutes`: actual logged duration
+- `baseSpanMinutes = min(targetMinutes, 30)`
+- `bonus(excessMinutes) = sum(0.7^i) for i = 1..floor(excessMinutes / 30)`
 
-Examples of bonus multiplier (priority = 1):
+### Score Curve Used in ON Mode
 
-- 0 full blocks: `+0.0`
-- 1 full block (30-59 extra min): `+0.7`
-- 2 full blocks (60-89 extra min): `+1.19`
-- 3 full blocks (90-119 extra min): `+1.533`
+For any duration `m` with target context `targetMinutes`:
 
-## 1) Binary Tracking
+- if `m <= baseSpanMinutes`: `score = (m / baseSpanMinutes) * priority`
+- if `m > baseSpanMinutes`: `score = priority + priority * bonus(m - baseSpanMinutes)`
 
-### Binary Earned Points
+This curve makes all provided examples consistent.
 
-- Base earned:
-  - usually `priority` when completed
-  - if binary counter is used: `(count / target) * priority`
-- In Effort mode (`timeBonusEnabled = true`), if time exists:
-  - baseline = `templateTimeEstimateMinutes` if set and `> 0`, else `30`
-  - extra bonus uses the diminishing formula above
+## Binary (Bonus ON)
 
-### Binary Target Points (Important Task vs Habit Difference)
+Binary is completion-first, no over-completion percentage.
 
-- Binary task targets are adjusted by the same bonus amount:
-  - `taskTarget += priority + binaryTimeBonusAdjustment`
-  - effect: a task can stay around `100%` even when extra time increases earned
-- Binary habit targets are not adjusted for this bonus path:
-  - effect: extra time becomes over-completion (`>100%`)
+### Broad Rules
 
-### Binary Special Case: Forced-Binary One-Off Manual Time Logs
-
-For one-off manual logs forced to binary, time is stored for calendar display but excluded from points:
-
-- `templateTarget` is forced to `1`
-- `disableTimeScoringForPoints = true`
-- result: completion-based points only (no time bonus)
-
-This is set in:
-
-- `lib/services/Activtity/task_instance_service/task_instance_time_logging_service.dart`
+- Target is represented in 30-minute block logic.
+- If binary item is completed and `loggedMinutes <= targetMinutes`:
+  - full completion is awarded at target score
+- If binary item is completed and `loggedMinutes > targetMinutes`:
+  - earned is revised upward using logged time
+  - target is revised upward in lockstep (same value) to prevent >100% binary completion
+- Interpretation: extra time on binary indicates initial estimate was low; reward extra effort, but keep completion capped.
 
 ### Binary Examples (priority = 1)
 
-1. Estimate `30m`, logged `30m`, completed
-- Bonus OFF: earned `1.0`
-- Bonus ON:
-  - Task: earned `1.0`, target `1.0` -> `100%`
-  - Habit: earned `1.0`, target `1.0` -> `100%`
+- Target `20m`, completed in `10m`:
+  - target `1.0`, earned `1.0`
+- Target `20m`, completed in `30m`:
+  - target `1.0`, earned `1.0` (next 30-min bonus step not crossed)
+- Target `60m`, completed in `30m`:
+  - target `1.7`, earned `1.7`
+- Target `60m`, completed in `120m`:
+  - target `2.55` (rounded), earned `2.55` (rounded)
 
-2. Estimate `30m`, logged `60m`, completed
-- Excess = `30m` -> bonus `+0.7`
-- Bonus OFF: earned `1.0`
-- Bonus ON:
-  - Task: earned `1.7`, target `1.7` -> `100%`
-  - Habit: earned `1.7`, target `1.0` -> `170%`
+## Time / Timer-Type (Bonus ON)
 
-3. Estimate `120m`, logged `140m`, completed
-- Excess = `20m` -> no full 30m block -> bonus `+0.0`
-- Bonus OFF: earned `1.0`
-- Bonus ON: earned still `1.0` (bonus does not kick in yet)
+Time completion depends on logged duration through the same ON-mode curve.
 
-## 2) Quantitative Tracking
+### Broad Rules
 
-### Quantitative Earned Points
-
-- Main formula: `(currentValue / target) * priority`
-- Over-completion is allowed (`>1.0` ratio)
-- For windowed habits, code may use differential contribution (`todayContribution`) instead of total
-
-### Quantitative and Time Bonus
-
-- No separate time bonus path is applied
-- Bonus ON vs OFF: same quantitative formula
-
-### Quantitative Examples (priority = 1)
-
-1. Target `8`, current `4`
-- Bonus OFF: `0.5`
-- Bonus ON: `0.5`
-
-2. Target `8`, current `8`
-- Bonus OFF: `1.0`
-- Bonus ON: `1.0`
-
-3. Target `8`, current `10`
-- Bonus OFF: `1.25`
-- Bonus ON: `1.25`
-
-## 3) Time Tracking
-
-### Time Earned Points (Bonus OFF / Goal Mode)
-
-- Linear and proportional:
-  - `earned = (logged / target) * priority`
-- Over-completion is linear (`2x time -> 2x points`)
-- For windowed habits, OFF path can use differential contribution for today
-
-### Time Earned Points (Bonus ON / Effort Mode)
-
-Piecewise:
-
-- if `logged < target`: `earned = (logged / target) * priority`
-- if `logged >= target`: `earned = priority + diminishingBonus(logged - target)`
-
-Only full extra 30-minute blocks after target count.
+- Target uses 30-minute block logic.
+- Earned follows logged-time progression on the same curve.
+- Over-completion is allowed and diminishing.
 
 ### Time Examples (priority = 1)
 
-1. Target `20m`, logged `10m`
-- Bonus OFF: `0.5`
-- Bonus ON: `0.5`
+- Target `60m` (target score `1.7`), logged `30m` -> earned `1.0`
+- Target `30m` (target score `1.0`), logged `15m` -> earned `0.5`
+- Target `20m` (target score `1.0`), logged `10m` -> earned `0.5`
+- Target `20m` (target score `1.0`), logged `15m` -> earned `0.75`
+- Target `60m` (target score `1.7`), logged `120m` -> earned `2.55` (rounded)
 
-2. Target `20m`, logged `50m`
-- Excess = `30m` -> `+0.7`
-- Bonus OFF: `2.5`
-- Bonus ON: `1.7`
+## Bonus OFF (Goal Mode)
 
-3. Target `120m`, logged `140m`
-- Excess = `20m` -> no full block
-- Bonus OFF: `1.1667`
-- Bonus ON: `1.0`
+Planned rule remains:
 
-## 2h vs 20m Targets: Why Bonus Sometimes "Does Not Help"
+- Over-completion is still diminishing.
+- Diminishing block size = the activity's own target duration.
 
-Bonus requires full excess blocks of 30 minutes.
+Examples (priority = 1):
 
-- Target `20m`, logged `40m`: excess `20m` -> no bonus
-- Target `120m`, logged `140m`: excess `20m` -> no bonus
+- `20m` target: `20m -> 1.0`, `40m -> 1.7`, `60m -> 2.19`
+- `60m` target: `60m -> 1.0`, `120m -> 1.7`
 
-If excess is the same, bonus is the same regardless of target:
+## One-Off Forced Binary Manual Time Logs (Planned)
 
-- Target `20m`, logged `50m`: excess `30m` -> `+0.7 * priority`
-- Target `120m`, logged `150m`: excess `30m` -> `+0.7 * priority`
+To avoid special-case behavior, one-off manual binary logs follow the same binary rules by mode:
 
-So longer targets are not penalized in formula directly, but in practice they are harder to exceed by full 30-minute blocks.
+- Bonus OFF:
+  - completion-based scoring (`earned = priority` when completed)
+  - practical target stays completion-style (`target = priority`)
+- Bonus ON:
+  - use the same 30-minute block scoring logic as other binary items
+  - for completed items, keep binary capped by setting `earned` and `target` in lockstep from logged time
+  - for incomplete items, `earned = 0`
 
-## Known Behavioral Mismatches / Caveats
+## Clarification on Consistency
 
-1. Time habit target scaling vs earned scaling:
-- Habit target uses a duration multiplier in `calculateDailyTarget` (`round(targetMinutes / 30)`), so long time habits can have larger targets.
-- Earned in Effort mode for time tracking uses `priority + diminishingBonus(excess)`, not the same multiplier.
-- Result: for some long time habits, completion at exactly target time may show below 100%, and very high percentages may be mathematically hard or impossible.
+Your examples are consistent with one explicit clarification:
 
-2. Task vs habit asymmetry for binary time bonus:
-- Tasks adjust target for binary bonus.
-- Habits do not.
-- This is intentional in current behavior to treat habit extra time as over-completion.
+- For Bonus ON, use `baseSpanMinutes = min(targetMinutes, 30)` before applying 30-minute bonus blocks.
 
-3. Full-block requirement:
-- Bonus is block-based (`floor(excess/30)`), so `29` excess minutes adds `0`.
+Without that clarification, cases like `20m target, 10m logged = 0.5` and `60m target, 30m logged = 1.0` conflict under a single naive formula.
 
-## Pseudocode Summary
+## Implementation Note
 
-```text
-if trackingType == quantitative:
-  earned = proportional quantity progress
-  // no time bonus path
+This FAQ is the agreed plan/spec. Code alignment can proceed against this document.
 
-if trackingType == time:
-  if bonus OFF:
-    earned = linear proportional vs target
-  else:
-    if logged < target: earned = proportional
-    else: earned = priority + diminishingBonus(logged - target)
+## V1 Risk Posture
 
-if trackingType == binary:
-  earned = base completion/counter logic
-  if bonus ON and not disableTimeScoringForPoints:
-    earned += diminishingBonus(logged - baselineEstimate)
+For v1:
 
-  // target side
-  if category == task:
-    target = priority + binaryBonusAdjustment
-  else if category == habit:
-    target = habit daily target logic (no binary bonus target adjustment)
-```
+- no explicit cap on manual one-off log duration
+- rely on diminishing returns to limit benefit from very long single logs
+
+Known risk to monitor:
+
+- users creating many tiny manual logs (for example a few seconds each) to repeatedly collect base completion points
+
+If gaming is observed in production, we can add guardrails in the next iteration.

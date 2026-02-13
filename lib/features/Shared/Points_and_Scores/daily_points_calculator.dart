@@ -366,15 +366,12 @@ class DailyProgressCalculator {
   }
 
   /// Calculate task target points from ActivityInstanceRecord list
-  /// For tasks: target = priority (no category weightage)
+  /// For tasks: use unified instance target calculation from PointsService.
   static double _calculateTaskTargetFromActivityInstances(
       List<ActivityInstanceRecord> taskInstances) {
     double totalTarget = 0.0;
     for (final task in taskInstances) {
-      final priority = task.templatePriority.toDouble();
-      final timeBonusAdjustment =
-          PointsService.calculateBinaryTimeBonusTargetAdjustment(task);
-      totalTarget += priority + timeBonusAdjustment;
+      totalTarget += PointsService.calculateInstanceTargetPoints(task);
     }
     return totalTarget;
   }

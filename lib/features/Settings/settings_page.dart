@@ -199,7 +199,7 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               subtitle: Text(
-                'ON: extra time can award extra points (diminishing returns). OFF: points follow your targets.',
+                'ON: 30-minute diminishing blocks. OFF: target-sized diminishing blocks.',
                 style: theme.bodySmall,
               ),
               value: _timeBonusEnabled,
@@ -226,8 +226,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   Expanded(
                     child: Text(
                       _timeBonusEnabled
-                          ? 'Effort Mode is ON. Binary tasks and time activities can earn extra points from extra time (with diminishing returns). Binary habits treat extra time as over-completion. Quantity activities still score by quantity.'
-                          : 'Effort Mode is OFF. Binary is completion-based, time-based scores vs your time target, and quantity scores vs your quantity target. Logged time is still recorded.',
+                          ? 'Effort Mode is ON. Binary and time activities use 30-minute diminishing blocks. Binary completion stays capped by matching target and earned. Quantity activities still score by quantity.'
+                          : 'Effort Mode is OFF. Over-completion is still diminishing, but uses target-sized blocks. Binary remains completion-centric and quantity remains quantity-based.',
                       style: theme.bodySmall.override(
                         color: Colors.blue.shade700,
                       ),

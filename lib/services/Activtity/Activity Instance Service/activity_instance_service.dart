@@ -225,6 +225,7 @@ class ActivityInstanceService {
     String? notes,
     String? userId,
     bool skipOptimisticUpdate = false,
+    bool skipNextInstanceGeneration = false,
   }) async {
     return ActivityInstanceCompletionService.completeInstance(
       instanceId: instanceId,
@@ -233,6 +234,7 @@ class ActivityInstanceService {
       notes: notes,
       userId: userId,
       skipOptimisticUpdate: skipOptimisticUpdate,
+      skipNextInstanceGeneration: skipNextInstanceGeneration,
     );
   }
 
@@ -246,6 +248,7 @@ class ActivityInstanceService {
     DateTime? completedAt,
     bool forceSessionBackdate = false,
     bool skipOptimisticUpdate = false,
+    bool skipNextInstanceGeneration = false,
   }) async {
     return ActivityInstanceCompletionService.completeInstanceWithBackdate(
       instanceId: instanceId,
@@ -256,6 +259,7 @@ class ActivityInstanceService {
       completedAt: completedAt,
       forceSessionBackdate: forceSessionBackdate,
       skipOptimisticUpdate: skipOptimisticUpdate,
+      skipNextInstanceGeneration: skipNextInstanceGeneration,
     );
   }
 

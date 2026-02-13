@@ -19,10 +19,14 @@ class ProgressBreakdownDialog extends StatelessWidget {
   }) : super(key: key);
   @override
   Widget build(BuildContext context) {
-    final sortedHabits = List<Map<String, dynamic>>.from(habitBreakdown)
+    final sortedHabits = habitBreakdown
+        .map((item) => _normalizeBreakdownItem(item))
+        .toList()
       ..sort(
           (a, b) => (b['earned'] as double).compareTo(a['earned'] as double));
-    final sortedTasks = List<Map<String, dynamic>>.from(taskBreakdown)
+    final sortedTasks = taskBreakdown
+        .map((item) => _normalizeBreakdownItem(item))
+        .toList()
       ..sort(
           (a, b) => (b['earned'] as double).compareTo(a['earned'] as double));
 
@@ -224,11 +228,11 @@ class ProgressBreakdownDialog extends StatelessWidget {
   }
 
   Widget _buildItemCard(BuildContext context, Map<String, dynamic> item) {
-    final name = item['name'] as String;
-    final status = item['status'] as String;
-    final earned = item['earned'] as double;
-    final target = item['target'] as double;
-    final progress = item['progress'] as double;
+    final name = item['name'] as String? ?? 'Unnamed';
+    final status = item['status'] as String? ?? 'unknown';
+    final earned = (item['earned'] as num?)?.toDouble() ?? 0.0;
+    final target = (item['target'] as num?)?.toDouble() ?? 0.0;
+    final progress = (item['progress'] as num?)?.toDouble() ?? 0.0;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -340,5 +344,33 @@ class ProgressBreakdownDialog extends StatelessWidget {
     if (percentage >= 75) return Colors.blue;
     if (percentage >= 50) return Colors.orange;
     return Colors.red;
+  }
+
+  Map<String, dynamic> _normalizeBreakdownItem(Map<String, dynamic> raw) {
+    final target = (raw['target'] as num?)?.toDouble() ?? 0.0;
+    final earned = (raw['earned'] as num?)?.toDouble() ?? 0.0;
+    final rawProgress = (raw['progress'] as num?)?.toDouble();
+
+    double normalizedProgress;
+    if (rawProgress == null) {
+      normalizedProgress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+    } else if (rawProgress > 1.0) {
+      normalizedProgress = (rawProgress / 100.0).clamp(0.0, 1.0);
+    } else {
+      normalizedProgress = rawProgress.clamp(0.0, 1.0);
+    }
+
+    final status = raw['status']?.toString().trim();
+    final normalizedStatus =
+        (status == null || status.isEmpty) ? 'unknown' : status;
+
+    return {
+      ...raw,
+      'name': raw['name']?.toString() ?? 'Unnamed',
+      'status': normalizedStatus,
+      'target': target,
+      'earned': earned,
+      'progress': normalizedProgress,
+    };
   }
 }

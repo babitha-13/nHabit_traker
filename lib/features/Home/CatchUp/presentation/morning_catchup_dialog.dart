@@ -299,7 +299,6 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     );
 
     final remainingItems = _logic.getRemainingItems();
-    final processingCount = _logic.getProcessingCount();
 
     return WillPopScope(
       onWillPop: () async {
@@ -499,47 +498,6 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Show processing status if items are syncing
-                    if (processingCount > 0)
-                      Container(
-                        margin: const EdgeInsets.only(bottom: 12),
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 8,
-                        ),
-                        decoration: BoxDecoration(
-                          color: theme.primary.withOpacity(0.1),
-                          borderRadius: BorderRadius.circular(8),
-                          border: Border.all(
-                            color: theme.primary.withOpacity(0.3),
-                            width: 1,
-                          ),
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            SizedBox(
-                              width: 16,
-                              height: 16,
-                              child: CircularProgressIndicator(
-                                strokeWidth: 2,
-                                valueColor: AlwaysStoppedAnimation<Color>(
-                                  theme.primary,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Text(
-                              'Syncing $processingCount item${processingCount == 1 ? '' : 's'}...',
-                              style: theme.bodySmall.override(
-                                fontFamily: 'Readex Pro',
-                                color: theme.primary,
-                                fontSize: 12,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
                     if (remainingItems.isEmpty && !_logic.isLoading)
                       SizedBox(
                         width: double.infinity,
@@ -567,9 +525,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                         width: double.infinity,
                         child: ElevatedButton(
                           onPressed:
-                              (_logic.isProcessing || processingCount > 0)
-                                  ? null
-                                  : _skipAllRemaining,
+                              _logic.isProcessing ? null : _skipAllRemaining,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: theme.error,
                             foregroundColor: Colors.white,
@@ -586,16 +542,13 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
                           width: double.infinity,
                           child: OutlinedButton(
                             onPressed:
-                                (_logic.isProcessing || processingCount > 0)
-                                    ? null
-                                    : _snoozeDialog,
+                                _logic.isProcessing ? null : _snoozeDialog,
                             style: OutlinedButton.styleFrom(
                               padding: const EdgeInsets.symmetric(vertical: 12),
                             ),
                             child: Text(
                               _logic.reminderCount ==
-                                      MorningCatchUpService.maxReminderCount -
-                                          1
+                                      MorningCatchUpService.maxReminderCount - 1
                                   ? 'Dismiss'
                                   : 'Remind Me Later',
                             ),

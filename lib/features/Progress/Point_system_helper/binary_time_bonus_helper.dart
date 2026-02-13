@@ -2,7 +2,7 @@ import 'dart:math';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/services/app_state.dart';
 
-/// Helper utilities for calculating binary time bonus behavior
+/// Helper utilities for calculating binary/time diminishing scoring behavior.
 class BinaryTimeBonusHelper {
   /// Whether the provided unit represents time (e.g., minutes, milliseconds)
   static bool isTimeLikeUnit(String? unitRaw) {
@@ -34,7 +34,7 @@ class BinaryTimeBonusHelper {
   }
 
   /// Heuristic for older one-off manual time logs that were forced to binary.
-  /// Those entries should be completion-based (priority points) with no time bonus.
+  /// Those entries should remain completion-based (priority points) with no time scaling.
   static bool isForcedBinaryOneOffTimeLog({
     required ActivityInstanceRecord instance,
     required double countValue,
@@ -48,33 +48,48 @@ class BinaryTimeBonusHelper {
     return loggedTimeMinutes(instance) != null;
   }
 
-  /// Determines if the binary item has earned base credit (so bonus can apply)
-  static bool hasBinaryBaseCredit({
-    required ActivityInstanceRecord instance,
-    required double countValue,
-    required bool isTimeLikeUnit,
-  }) {
-    // A "timer task" is one where currentValue matches the logged time (in MS).
-    // In these cases, countValue is duration, not a "times completed" counter.
-    final isTimerTaskValue = countValue > 0 &&
-        (countValue == instance.accumulatedTime.toDouble() ||
-            countValue == instance.totalTimeLogged.toDouble());
-
-    if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
-      return true;
+  /// Baseline estimate for binary time-aware scoring.
+  /// Falls back to 30m when estimate is not set.
+  static double binaryEstimateMinutes(ActivityInstanceRecord instance) {
+    final estimate = instance.templateTimeEstimateMinutes;
+    if (estimate != null && estimate > 0) {
+      return estimate.toDouble();
     }
-    return instance.status == 'completed';
+    return 30.0;
   }
 
-  /// Calculates the diminishing returns bonus for excess time
-  /// - Each 30-minute block beyond the estimate gives 0.7x of the previous block's value
-  /// - Formula: priority * Σ(0.7^i) for i=1 to blocks
-  static double calculateDiminishingReturnsBonus({
+  /// Base span for the first full point block.
+  /// - ON mode: min(target, 30)
+  /// - OFF mode: target
+  static double resolveBaseSpanMinutes({
+    required double targetMinutes,
+    required bool timeBonusEnabled,
+  }) {
+    if (targetMinutes <= 0) return 0.0;
+    if (timeBonusEnabled) return min(targetMinutes, 30.0);
+    return targetMinutes;
+  }
+
+  /// Bonus block size for diminishing returns.
+  /// - ON mode: fixed 30m
+  /// - OFF mode: target-sized blocks
+  static double resolveBonusBlockMinutes({
+    required double targetMinutes,
+    required bool timeBonusEnabled,
+  }) {
+    if (targetMinutes <= 0) return 0.0;
+    if (timeBonusEnabled) return 30.0;
+    return targetMinutes;
+  }
+
+  /// Calculates diminishing returns bonus for configurable block size.
+  static double calculateDiminishingReturnsBonusByBlock({
     required double excessMinutes,
+    required double blockMinutes,
     required double priority,
   }) {
-    // Calculate number of complete 30-minute blocks
-    final blocks = (excessMinutes / 30.0).floor();
+    if (excessMinutes <= 0 || blockMinutes <= 0 || priority <= 0) return 0.0;
+    final blocks = (excessMinutes / blockMinutes).floor();
     if (blocks <= 0) return 0.0;
 
     double totalBonus = 0.0;
@@ -84,20 +99,82 @@ class BinaryTimeBonusHelper {
     return totalBonus;
   }
 
-  /// Calculates the additional target needed to align with awarded bonus points
+  /// Calculates diminishing bonus using fixed 30-minute blocks.
+  static double calculateDiminishingReturnsBonus({
+    required double excessMinutes,
+    required double priority,
+  }) {
+    return calculateDiminishingReturnsBonusByBlock(
+      excessMinutes: excessMinutes,
+      blockMinutes: 30.0,
+      priority: priority,
+    );
+  }
+
+  /// Score for a logged duration against a target duration under current mode.
+  static double scoreForLoggedMinutes({
+    required double loggedMinutes,
+    required double targetMinutes,
+    required double priority,
+    required bool timeBonusEnabled,
+  }) {
+    if (loggedMinutes <= 0 || targetMinutes <= 0 || priority <= 0) {
+      return 0.0;
+    }
+
+    final baseSpan = resolveBaseSpanMinutes(
+      targetMinutes: targetMinutes,
+      timeBonusEnabled: timeBonusEnabled,
+    );
+    if (baseSpan <= 0) return 0.0;
+
+    if (loggedMinutes <= baseSpan) {
+      return (loggedMinutes / baseSpan) * priority;
+    }
+
+    final blockMinutes = resolveBonusBlockMinutes(
+      targetMinutes: targetMinutes,
+      timeBonusEnabled: timeBonusEnabled,
+    );
+    final excessMinutes = loggedMinutes - baseSpan;
+    final bonus = calculateDiminishingReturnsBonusByBlock(
+      excessMinutes: excessMinutes,
+      blockMinutes: blockMinutes,
+      priority: priority,
+    );
+    return priority + bonus;
+  }
+
+  /// Target score for a configured target duration under current mode.
+  static double scoreForTargetMinutes({
+    required double targetMinutes,
+    required double priority,
+    required bool timeBonusEnabled,
+  }) {
+    return scoreForLoggedMinutes(
+      loggedMinutes: targetMinutes,
+      targetMinutes: targetMinutes,
+      priority: priority,
+      timeBonusEnabled: timeBonusEnabled,
+    );
+  }
+
+  /// Compatibility wrapper used by legacy target-adjustment call sites.
+  /// Returns "extra over base priority" for binary ON-mode target calculation.
   static double calculateTargetAdjustment({
     required ActivityInstanceRecord instance,
     required double countValue,
     required double priority,
-    required bool isTimeLikeUnit,
   }) {
     if (instance.templateTrackingType.toLowerCase() != 'binary') {
       return 0.0;
     }
+
     final targetRaw = instance.templateTarget;
     final targetValue = targetRaw is num
         ? targetRaw.toDouble()
         : (targetRaw is String ? double.tryParse(targetRaw) ?? 0.0 : 0.0);
+
     if (isTimeScoringDisabled(instance) ||
         isForcedBinaryOneOffTimeLog(
           instance: instance,
@@ -106,34 +183,28 @@ class BinaryTimeBonusHelper {
         )) {
       return 0.0;
     }
+
     if (!FFAppState.instance.timeBonusEnabled) return 0.0;
-    if (!hasBinaryBaseCredit(
-      instance: instance,
-      countValue: countValue,
-      isTimeLikeUnit: isTimeLikeUnit,
-    )) {
-      return 0.0;
-    }
 
-    final timeMinutes = loggedTimeMinutes(instance);
-    // Baseline is templateTimeEstimateMinutes if available (and > 0), otherwise 30.0
-    final baselineMinutes = (instance.templateTimeEstimateMinutes != null &&
-            instance.templateTimeEstimateMinutes! > 0)
-        ? instance.templateTimeEstimateMinutes!.toDouble()
-        : 30.0;
-
-    if (timeMinutes == null || timeMinutes < baselineMinutes) return 0.0;
-
-    final excessMinutes = timeMinutes - baselineMinutes;
-    final bonusPoints = calculateDiminishingReturnsBonus(
-      excessMinutes: excessMinutes,
+    final estimateMinutes = binaryEstimateMinutes(instance);
+    double targetScore = scoreForTargetMinutes(
+      targetMinutes: estimateMinutes,
       priority: priority,
+      timeBonusEnabled: true,
     );
 
-    // Adjustment is bonus points (since for binary, 1 point usually = 1 target unit if priority is 1)
-    // Actually, target adjustment is usually added to make the progress bar look correct?
-    // In the original code: return bonusBlocks * priority;
-    // So we return the calculated bonus points as the adjustment to the target/score.
-    return bonusPoints;
+    final loggedMinutes = loggedTimeMinutes(instance);
+    if (instance.status == 'completed' &&
+        loggedMinutes != null &&
+        loggedMinutes > estimateMinutes) {
+      targetScore = scoreForLoggedMinutes(
+        loggedMinutes: loggedMinutes,
+        targetMinutes: estimateMinutes,
+        priority: priority,
+        timeBonusEnabled: true,
+      );
+    }
+
+    return (targetScore - priority).clamp(0.0, double.infinity);
   }
 }

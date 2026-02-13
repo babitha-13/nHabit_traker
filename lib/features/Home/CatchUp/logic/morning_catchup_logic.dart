@@ -132,10 +132,13 @@ class MorningCatchUpDialogLogic {
   Future<void> handleInstanceUpdated(
       ActivityInstanceRecord updatedInstance) async {
     final instanceId = updatedInstance.reference.id;
+    final isOptimisticUpdate =
+        updatedInstance.snapshotData['_optimistic'] == true;
+    final hasPendingOptimisticSync =
+        optimisticProcessingIds.contains(instanceId);
 
-    // Prevent duplicate processing
-    if (processedItemIds.contains(instanceId) ||
-        optimisticProcessingIds.contains(instanceId)) {
+    // Ignore already settled updates. Allow reconciled updates for in-flight optimistic IDs.
+    if (processedItemIds.contains(instanceId) && !hasPendingOptimisticSync) {
       return;
     }
 
@@ -161,9 +164,19 @@ class MorningCatchUpDialogLogic {
       return;
     }
 
-    // For completions and skips, apply optimistic removal
-    // OPTIMISTIC UPDATE: Apply UI changes immediately (remove from list)
-    applyOptimisticState(updatedInstance);
+    // For optimistic updates, apply local removal and wait for reconciled backend update
+    // before running catch-up specific backdating writes.
+    if (isOptimisticUpdate) {
+      if (!hasPendingOptimisticSync) {
+        applyOptimisticState(updatedInstance);
+      }
+      return;
+    }
+
+    // For reconciled status changes, ensure optimistic state is active.
+    if (!hasPendingOptimisticSync) {
+      applyOptimisticState(updatedInstance);
+    }
 
     // Process backend operations asynchronously
     try {
@@ -179,6 +192,8 @@ class MorningCatchUpDialogLogic {
             finalAccumulatedTime: updatedInstance.accumulatedTime,
             completedAt: yesterdayEnd,
             forceSessionBackdate: true,
+            skipOptimisticUpdate: true,
+            skipNextInstanceGeneration: true,
           );
         }
       }
@@ -397,6 +412,10 @@ class MorningCatchUpDialogLogic {
   /// Check if all habits are processed (for auto-close)
   /// Only checks habits, not tasks, since tasks cannot be skipped via the dialog
   Future<bool> checkAndAutoClose() async {
+    if (getProcessingCount() > 0) {
+      return false;
+    }
+
     final remainingAfterUpdate = getRemainingItems();
     final remainingHabits = remainingAfterUpdate
         .where((item) => item.templateCategoryType == 'habit')
@@ -407,6 +426,9 @@ class MorningCatchUpDialogLogic {
     if (shouldClose) {
       // Wait a brief moment for any final state updates
       await Future.delayed(const Duration(milliseconds: 500));
+      if (getProcessingCount() > 0) {
+        return false;
+      }
       final finalRemaining = getRemainingItems();
       final finalRemainingHabits = finalRemaining
           .where((item) => item.templateCategoryType == 'habit')

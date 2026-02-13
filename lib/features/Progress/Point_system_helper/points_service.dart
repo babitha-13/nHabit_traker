@@ -29,22 +29,7 @@ class PointsService {
   static double calculateDailyTarget(
     ActivityInstanceRecord instance,
   ) {
-    // Skip Essential Activities - they don't earn points
-    if (instance.templateCategoryType == 'essential') {
-      return 0.0;
-    }
-    final habitPriority = instance.templatePriority.toDouble();
-    // Calculate daily frequency based on template configuration
-    final dailyFrequency = _calculateDailyFrequency(instance);
-
-    // For time-based habits, apply duration multiplier
-    if (instance.templateTrackingType == 'time') {
-      final targetMinutes = PointsValueHelper.targetValue(instance);
-      final durationMultiplier = calculateDurationMultiplier(targetMinutes);
-      return dailyFrequency * habitPriority * durationMultiplier;
-    }
-
-    return dailyFrequency * habitPriority;
+    return calculateInstanceTargetPoints(instance);
   }
 
   /// Calculate daily target with template data (enhanced version)
@@ -53,23 +38,7 @@ class PointsService {
     ActivityInstanceRecord instance,
     ActivityRecord template,
   ) {
-    // Skip Essential Activities - they don't earn points
-    if (instance.templateCategoryType == 'essential' ||
-        template.categoryType == 'essential') {
-      return 0.0;
-    }
-    final habitPriority = instance.templatePriority.toDouble();
-    // Calculate daily frequency from template data
-    final dailyFrequency = calculateDailyFrequencyFromTemplate(template);
-
-    // For time-based habits, apply duration multiplier
-    if (instance.templateTrackingType == 'time') {
-      final targetMinutes = template.target?.toDouble() ?? 0.0;
-      final durationMultiplier = calculateDurationMultiplier(targetMinutes);
-      return dailyFrequency * habitPriority * durationMultiplier;
-    }
-
-    return dailyFrequency * habitPriority;
+    return calculateInstanceTargetPointsWithTemplate(instance, template);
   }
 
   /// Calculate daily frequency for a habit instance
@@ -114,179 +83,129 @@ class PointsService {
     return 1.0;
   }
 
+  /// Calculate target points for any instance (task or habit) using cached data.
+  static double calculateInstanceTargetPoints(
+    ActivityInstanceRecord instance,
+  ) {
+    if (instance.templateCategoryType == 'essential') {
+      return 0.0;
+    }
+
+    final priority = instance.templatePriority.toDouble();
+    final isHabit = instance.templateCategoryType == 'habit';
+    final dailyFrequency = isHabit ? _calculateDailyFrequency(instance) : 1.0;
+    final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+    final trackingType = instance.templateTrackingType.toLowerCase();
+
+    switch (trackingType) {
+      case 'time':
+        final targetMinutes = PointsValueHelper.targetValue(instance);
+        if (targetMinutes <= 0) return 0.0;
+        final perInstanceTarget = timeBonusEnabled
+            ? BinaryTimeBonusHelper.scoreForTargetMinutes(
+                targetMinutes: targetMinutes,
+                priority: priority,
+                timeBonusEnabled: true,
+              )
+            : priority;
+        return dailyFrequency * perInstanceTarget;
+
+      case 'binary':
+        if (!timeBonusEnabled || _isLegacyBinaryTimeScoringDisabled(instance)) {
+          return dailyFrequency * priority;
+        }
+        final estimateMinutes = _binaryEstimateMinutes(instance);
+        double perInstanceTarget = BinaryTimeBonusHelper.scoreForTargetMinutes(
+          targetMinutes: estimateMinutes,
+          priority: priority,
+          timeBonusEnabled: true,
+        );
+        final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+        if (instance.status == 'completed' &&
+            loggedMinutes != null &&
+            loggedMinutes > estimateMinutes) {
+          perInstanceTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
+            loggedMinutes: loggedMinutes,
+            targetMinutes: estimateMinutes,
+            priority: priority,
+            timeBonusEnabled: true,
+          );
+        }
+        return dailyFrequency * perInstanceTarget;
+
+      default:
+        return dailyFrequency * priority;
+    }
+  }
+
+  /// Calculate target points for any instance using template-backed data when available.
+  static double calculateInstanceTargetPointsWithTemplate(
+    ActivityInstanceRecord instance,
+    ActivityRecord template,
+  ) {
+    if (instance.templateCategoryType == 'essential' ||
+        template.categoryType == 'essential') {
+      return 0.0;
+    }
+
+    final priority = instance.templatePriority.toDouble();
+    final isHabit = instance.templateCategoryType == 'habit';
+    final dailyFrequency =
+        isHabit ? calculateDailyFrequencyFromTemplate(template) : 1.0;
+    final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+    final trackingType = instance.templateTrackingType.toLowerCase();
+
+    switch (trackingType) {
+      case 'time':
+        final targetMinutes = template.target?.toDouble() ?? 0.0;
+        if (targetMinutes <= 0) return 0.0;
+        final perInstanceTarget = timeBonusEnabled
+            ? BinaryTimeBonusHelper.scoreForTargetMinutes(
+                targetMinutes: targetMinutes,
+                priority: priority,
+                timeBonusEnabled: true,
+              )
+            : priority;
+        return dailyFrequency * perInstanceTarget;
+
+      case 'binary':
+        if (!timeBonusEnabled || _isLegacyBinaryTimeScoringDisabled(instance)) {
+          return dailyFrequency * priority;
+        }
+        final estimateMinutes = _binaryEstimateMinutes(instance, template);
+        double perInstanceTarget = BinaryTimeBonusHelper.scoreForTargetMinutes(
+          targetMinutes: estimateMinutes,
+          priority: priority,
+          timeBonusEnabled: true,
+        );
+        final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+        if (instance.status == 'completed' &&
+            loggedMinutes != null &&
+            loggedMinutes > estimateMinutes) {
+          perInstanceTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
+            loggedMinutes: loggedMinutes,
+            targetMinutes: estimateMinutes,
+            priority: priority,
+            timeBonusEnabled: true,
+          );
+        }
+        return dailyFrequency * perInstanceTarget;
+
+      default:
+        return dailyFrequency * priority;
+    }
+  }
+
   /// Calculate points earned for a single habit instance (SYNCHRONOUS - no Firestore queries)
   /// Uses only cached instance data for instant calculation
   /// This is the fast path for UI updates - uses templateTimeEstimateMinutes from instance
   static double calculatePointsEarnedSync(
     ActivityInstanceRecord instance,
   ) {
-    // Skip Essential Activities - they don't earn points
     if (instance.templateCategoryType == 'essential') {
       return 0.0;
     }
-    final habitPriority = instance.templatePriority.toDouble();
-    double earnedPoints = 0.0;
-
-    switch (instance.templateTrackingType) {
-      case 'binary':
-        // Binary habits: use counter if available, otherwise status
-        final countValue = PointsValueHelper.currentValue(instance);
-
-        // Some "binary" items (e.g., timer tasks) store time (milliseconds) in currentValue.
-        // In those cases, do NOT treat currentValue as a counter, or points will explode.
-        final isTimeLikeUnit =
-            BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
-
-        // A "timer task" is one where currentValue matches the logged time (in MS)
-        final isTimerTaskValue = countValue > 0 &&
-            (countValue == instance.accumulatedTime.toDouble() ||
-                countValue == instance.totalTimeLogged.toDouble());
-
-        if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
-          // Has counter: calculate proportional points (counter / target), allowing over-completion
-          final rawTarget = PointsValueHelper.targetValue(instance);
-          final target = rawTarget > 0 ? rawTarget : 1.0;
-          final forceCompletionScoring =
-              BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
-                  BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
-                    instance: instance,
-                    countValue: countValue,
-                    targetValue: target,
-                  );
-          earnedPoints = forceCompletionScoring
-              ? habitPriority
-              : (countValue / target) * habitPriority;
-        } else if (instance.status == 'completed') {
-          // No counter but completed: base points
-          earnedPoints = habitPriority;
-        } else {
-          earnedPoints = 0.0;
-        }
-
-        // Add time bonus if enabled and time is logged (SYNCHRONOUS - uses cached data)
-        final timeMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
-        final rawTarget = PointsValueHelper.targetValue(instance);
-        final target = rawTarget > 0 ? rawTarget : 1.0;
-        final skipTimePoints =
-            BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
-                BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
-                  instance: instance,
-                  countValue: countValue,
-                  targetValue: target,
-                );
-        if (timeMinutes != null && earnedPoints > 0 && !skipTimePoints) {
-          final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled) {
-            // Baseline is templateTimeEstimateMinutes if available (and > 0), otherwise 30.0
-            final baselineMinutes =
-                (instance.templateTimeEstimateMinutes != null &&
-                        instance.templateTimeEstimateMinutes! > 0)
-                    ? instance.templateTimeEstimateMinutes!.toDouble()
-                    : 30.0;
-
-            if (timeMinutes > baselineMinutes) {
-              final excessMinutes = timeMinutes - baselineMinutes;
-              earnedPoints +=
-                  BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
-                excessMinutes: excessMinutes,
-                priority: habitPriority,
-              );
-            }
-          }
-        }
-
-        return earnedPoints;
-      case 'quantitative':
-        // Quantitative habits: points based on progress, allowing over-completion
-        // Use normalized value to handle cases where timers store MS in currentValue
-        final currentValue = PointsValueHelper.normalizedCurrentValue(instance);
-        final target = PointsValueHelper.targetValue(instance);
-        if (target <= 0) {
-          earnedPoints = 0.0;
-        } else {
-          // For windowed habits, use differential progress (today's contribution)
-          if (instance.templateCategoryType == 'habit' &&
-              instance.windowDuration > 1) {
-            final lastDayValue = PointsValueHelper.lastDayValue(instance);
-            final normalizedLastDayValue =
-                PointsValueHelper.normalizeValue(instance, lastDayValue);
-            final todayContribution = currentValue - normalizedLastDayValue;
-            // For windowed habits, calculate progress as fraction of total target, allowing over-completion
-            final progressFraction = todayContribution / target;
-            earnedPoints = progressFraction * habitPriority;
-          } else {
-            // For non-windowed habits, use total progress, allowing over-completion
-            final completionFraction = currentValue / target;
-            earnedPoints = completionFraction * habitPriority;
-          }
-        }
-
-        return earnedPoints;
-      case 'time':
-        // Time-based habits: scoring depends on Time Bonus setting
-        final accumulatedTime = instance.accumulatedTime;
-        final accumulatedMinutes =
-            accumulatedTime / 60000.0; // Convert ms to minutes
-
-        // Check if Time Bonus (effort mode) is enabled
-        final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-
-        if (timeBonusEnabled) {
-          // Effort mode:
-          // - Reward proportionally until the time target is met
-          // - Once the target is met, reward base points + diminishing bonus for excess
-          if (accumulatedMinutes <= 0) {
-            earnedPoints = 0.0;
-          } else {
-            final targetMinutes = PointsValueHelper.targetValue(instance);
-            if (targetMinutes <= 0) {
-              earnedPoints = 0.0;
-            } else if (accumulatedMinutes < targetMinutes) {
-              earnedPoints =
-                  (accumulatedMinutes / targetMinutes) * habitPriority;
-            } else {
-              // Target met or exceeded
-              earnedPoints = habitPriority; // Base points
-
-              final excessMinutes = accumulatedMinutes - targetMinutes;
-              if (excessMinutes > 0) {
-                earnedPoints +=
-                    BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
-                  excessMinutes: excessMinutes,
-                  priority: habitPriority,
-                );
-              }
-            }
-          }
-        } else {
-          // Goal/progress mode: Points scale proportionally with accumulated time vs target
-          // If 2x time is logged, get 2x points (allowing over-completion)
-          final targetMinutes = PointsValueHelper.targetValue(instance);
-          final targetMs =
-              targetMinutes * 60000; // Convert minutes to milliseconds
-          if (targetMs <= 0) {
-            earnedPoints = 0.0;
-          } else {
-            // For windowed habits, use differential progress (today's contribution)
-            if (instance.templateCategoryType == 'habit' &&
-                instance.windowDuration > 1) {
-              final lastDayValue = PointsValueHelper.lastDayValue(instance);
-              final todayContribution = accumulatedTime - lastDayValue;
-              // For windowed habits, calculate progress as fraction of total target, allowing over-completion
-              final progressFraction = todayContribution / targetMs;
-              earnedPoints = progressFraction * habitPriority;
-            } else {
-              // For non-windowed habits, use total progress, allowing over-completion
-              final completionFraction = accumulatedTime / targetMs;
-              earnedPoints = completionFraction * habitPriority;
-            }
-          }
-        }
-
-        return earnedPoints;
-      default:
-        return 0.0;
-    }
+    return _calculatePointsEarnedCore(instance);
   }
 
   /// Calculate points earned for a single habit instance
@@ -295,180 +214,139 @@ class PointsService {
     ActivityInstanceRecord instance,
     String userId,
   ) async {
-    // Skip Essential Activities - they don't earn points
     if (instance.templateCategoryType == 'essential') {
       return 0.0;
     }
-    final habitPriority = instance.templatePriority.toDouble();
-    double earnedPoints = 0.0;
+    return _calculatePointsEarnedCore(instance);
+  }
 
-    switch (instance.templateTrackingType) {
+  static double _calculatePointsEarnedCore(
+    ActivityInstanceRecord instance,
+  ) {
+    final priority = instance.templatePriority.toDouble();
+    final trackingType = instance.templateTrackingType.toLowerCase();
+
+    switch (trackingType) {
       case 'binary':
-        // Binary habits: use counter if available, otherwise status
-        final countValue = PointsValueHelper.currentValue(instance);
+        return _calculateBinaryEarnedPoints(instance, priority);
 
-        // Some "binary" items (e.g., timer tasks) store time (milliseconds) in currentValue.
-        // In those cases, do NOT treat currentValue as a counter, or points will explode.
-        final isTimeLikeUnit =
-            BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
-
-        // A "timer task" is one where currentValue matches the logged time (in MS)
-        final isTimerTaskValue = countValue > 0 &&
-            (countValue == instance.accumulatedTime.toDouble() ||
-                countValue == instance.totalTimeLogged.toDouble());
-
-        if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
-          // Has counter: calculate proportional points (counter / target), allowing over-completion
-          final rawTarget = PointsValueHelper.targetValue(instance);
-          final target = rawTarget > 0 ? rawTarget : 1.0;
-          final forceCompletionScoring =
-              BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
-                  BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
-                    instance: instance,
-                    countValue: countValue,
-                    targetValue: target,
-                  );
-          earnedPoints = forceCompletionScoring
-              ? habitPriority
-              : (countValue / target) * habitPriority;
-        } else if (instance.status == 'completed') {
-          // No counter but completed: base points
-          earnedPoints = habitPriority;
-        } else {
-          earnedPoints = 0.0;
-        }
-
-        // Add time bonus if enabled and time is logged
-        final timeMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
-        final rawTarget = PointsValueHelper.targetValue(instance);
-        final target = rawTarget > 0 ? rawTarget : 1.0;
-        final skipTimePoints =
-            BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
-                BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
-                  instance: instance,
-                  countValue: countValue,
-                  targetValue: target,
-                );
-        if (timeMinutes != null && earnedPoints > 0 && !skipTimePoints) {
-          final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-          if (timeBonusEnabled) {
-            // Baseline is templateTimeEstimateMinutes if available (and > 0), otherwise 30.0
-            final baselineMinutes =
-                (instance.templateTimeEstimateMinutes != null &&
-                        instance.templateTimeEstimateMinutes! > 0)
-                    ? instance.templateTimeEstimateMinutes!.toDouble()
-                    : 30.0;
-
-            if (timeMinutes > baselineMinutes) {
-              final excessMinutes = timeMinutes - baselineMinutes;
-              earnedPoints +=
-                  BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
-                excessMinutes: excessMinutes,
-                priority: habitPriority,
-              );
-            }
-          }
-        }
-
-        return earnedPoints;
       case 'quantitative':
-        // Quantitative habits: points based on progress, allowing over-completion
-        // Use normalized value to handle cases where timers store MS in currentValue
         final currentValue = PointsValueHelper.normalizedCurrentValue(instance);
         final target = PointsValueHelper.targetValue(instance);
-        if (target <= 0) {
-          earnedPoints = 0.0;
-        } else {
-          // For windowed habits, use differential progress (today's contribution)
-          if (instance.templateCategoryType == 'habit' &&
-              instance.windowDuration > 1) {
-            final lastDayValue = PointsValueHelper.lastDayValue(instance);
-            final normalizedLastDayValue =
-                PointsValueHelper.normalizeValue(instance, lastDayValue);
-            final todayContribution = currentValue - normalizedLastDayValue;
-            // For windowed habits, calculate progress as fraction of total target
-            // Each increment should contribute proportionally to the total target, allowing over-completion
-            final progressFraction = todayContribution / target;
-            earnedPoints = progressFraction * habitPriority;
-          } else {
-            // For non-windowed habits, use total progress, allowing over-completion
-            final completionFraction = currentValue / target;
-            earnedPoints = completionFraction * habitPriority;
-          }
+        if (target <= 0) return 0.0;
+
+        if (instance.templateCategoryType == 'habit' &&
+            instance.windowDuration > 1) {
+          final lastDayValue = PointsValueHelper.lastDayValue(instance);
+          final normalizedLastDayValue =
+              PointsValueHelper.normalizeValue(instance, lastDayValue);
+          final todayContribution = currentValue - normalizedLastDayValue;
+          final progressFraction = todayContribution / target;
+          return progressFraction * priority;
         }
 
-        return earnedPoints;
+        final completionFraction = currentValue / target;
+        return completionFraction * priority;
+
       case 'time':
-        // Time-based habits: scoring depends on Time Bonus setting
-        final accumulatedTime = instance.accumulatedTime;
-        final accumulatedMinutes =
-            accumulatedTime / 60000.0; // Convert ms to minutes
+        final targetMinutes = PointsValueHelper.targetValue(instance);
+        if (targetMinutes <= 0) return 0.0;
+        final loggedMinutes = instance.accumulatedTime / 60000.0;
+        return BinaryTimeBonusHelper.scoreForLoggedMinutes(
+          loggedMinutes: loggedMinutes,
+          targetMinutes: targetMinutes,
+          priority: priority,
+          timeBonusEnabled: FFAppState.instance.timeBonusEnabled,
+        );
 
-        // Check if Time Bonus (effort mode) is enabled
-        final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
-
-        if (timeBonusEnabled) {
-          // Effort mode:
-          // - Reward proportionally until the time target is met
-          // - Once the target is met, reward base points + diminishing bonus for excess
-          //
-          // Example (priority=1, target=20m):
-          // - 10m => 0.5 pts
-          // - 20m => 1 pt
-          // - 50m => 1 pt + 0.7 pt (for 30m excess) = 1.7 pts
-          if (accumulatedMinutes <= 0) {
-            earnedPoints = 0.0;
-          } else {
-            final targetMinutes = PointsValueHelper.targetValue(instance);
-            if (targetMinutes <= 0) {
-              earnedPoints = 0.0;
-            } else if (accumulatedMinutes < targetMinutes) {
-              earnedPoints =
-                  (accumulatedMinutes / targetMinutes) * habitPriority;
-            } else {
-              // Target met or exceeded
-              earnedPoints = habitPriority; // Base points
-
-              final excessMinutes = accumulatedMinutes - targetMinutes;
-              if (excessMinutes > 0) {
-                earnedPoints +=
-                    BinaryTimeBonusHelper.calculateDiminishingReturnsBonus(
-                  excessMinutes: excessMinutes,
-                  priority: habitPriority,
-                );
-              }
-            }
-          }
-        } else {
-          // Goal/progress mode: Points scale proportionally with accumulated time vs target
-          // If 2x time is logged, get 2x points (allowing over-completion)
-          final targetMinutes = PointsValueHelper.targetValue(instance);
-          final targetMs =
-              targetMinutes * 60000; // Convert minutes to milliseconds
-          if (targetMs <= 0) {
-            earnedPoints = 0.0;
-          } else {
-            // For windowed habits, use differential progress (today's contribution)
-            if (instance.templateCategoryType == 'habit' &&
-                instance.windowDuration > 1) {
-              final lastDayValue = PointsValueHelper.lastDayValue(instance);
-              final todayContribution = accumulatedTime - lastDayValue;
-              // For windowed habits, calculate progress as fraction of total target, allowing over-completion
-              final progressFraction = todayContribution / targetMs;
-              earnedPoints = progressFraction * habitPriority;
-            } else {
-              // For non-windowed habits, use total progress, allowing over-completion
-              // Points scale proportionally: 2x time = 2x points
-              final completionFraction = accumulatedTime / targetMs;
-              earnedPoints = completionFraction * habitPriority;
-            }
-          }
-        }
-
-        return earnedPoints;
       default:
         return 0.0;
     }
+  }
+
+  static double _calculateBinaryEarnedPoints(
+    ActivityInstanceRecord instance,
+    double priority,
+  ) {
+    final countValue = PointsValueHelper.currentValue(instance);
+    final rawTarget = PointsValueHelper.targetValue(instance);
+    final counterTarget = rawTarget > 0 ? rawTarget : 1.0;
+    final isTimeLikeUnit =
+        BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
+
+    // Some "binary" items (e.g., timer tasks) store time (milliseconds) in currentValue.
+    final isTimerTaskValue = countValue > 0 &&
+        (countValue == instance.accumulatedTime.toDouble() ||
+            countValue == instance.totalTimeLogged.toDouble());
+
+    final isLegacyFrozen = _isLegacyBinaryTimeScoringDisabled(
+      instance,
+      countValue: countValue,
+      targetValue: counterTarget,
+    );
+
+    double earnedBase;
+    if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
+      final completionFraction = (countValue / counterTarget).clamp(0.0, 1.0);
+      earnedBase = isLegacyFrozen ? priority : completionFraction * priority;
+    } else if (instance.status == 'completed') {
+      earnedBase = priority;
+    } else {
+      earnedBase = 0.0;
+    }
+
+    final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+    if (!timeBonusEnabled || isLegacyFrozen || earnedBase <= 0) {
+      return earnedBase;
+    }
+
+    if (instance.status != 'completed') {
+      return earnedBase;
+    }
+
+    final estimateMinutes = _binaryEstimateMinutes(instance);
+    final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+    if (loggedMinutes != null && loggedMinutes > estimateMinutes) {
+      return BinaryTimeBonusHelper.scoreForLoggedMinutes(
+        loggedMinutes: loggedMinutes,
+        targetMinutes: estimateMinutes,
+        priority: priority,
+        timeBonusEnabled: true,
+      );
+    }
+
+    return BinaryTimeBonusHelper.scoreForTargetMinutes(
+      targetMinutes: estimateMinutes,
+      priority: priority,
+      timeBonusEnabled: true,
+    );
+  }
+
+  static bool _isLegacyBinaryTimeScoringDisabled(
+    ActivityInstanceRecord instance, {
+    double? countValue,
+    double? targetValue,
+  }) {
+    final count = countValue ?? PointsValueHelper.currentValue(instance);
+    final rawTarget = targetValue ?? PointsValueHelper.targetValue(instance);
+    final target = rawTarget > 0 ? rawTarget : 1.0;
+    return BinaryTimeBonusHelper.isTimeScoringDisabled(instance) ||
+        BinaryTimeBonusHelper.isForcedBinaryOneOffTimeLog(
+          instance: instance,
+          countValue: count,
+          targetValue: target,
+        );
+  }
+
+  static double _binaryEstimateMinutes(
+    ActivityInstanceRecord instance, [
+    ActivityRecord? template,
+  ]) {
+    final templateEstimate = template?.timeEstimateMinutes;
+    if (templateEstimate != null && templateEstimate > 0) {
+      return templateEstimate.toDouble();
+    }
+    return BinaryTimeBonusHelper.binaryEstimateMinutes(instance);
   }
 
   /// Calculate total daily target for all habit instances
@@ -588,26 +466,16 @@ class PointsService {
         0.0, double.infinity); // Allow >100% for overachievement
   }
 
-  /// Calculate duration multiplier based on target minutes
-  /// Returns the number of 30-minute blocks, minimum 1
-  static int calculateDurationMultiplier(double targetMinutes) {
-    if (targetMinutes <= 0) return 1;
-    return (targetMinutes / 30).round().clamp(1, double.infinity).toInt();
-  }
-
-  /// Calculate extra target to match binary time bonus awards (tasks only)
+  /// Calculate extra target to match binary time bonus awards for binary activities
   static double calculateBinaryTimeBonusTargetAdjustment(
     ActivityInstanceRecord instance,
   ) {
     final habitPriority = instance.templatePriority.toDouble();
     final countValue = PointsValueHelper.currentValue(instance);
-    final isTimeLikeUnit =
-        BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
     return BinaryTimeBonusHelper.calculateTargetAdjustment(
       instance: instance,
       countValue: countValue,
       priority: habitPriority,
-      isTimeLikeUnit: isTimeLikeUnit,
     );
   }
 }

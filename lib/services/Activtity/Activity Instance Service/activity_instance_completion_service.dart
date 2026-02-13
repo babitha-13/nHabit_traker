@@ -163,6 +163,7 @@ class ActivityInstanceCompletionService {
     String? userId,
     bool skipOptimisticUpdate =
         false, // Skip optimistic broadcast if caller already handled it
+    bool skipNextInstanceGeneration = false,
   }) async {
     await completeInstanceWithBackdate(
       instanceId: instanceId,
@@ -172,6 +173,7 @@ class ActivityInstanceCompletionService {
       userId: userId,
       completedAt: null, // Use current time
       skipOptimisticUpdate: skipOptimisticUpdate,
+      skipNextInstanceGeneration: skipNextInstanceGeneration,
     );
   }
 
@@ -186,6 +188,7 @@ class ActivityInstanceCompletionService {
     bool forceSessionBackdate = false,
     bool skipOptimisticUpdate =
         false, // Skip optimistic broadcast if caller already handled it
+    bool skipNextInstanceGeneration = false,
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
@@ -352,48 +355,50 @@ class ActivityInstanceCompletionService {
         } else if (!skipOptimisticUpdate) {
           InstanceEvents.broadcastInstanceUpdated(updatedInstance);
         }
-        if (instance.templateCategoryType == 'habit') {
-          await ActivityInstanceHelperService.generateNextHabitInstance(
-              instance, uid);
-        } else {
-          final templateRef =
-              ActivityRecord.collectionForUser(uid).doc(instance.templateId);
-          final templateDoc = await templateRef.get();
-          if (templateDoc.exists) {
-            final template = ActivityRecord.fromSnapshot(templateDoc);
-            if (template.isRecurring && template.isActive) {
-              final recurrenceAnchorDate =
-                  instance.originalDueDate ?? instance.dueDate!;
-              final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
-                currentDueDate: recurrenceAnchorDate,
-                template: template,
-              );
-              if (nextDueDate != null) {
-                final newInstanceRef = await ActivityInstanceCreationService
-                    .createActivityInstance(
-                  templateId: instance.templateId,
-                  dueDate: nextDueDate,
-                  dueTime: template.dueTime,
+        if (!skipNextInstanceGeneration) {
+          if (instance.templateCategoryType == 'habit') {
+            await ActivityInstanceHelperService.generateNextHabitInstance(
+                instance, uid);
+          } else {
+            final templateRef =
+                ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+            final templateDoc = await templateRef.get();
+            if (templateDoc.exists) {
+              final template = ActivityRecord.fromSnapshot(templateDoc);
+              if (template.isRecurring && template.isActive) {
+                final recurrenceAnchorDate =
+                    instance.originalDueDate ?? instance.dueDate!;
+                final nextDueDate = RecurrenceCalculator.calculateNextDueDate(
+                  currentDueDate: recurrenceAnchorDate,
                   template: template,
-                  userId: uid,
                 );
-                try {
-                  final newInstance =
-                      await ActivityInstanceHelperService.getUpdatedInstance(
-                    instanceId: newInstanceRef.id,
+                if (nextDueDate != null) {
+                  final newInstanceRef = await ActivityInstanceCreationService
+                      .createActivityInstance(
+                    templateId: instance.templateId,
+                    dueDate: nextDueDate,
+                    dueTime: template.dueTime,
+                    template: template,
                     userId: uid,
                   );
-                  InstanceEvents.broadcastInstanceCreated(newInstance);
-                } catch (e) {
-                  print('Error broadcasting instance created event: $e');
+                  try {
+                    final newInstance =
+                        await ActivityInstanceHelperService.getUpdatedInstance(
+                      instanceId: newInstanceRef.id,
+                      userId: uid,
+                    );
+                    InstanceEvents.broadcastInstanceCreated(newInstance);
+                  } catch (e) {
+                    print('Error broadcasting instance created event: $e');
+                  }
                 }
+              } else if (!template.isRecurring) {
+                await templateRef.update({
+                  'isActive': false,
+                  'status': 'complete',
+                  'lastUpdated': now,
+                });
               }
-            } else if (!template.isRecurring) {
-              await templateRef.update({
-                'isActive': false,
-                'status': 'complete',
-                'lastUpdated': now,
-              });
             }
           }
         }
