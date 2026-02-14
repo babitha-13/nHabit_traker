@@ -20,6 +20,7 @@ import 'package:habit_tracker/services/sound_helper.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/features/Authentication/authentication.dart';
 import 'package:habit_tracker/features/Home/presentation/home_screen.dart';
 import 'package:habit_tracker/features/Authentication/splash.dart';
@@ -32,8 +33,9 @@ SharedPref sharedPref = SharedPref();
 LoginResponse users = LoginResponse();
 // Global navigator key for notification navigation
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
-const bool _useFirebaseFunctionsEmulator =
-    bool.fromEnvironment('USE_FIREBASE_FUNCTIONS_EMULATOR', defaultValue: false);
+const bool _useFirebaseFunctionsEmulator = bool.fromEnvironment(
+    'USE_FIREBASE_FUNCTIONS_EMULATOR',
+    defaultValue: false);
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,12 +45,14 @@ void main() async {
   NotificationCenter.reset();
   // Reset FirestoreCacheService listeners flag so it can set up listeners again
   FirestoreCacheService.resetListenersSetup();
+  TodayInstanceRepository.resetListenersSetup();
   // Reset resource tracker
   ResourceTracker.reset();
   OptimisticOperationTracker.clearAll();
   // Start periodic cleanup for optimistic operations
   OptimisticOperationTracker.startPeriodicCleanup();
   FirestoreCacheService().invalidateAllCache();
+  TodayInstanceRepository.instance.ensureListenersSetup();
   // Only initialize Android-specific services when not running on web
   if (!kIsWeb) {
     await AndroidAlarmManager.initialize();
@@ -148,6 +152,8 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       NotificationCenter.reset();
       FirestoreCacheService.resetListenersSetup();
       FirestoreCacheService().ensureListenersSetup();
+      TodayInstanceRepository.resetListenersSetup();
+      TodayInstanceRepository.instance.ensureListenersSetup();
       ResourceTracker.reset();
     }
     // CRITICAL FIX: Cancel existing subscriptions before creating new ones

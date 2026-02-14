@@ -1,7 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
+import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/features/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_component_main.dart';
@@ -19,6 +22,28 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
     with EssentialTemplatesPageLogic {
   final Map<String, GlobalKey> _categoryKeys = {};
 
+  ActivityInstanceRecord? _extractInstanceFromEvent(Object? param) {
+    if (param is ActivityInstanceRecord) return param;
+    if (param is Map && param['instance'] is ActivityInstanceRecord) {
+      return param['instance'] as ActivityInstanceRecord;
+    }
+    return null;
+  }
+
+  void _handleEssentialInstanceChange(Object? param) {
+    if (!mounted) return;
+    final instance = _extractInstanceFromEvent(param);
+    if (instance == null) return;
+    if (instance.templateCategoryType != 'essential') return;
+    loadTodayStats();
+  }
+
+  void _handleInstanceRollback(Object? param) {
+    if (!mounted) return;
+    if (!InstanceRepositoryFlags.useRepoEssentialTab) return;
+    loadTodayStats();
+  }
+
   @override
   void initState() {
     super.initState();
@@ -31,6 +56,26 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
         loadTemplates();
       }
     });
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceCreated,
+      _handleEssentialInstanceChange,
+    );
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceUpdated,
+      _handleEssentialInstanceChange,
+    );
+    NotificationCenter.addObserver(
+      this,
+      InstanceEvents.instanceDeleted,
+      _handleEssentialInstanceChange,
+    );
+    NotificationCenter.addObserver(
+      this,
+      'instanceUpdateRollback',
+      _handleInstanceRollback,
+    );
   }
 
   @override

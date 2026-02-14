@@ -323,6 +323,132 @@ class TaskInstanceTimeLoggingService {
     }
   }
 
+  static Future<List<ActivityInstanceRecord>> getTodayEssentialInstances({
+    required String userId,
+    required DateTime dayStart,
+    bool includePending = true,
+    bool includeLogged = true,
+  }) async {
+    if (!includePending && !includeLogged) {
+      return [];
+    }
+
+    final normalizedDayStart = DateService.normalizeToStartOfDay(dayStart);
+    final dayEnd = normalizedDayStart.add(const Duration(days: 1));
+    final mergedById = <String, ActivityInstanceRecord>{};
+
+    bool isSameDay(DateTime? value) {
+      if (value == null) return false;
+      final normalized = DateService.normalizeToStartOfDay(value);
+      return normalized.isAtSameMomentAs(normalizedDayStart);
+    }
+
+    bool hasSessionOnDay(ActivityInstanceRecord instance) {
+      if (instance.timeLogSessions.isEmpty) return false;
+      for (final session in instance.timeLogSessions) {
+        final start = session['startTime'] as DateTime?;
+        if (start == null) continue;
+        if (!start.isBefore(normalizedDayStart) && start.isBefore(dayEnd)) {
+          return true;
+        }
+      }
+      return false;
+    }
+
+    void mergeInstances(Iterable<ActivityInstanceRecord> instances) {
+      for (final instance in instances) {
+        if (!instance.isActive) continue;
+        mergedById[instance.reference.id] = instance;
+      }
+    }
+
+    Future<void> collectFromQuery({
+      required Future<dynamic> Function() runQuery,
+      required String queryDescription,
+      bool filterByDay = false,
+    }) async {
+      try {
+        final result = await runQuery();
+        final instances = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) {
+          if (!instance.isActive) return false;
+          if (instance.templateCategoryType != 'essential') return false;
+          if (!filterByDay) return true;
+          final belongsToday = isSameDay(instance.belongsToDate);
+          final completedToday = isSameDay(instance.completedAt);
+          final sessionToday = hasSessionOnDay(instance);
+          return belongsToday || completedToday || sessionToday;
+        });
+        mergeInstances(instances);
+      } catch (e) {
+        logFirestoreIndexError(
+          e,
+          queryDescription,
+          'activity_instances',
+        );
+      }
+    }
+
+    if (includePending) {
+      await collectFromQuery(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'essential')
+            .where('belongsToDate', isEqualTo: normalizedDayStart)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Get today essential instances by belongsToDate (essential + belongsToDate)',
+      );
+    }
+
+    if (includeLogged) {
+      final sessionLogged = await getessentialInstances(
+        userId: userId,
+        startDate: normalizedDayStart,
+        endDate: dayEnd,
+      );
+      mergeInstances(sessionLogged);
+
+      await collectFromQuery(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateCategoryType', isEqualTo: 'essential')
+            .where('totalTimeLogged', isGreaterThan: 0)
+            .where('completedAt', isGreaterThanOrEqualTo: normalizedDayStart)
+            .where('completedAt', isLessThan: dayEnd)
+            .limit(300)
+            .get(),
+        queryDescription:
+            'Get today essential logged fallback by completedAt range (essential + totalTimeLogged + completedAt)',
+        filterByDay: true,
+      );
+    }
+
+    final instances = mergedById.values.where((instance) {
+      final pendingShape = isSameDay(instance.belongsToDate);
+      final loggedShape = hasSessionOnDay(instance) ||
+          (instance.totalTimeLogged > 0 && isSameDay(instance.completedAt));
+
+      if (includePending && includeLogged) {
+        return pendingShape || loggedShape;
+      }
+      if (includePending) {
+        return pendingShape;
+      }
+      return loggedShape;
+    }).toList();
+
+    instances.sort((a, b) {
+      if (a.status == 'pending' && b.status != 'pending') return -1;
+      if (a.status != 'pending' && b.status == 'pending') return 1;
+      final aUpdated = a.lastUpdated ?? DateTime(1970);
+      final bUpdated = b.lastUpdated ?? DateTime(1970);
+      return bUpdated.compareTo(aUpdated);
+    });
+
+    return instances;
+  }
+
   static Future<List<ActivityInstanceRecord>> getTimeLoggedTasksForDate({
     String? userId,
     required DateTime date,

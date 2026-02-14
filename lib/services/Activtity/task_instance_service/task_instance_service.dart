@@ -370,6 +370,20 @@ class TaskInstanceService {
     );
   }
 
+  static Future<List<ActivityInstanceRecord>> getTodayEssentialInstances({
+    required String userId,
+    required DateTime dayStart,
+    bool includePending = true,
+    bool includeLogged = true,
+  }) async {
+    return TaskInstanceTimeLoggingService.getTodayEssentialInstances(
+      userId: userId,
+      dayStart: dayStart,
+      includePending: includePending,
+      includeLogged: includeLogged,
+    );
+  }
+
   /// Optimized method to get time-logged tasks for a specific date
   /// Uses belongsToDate field when available for better query performance
   static Future<List<ActivityInstanceRecord>> getTimeLoggedTasksForDate({

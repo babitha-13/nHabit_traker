@@ -94,6 +94,12 @@ class _ItemComponentState extends State<ItemComponent>
   String? _reminderDisplayText; // Cache for reminder display text
   int? _resolvedTimeEstimateMinutes;
   bool _isFetchingTimeEstimate = false;
+
+  bool get _shouldLoadQueueReminderState {
+    return widget.page == 'queue' &&
+        widget.instance.templateCategoryType != 'essential';
+  }
+
   @override
   void initState() {
     super.initState();
@@ -105,6 +111,9 @@ class _ItemComponentState extends State<ItemComponent>
     if (widget.instance.templateTrackingType == 'time' &&
         widget.instance.isTimerActive) {
       _startTimer();
+    }
+    if (_shouldLoadQueueReminderState && _hasReminders == null) {
+      _checkForReminders();
     }
   }
 
@@ -150,6 +159,11 @@ class _ItemComponentState extends State<ItemComponent>
         oldWidget.instance.templateTimeEstimateMinutes;
     final instanceChanged =
         widget.instance.reference.id != oldWidget.instance.reference.id;
+    final pageChanged = widget.page != oldWidget.page;
+    if (instanceChanged) {
+      _hasReminders = null;
+      _reminderDisplayText = null;
+    }
     if (estimateChanged || instanceChanged) {
       final newValue =
           _normalizeTimeEstimate(widget.instance.templateTimeEstimateMinutes);
@@ -161,6 +175,11 @@ class _ItemComponentState extends State<ItemComponent>
       if (_shouldFetchTemplateEstimate()) {
         _fetchTemplateTimeEstimate();
       }
+    }
+    if ((instanceChanged || pageChanged) &&
+        _shouldLoadQueueReminderState &&
+        _hasReminders == null) {
+      _checkForReminders();
     }
   }
 
@@ -483,6 +502,22 @@ class _ItemComponentState extends State<ItemComponent>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const SizedBox(width: 5),
+                        if (widget.page == 'queue' &&
+                            _hasReminders == true) ...[
+                          Tooltip(
+                            message: _reminderDisplayText?.isNotEmpty == true
+                                ? 'Reminders: $_reminderDisplayText'
+                                : 'Reminders enabled',
+                            child: Icon(
+                              Icons.notifications_active,
+                              size: 18,
+                              color: FlutterFlowTheme.of(context)
+                                  .secondaryText
+                                  .withOpacity(0.9),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                        ],
                         if (_isExpanded && widget.isHabit) ...[
                           GestureDetector(
                             onTap: () {

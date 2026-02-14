@@ -21,6 +21,7 @@ import 'package:habit_tracker/features/Calendar/calendar_event_service.dart';
 import 'package:habit_tracker/features/Calendar/Event_tiles/calendar_event_tile.dart';
 import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/calendar_overlap_ui.dart';
 import 'package:habit_tracker/features/Calendar/calendar_time_entry_modal.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -34,7 +35,7 @@ class _CalendarPageState extends State<CalendarPage> {
   double _currentScrollOffset = 0.0;
   double _initialScrollOffset = 0.0;
   double _calendarViewportHeight = 0.0;
-  DateTime _selectedDate = DateTime.now();
+  DateTime _selectedDate = DateService.currentDate;
   bool _showPlanned = true;
   static const double _minVerticalZoom = 0.5;
   static const double _maxVerticalZoom = 3.0;
@@ -153,7 +154,7 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   void _calculateInitialScrollOffset() {
-    final now = DateTime.now();
+    final now = DateService.currentDate;
     final minutes = now.hour * 60 + now.minute;
     final startMinutes = (minutes - 60).clamp(0, 24 * 60).toDouble();
     _initialScrollOffset = startMinutes * _calculateHeightPerMinute();
@@ -283,7 +284,7 @@ class _CalendarPageState extends State<CalendarPage> {
     if (!mounted) return;
 
     _observerRefreshDebounceTimer?.cancel();
-    final now = DateTime.now();
+    final now = DateService.currentDate;
     Duration delay = _observerRefreshDebounce;
 
     if (!force && _lastRefreshStartedAt != null) {
@@ -821,6 +822,12 @@ class _CalendarPageState extends State<CalendarPage> {
 
     DateTime? earliestStartTime;
     final cascaded = <CalendarEventData>[];
+    final selectedDayStart = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
+    final selectedDayEnd = selectedDayStart.add(const Duration(days: 1));
     for (final event in events) {
       DateTime startTime = event.startTime!;
       DateTime endTime = event.endTime!;
@@ -829,6 +836,19 @@ class _CalendarPageState extends State<CalendarPage> {
       if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
         endTime = earliestStartTime;
         startTime = endTime.subtract(duration);
+      }
+
+      if (startTime.isBefore(selectedDayStart)) {
+        startTime = selectedDayStart;
+      }
+      if (!endTime.isAfter(startTime)) {
+        endTime = startTime.add(const Duration(minutes: 1));
+      }
+      if (!endTime.isBefore(selectedDayEnd)) {
+        endTime = selectedDayEnd.subtract(const Duration(seconds: 1));
+      }
+      if (!endTime.isAfter(startTime)) {
+        continue;
       }
 
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
@@ -1085,7 +1105,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
     _observerRefreshDebounceTimer?.cancel();
     _isFetching = true;
-    _lastRefreshStartedAt = DateTime.now();
+    _lastRefreshStartedAt = DateService.currentDate;
 
     // Check userId BEFORE setting loading state to avoid showing loader if not authenticated
     final userId = await waitForCurrentUserUid();
@@ -1419,7 +1439,7 @@ class _CalendarPageState extends State<CalendarPage> {
         },
         onResetDate: () {
           setState(() {
-            _selectedDate = DateTime.now();
+            _selectedDate = DateService.currentDate;
             _dayViewKey = GlobalKey<DayViewState>();
           });
           _loadEvents();

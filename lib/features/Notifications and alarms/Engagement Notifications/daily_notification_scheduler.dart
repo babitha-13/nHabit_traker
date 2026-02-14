@@ -1,6 +1,7 @@
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_preferences_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Service for scheduling daily recurring notifications (morning and evening reminders)
 /// All business logic for daily notification scheduling is centralized here (#REFACTOR_NOW compliance)
@@ -25,7 +26,7 @@ class DailyNotificationScheduler {
       }
 
       // Calculate next notification time
-      final now = DateTime.now();
+      final now = DateService.currentDate;
       var scheduledTime = DateTime(
         now.year,
         now.month,
@@ -77,7 +78,7 @@ class DailyNotificationScheduler {
       }
 
       // Calculate next notification time
-      final now = DateTime.now();
+      final now = DateService.currentDate;
       var scheduledTime = DateTime(
         now.year,
         now.month,

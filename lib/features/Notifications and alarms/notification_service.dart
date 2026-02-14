@@ -18,6 +18,7 @@ import 'package:habit_tracker/features/Notifications%20and%20alarms/snooze_dialo
 import 'package:habit_tracker/features/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:vibration/vibration.dart';
 
 class ActiveAlarmContext {
@@ -474,7 +475,8 @@ class NotificationService {
           builder: (context) => AlarmRingingPage(
             title: title,
             body: body,
-            payload: payload, // Preserve full payload for instance + reminder IDs
+            payload:
+                payload, // Preserve full payload for instance + reminder IDs
           ),
           fullscreenDialog: true, // Show as full-screen modal
         ),
@@ -608,16 +610,8 @@ class NotificationService {
       // Ensure timezone is initialized before using tz.local
       _ensureTimezoneInitialized();
 
-      // Create TZDateTime directly from the scheduled time components
-      final tzDateTime = tz.TZDateTime(
-        tz.local,
-        scheduledTime.year,
-        scheduledTime.month,
-        scheduledTime.day,
-        scheduledTime.hour,
-        scheduledTime.minute,
-        scheduledTime.second,
-      );
+      // Convert the instant to IST timezone representation.
+      final tzDateTime = tz.TZDateTime.from(scheduledTime, tz.local);
       // Try exact scheduling first, fallback to approximate if needed
       try {
         await _notificationsPlugin.zonedSchedule(
@@ -863,7 +857,7 @@ class NotificationService {
         final message = notification['message'] as String;
         final id = notification['id'] as String;
         // Only schedule if the notification time is in the future
-        if (notificationTime.isAfter(DateTime.now())) {
+        if (notificationTime.isAfter(DateService.currentDate)) {
           await scheduleReminder(
             id: id,
             title: 'Day Ending Soon',
@@ -970,7 +964,8 @@ class NotificationService {
           currentValue: newValue,
         );
       } else if (trackingType == 'time') {
-        await ActivityInstanceService.toggleInstanceTimer(instanceId: instanceId);
+        await ActivityInstanceService.toggleInstanceTimer(
+            instanceId: instanceId);
       } else {
         await ActivityInstanceService.completeInstance(instanceId: instanceId);
       }
@@ -1108,8 +1103,8 @@ class NotificationService {
         retryCount++;
       }
 
-      if (_pendingResponses.any(
-          (response) => (response.payload ?? '').startsWith('ALARM_RINGING:'))) {
+      if (_pendingResponses.any((response) =>
+          (response.payload ?? '').startsWith('ALARM_RINGING:'))) {
         await _stopAlarmFeedback();
       }
     } finally {

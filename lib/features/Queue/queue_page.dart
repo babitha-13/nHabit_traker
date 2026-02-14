@@ -1406,7 +1406,10 @@ class _QueuePageState extends State<QueuePage>
                   child: TabBarView(
                     children: [
                       _buildDailyTabContent(),
-                      WeeklyView(searchQuery: _searchQuery),
+                      SafeArea(
+                        top: false,
+                        child: WeeklyView(searchQuery: _searchQuery),
+                      ),
                     ],
                   ),
                 ),

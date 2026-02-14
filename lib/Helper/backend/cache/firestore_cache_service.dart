@@ -3,7 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
-import 'package:habit_tracker/features/Calendar/calendar_event_service.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_events_result.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 
 /// Centralized cache service for Firestore data

@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'activity_instance_helper_service.dart';
 import 'activity_instance_creation_service.dart';
 
@@ -89,7 +90,9 @@ class ActivityInstanceUtilityService {
           .where('templateId', isEqualTo: templateId);
       final instances = await query.get();
       for (final doc in instances.docs) {
+        final deletedInstance = ActivityInstanceRecord.fromSnapshot(doc);
         await doc.reference.delete();
+        InstanceEvents.broadcastInstanceDeleted(deletedInstance);
       }
     } catch (e, stackTrace) {
       logFirestoreQueryError(
@@ -148,6 +151,9 @@ class ActivityInstanceUtilityService {
           batch.delete(instance.reference);
         }
         await batch.commit();
+        for (final deletedInstance in sublist) {
+          InstanceEvents.broadcastInstanceDeleted(deletedInstance);
+        }
       }
     } catch (e, stackTrace) {
       logFirestoreQueryError(

@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/features/Routine/Backend_data/routine_order_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/features/Routine/routine_reminder_scheduler.dart';
@@ -10,6 +11,8 @@ import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/a
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
+import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 
 class RoutineService {
   /// Check if instance is due today or overdue (mirrors Queue page logic)
@@ -93,6 +96,183 @@ class RoutineService {
     if (tsA == null) return 1;
     if (tsB == null) return -1;
     return tsB.compareTo(tsA);
+  }
+
+  @Deprecated(
+    'Legacy fallback for routine instance selection. '
+    'Use TodayInstanceRepository.selectRoutineItems instead.',
+  )
+  static Future<List<ActivityInstanceRecord>> _fetchRoutineItemCandidates({
+    required String userId,
+    required List<String> itemIds,
+  }) async {
+    if (itemIds.isEmpty) {
+      return const <ActivityInstanceRecord>[];
+    }
+
+    final allInstances = <ActivityInstanceRecord>[];
+    if (itemIds.length <= 10) {
+      final result = await ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateId', whereIn: itemIds)
+          .get();
+      allInstances.addAll(
+          result.docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
+    } else {
+      for (int i = 0; i < itemIds.length; i += 10) {
+        final batch = itemIds.skip(i).take(10).toList();
+        final result = await ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateId', whereIn: batch)
+            .get();
+        allInstances.addAll(
+            result.docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
+      }
+    }
+    return allInstances;
+  }
+
+  @Deprecated(
+    'Legacy fallback for routine instance selection. '
+    'Use TodayInstanceRepository.selectRoutineItems instead.',
+  )
+  static Map<String, ActivityInstanceRecord> _selectRoutineInstancesLegacy({
+    required RoutineRecord routine,
+    required List<ActivityInstanceRecord> allInstances,
+    required DateTime today,
+  }) {
+    final instancesMap = <String, List<ActivityInstanceRecord>>{};
+    for (final instance in allInstances) {
+      final templateId = instance.templateId;
+      (instancesMap[templateId] ??= []).add(instance);
+    }
+
+    final todayInstances = <String, ActivityInstanceRecord>{};
+    final recentStatusThreshold = today.subtract(const Duration(days: 2));
+    for (int i = 0; i < routine.itemIds.length; i++) {
+      final itemId = routine.itemIds[i];
+      final fallbackItemType =
+          i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
+      final instances = instancesMap[itemId] ?? [];
+      String itemType = fallbackItemType;
+
+      for (final instance in instances) {
+        if (instance.templateCategoryType.isNotEmpty) {
+          itemType = instance.templateCategoryType;
+          break;
+        }
+      }
+
+      if (instances.isNotEmpty) {
+        List<ActivityInstanceRecord> todayInstancesForTemplate;
+
+        if (itemType == 'essential') {
+          todayInstancesForTemplate = instances
+              .where((inst) =>
+                  inst.belongsToDate != null &&
+                  DateTime(inst.belongsToDate!.year, inst.belongsToDate!.month,
+                          inst.belongsToDate!.day)
+                      .isAtSameMomentAs(today))
+              .toList();
+        } else if (itemType == 'habit') {
+          final instancesInWindow = instances
+              .where((inst) => _isHabitInWindowToday(inst, today))
+              .toList();
+
+          final pendingInWindow = instancesInWindow
+              .where((inst) => inst.status == 'pending' && inst.isActive)
+              .toList();
+
+          if (pendingInWindow.isNotEmpty) {
+            todayInstancesForTemplate = pendingInWindow;
+          } else if (instancesInWindow.isNotEmpty) {
+            todayInstancesForTemplate = instancesInWindow;
+          } else {
+            final recentCompletedOrSkipped = instances
+                .where((inst) =>
+                    (inst.status == 'completed' || inst.status == 'skipped') &&
+                    (() {
+                      final statusTs = _statusTimestamp(inst);
+                      return statusTs != null &&
+                          !statusTs.isBefore(recentStatusThreshold);
+                    })())
+                .toList();
+
+            if (recentCompletedOrSkipped.isNotEmpty) {
+              recentCompletedOrSkipped.sort(_compareStatusTimestampDesc);
+              todayInstancesForTemplate = [recentCompletedOrSkipped.first];
+            } else {
+              final nextPending = instances
+                  .where((inst) => inst.status == 'pending' && inst.isActive)
+                  .toList();
+              if (nextPending.isNotEmpty) {
+                nextPending.sort((a, b) {
+                  if (a.dueDate == null && b.dueDate == null) return 0;
+                  if (a.dueDate == null) return 1;
+                  if (b.dueDate == null) return -1;
+                  return a.dueDate!.compareTo(b.dueDate!);
+                });
+                todayInstancesForTemplate = [nextPending.first];
+              } else {
+                todayInstancesForTemplate = [];
+              }
+            }
+          }
+        } else {
+          final pendingTodayOrOverdue = instances
+              .where((inst) =>
+                  inst.status == 'pending' &&
+                  inst.isActive &&
+                  _isInstanceForToday(inst))
+              .toList();
+
+          if (pendingTodayOrOverdue.isNotEmpty) {
+            todayInstancesForTemplate = pendingTodayOrOverdue;
+          } else {
+            final recentCompletedOrSkipped = instances
+                .where((inst) =>
+                    (inst.status == 'completed' || inst.status == 'skipped') &&
+                    (() {
+                      final statusTs = _statusTimestamp(inst);
+                      return statusTs != null &&
+                          !statusTs.isBefore(recentStatusThreshold);
+                    })())
+                .toList();
+            if (recentCompletedOrSkipped.isNotEmpty) {
+              recentCompletedOrSkipped.sort(_compareStatusTimestampDesc);
+              todayInstancesForTemplate = [recentCompletedOrSkipped.first];
+            } else {
+              final nextPending = instances
+                  .where((inst) => inst.status == 'pending' && inst.isActive)
+                  .toList();
+              if (nextPending.isNotEmpty) {
+                nextPending.sort((a, b) {
+                  if (a.dueDate == null && b.dueDate == null) return 0;
+                  if (a.dueDate == null) return 1;
+                  if (b.dueDate == null) return -1;
+                  return a.dueDate!.compareTo(b.dueDate!);
+                });
+                todayInstancesForTemplate = [nextPending.first];
+              } else {
+                todayInstancesForTemplate = [];
+              }
+            }
+          }
+        }
+
+        if (todayInstancesForTemplate.isNotEmpty) {
+          todayInstancesForTemplate.sort((a, b) {
+            if (a.status == 'pending' && b.status != 'pending') return -1;
+            if (a.status != 'pending' && b.status == 'pending') return 1;
+            if (a.dueDate == null && b.dueDate == null) return 0;
+            if (a.dueDate == null) return 1;
+            if (b.dueDate == null) return -1;
+            return a.dueDate!.compareTo(b.dueDate!);
+          });
+          todayInstances[itemId] = todayInstancesForTemplate.first;
+        }
+      }
+    }
+
+    return todayInstances;
   }
 
   /// Create a new routine with items and order
@@ -304,193 +484,54 @@ class RoutineService {
       final routine = RoutineRecord.fromSnapshot(routineDoc);
       if (!routine.isActive) return null;
 
-      // Query ALL instances for the specific items in this routine
-      // This works for habits, tasks, and Essential Activities (no category type restriction)
-      // Handle Firestore's 10-item limit for whereIn by batching if needed
-      final allInstances = <ActivityInstanceRecord>[];
-      final itemIds = routine.itemIds;
-
-      if (itemIds.length <= 10) {
-        // Single query for small sequences
-        final result = await ActivityInstanceRecord.collectionForUser(uid)
-            .where('templateId', whereIn: itemIds)
-            .get();
-        allInstances.addAll(
-            result.docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
-      } else {
-        // Batch queries for large sequences (Firestore whereIn limit is 10)
-        for (int i = 0; i < itemIds.length; i += 10) {
-          final batch = itemIds.skip(i).take(10).toList();
-          final result = await ActivityInstanceRecord.collectionForUser(uid)
-              .where('templateId', whereIn: batch)
-              .get();
-          allInstances.addAll(result.docs
-              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
-        }
-      }
-
-      // Apply "today's instance per template" logic (mirrors Queue page behavior)
-      final instancesMap = <String, List<ActivityInstanceRecord>>{};
-      for (final instance in allInstances) {
-        final templateId = instance.templateId;
-        (instancesMap[templateId] ??= []).add(instance);
-      }
-
-      // For each template, find today's instance
-      final todayInstances = <String, ActivityInstanceRecord>{};
       final today = DateService.todayStart;
-      final recentStatusThreshold = today.subtract(const Duration(days: 2));
-      for (int i = 0; i < routine.itemIds.length; i++) {
-        final itemId = routine.itemIds[i];
-        final fallbackItemType =
-            i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
-        final instances = instancesMap[itemId] ?? [];
-        String itemType = fallbackItemType;
+      if (InstanceRepositoryFlags.useRepoRoutine) {
+        final repo = TodayInstanceRepository.instance;
+        await repo.ensureHydrated(userId: uid);
+        final repoInstances = repo.selectRoutineItems(routine: routine);
 
-        // Prefer actual instance category type over cached routine item type.
-        // This keeps routine rendering correct if template type changed after routine creation.
-        for (final instance in instances) {
-          if (instance.templateCategoryType.isNotEmpty) {
-            itemType = instance.templateCategoryType;
-            break;
-          }
+        if (InstanceRepositoryFlags.enableParityChecks) {
+          // ignore: deprecated_member_use_from_same_package
+          final legacyCandidates = await _fetchRoutineItemCandidates(
+            userId: uid,
+            itemIds: routine.itemIds,
+          );
+          // ignore: deprecated_member_use_from_same_package
+          final legacySelected = _selectRoutineInstancesLegacy(
+            routine: routine,
+            allInstances: legacyCandidates,
+            today: today,
+          );
+          InstanceParityLogger.logRoutineParity(
+            legacy: legacySelected,
+            repo: repoInstances,
+          );
         }
 
-        if (instances.isNotEmpty) {
-          List<ActivityInstanceRecord> todayInstancesForTemplate;
-
-          // For Essential Activities, filter by belongsToDate for today
-          if (itemType == 'essential') {
-            todayInstancesForTemplate = instances
-                .where((inst) =>
-                    inst.belongsToDate != null &&
-                    DateTime(inst.belongsToDate!.year,
-                            inst.belongsToDate!.month, inst.belongsToDate!.day)
-                        .isAtSameMomentAs(today))
-                .toList();
-          } else if (itemType == 'habit') {
-            // For habits: Use window-based filtering (mirrors getActiveHabitInstances)
-            // First, filter instances where today falls within the window
-            final instancesInWindow = instances
-                .where((inst) => _isHabitInWindowToday(inst, today))
-                .toList();
-
-            // Prioritize pending instances within the window
-            final pendingInWindow = instancesInWindow
-                .where((inst) => inst.status == 'pending' && inst.isActive)
-                .toList();
-
-            if (pendingInWindow.isNotEmpty) {
-              // Use pending instances within today's window
-              todayInstancesForTemplate = pendingInWindow;
-            } else if (instancesInWindow.isNotEmpty) {
-              // Fallback to any instance within the window (completed/skipped)
-              todayInstancesForTemplate = instancesInWindow;
-            } else {
-              // No live instance for today. Prefer recent completed/skipped before "next pending"
-              // so routine rows don't appear missing right after a recent completion.
-              final recentCompletedOrSkipped = instances
-                  .where((inst) =>
-                      (inst.status == 'completed' ||
-                          inst.status == 'skipped') &&
-                      (() {
-                        final statusTs = _statusTimestamp(inst);
-                        return statusTs != null &&
-                            !statusTs.isBefore(recentStatusThreshold);
-                      })())
-                  .toList();
-
-              if (recentCompletedOrSkipped.isNotEmpty) {
-                recentCompletedOrSkipped.sort(_compareStatusTimestampDesc);
-                todayInstancesForTemplate = [recentCompletedOrSkipped.first];
-              } else {
-                // No recent status instance, find the next pending instance (for tomorrow, etc.)
-                final nextPending = instances
-                    .where((inst) => inst.status == 'pending' && inst.isActive)
-                    .toList();
-                if (nextPending.isNotEmpty) {
-                  // Sort by due date and take the earliest pending
-                  nextPending.sort((a, b) {
-                    if (a.dueDate == null && b.dueDate == null) return 0;
-                    if (a.dueDate == null) return 1;
-                    if (b.dueDate == null) return -1;
-                    return a.dueDate!.compareTo(b.dueDate!);
-                  });
-                  todayInstancesForTemplate = [nextPending.first];
-                } else {
-                  todayInstancesForTemplate = [];
-                }
-              }
-            }
-          } else {
-            // For tasks: prioritize pending due/overdue, then recent completed/skipped.
-            final pendingTodayOrOverdue = instances
-                .where((inst) =>
-                    inst.status == 'pending' &&
-                    inst.isActive &&
-                    _isInstanceForToday(inst))
-                .toList();
-
-            if (pendingTodayOrOverdue.isNotEmpty) {
-              todayInstancesForTemplate = pendingTodayOrOverdue;
-            } else {
-              final recentCompletedOrSkipped = instances
-                  .where((inst) =>
-                      (inst.status == 'completed' ||
-                          inst.status == 'skipped') &&
-                      (() {
-                        final statusTs = _statusTimestamp(inst);
-                        return statusTs != null &&
-                            !statusTs.isBefore(recentStatusThreshold);
-                      })())
-                  .toList();
-              if (recentCompletedOrSkipped.isNotEmpty) {
-                recentCompletedOrSkipped.sort(_compareStatusTimestampDesc);
-                todayInstancesForTemplate = [recentCompletedOrSkipped.first];
-              } else {
-                // Fallback to next pending (future) to keep sequence populated.
-                final nextPending = instances
-                    .where((inst) => inst.status == 'pending' && inst.isActive)
-                    .toList();
-                if (nextPending.isNotEmpty) {
-                  nextPending.sort((a, b) {
-                    if (a.dueDate == null && b.dueDate == null) return 0;
-                    if (a.dueDate == null) return 1;
-                    if (b.dueDate == null) return -1;
-                    return a.dueDate!.compareTo(b.dueDate!);
-                  });
-                  todayInstancesForTemplate = [nextPending.first];
-                } else {
-                  todayInstancesForTemplate = [];
-                }
-              }
-            }
-          }
-
-          if (todayInstancesForTemplate.isNotEmpty) {
-            // Sort by due date (earliest first, nulls last)
-            // For habits, also prioritize pending status
-            todayInstancesForTemplate.sort((a, b) {
-              // First, prioritize pending over completed/skipped
-              if (a.status == 'pending' && b.status != 'pending') return -1;
-              if (a.status != 'pending' && b.status == 'pending') return 1;
-
-              // Then sort by due date
-              if (a.dueDate == null && b.dueDate == null) return 0;
-              if (a.dueDate == null) return 1;
-              if (b.dueDate == null) return -1;
-              return a.dueDate!.compareTo(b.dueDate!);
-            });
-
-            // Take the first one (should be the pending instance for today if available)
-            todayInstances[itemId] = todayInstancesForTemplate.first;
-          }
-        }
+        return RoutineWithInstances(
+          routine: routine,
+          instances: repoInstances,
+        );
       }
+
+      InstanceRepositoryFlags.onLegacyPathUsed(
+        'RoutineService.getRoutineWithInstances',
+      );
+      // ignore: deprecated_member_use_from_same_package
+      final legacyCandidates = await _fetchRoutineItemCandidates(
+        userId: uid,
+        itemIds: routine.itemIds,
+      );
+      // ignore: deprecated_member_use_from_same_package
+      final selectedInstances = _selectRoutineInstancesLegacy(
+        routine: routine,
+        allInstances: legacyCandidates,
+        today: today,
+      );
 
       return RoutineWithInstances(
         routine: routine,
-        instances: todayInstances,
+        instances: selectedInstances,
       );
     } catch (e) {
       return null;

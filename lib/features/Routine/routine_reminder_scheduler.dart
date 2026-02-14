@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -251,7 +252,7 @@ class RoutineReminderScheduler {
       }
 
       // Get next occurrence from today
-      final now = DateTime.now();
+      final now = DateService.currentDate;
       var scheduledTime = DateTime(now.year, now.month, now.day, hour, minute);
 
       // If time has passed today, schedule for tomorrow
@@ -300,7 +301,7 @@ class RoutineReminderScheduler {
 
   /// Get next occurrence date for a specific weekday
   static DateTime _getNextWeekday(int dayOfWeek, DateTime baseTime) {
-    final now = DateTime.now();
+    final now = DateService.currentDate;
     final currentWeekday = now.weekday;
 
     int daysUntilNext = (dayOfWeek - currentWeekday) % 7;
@@ -323,7 +324,7 @@ class RoutineReminderScheduler {
     required TimeOfDay dueTime,
     required int count,
   }) {
-    final now = DateTime.now();
+    final now = DateService.currentDate;
     final occurrences = <DateTime>[];
 
     // Start from today

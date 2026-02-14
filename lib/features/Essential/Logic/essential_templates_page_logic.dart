@@ -7,12 +7,15 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
+import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/features/activity%20editor/presentation/activity_editor_dialog.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/features/Categories/Create%20Category/create_category.dart';
 import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
+import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 import 'package:habit_tracker/features/Settings/default_time_estimates_service.dart';
 
 mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
@@ -144,36 +147,75 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       if (userId.isEmpty) {
         return {'counts': <String, int>{}, 'minutes': <String, int>{}};
       }
-      final today = DateTime.now();
-      final startOfDay = DateTime(today.year, today.month, today.day);
-      final endOfDay = startOfDay.add(const Duration(days: 1));
 
-      final instances = await TaskInstanceService.getessentialInstances(
-        userId: userId,
-        startDate: startOfDay,
-        endDate: endOfDay,
-      );
-
-      final counts = <String, int>{};
-      final minutes = <String, int>{};
-
-      for (final inst in instances) {
-        final templateId = inst.templateId;
-        if (templateId.isNotEmpty) {
-          counts[templateId] = (counts[templateId] ?? 0) + 1;
-          minutes[templateId] =
-              (minutes[templateId] ?? 0) + (inst.totalTimeLogged ~/ 60000);
-        }
+      if (!InstanceRepositoryFlags.useRepoEssentialTab) {
+        InstanceRepositoryFlags.onLegacyPathUsed(
+          'EssentialTemplatesPage.loadTodayStatsData',
+        );
+        // ignore: deprecated_member_use_from_same_package
+        return _loadTodayStatsDataLegacy(userId: userId);
       }
 
-      return {
-        'counts': counts,
-        'minutes': minutes,
-      };
+      final repo = TodayInstanceRepository.instance;
+      await repo.ensureHydrated(userId: userId);
+      final statsByTemplate = repo.selectEssentialTodayStatsByTemplate();
+      final counts = <String, int>{};
+      final minutes = <String, int>{};
+      statsByTemplate.forEach((templateId, stats) {
+        counts[templateId] = stats['count'] ?? 0;
+        minutes[templateId] = stats['minutes'] ?? 0;
+      });
+
+      if (InstanceRepositoryFlags.enableParityChecks) {
+        // ignore: deprecated_member_use_from_same_package
+        final legacy = await _loadTodayStatsDataLegacy(userId: userId);
+        InstanceParityLogger.logEssentialStatsParity(
+          legacyCounts: legacy['counts'] as Map<String, int>,
+          legacyMinutes: legacy['minutes'] as Map<String, int>,
+          repo: statsByTemplate,
+        );
+      }
+
+      return {'counts': counts, 'minutes': minutes};
     } catch (e) {
       print('Error loading today stats: $e');
       return {'counts': <String, int>{}, 'minutes': <String, int>{}};
     }
+  }
+
+  @Deprecated(
+    'Legacy fallback path kept only for migration soak. '
+    'Use TodayInstanceRepository.selectEssentialTodayStatsByTemplate.',
+  )
+  Future<Map<String, dynamic>> _loadTodayStatsDataLegacy({
+    required String userId,
+  }) async {
+    final today = DateTime.now();
+    final startOfDay = DateTime(today.year, today.month, today.day);
+    final endOfDay = startOfDay.add(const Duration(days: 1));
+
+    final instances = await TaskInstanceService.getessentialInstances(
+      userId: userId,
+      startDate: startOfDay,
+      endDate: endOfDay,
+    );
+
+    final counts = <String, int>{};
+    final minutes = <String, int>{};
+
+    for (final inst in instances) {
+      final templateId = inst.templateId;
+      if (templateId.isNotEmpty) {
+        counts[templateId] = (counts[templateId] ?? 0) + 1;
+        minutes[templateId] =
+            (minutes[templateId] ?? 0) + (inst.totalTimeLogged ~/ 60000);
+      }
+    }
+
+    return {
+      'counts': counts,
+      'minutes': minutes,
+    };
   }
 
   Future<void> loadTodayStats() async {

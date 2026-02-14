@@ -2,17 +2,22 @@ import 'dart:async';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_activity_data_service.dart';
+import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/planned_duration_resolver.dart';
 import 'package:habit_tracker/features/Routine/Backend_data/routine_planned_calendar_service.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/calendar_events_result.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_formatting_utils.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
+import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 
 /// Service class for loading and processing calendar events
 class CalendarEventService {
@@ -56,6 +61,54 @@ class CalendarEventService {
       ..sort();
 
     return entries.join('|');
+  }
+
+  static DateTime _normalizeDate(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static bool _isSameDay(DateTime? value, DateTime targetDayStart) {
+    if (value == null) return false;
+    return _normalizeDate(value).isAtSameMomentAs(targetDayStart);
+  }
+
+  static bool _hasSessionOnDay(
+    ActivityInstanceRecord instance,
+    DateTime dayStart,
+    DateTime dayEnd,
+  ) {
+    if (instance.timeLogSessions.isEmpty) return false;
+    for (final session in instance.timeLogSessions) {
+      final start = session['startTime'] as DateTime?;
+      if (start == null) continue;
+      if (!start.isBefore(dayStart) && start.isBefore(dayEnd)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static bool _isDueOnToday(ActivityInstanceRecord instance, DateTime dayStart) {
+    final due = instance.dueDate;
+    if (due == null) {
+      return true;
+    }
+    final normalizedDue = _normalizeDate(due);
+    if (instance.templateCategoryType == 'habit') {
+      final windowEnd = instance.windowEndDate;
+      if (windowEnd != null) {
+        final normalizedWindowEnd = _normalizeDate(windowEnd);
+        return !dayStart.isBefore(normalizedDue) &&
+            !dayStart.isAfter(normalizedWindowEnd);
+      }
+      return normalizedDue.isAtSameMomentAs(dayStart);
+    }
+    return normalizedDue.isAtSameMomentAs(dayStart) ||
+        normalizedDue.isBefore(dayStart);
+  }
+
+  static bool _hasDueTime(ActivityInstanceRecord instance) {
+    final dueTime = instance.dueTime;
+    return dueTime != null && dueTime.isNotEmpty;
   }
 
   /// Load and process calendar events for a given date
@@ -104,68 +157,247 @@ class CalendarEventService {
       0,
     );
     final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
-    List<dynamic> results;
-    try {
-      final futures = <Future<dynamic>>[
-        CalendarQueueService.getCompletedItems(
+    final normalizedSelectedDate = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+    final isTodaySelected =
+        normalizedSelectedDate.isAtSameMomentAs(DateService.todayStart);
+    if (isTodaySelected && !InstanceRepositoryFlags.useRepoCalendarToday) {
+      InstanceRepositoryFlags.onLegacyPathUsed(
+        'CalendarEventService.loadEvents(today)',
+      );
+    }
+
+    List<ActivityInstanceRecord> completedItems = <ActivityInstanceRecord>[];
+    List<ActivityInstanceRecord> timeLoggedTasks = <ActivityInstanceRecord>[];
+    List<ActivityInstanceRecord> essentialInstances =
+        <ActivityInstanceRecord>[];
+    List<ActivityInstanceRecord> plannedItemsFromBackend =
+        <ActivityInstanceRecord>[];
+    List<RoutineRecord> routines = <RoutineRecord>[];
+
+    if (isTodaySelected && InstanceRepositoryFlags.useRepoCalendarToday) {
+      try {
+        final repo = TodayInstanceRepository.instance;
+        await repo.ensureHydratedForTasks(userId: userId);
+
+        final dayStart = DateService.todayStart;
+        final dayEnd = dayStart.add(const Duration(days: 1));
+        final taskItems = repo.selectTaskItems();
+
+        final completedById = <String, ActivityInstanceRecord>{};
+        for (final item in repo.selectCalendarTodayCompleted()) {
+          completedById[item.reference.id] = item;
+        }
+        final completedFromCalendarQuery = await CalendarQueueService
+            .getCompletedItems(
           userId: userId,
           date: selectedDate,
-        ),
-        TaskInstanceService.getTimeLoggedTasks(
-          userId: userId,
-          startDate: selectedDateStart,
-          endDate: selectedDateEnd,
-        ),
-        TaskInstanceService.getessentialInstances(
-          userId: userId,
-          startDate: selectedDateStart,
-          endDate: selectedDateEnd,
-        ),
-      ];
+        );
+        for (final item in completedFromCalendarQuery) {
+          completedById[item.reference.id] = item;
+        }
+        for (final item in taskItems) {
+          if (!item.isActive) continue;
+          final completedToday =
+              item.status == 'completed' && _isSameDay(item.completedAt, dayStart);
+          final sessionToday = _hasSessionOnDay(item, dayStart, dayEnd);
+          if (completedToday || sessionToday) {
+            completedById[item.reference.id] = item;
+          }
+        }
+        completedItems = completedById.values.toList();
 
-      if (includePlanned) {
-        futures.add(
-          CalendarQueueService.getPlannedItems(
+        final timeLoggedById = <String, ActivityInstanceRecord>{};
+        for (final item in completedItems) {
+          final isTaskOrHabit = item.templateCategoryType == 'task' ||
+              item.templateCategoryType == 'habit';
+          if (!isTaskOrHabit) continue;
+          if (_hasSessionOnDay(item, dayStart, dayEnd)) {
+            timeLoggedById[item.reference.id] = item;
+          }
+        }
+        timeLoggedTasks = timeLoggedById.values.toList();
+        essentialInstances = repo.selectEssentialTodayInstances(
+          includePending: true,
+          includeLogged: true,
+        );
+
+        if (includePlanned) {
+          final plannedById = <String, ActivityInstanceRecord>{};
+          for (final item in repo.selectCalendarTodayTaskHabitPlanned()) {
+            plannedById[item.reference.id] = item;
+          }
+          final now = DateTime.now();
+          for (final item in taskItems) {
+            if (!item.isActive || item.status != 'pending') continue;
+            if (item.snoozedUntil != null && now.isBefore(item.snoozedUntil!)) {
+              continue;
+            }
+            if (_isDueOnToday(item, dayStart)) {
+              plannedById[item.reference.id] = item;
+            }
+          }
+          for (final item in essentialInstances) {
+            if (!item.isActive || item.status != 'pending') continue;
+            if (item.snoozedUntil != null && now.isBefore(item.snoozedUntil!)) {
+              continue;
+            }
+            if (_isDueOnToday(item, dayStart)) {
+              plannedById[item.reference.id] = item;
+            }
+          }
+          plannedItemsFromBackend = plannedById.values.toList();
+          plannedItemsFromBackend.sort((a, b) {
+            if (a.dueDate == null && b.dueDate == null) return 0;
+            if (a.dueDate == null) return 1;
+            if (b.dueDate == null) return -1;
+            return a.dueDate!.compareTo(b.dueDate!);
+          });
+          routines = await queryRoutineRecordOnce(userId: userId);
+        }
+
+        if (InstanceRepositoryFlags.enableParityChecks) {
+          final parityResults = await Future.wait<dynamic>([
+            CalendarQueueService.getPlannedItems(
+              userId: userId,
+              date: selectedDate,
+            ),
+            CalendarQueueService.getCompletedItems(
+              userId: userId,
+              date: selectedDate,
+            ),
+            TaskInstanceService.getTimeLoggedTasks(
+              userId: userId,
+              startDate: selectedDateStart,
+              endDate: selectedDateEnd,
+            ),
+            TaskInstanceService.getessentialInstances(
+              userId: userId,
+              startDate: selectedDateStart,
+              endDate: selectedDateEnd,
+            ),
+          ]);
+          final legacyPlanned =
+              List<ActivityInstanceRecord>.from(parityResults[0] ?? []);
+          final legacyCompleted = <String, ActivityInstanceRecord>{};
+          for (final item
+              in List<ActivityInstanceRecord>.from(parityResults[1] ?? [])) {
+            legacyCompleted[item.reference.id] = item;
+          }
+          for (final item
+              in List<ActivityInstanceRecord>.from(parityResults[2] ?? [])) {
+            legacyCompleted[item.reference.id] = item;
+          }
+          for (final item
+              in List<ActivityInstanceRecord>.from(parityResults[3] ?? [])) {
+            legacyCompleted[item.reference.id] = item;
+          }
+
+          final legacyPlannedForParity =
+              legacyPlanned.where(_hasDueTime).toList(growable: false);
+          final legacyCompletedForParity = legacyCompleted.values
+              .where((item) =>
+                  item.status == 'completed' &&
+                  _hasSessionOnDay(item, selectedDateStart, selectedDateEnd))
+              .toList(growable: false);
+
+          final repoPlannedForParity = plannedItemsFromBackend
+              .where(_hasDueTime)
+              .toList(growable: false);
+          final repoCompletedForParity = <String, ActivityInstanceRecord>{};
+          for (final item in completedItems) {
+            if (item.status == 'completed' &&
+                _hasSessionOnDay(item, selectedDateStart, selectedDateEnd)) {
+              repoCompletedForParity[item.reference.id] = item;
+            }
+          }
+          for (final item in essentialInstances) {
+            if (item.status == 'completed' &&
+                _hasSessionOnDay(item, selectedDateStart, selectedDateEnd)) {
+              repoCompletedForParity[item.reference.id] = item;
+            }
+          }
+
+          InstanceParityLogger.logCalendarParity(
+            legacyPlanned: legacyPlannedForParity,
+            repoPlanned: repoPlannedForParity,
+            legacyCompleted: legacyCompletedForParity,
+            repoCompleted: repoCompletedForParity.values.toList(),
+          );
+        }
+      } catch (e) {
+        logFirestoreIndexError(
+          e,
+          'CalendarEventService.loadEvents (today repository path)',
+          'activity_instances',
+        );
+        rethrow;
+      }
+    } else {
+      List<dynamic> results;
+      try {
+        final futures = <Future<dynamic>>[
+          CalendarQueueService.getCompletedItems(
             userId: userId,
             date: selectedDate,
           ),
+          TaskInstanceService.getTimeLoggedTasks(
+            userId: userId,
+            startDate: selectedDateStart,
+            endDate: selectedDateEnd,
+          ),
+          TaskInstanceService.getessentialInstances(
+            userId: userId,
+            startDate: selectedDateStart,
+            endDate: selectedDateEnd,
+          ),
+        ];
+
+        if (includePlanned) {
+          futures.add(
+            CalendarQueueService.getPlannedItems(
+              userId: userId,
+              date: selectedDate,
+            ),
+          );
+          futures.add(queryRoutineRecordOnce(userId: userId));
+        }
+
+        results = await Future.wait(futures).timeout(
+          const Duration(seconds: 30),
+          onTimeout: () {
+            throw TimeoutException(
+              'CalendarEventService.loadEvents timed out after 30 seconds',
+              const Duration(seconds: 30),
+            );
+          },
         );
-        futures.add(queryRoutineRecordOnce(userId: userId));
+      } catch (e) {
+        logFirestoreIndexError(
+          e,
+          'CalendarEventService.loadEvents (Future.wait - multiple queries)',
+          'multiple collections',
+        );
+        rethrow;
       }
 
-      results = await Future.wait(futures).timeout(
-        const Duration(seconds: 30),
-        onTimeout: () {
-          throw TimeoutException(
-            'CalendarEventService.loadEvents timed out after 30 seconds',
-            const Duration(seconds: 30),
-          );
-        },
-      );
-    } catch (e) {
-      // Log any errors from Future.wait (e.g., index errors from routine query, timeouts)
-      logFirestoreIndexError(
-        e,
-        'CalendarEventService.loadEvents (Future.wait - multiple queries)',
-        'multiple collections',
-      );
-      // Re-throw to be handled by caller
-      rethrow;
+      var resultIndex = 0;
+      completedItems =
+          List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
+      timeLoggedTasks =
+          List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
+      essentialInstances =
+          List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
+      plannedItemsFromBackend = includePlanned
+          ? List<ActivityInstanceRecord>.from(results[resultIndex++] ?? [])
+          : <ActivityInstanceRecord>[];
+      routines = includePlanned
+          ? List<RoutineRecord>.from(results[resultIndex++] ?? [])
+          : <RoutineRecord>[];
     }
-
-    var resultIndex = 0;
-    final completedItems =
-        List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
-    final timeLoggedTasks =
-        List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
-    final essentialInstances =
-        List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
-    final plannedItemsFromBackend = includePlanned
-        ? List<ActivityInstanceRecord>.from(results[resultIndex++] ?? [])
-        : <ActivityInstanceRecord>[];
-    final routines = includePlanned
-        ? List<RoutineRecord>.from(results[resultIndex++] ?? [])
-        : <RoutineRecord>[];
 
     final routineItemMap = <String, List<String>>{};
     for (final routine in routines) {
@@ -461,6 +693,12 @@ class CalendarEventService {
 
     DateTime? earliestStartTime;
     final cascadedEvents = <CalendarEventData>[];
+    final selectedDayStart = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+    final selectedDayEnd = selectedDayStart.add(const Duration(days: 1));
 
     // Process events in order (latest end time first)
     // This allows cascading to work correctly by pushing earlier events back
@@ -472,6 +710,19 @@ class CalendarEventService {
       if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
         endTime = earliestStartTime;
         startTime = endTime.subtract(duration);
+      }
+
+      if (startTime.isBefore(selectedDayStart)) {
+        startTime = selectedDayStart;
+      }
+      if (!endTime.isAfter(startTime)) {
+        endTime = startTime.add(const Duration(minutes: 1));
+      }
+      if (!endTime.isBefore(selectedDayEnd)) {
+        endTime = selectedDayEnd.subtract(const Duration(seconds: 1));
+      }
+      if (!endTime.isAfter(startTime)) {
+        continue;
       }
 
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
@@ -643,17 +894,4 @@ class CalendarEventService {
 
     return result;
   }
-}
-
-/// Result class for calendar events loading
-class CalendarEventsResult {
-  final List<CalendarEventData> completedEvents;
-  final List<CalendarEventData> plannedEvents;
-  final Map<String, List<String>> routineItemMap;
-
-  CalendarEventsResult({
-    required this.completedEvents,
-    required this.plannedEvents,
-    this.routineItemMap = const {},
-  });
 }

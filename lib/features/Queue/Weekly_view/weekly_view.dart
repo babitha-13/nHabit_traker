@@ -223,6 +223,7 @@ class _WeeklyViewState extends State<WeeklyView> {
 
   Widget _buildWeeklyView() {
     final theme = FlutterFlowTheme.of(context);
+    final bottomInset = MediaQuery.of(context).padding.bottom;
     // Show week range
     final weekRangeText = _weekStart != null && _weekEnd != null
         ? '${DateFormat.MMMd().format(_weekStart!)} - ${DateFormat.MMMd().format(_weekEnd!)}'
@@ -315,8 +316,8 @@ class _WeeklyViewState extends State<WeeklyView> {
       controller: _scrollController,
       slivers: [
         ...slivers,
-        const SliverToBoxAdapter(
-          child: SizedBox(height: 140),
+        SliverToBoxAdapter(
+          child: SizedBox(height: 140 + bottomInset),
         ),
       ],
     );

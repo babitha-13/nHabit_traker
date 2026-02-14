@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
@@ -83,6 +84,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   /// Run background operations after dialog closes
   /// Includes: clearing snooze/pending state, saving progress, showing toasts
   Future<void> _runBackgroundOperations() async {
+    final userId = await waitForCurrentUserUid();
     try {
       await MorningCatchUpService.clearSnooze();
       await MorningCatchUpService.resetReminderCount();
@@ -99,6 +101,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       if (hasPendingToasts) {
         await MorningCatchUpService.markFinalizationToastsShownForDate(
           IstDayBoundaryService.yesterdayStartIst(),
+          userId: userId,
         );
       }
     } catch (e) {
@@ -110,6 +113,7 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
       if (hasPendingToasts) {
         await MorningCatchUpService.markFinalizationToastsShownForDate(
           IstDayBoundaryService.yesterdayStartIst(),
+          userId: userId,
         );
       }
     }

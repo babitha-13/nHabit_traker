@@ -20,9 +20,28 @@ class IstDayBoundaryService {
     return _istLocation!;
   }
 
+  /// Public IST location handle for advanced timezone operations.
+  static tz.Location get istLocation => _ist;
+
   /// Current instant represented in IST.
   static tz.TZDateTime nowIst() {
     return tz.TZDateTime.now(_ist);
+  }
+
+  /// Convert any instant to IST timezone representation.
+  static tz.TZDateTime toIst(DateTime instant) {
+    return tz.TZDateTime.from(instant, _ist);
+  }
+
+  /// IST start-of-day for an arbitrary instant.
+  static tz.TZDateTime startOfDayIst(DateTime instant) {
+    final istInstant = toIst(instant);
+    return tz.TZDateTime(
+      _ist,
+      istInstant.year,
+      istInstant.month,
+      istInstant.day,
+    );
   }
 
   /// IST start-of-day for "today".
@@ -42,8 +61,8 @@ class IstDayBoundaryService {
     var next = tz.TZDateTime(_ist, now.year, now.month, now.day, 0, 5);
     if (!now.isBefore(next)) {
       final tomorrow = now.add(const Duration(days: 1));
-      next = tz.TZDateTime(_ist, tomorrow.year, tomorrow.month, tomorrow.day,
-          0, 5);
+      next = tz.TZDateTime(
+          _ist, tomorrow.year, tomorrow.month, tomorrow.day, 0, 5);
     }
     return next;
   }

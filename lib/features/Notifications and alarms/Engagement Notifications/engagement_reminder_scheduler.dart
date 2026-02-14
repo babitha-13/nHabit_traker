@@ -2,6 +2,7 @@ import 'package:habit_tracker/features/Notifications%20and%20alarms/notification
 import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/engagement_tracker.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_preferences_service.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'dart:math';
 
 /// Service for scheduling periodic engagement reminders when app hasn't been opened
@@ -40,7 +41,7 @@ class EngagementReminderScheduler {
       }
 
       // Check if we've already sent a reminder today
-      final now = DateTime.now();
+      final now = DateService.currentDate;
       if (_lastEngagementReminderDate != null) {
         final lastDate = _lastEngagementReminderDate!;
         if (lastDate.year == now.year &&

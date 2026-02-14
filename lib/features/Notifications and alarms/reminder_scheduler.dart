@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/alarm_service.dart';
 import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
+import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
@@ -47,7 +48,7 @@ class ReminderScheduler {
         // If it's recurring daily/weekly, we can schedule even if time passed today (for next occurrence)
         bool canSchedule = false;
         if (reminderTime != null) {
-          if (reminderTime.isAfter(DateTime.now())) {
+          if (reminderTime.isAfter(DateService.currentDate)) {
             canSchedule = true;
           } else if (template.isRecurring) {
             // For recurring, allow past times if we use matchDateTimeComponents
@@ -123,7 +124,7 @@ class ReminderScheduler {
         if (reminderTime == null) continue;
 
         // Check if we should schedule
-        bool shouldSchedule = reminderTime.isAfter(DateTime.now());
+        bool shouldSchedule = reminderTime.isAfter(DateService.currentDate);
 
         // Determine recurrence and ID
         String reminderId;
@@ -238,8 +239,9 @@ class ReminderScheduler {
     required ActivityInstanceRecord instance,
     int? fixedTimeMinutes,
   }) {
-    final dueDate = instance.dueDate;
-    if (dueDate == null) return null;
+    final rawDueDate = instance.dueDate;
+    if (rawDueDate == null) return null;
+    final dueDate = DateService.normalizeToStartOfDay(rawDueDate);
 
     int hour;
     int minute;
@@ -256,13 +258,7 @@ class ReminderScheduler {
       minute = timeOfDay.minute;
     }
 
-    return DateTime(
-      dueDate.year,
-      dueDate.month,
-      dueDate.day,
-      hour,
-      minute,
-    );
+    return dueDate.add(Duration(hours: hour, minutes: minute));
   }
 
   /// Get reminder body text based on due datetime and reminder time
@@ -291,11 +287,9 @@ class ReminderScheduler {
       }
     }
 
-    final now = DateTime.now();
-    final dueDate =
-        DateTime(dueDateTime.year, dueDateTime.month, dueDateTime.day);
-    final today = DateTime(now.year, now.month, now.day);
-    final tomorrow = today.add(const Duration(days: 1));
+    final dueDate = DateService.normalizeToStartOfDay(dueDateTime);
+    final today = DateService.todayStart;
+    final tomorrow = DateService.tomorrowStart;
 
     // Format time string (e.g., "9:45pm")
     final hour = dueDateTime.hour;
@@ -319,9 +313,9 @@ class ReminderScheduler {
 
     if (isPast) {
       // Due time was before reminder time
-      if (dueDate == today) {
+      if (dueDate.isAtSameMomentAs(today)) {
         return 'Was due at $timeStr';
-      } else if (dueDate == tomorrow) {
+      } else if (dueDate.isAtSameMomentAs(tomorrow)) {
         return 'Was due tomorrow at $timeStr';
       } else {
         // Format date (e.g., "15th Dec")
@@ -346,9 +340,9 @@ class ReminderScheduler {
       }
     } else {
       // Due time is in the future
-      if (dueDate == today) {
+      if (dueDate.isAtSameMomentAs(today)) {
         return 'Due at $timeStr';
-      } else if (dueDate == tomorrow) {
+      } else if (dueDate.isAtSameMomentAs(tomorrow)) {
         return 'Due tomorrow at $timeStr';
       } else {
         // Format date (e.g., "15th Dec")
@@ -520,7 +514,7 @@ class ReminderScheduler {
     }
     // Skip if currently snoozed
     if (instance.snoozedUntil != null &&
-        DateTime.now().isBefore(instance.snoozedUntil!)) {
+        DateService.currentDate.isBefore(instance.snoozedUntil!)) {
       return false;
     }
     // Skip if inactive
@@ -543,12 +537,12 @@ class ReminderScheduler {
         return null;
       }
       // Combine date and time in local timezone
-      final dueDateTime = DateTime(
-        instance.dueDate!.year,
-        instance.dueDate!.month,
-        instance.dueDate!.day,
-        timeOfDay.hour,
-        timeOfDay.minute,
+      final dueDateStart = DateService.normalizeToStartOfDay(instance.dueDate!);
+      final dueDateTime = dueDateStart.add(
+        Duration(
+          hours: timeOfDay.hour,
+          minutes: timeOfDay.minute,
+        ),
       );
       // Calculate reminder time (10 minutes before)
       final reminderTime = dueDateTime.subtract(const Duration(minutes: 10));
@@ -563,7 +557,7 @@ class ReminderScheduler {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
-      final now = DateTime.now();
+      final now = DateService.currentDate;
       final instances = await _queryExpiredSnoozeCandidates(
         userId: userId,
         now: now,
@@ -698,11 +692,11 @@ class ReminderScheduler {
 
       // Calculate new reminder time (current time + snooze duration)
       final newReminderTime =
-          DateTime.now().add(Duration(minutes: durationMinutes));
+          DateService.currentDate.add(Duration(minutes: durationMinutes));
 
       // Schedule new reminder with a unique ID to avoid overwriting or conflict
       final newReminderId =
-          '${instanceId}_${reminderConfig.id}_snoozed_${DateTime.now().millisecondsSinceEpoch}';
+          '${instanceId}_${reminderConfig.id}_snoozed_${DateService.currentDate.millisecondsSinceEpoch}';
 
       if (reminderConfig.type == 'alarm' && AlarmService.isSupported()) {
         await AlarmService.scheduleAlarm(

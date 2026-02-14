@@ -1,4 +1,5 @@
 import 'package:habit_tracker/core/utils/Date_time/date_period_helper.dart';
+import 'package:habit_tracker/core/utils/Date_time/ist_day_boundary_service.dart';
 
 /// Centralized date service that provides the current date for the entire app
 /// This allows switching between real time and test time for testing purposes
@@ -11,12 +12,12 @@ class DateService {
     if (_isTestMode && _testDate != null) {
       return _testDate!;
     }
-    return DateTime.now();
+    return IstDayBoundaryService.nowIst();
   }
 
   /// Get today's date at midnight (start of day)
   static DateTime get todayStart {
-    return DatePeriodHelper.startOfDay(currentDate);
+    return normalizeToStartOfDay(currentDate);
   }
 
   /// Get tomorrow's date at midnight
@@ -72,28 +73,39 @@ class DateService {
 
   /// Compute the next occurrence of midnight after 'from'
   static DateTime nextShiftedBoundary(DateTime from) {
-    final todayMidnight = DatePeriodHelper.startOfDay(from);
+    final todayMidnight = normalizeToStartOfDay(from);
     if (from.isBefore(todayMidnight)) return todayMidnight;
     final tomorrow = from.add(const Duration(days: 1));
-    return DatePeriodHelper.startOfDay(tomorrow);
+    return normalizeToStartOfDay(tomorrow);
   }
 
   // ================= Week range helpers =================
   /// Get the start of the current week (Sunday at 00:00:00)
   static DateTime get currentWeekStart {
-    return DatePeriodHelper.startOfWeekSunday(currentDate);
+    final today = todayStart;
+    final daysSinceSunday = today.weekday % 7;
+    return today.subtract(Duration(days: daysSinceSunday));
   }
 
   /// Get the end of the current week (Saturday at 23:59:59)
   static DateTime get currentWeekEnd {
     final start = currentWeekStart;
-    return DateTime(start.year, start.month, start.day, 23, 59, 59)
-        .add(const Duration(days: 6));
+    return start.add(
+      const Duration(
+        days: 6,
+        hours: 23,
+        minutes: 59,
+        seconds: 59,
+      ),
+    );
   }
 
   /// Normalize a date to the start of the day (midnight)
   /// Removes time component, keeping only year, month, and day
   static DateTime normalizeToStartOfDay(DateTime date) {
-    return DatePeriodHelper.startOfDay(date);
+    if (_isTestMode) {
+      return DatePeriodHelper.startOfDay(date);
+    }
+    return IstDayBoundaryService.startOfDayIst(date);
   }
 }

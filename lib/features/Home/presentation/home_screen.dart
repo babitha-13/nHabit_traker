@@ -381,6 +381,7 @@ class _HomeState extends State<Home> {
           if (hadPendingToasts) {
             await MorningCatchUpService.markFinalizationToastsShownForDate(
               targetDateIst,
+              userId: userId,
             );
           }
           _clearCatchUpPendingSnackbar();
@@ -492,6 +493,8 @@ class _HomeState extends State<Home> {
       if (userId == null || userId.isEmpty) {
         return;
       }
+      // Reset stale schedules so all reminders are rebuilt with current timezone rules.
+      await NotificationService.cancelAllNotifications();
       // Initialize daily notifications
       await DailyNotificationScheduler.initializeDailyNotifications();
       // Initialize engagement reminders

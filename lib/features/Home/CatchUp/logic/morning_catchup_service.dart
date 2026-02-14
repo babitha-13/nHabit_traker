@@ -23,6 +23,9 @@ class MorningCatchUpService {
       'morning_catchup_toasts_shown_for_date';
   static const int maxReminderCount = 3;
 
+  static String _toastsShownForDateKeyForUser(String userId) =>
+      '${_toastsShownForDateKey}_$userId';
+
   // Store pending toast data to show after catch-up dialog closes
   static Map<String, dynamic>? _pendingToastData;
   static Future<void> _scoreOperationQueue = Future.value();
@@ -30,9 +33,8 @@ class MorningCatchUpService {
   static Future<void> _enqueueScoreOperation(
       Future<void> Function() operation) async {
     // Prevent a failed operation from blocking subsequent queued operations.
-    _scoreOperationQueue = _scoreOperationQueue
-        .catchError((_) {})
-        .then((_) => operation());
+    _scoreOperationQueue =
+        _scoreOperationQueue.catchError((_) {}).then((_) => operation());
     await _scoreOperationQueue;
   }
 
@@ -125,8 +127,8 @@ class MorningCatchUpService {
 
       var consecutiveLowDays = 0;
       try {
-        final statsRef = UserProgressStatsRecord.collectionForUser(userId)
-            .doc('main');
+        final statsRef =
+            UserProgressStatsRecord.collectionForUser(userId).doc('main');
         final stats = await UserProgressStatsRecord.getDocumentOnce(statsRef);
         consecutiveLowDays = stats.consecutiveLowDays;
       } catch (_) {
@@ -159,7 +161,8 @@ class MorningCatchUpService {
     required DateTime targetDateIst,
   }) async {
     try {
-      final docRef = UserProgressStatsRecord.collectionForUser(userId).doc('main');
+      final docRef =
+          UserProgressStatsRecord.collectionForUser(userId).doc('main');
       final stats = await UserProgressStatsRecord.getDocumentOnce(docRef);
       final lastProcessedDate = stats.lastProcessedDate;
       if (lastProcessedDate == null) {
@@ -223,12 +226,13 @@ class MorningCatchUpService {
       }
 
       // Fallback to legacy broad query if needed.
-      final fallbackSnapshot = await ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateCategoryType', isEqualTo: 'habit')
-          .where('status', isEqualTo: 'pending')
-          .where('windowEndDate', isLessThanOrEqualTo: yesterday)
-          .limit(50)
-          .get();
+      final fallbackSnapshot =
+          await ActivityInstanceRecord.collectionForUser(userId)
+              .where('templateCategoryType', isEqualTo: 'habit')
+              .where('status', isEqualTo: 'pending')
+              .where('windowEndDate', isLessThanOrEqualTo: yesterday)
+              .limit(50)
+              .get();
       return _filterYesterdayHabitItems(
         fallbackSnapshot.docs.map(ActivityInstanceRecord.fromSnapshot),
         yesterday,
@@ -459,6 +463,7 @@ class MorningCatchUpService {
       return false;
     }).toList();
   }
+
   /// Mark dialog as shown for today
   static Future<void> markDialogAsShown() async {
     try {
@@ -505,6 +510,13 @@ class MorningCatchUpService {
       await prefs.remove(_reminderCountKey);
       await prefs.remove(_reminderCountDateKey);
       await prefs.remove(_toastsShownForDateKey);
+      final userToastKeys = prefs
+          .getKeys()
+          .where((k) => k.startsWith('${_toastsShownForDateKey}_'))
+          .toList();
+      for (final key in userToastKeys) {
+        await prefs.remove(key);
+      }
     } catch (e) {
       // Error resetting dialog state
     }
@@ -728,21 +740,35 @@ class MorningCatchUpService {
   }
 
   static Future<void> markFinalizationToastsShownForDate(
-      DateTime targetDate) async {
+    DateTime targetDate, {
+    String? userId,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = formatDateKeyIST(_normalizeDate(targetDate));
       await prefs.setString(_toastsShownForDateKey, key);
+      if (userId != null && userId.isNotEmpty) {
+        await prefs.setString(_toastsShownForDateKeyForUser(userId), key);
+      }
     } catch (_) {
       // Ignore marker write failures.
     }
   }
 
   static Future<bool> _hasShownFinalizationToastsForDate(
-      DateTime targetDate) async {
+    DateTime targetDate, {
+    String? userId,
+  }) async {
     try {
       final prefs = await SharedPreferences.getInstance();
       final key = formatDateKeyIST(_normalizeDate(targetDate));
+      if (userId != null && userId.isNotEmpty) {
+        final userScopedValue =
+            prefs.getString(_toastsShownForDateKeyForUser(userId));
+        if (userScopedValue == key) {
+          return true;
+        }
+      }
       return prefs.getString(_toastsShownForDateKey) == key;
     } catch (_) {
       return false;
@@ -754,7 +780,10 @@ class MorningCatchUpService {
     required String userId,
     required DateTime targetDate,
   }) async {
-    if (await _hasShownFinalizationToastsForDate(targetDate)) {
+    if (await _hasShownFinalizationToastsForDate(
+      targetDate,
+      userId: userId,
+    )) {
       return;
     }
 
@@ -769,7 +798,10 @@ class MorningCatchUpService {
     final hasToasts = hasPendingToasts();
     showPendingToasts();
     if (hasToasts) {
-      await markFinalizationToastsShownForDate(targetDate);
+      await markFinalizationToastsShownForDate(
+        targetDate,
+        userId: userId,
+      );
     }
   }
 
@@ -973,4 +1005,3 @@ class CatchUpLaunchState {
   final bool shouldShow;
   final bool shouldAutoResolveAfterCap;
 }
-
