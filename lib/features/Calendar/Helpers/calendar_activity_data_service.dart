@@ -1,5 +1,4 @@
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
@@ -71,6 +70,155 @@ class CalendarQueueService {
     return completedDateOnly.isAtSameMomentAs(targetStart);
   }
 
+  static void _mergeInstancesById(
+    Map<String, ActivityInstanceRecord> merged,
+    Iterable<ActivityInstanceRecord> items,
+  ) {
+    for (final item in items) {
+      merged[item.reference.id] = item;
+    }
+  }
+
+  static Future<List<ActivityInstanceRecord>> _queryPlannedFallbackCandidates({
+    required String userId,
+    required DateTime targetDate,
+    required bool isTargetToday,
+  }) async {
+    final merged = <String, ActivityInstanceRecord>{};
+
+    Future<void> collectCandidates({
+      required Future<dynamic> Function() runQuery,
+      required String queryDescription,
+    }) async {
+      try {
+        final result = await runQuery();
+        final items = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) => instance.isActive);
+        _mergeInstancesById(merged, items);
+      } catch (e) {
+        logFirestoreIndexError(
+          e,
+          queryDescription,
+          'activity_instances',
+        );
+      }
+    }
+
+    if (isTargetToday) {
+      await collectCandidates(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('dueDate', isLessThanOrEqualTo: targetDate)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Planned fallback candidates (today pending dueDate<=target)',
+      );
+      await collectCandidates(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('windowEndDate', isGreaterThanOrEqualTo: targetDate)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Planned fallback candidates (today pending habits windowEndDate>=target)',
+      );
+      await collectCandidates(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('dueDate', isEqualTo: null)
+            .limit(200)
+            .get(),
+        queryDescription:
+            'Planned fallback candidates (today pending dueDate=null)',
+      );
+    } else {
+      await collectCandidates(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('dueDate', isEqualTo: targetDate)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Planned fallback candidates (date pending dueDate==target)',
+      );
+      await collectCandidates(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('belongsToDate', isEqualTo: targetDate)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Planned fallback candidates (date pending habits belongsToDate==target)',
+      );
+      await collectCandidates(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('windowEndDate', isGreaterThanOrEqualTo: targetDate)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Planned fallback candidates (date pending habits windowEndDate>=target)',
+      );
+    }
+
+    return merged.values.toList();
+  }
+
+  static Future<List<ActivityInstanceRecord>>
+      _queryCompletedFallbackCandidates({
+    required String userId,
+    required DateTime targetDate,
+    required DateTime targetDateEnd,
+  }) async {
+    final merged = <String, ActivityInstanceRecord>{};
+
+    Future<void> collectCandidates({
+      required Future<dynamic> Function() runQuery,
+      required String queryDescription,
+    }) async {
+      try {
+        final result = await runQuery();
+        final items = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) => instance.isActive);
+        _mergeInstancesById(merged, items);
+      } catch (e) {
+        logFirestoreIndexError(
+          e,
+          queryDescription,
+          'activity_instances',
+        );
+      }
+    }
+
+    await collectCandidates(
+      runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+          .where('completedAt', isGreaterThanOrEqualTo: targetDate)
+          .where('completedAt', isLessThan: targetDateEnd)
+          .limit(500)
+          .get(),
+      queryDescription:
+          'Completed fallback candidates (completedAt range only)',
+    );
+
+    await collectCandidates(
+      runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
+          .where('status', isEqualTo: 'completed')
+          .where('belongsToDate', isEqualTo: targetDate)
+          .limit(300)
+          .get(),
+      queryDescription:
+          'Completed fallback candidates (status=completed, belongsToDate==target)',
+    );
+
+    return merged.values.toList();
+  }
+
   /// Get planned tasks/habits due on date (pending status)
   /// Returns list of ActivityInstanceRecord that are due on date and not completed
   /// Optimized: Uses Firestore date queries when possible instead of loading all instances
@@ -109,8 +257,11 @@ class CalendarQueueService {
             'Get planned items for specific date (status=pending, dueDate=date)',
             'activity_instances',
           );
-          // Fallback to loading all if query fails (e.g., no index)
-          instances = await queryAllInstances(userId: uid);
+          instances = await _queryPlannedFallbackCandidates(
+            userId: uid,
+            targetDate: targetDate,
+            isTargetToday: isTargetToday,
+          );
         }
       } else {
         // For today, we need to include overdue, so query is more complex
@@ -132,8 +283,11 @@ class CalendarQueueService {
             'Get planned items for today (status=pending, dueDate<=today)',
             'activity_instances',
           );
-          // Fallback to loading all if query fails
-          instances = await queryAllInstances(userId: uid);
+          instances = await _queryPlannedFallbackCandidates(
+            userId: uid,
+            targetDate: targetDate,
+            isTargetToday: isTargetToday,
+          );
         }
       }
 
@@ -163,10 +317,14 @@ class CalendarQueueService {
         'Get planned items (unexpected error)',
         'activity_instances',
       );
-      // Error getting planned items - fallback to original method
+      // Error getting planned items - fallback to date-scoped candidate queries
       try {
-        final allInstances = await queryAllInstances(userId: uid);
-        return allInstances.where((instance) {
+        final fallbackInstances = await _queryPlannedFallbackCandidates(
+          userId: uid,
+          targetDate: targetDate,
+          isTargetToday: isTargetToday,
+        );
+        return fallbackInstances.where((instance) {
           if (!instance.isActive) return false;
           if (instance.status != 'pending') return false;
           if (!_isDueOnDate(instance, targetDate)) return false;
@@ -179,7 +337,7 @@ class CalendarQueueService {
       } catch (e2) {
         logFirestoreIndexError(
           e2,
-          'Get planned items fallback (queryAllInstances)',
+          'Get planned items fallback (date-scoped queries)',
           'activity_instances',
         );
         return [];
@@ -221,27 +379,11 @@ class CalendarQueueService {
           'Get completed items (status=completed, completedAt range query)',
           'activity_instances',
         );
-        // Fallback: If composite query fails (e.g., no index), use simple query
-        try {
-          final query = ActivityInstanceRecord.collectionForUser(uid)
-              .where('status', isEqualTo: 'completed')
-              .where('completedAt', isGreaterThanOrEqualTo: targetDate)
-              .where('completedAt', isLessThan: targetDateEnd);
-          final result = await query.get();
-          instances = result.docs
-              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-              .where((instance) => instance.isActive)
-              .toList();
-        } catch (e2) {
-          // Log second error too
-          logFirestoreIndexError(
-            e2,
-            'Get completed items fallback query',
-            'activity_instances',
-          );
-          // Final fallback: Load all and filter in memory
-          instances = await queryAllInstances(userId: uid);
-        }
+        instances = await _queryCompletedFallbackCandidates(
+          userId: uid,
+          targetDate: targetDate,
+          targetDateEnd: targetDateEnd,
+        );
       }
 
       // Filter for items completed on targetDate (verify date match)
@@ -261,17 +403,21 @@ class CalendarQueueService {
         'Get completed items (unexpected error)',
         'activity_instances',
       );
-      // Error getting completed items - fallback to original method
+      // Error getting completed items - fallback to date-scoped candidate queries
       try {
-        final allInstances = await queryAllInstances(userId: uid);
-        return allInstances.where((instance) {
+        final fallbackInstances = await _queryCompletedFallbackCandidates(
+          userId: uid,
+          targetDate: targetDate,
+          targetDateEnd: targetDateEnd,
+        );
+        return fallbackInstances.where((instance) {
           if (!instance.isActive) return false;
           return _wasCompletedOnDate(instance, targetDate);
         }).toList();
       } catch (e2) {
         logFirestoreIndexError(
           e2,
-          'Get completed items fallback (queryAllInstances)',
+          'Get completed items fallback (date-scoped queries)',
           'activity_instances',
         );
         return [];

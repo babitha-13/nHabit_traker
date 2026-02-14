@@ -523,7 +523,30 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       return Container(
         margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
         padding: const EdgeInsets.all(16),
-        child: const Center(child: CircularProgressIndicator()),
+        decoration: BoxDecoration(
+          color: FlutterFlowTheme.of(context).secondaryBackground,
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(
+            color: FlutterFlowTheme.of(context).alternate,
+            width: 1,
+          ),
+        ),
+        child: Row(
+          children: [
+            Icon(
+              Icons.info_outline,
+              size: 18,
+              color: FlutterFlowTheme.of(context).secondaryText,
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                '$itemName: no active instance available right now.',
+                style: FlutterFlowTheme.of(context).bodySmall,
+              ),
+            ),
+          ],
+        ),
       );
     }
     final categoryColor = instance.templateCategoryColor.isNotEmpty

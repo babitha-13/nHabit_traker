@@ -7,26 +7,32 @@ import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 
 /// Service for managing reminder scheduling for tasks and habits
 class ReminderScheduler {
   /// Schedule reminders for a specific instance based on template reminders
   static Future<void> scheduleReminderForInstance(
-      ActivityInstanceRecord instance) async {
+    ActivityInstanceRecord instance, {
+    ActivityRecord? templateOverride,
+  }) async {
     if (!_shouldScheduleReminder(instance)) {
       return;
     }
     try {
-      // Get the template to access reminder configurations
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      final templateRef =
-          ActivityRecord.collectionForUser(userId).doc(instance.templateId);
-      final templateDoc = await templateRef.get();
-      if (!templateDoc.exists) {
-        return;
+      ActivityRecord? template = templateOverride;
+      if (template == null) {
+        // Get the template to access reminder configurations
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) return;
+        final templateRef =
+            ActivityRecord.collectionForUser(userId).doc(instance.templateId);
+        final templateDoc = await templateRef.get();
+        if (!templateDoc.exists) {
+          return;
+        }
+        template = ActivityRecord.fromSnapshot(templateDoc);
       }
-      final template = ActivityRecord.fromSnapshot(templateDoc);
 
       // Get reminders from template
       List<ReminderConfig> reminders = [];
@@ -478,11 +484,22 @@ class ReminderScheduler {
       if (userId.isEmpty) {
         return;
       }
-      // Get all active instances
-      final instances = await queryAllInstances(userId: userId);
+      final instances = await _queryPendingReminderCandidates(userId: userId);
+      if (instances.isEmpty) {
+        return;
+      }
+
+      final templatesById = await _fetchTemplatesByIds(
+        userId: userId,
+        templateIds: instances.map((instance) => instance.templateId).toSet(),
+      );
+
       for (final instance in instances) {
         if (_shouldScheduleReminder(instance)) {
-          await scheduleReminderForInstance(instance);
+          await scheduleReminderForInstance(
+            instance,
+            templateOverride: templatesById[instance.templateId],
+          );
         }
       }
     } catch (e) {
@@ -546,8 +563,20 @@ class ReminderScheduler {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
-      final instances = await queryAllInstances(userId: userId);
       final now = DateTime.now();
+      final instances = await _queryExpiredSnoozeCandidates(
+        userId: userId,
+        now: now,
+      );
+      if (instances.isEmpty) {
+        return;
+      }
+
+      final templatesById = await _fetchTemplatesByIds(
+        userId: userId,
+        templateIds: instances.map((instance) => instance.templateId).toSet(),
+      );
+
       int rescheduledCount = 0;
       for (final instance in instances) {
         // Check if snooze has expired
@@ -555,7 +584,10 @@ class ReminderScheduler {
             now.isAfter(instance.snoozedUntil!) &&
             instance.status == 'pending' &&
             instance.isActive) {
-          await scheduleReminderForInstance(instance);
+          await scheduleReminderForInstance(
+            instance,
+            templateOverride: templatesById[instance.templateId],
+          );
           rescheduledCount++;
         }
       }
@@ -580,67 +612,47 @@ class ReminderScheduler {
       String? instanceId;
       String? templateId;
       String? reminderConfigId;
-
-      // Try to find instance by parsing reminderId
-      final instances = await queryAllInstances(userId: userId);
-      if (instances.isEmpty) {
-        return;
+      final parts = reminderId.split('_');
+      if (parts.length >= 2) {
+        reminderConfigId = parts[1];
       }
 
-      // Check if reminderId starts with an instance ID
-      for (final instance in instances) {
-        if (reminderId.startsWith(instance.reference.id)) {
-          instanceId = instance.reference.id;
-          templateId = instance.templateId;
-          // Extract reminder config ID from reminderId
-          final parts = reminderId.split('_');
-          if (parts.length >= 2) {
-            reminderConfigId = parts[1];
-          }
-          break;
+      ActivityInstanceRecord? instance = await _resolveInstanceForReminderId(
+          userId: userId, reminderId: reminderId);
+
+      // Fallback to broader scan for legacy reminder IDs if direct resolution fails.
+      if (instance == null) {
+        final fallbackInstances = await queryAllInstances(userId: userId);
+        if (fallbackInstances.isEmpty) {
+          return;
         }
-      }
 
-      // If not found by instance ID, try template ID
-      if (instanceId == null) {
-        final parts = reminderId.split('_');
-        if (parts.isNotEmpty) {
-          templateId = parts[0];
-          if (parts.length >= 2) {
-            reminderConfigId = parts[1];
+        for (final candidate in fallbackInstances) {
+          if (reminderId.startsWith(candidate.reference.id)) {
+            instance = candidate;
+            break;
           }
-          ActivityInstanceRecord? matchedInstance;
-          for (final instance in instances) {
-            if (instance.templateId != templateId) continue;
-            if (instance.status == 'pending' && instance.isActive) {
-              matchedInstance = instance;
+        }
+
+        if (instance == null && parts.isNotEmpty) {
+          final fallbackTemplateId = parts[0];
+          for (final candidate in fallbackInstances) {
+            if (candidate.templateId != fallbackTemplateId) continue;
+            if (candidate.status == 'pending' && candidate.isActive) {
+              instance = candidate;
               break;
             }
-            matchedInstance ??= instance;
-          }
-          if (matchedInstance != null) {
-            instanceId = matchedInstance.reference.id;
-            templateId = matchedInstance.templateId;
+            instance ??= candidate;
           }
         }
       }
 
-      if (instanceId == null || templateId == null) {
+      if (instance == null) {
         // Could not find instance for reminderId
         return;
       }
-
-      // Get the instance
-      ActivityInstanceRecord? instance;
-      for (final candidate in instances) {
-        if (candidate.reference.id == instanceId) {
-          instance = candidate;
-          break;
-        }
-      }
-      if (instance == null) {
-        return;
-      }
+      instanceId = instance.reference.id;
+      templateId = instance.templateId;
 
       // Get template to find reminder config
       final templateRef =
@@ -723,6 +735,145 @@ class ReminderScheduler {
       }
     } catch (e) {
       // Error snoozing reminder
+    }
+  }
+
+  static Future<List<ActivityInstanceRecord>> _queryPendingReminderCandidates({
+    required String userId,
+  }) async {
+    try {
+      final result = await ActivityInstanceRecord.collectionForUser(userId)
+          .where('status', isEqualTo: 'pending')
+          .where('isActive', isEqualTo: true)
+          .limit(500)
+          .get();
+      return result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .where((instance) => instance.dueDate != null)
+          .toList();
+    } catch (_) {
+      // Fallback to existing query path when indexes/permissions are constrained.
+      final instances = await queryAllInstances(userId: userId);
+      return instances.where(_shouldScheduleReminder).toList();
+    }
+  }
+
+  static Future<List<ActivityInstanceRecord>> _queryExpiredSnoozeCandidates({
+    required String userId,
+    required DateTime now,
+  }) async {
+    try {
+      final result = await ActivityInstanceRecord.collectionForUser(userId)
+          .where('status', isEqualTo: 'pending')
+          .where('isActive', isEqualTo: true)
+          .where('snoozedUntil', isLessThanOrEqualTo: now)
+          .limit(300)
+          .get();
+      return result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .where((instance) => instance.snoozedUntil != null)
+          .toList();
+    } catch (_) {
+      final instances = await _queryPendingReminderCandidates(userId: userId);
+      return instances
+          .where((instance) =>
+              instance.snoozedUntil != null &&
+              now.isAfter(instance.snoozedUntil!))
+          .toList();
+    }
+  }
+
+  static Future<Map<String, ActivityRecord>> _fetchTemplatesByIds({
+    required String userId,
+    required Set<String> templateIds,
+  }) async {
+    if (templateIds.isEmpty) {
+      return {};
+    }
+
+    final templatesById = <String, ActivityRecord>{};
+    final templateIdList = templateIds.where((id) => id.isNotEmpty).toList();
+
+    for (int i = 0; i < templateIdList.length; i += 10) {
+      final batch = templateIdList.skip(i).take(10).toList();
+      if (batch.isEmpty) {
+        continue;
+      }
+
+      try {
+        final result = await ActivityRecord.collectionForUser(userId)
+            .where(FieldPath.documentId, whereIn: batch)
+            .get();
+        for (final doc in result.docs) {
+          templatesById[doc.id] = ActivityRecord.fromSnapshot(doc);
+        }
+      } catch (_) {
+        // Fallback: fetch per-doc to avoid failing entire scheduling batch.
+        for (final templateId in batch) {
+          try {
+            final templateDoc = await ActivityRecord.collectionForUser(userId)
+                .doc(templateId)
+                .get();
+            if (templateDoc.exists) {
+              templatesById[templateId] =
+                  ActivityRecord.fromSnapshot(templateDoc);
+            }
+          } catch (_) {}
+        }
+      }
+    }
+
+    return templatesById;
+  }
+
+  static Future<ActivityInstanceRecord?> _resolveInstanceForReminderId({
+    required String userId,
+    required String reminderId,
+  }) async {
+    final parts = reminderId.split('_');
+    if (parts.isEmpty) {
+      return null;
+    }
+
+    final firstToken = parts[0];
+
+    // Fast path: reminder ID starts with instance ID.
+    try {
+      final instanceDoc = await ActivityInstanceRecord.collectionForUser(userId)
+          .doc(firstToken)
+          .get();
+      if (instanceDoc.exists) {
+        final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+        if (instance.status == 'pending' && instance.isActive) {
+          return instance;
+        }
+      }
+    } catch (_) {}
+
+    // Template-based recurring reminder IDs start with template ID.
+    try {
+      final result = await ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateId', isEqualTo: firstToken)
+          .where('status', isEqualTo: 'pending')
+          .where('isActive', isEqualTo: true)
+          .limit(25)
+          .get();
+
+      final instances = result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+      if (instances.isEmpty) {
+        return null;
+      }
+
+      instances.sort((a, b) {
+        final aDate = a.dueDate ?? a.belongsToDate ?? DateTime(2100);
+        final bDate = b.dueDate ?? b.belongsToDate ?? DateTime(2100);
+        return aDate.compareTo(bDate);
+      });
+      return instances.first;
+    } catch (_) {
+      return null;
     }
   }
 

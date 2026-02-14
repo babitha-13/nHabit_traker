@@ -24,6 +24,7 @@ class DailyProgressCalculator {
     // Exclude essential types
     final inWindowHabits = allInstances
         .where((inst) =>
+            inst.isActive &&
             inst.templateCategoryType == 'habit' &&
             inst.templateCategoryType != 'essential' &&
             _isWithinWindow(inst, normalizedDate))
@@ -54,11 +55,13 @@ class DailyProgressCalculator {
     // - Completed tasks where completedAt date matches targetDate
     // - Exclude skipped/rescheduled tasks (not due on targetDate)
     final pendingTasks = taskInstances.where((task) {
+      if (!task.isActive) return false;
       if (task.status != 'pending') return false;
       if (task.dueDate == null) return false;
       return !task.dueDate!.isAfter(normalizedDate);
     }).toList();
     final completedTasksOnDate = taskInstances.where((task) {
+      if (!task.isActive) return false;
       if (task.status != 'completed' || task.completedAt == null) return false;
       final completedDate = DateTime(
         task.completedAt!.year,
@@ -72,6 +75,7 @@ class DailyProgressCalculator {
     // This includes pending tasks due on/before the date AND completed tasks completed on the date
     // Exclude Essential Activities
     final allTasksForMath = taskInstances.where((task) {
+      if (!task.isActive) return false;
       // Skip Essential Activities
       if (task.templateCategoryType == 'essential') return false;
       // Include if completed on the target date
@@ -184,9 +188,12 @@ class DailyProgressCalculator {
   /// Matches Queue page _isTodayOrOverdue logic for habits
   static bool _isWithinWindow(
       ActivityInstanceRecord instance, DateTime targetDate) {
-    if (instance.dueDate == null) return true;
-    final dueDate = DateTime(
-        instance.dueDate!.year, instance.dueDate!.month, instance.dueDate!.day);
+    // Some legacy records may miss dueDate but still have belongsToDate.
+    // Use belongsToDate as a safe fallback to avoid over-including items.
+    final startSource = instance.dueDate ?? instance.belongsToDate;
+    if (startSource == null) return false;
+    final dueDate =
+        DateTime(startSource.year, startSource.month, startSource.day);
     final windowEnd = instance.windowEndDate;
     if (windowEnd != null) {
       final windowEndNormalized =
@@ -246,6 +253,7 @@ class DailyProgressCalculator {
     // Exclude essential types
     final inWindowHabits = allInstances
         .where((inst) =>
+            inst.isActive &&
             inst.templateCategoryType == 'habit' &&
             inst.templateCategoryType != 'essential' &&
             _isWithinWindow(inst, normalizedDate))
@@ -267,6 +275,7 @@ class DailyProgressCalculator {
     // ==================== TASK FILTERING ====================
     // Filter tasks by completion date logic for today
     final allTasksForMath = taskInstances.where((task) {
+      if (!task.isActive) return false;
       // Skip Essential Activities
       if (task.templateCategoryType == 'essential') return false;
       // Include if completed today

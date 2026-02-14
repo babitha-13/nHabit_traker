@@ -140,6 +140,18 @@ class ManualTimeLogSaveService {
           sessionIndex: state.widget.editMetadata!.sessionIndex,
           startTime: state.startTime,
           endTime: state.endTime,
+          originalSessionStartTime:
+              state.widget.editMetadata!.sessionStartEpochMs != null
+                  ? DateTime.fromMillisecondsSinceEpoch(
+                      state.widget.editMetadata!.sessionStartEpochMs!,
+                    )
+                  : null,
+          originalSessionEndTime:
+              state.widget.editMetadata!.sessionEndEpochMs != null
+                  ? DateTime.fromMillisecondsSinceEpoch(
+                      state.widget.editMetadata!.sessionEndEpochMs!,
+                    )
+                  : null,
         );
 
         // Check if name or type has changed and update instance metadata
@@ -425,6 +437,16 @@ class ManualTimeLogSaveService {
       await TaskInstanceService.deleteTimeLogSession(
         instanceId: state.widget.editMetadata!.instanceId,
         sessionIndex: state.widget.editMetadata!.sessionIndex,
+        sessionStartTime: state.widget.editMetadata!.sessionStartEpochMs != null
+            ? DateTime.fromMillisecondsSinceEpoch(
+                state.widget.editMetadata!.sessionStartEpochMs!,
+              )
+            : null,
+        sessionEndTime: state.widget.editMetadata!.sessionEndEpochMs != null
+            ? DateTime.fromMillisecondsSinceEpoch(
+                state.widget.editMetadata!.sessionEndEpochMs!,
+              )
+            : null,
       );
 
       if (!closeOptimistically && state.mounted) {

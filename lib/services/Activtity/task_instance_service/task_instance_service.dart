@@ -412,6 +412,8 @@ class TaskInstanceService {
     required int sessionIndex,
     required DateTime startTime,
     required DateTime endTime,
+    DateTime? originalSessionStartTime,
+    DateTime? originalSessionEndTime,
     String? userId,
   }) async {
     return TaskInstanceTimeLoggingService.updateTimeLogSession(
@@ -419,6 +421,8 @@ class TaskInstanceService {
       sessionIndex: sessionIndex,
       startTime: startTime,
       endTime: endTime,
+      originalSessionStartTime: originalSessionStartTime,
+      originalSessionEndTime: originalSessionEndTime,
       userId: userId,
     );
   }
@@ -428,11 +432,15 @@ class TaskInstanceService {
   static Future<bool> deleteTimeLogSession({
     required String instanceId,
     required int sessionIndex,
+    DateTime? sessionStartTime,
+    DateTime? sessionEndTime,
     String? userId,
   }) async {
     return TaskInstanceTimeLoggingService.deleteTimeLogSession(
       instanceId: instanceId,
       sessionIndex: sessionIndex,
+      sessionStartTime: sessionStartTime,
+      sessionEndTime: sessionEndTime,
       userId: userId,
     );
   }

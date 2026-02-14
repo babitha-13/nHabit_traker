@@ -49,7 +49,7 @@ class _HomeState extends State<Home> {
   final GlobalKey _parentKey = GlobalKey();
   final scaffoldKey = GlobalKey<ScaffoldState>();
   int currentIndex = 2;
-  late final List<Widget> _pages;
+  final Set<int> _initializedPageIndexes = {2};
   final Map<String, int> _pageIndexMap = {
     "Tasks": 0,
     "Habits": 1,
@@ -77,14 +77,6 @@ class _HomeState extends State<Home> {
     NotificationCenter.addObserver(
         this, 'navigateBottomTab', _onNavigateBottomTab);
     super.initState();
-    _pages = [
-      const TaskTab(), // index 0
-      const HabitsPage(showCompleted: true), // index 1
-      const QueuePage(), // index 2
-      const essentialTemplatesPage(), // index 3
-      const Routines(), // index 4
-      const CalendarPage(), // index 5
-    ];
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
         statusBarColor: Colors.white,
@@ -170,7 +162,7 @@ class _HomeState extends State<Home> {
                   color: Colors.white,
                   child: IndexedStack(
                     index: currentIndex,
-                    children: _pages,
+                    children: _buildIndexedStackChildren(),
                   ),
                 ),
                 const GlobalFloatingTimer(),
@@ -221,6 +213,7 @@ class _HomeState extends State<Home> {
       setState(() {
         if (_pageIndexMap.containsKey(s)) {
           currentIndex = _pageIndexMap[s]!;
+          _initializedPageIndexes.add(currentIndex);
           title = s;
         } else {
           title = s;
@@ -244,6 +237,34 @@ class _HomeState extends State<Home> {
           }
         }
       });
+    }
+  }
+
+  List<Widget> _buildIndexedStackChildren() {
+    return List<Widget>.generate(_pageIndexMap.length, (index) {
+      if (!_initializedPageIndexes.contains(index)) {
+        return const SizedBox.shrink();
+      }
+      return _buildPageForIndex(index);
+    });
+  }
+
+  Widget _buildPageForIndex(int index) {
+    switch (index) {
+      case 0:
+        return const TaskTab();
+      case 1:
+        return const HabitsPage(showCompleted: true);
+      case 2:
+        return const QueuePage();
+      case 3:
+        return const essentialTemplatesPage();
+      case 4:
+        return const Routines();
+      case 5:
+        return const CalendarPage();
+      default:
+        return const SizedBox.shrink();
     }
   }
 
@@ -288,8 +309,8 @@ class _HomeState extends State<Home> {
   void _scheduleDayTransitionTimer() {
     _dayTransitionTimer?.cancel();
     final nextCheck = IstDayBoundaryService.nextIst005();
-    final delayMs =
-        nextCheck.millisecondsSinceEpoch - DateTime.now().millisecondsSinceEpoch;
+    final delayMs = nextCheck.millisecondsSinceEpoch -
+        DateTime.now().millisecondsSinceEpoch;
     final delay = Duration(milliseconds: delayMs > 0 ? delayMs : 0);
     _dayTransitionTimer = Timer(delay, _handleDayTransitionWhileOpen);
   }
@@ -479,8 +500,6 @@ class _HomeState extends State<Home> {
       await ReminderScheduler.scheduleAllPendingReminders();
       // Schedule all active routine reminders
       await RoutineReminderScheduler.scheduleAllActiveRoutineReminders();
-      // Check for expired snoozes and reschedule
-      await ReminderScheduler.checkExpiredSnoozes();
     } catch (e) {
       // Error initializing notifications
     }

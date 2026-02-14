@@ -38,6 +38,24 @@ class MorningCatchUpDialogLogic {
   bool hasUserProvidedUpdates = false;
   bool hadHabitItemsAtLaunch = false;
 
+  Future<void> _ensureDueDateFromBelongsToDate(
+      ActivityInstanceRecord instance) async {
+    if (instance.dueDate != null || instance.belongsToDate == null) return;
+    final normalizedBelongs = DateTime(
+      instance.belongsToDate!.year,
+      instance.belongsToDate!.month,
+      instance.belongsToDate!.day,
+    );
+    try {
+      await instance.reference.update({
+        'dueDate': normalizedBelongs,
+        'lastUpdated': DateTime.now(),
+      });
+    } catch (_) {
+      // Best-effort normalization only; ignore failures.
+    }
+  }
+
   /// Initialize the dialog logic
   Future<void> initialize() async {
     if (isLoading) {
@@ -155,6 +173,9 @@ class MorningCatchUpDialogLogic {
 
     // For progress updates (just incrementing value), update item in place
     if (isProgressUpdate) {
+      if (!isOptimisticUpdate) {
+        await _ensureDueDateFromBelongsToDate(updatedInstance);
+      }
       // Update the existing item in the list with new progress value
       final index = items.indexWhere((item) => item.reference.id == instanceId);
       if (index != -1) {
@@ -176,6 +197,10 @@ class MorningCatchUpDialogLogic {
     // For reconciled status changes, ensure optimistic state is active.
     if (!hasPendingOptimisticSync) {
       applyOptimisticState(updatedInstance);
+    }
+
+    if (!isOptimisticUpdate) {
+      await _ensureDueDateFromBelongsToDate(updatedInstance);
     }
 
     // Process backend operations asynchronously

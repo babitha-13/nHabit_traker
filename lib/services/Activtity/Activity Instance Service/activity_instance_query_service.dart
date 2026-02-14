@@ -7,6 +7,19 @@ import 'activity_instance_helper_service.dart';
 
 /// Service for querying and retrieving activity instances
 class ActivityInstanceQueryService {
+  static void _logQueryIssue(
+    dynamic error, {
+    required String queryDescription,
+    StackTrace? stackTrace,
+  }) {
+    logFirestoreQueryError(
+      error,
+      queryDescription: queryDescription,
+      collectionName: 'activity_instances',
+      stackTrace: stackTrace,
+    );
+  }
+
   /// Safely query instances without triggering composite index errors
   /// Fetches broad datasets (all pending, recent completed) and relies on in-memory filtering
   static Future<List<ActivityInstanceRecord>> querySafeInstances({
@@ -15,17 +28,23 @@ class ActivityInstanceQueryService {
     bool includeRecentCompleted = false,
     bool includeRecentSkipped = false,
     bool includeLiveWindowSkippedHabits = false,
+    String? templateCategoryType,
   }) async {
     final List<ActivityInstanceRecord> allInstances = [];
 
-    // Add distinct try-catch blocks for each query to identify which one fails/hangs
+    // Keep each query isolated so a single index/config issue does not block all data.
     if (includePending) {
       try {
-        final pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
-            .where('status', isEqualTo: 'pending')
-            .limit(500); // Increased limit to ensure we catch everything
+        var pendingQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('status', isEqualTo: 'pending');
+        if (templateCategoryType != null) {
+          pendingQuery = pendingQuery.where(
+            'templateCategoryType',
+            isEqualTo: templateCategoryType,
+          );
+        }
+        pendingQuery = pendingQuery.limit(500);
 
-        // Add timeout to prevent infinite hang
         final pendingResult = await pendingQuery.get().timeout(
           const Duration(seconds: 10),
           onTimeout: () {
@@ -36,20 +55,31 @@ class ActivityInstanceQueryService {
         final docs = pendingResult.docs;
         allInstances.addAll(
             docs.map((doc) => ActivityInstanceRecord.fromSnapshot(doc)));
-      } catch (e) {
-        // Continue even if this fails, so we might at least get completed ones
+      } catch (e, stackTrace) {
+        _logQueryIssue(
+          e,
+          queryDescription:
+              'querySafeInstances pending (status=pending, category=$templateCategoryType)',
+          stackTrace: stackTrace,
+        );
       }
     }
 
     if (includeRecentCompleted) {
       try {
         final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-        final completedQuery = ActivityInstanceRecord.collectionForUser(uid)
+        var completedQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('status', isEqualTo: 'completed')
             .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-            .orderBy('completedAt', descending: true)
-            .limit(200);
+            .orderBy('completedAt', descending: true);
+        if (templateCategoryType != null) {
+          completedQuery = completedQuery.where(
+            'templateCategoryType',
+            isEqualTo: templateCategoryType,
+          );
+        }
+        completedQuery = completedQuery.limit(200);
 
-        // Add timeout
         final completedResult = await completedQuery.get().timeout(
           const Duration(seconds: 10),
           onTimeout: () {
@@ -59,25 +89,65 @@ class ActivityInstanceQueryService {
 
         final docs = completedResult.docs;
 
-        // Filter strictly for completed (query is inclusive of greaterThanOrEqualTo)
-        // and ensure status is explicitly completed
         final completedInstances = docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((inst) => inst.status == 'completed')
             .toList();
         allInstances.addAll(completedInstances);
-      } catch (e) {
-        // Continue silently
+      } catch (e, stackTrace) {
+        _logQueryIssue(
+          e,
+          queryDescription:
+              'querySafeInstances recent completed scoped (status=completed, category=$templateCategoryType)',
+          stackTrace: stackTrace,
+        );
+        if (templateCategoryType != null) {
+          // Fallback keeps old behavior if category+date index is missing.
+          try {
+            final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+            final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
+                .where('status', isEqualTo: 'completed')
+                .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+                .orderBy('completedAt', descending: true)
+                .limit(200);
+            final fallbackResult = await fallbackQuery.get().timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw TimeoutException('Completed fallback query timed out');
+              },
+            );
+            allInstances.addAll(
+              fallbackResult.docs
+                  .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+                  .where((inst) =>
+                      inst.templateCategoryType == templateCategoryType)
+                  .toList(),
+            );
+          } catch (fallbackError, fallbackStackTrace) {
+            _logQueryIssue(
+              fallbackError,
+              queryDescription:
+                  'querySafeInstances recent completed fallback (status=completed, category filter in-memory=$templateCategoryType)',
+              stackTrace: fallbackStackTrace,
+            );
+          }
+        }
       }
     }
 
     if (includeRecentSkipped) {
       try {
         final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-        final skippedQuery = ActivityInstanceRecord.collectionForUser(uid)
+        var skippedQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('status', isEqualTo: 'skipped')
             .where('skippedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-            .orderBy('skippedAt', descending: true)
-            .limit(200);
+            .orderBy('skippedAt', descending: true);
+        if (templateCategoryType != null) {
+          skippedQuery = skippedQuery.where(
+            'templateCategoryType',
+            isEqualTo: templateCategoryType,
+          );
+        }
+        skippedQuery = skippedQuery.limit(200);
 
         final skippedResult = await skippedQuery.get().timeout(
           const Duration(seconds: 10),
@@ -88,18 +158,55 @@ class ActivityInstanceQueryService {
 
         final skippedInstances = skippedResult.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((inst) => inst.status == 'skipped')
             .toList();
         allInstances.addAll(skippedInstances);
-      } catch (e) {
-        // Continue silently
+      } catch (e, stackTrace) {
+        _logQueryIssue(
+          e,
+          queryDescription:
+              'querySafeInstances recent skipped scoped (status=skipped, category=$templateCategoryType)',
+          stackTrace: stackTrace,
+        );
+        if (templateCategoryType != null) {
+          try {
+            final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
+            final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
+                .where('status', isEqualTo: 'skipped')
+                .where('skippedAt', isGreaterThanOrEqualTo: twoDaysAgo)
+                .orderBy('skippedAt', descending: true)
+                .limit(200);
+            final fallbackResult = await fallbackQuery.get().timeout(
+              const Duration(seconds: 10),
+              onTimeout: () {
+                throw TimeoutException('Skipped fallback query timed out');
+              },
+            );
+            allInstances.addAll(
+              fallbackResult.docs
+                  .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+                  .where((inst) =>
+                      inst.templateCategoryType == templateCategoryType)
+                  .toList(),
+            );
+          } catch (fallbackError, fallbackStackTrace) {
+            _logQueryIssue(
+              fallbackError,
+              queryDescription:
+                  'querySafeInstances recent skipped fallback (status=skipped, category filter in-memory=$templateCategoryType)',
+              stackTrace: fallbackStackTrace,
+            );
+          }
+        }
       }
     }
 
-    if (includeLiveWindowSkippedHabits) {
+    if (includeLiveWindowSkippedHabits &&
+        (templateCategoryType == null || templateCategoryType == 'habit')) {
       try {
         final today = DateService.todayStart;
         final liveWindowQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('status', isEqualTo: 'skipped')
             .where('windowEndDate', isGreaterThanOrEqualTo: today)
             .limit(500);
 
@@ -113,23 +220,63 @@ class ActivityInstanceQueryService {
         final liveSkippedHabits = liveWindowResult.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((inst) {
-          if (inst.templateCategoryType != 'habit') return false;
-          if (inst.status != 'skipped') return false;
-
           final startSource = inst.belongsToDate ?? inst.dueDate;
           final endSource = inst.windowEndDate;
           if (startSource == null || endSource == null) return false;
 
-          final startDateOnly = DateTime(
-              startSource.year, startSource.month, startSource.day);
+          final startDateOnly =
+              DateTime(startSource.year, startSource.month, startSource.day);
           final endDateOnly =
               DateTime(endSource.year, endSource.month, endSource.day);
           return !today.isBefore(startDateOnly) && !today.isAfter(endDateOnly);
         }).toList();
 
         allInstances.addAll(liveSkippedHabits);
-      } catch (e) {
-        // Continue silently
+      } catch (e, stackTrace) {
+        _logQueryIssue(
+          e,
+          queryDescription:
+              'querySafeInstances live window skipped habits scoped (habit+skipped+windowEndDate>=today)',
+          stackTrace: stackTrace,
+        );
+        try {
+          final today = DateService.todayStart;
+          final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
+              .where('windowEndDate', isGreaterThanOrEqualTo: today)
+              .limit(500);
+          final fallbackResult = await fallbackQuery.get().timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException(
+                  'Live skipped habits fallback query timed out');
+            },
+          );
+          final fallbackSkipped = fallbackResult.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((inst) {
+            if (inst.templateCategoryType != 'habit') return false;
+            if (inst.status != 'skipped') return false;
+
+            final startSource = inst.belongsToDate ?? inst.dueDate;
+            final endSource = inst.windowEndDate;
+            if (startSource == null || endSource == null) return false;
+
+            final startDateOnly =
+                DateTime(startSource.year, startSource.month, startSource.day);
+            final endDateOnly =
+                DateTime(endSource.year, endSource.month, endSource.day);
+            return !today.isBefore(startDateOnly) &&
+                !today.isAfter(endDateOnly);
+          }).toList();
+          allInstances.addAll(fallbackSkipped);
+        } catch (fallbackError, fallbackStackTrace) {
+          _logQueryIssue(
+            fallbackError,
+            queryDescription:
+                'querySafeInstances live window skipped habits fallback (windowEndDate>=today, in-memory filters)',
+            stackTrace: fallbackStackTrace,
+          );
+        }
       }
     }
 
@@ -239,12 +386,9 @@ class ActivityInstanceQueryService {
         uid: uid,
         includePending: true,
         includeRecentCompleted: true,
+        templateCategoryType: 'task',
       );
-      // Filter for tasks in memory
-      final allInstances = allRawInstances.where((inst) {
-        final isTask = inst.templateCategoryType == 'task';
-        return isTask;
-      }).toList();
+      final allInstances = allRawInstances;
 
       final sorted =
           InstanceOrderService.sortInstancesByOrder(allInstances, 'tasks');
@@ -300,14 +444,31 @@ class ActivityInstanceQueryService {
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
-      // Fetch ALL habit instances regardless of status to include completed/skipped/snoozed
-      // The calculator and UI will filter appropriately
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit');
-      final result = await query.get();
-      final allHabitInstances = result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
+      final today = DateService.todayStart;
+      List<ActivityInstanceRecord> allHabitInstances;
+      try {
+        final boundedQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('windowEndDate', isGreaterThanOrEqualTo: today);
+        final boundedResult = await boundedQuery.get();
+        allHabitInstances = boundedResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+      } catch (error, stackTrace) {
+        _logQueryIssue(
+          error,
+          queryDescription:
+              'getCurrentHabitInstances scoped (category=habit, windowEndDate>=today)',
+          stackTrace: stackTrace,
+        );
+        // Fallback keeps behavior if index for habit+windowEndDate is unavailable.
+        final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateCategoryType', isEqualTo: 'habit');
+        final fallbackResult = await fallbackQuery.get();
+        allHabitInstances = fallbackResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+      }
 
       // Group instances by templateId and apply window-based filtering
       final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
@@ -316,7 +477,6 @@ class ActivityInstanceQueryService {
         (instancesByTemplate[templateId] ??= []).add(instance);
       }
       final List<ActivityInstanceRecord> relevantInstances = [];
-      final today = DateService.todayStart;
       for (final templateId in instancesByTemplate.keys) {
         final instances = instancesByTemplate[templateId]!;
         // Sort instances by due date (earliest first)
@@ -407,12 +567,10 @@ class ActivityInstanceQueryService {
         uid: uid,
         includePending: true,
         includeRecentCompleted: false,
+        templateCategoryType: 'habit',
       );
 
-      // Filter for habits
-      final allHabitInstances = allRawInstances
-          .where((inst) => inst.templateCategoryType == 'habit')
-          .toList();
+      final allHabitInstances = allRawInstances;
 
       // Sort by lastUpdated descending (in-memory)
       allHabitInstances.sort((a, b) {
@@ -446,12 +604,10 @@ class ActivityInstanceQueryService {
         uid: uid,
         includePending: true,
         includeRecentCompleted: false,
+        templateCategoryType: 'habit',
       );
 
-      // Filter for habits
-      final allHabitInstances = allRawInstances
-          .where((inst) => inst.templateCategoryType == 'habit')
-          .toList();
+      final allHabitInstances = allRawInstances;
 
       // Group instances by templateId
       final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
@@ -523,14 +679,31 @@ class ActivityInstanceQueryService {
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
-      // Fetch ALL habit instances regardless of status to include completed/skipped/snoozed
-      // The calculator and UI will filter appropriately
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateCategoryType', isEqualTo: 'habit');
-      final result = await query.get();
-      final allHabitInstances = result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
+      final today = DateService.todayStart;
+      List<ActivityInstanceRecord> allHabitInstances;
+      try {
+        final boundedQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('windowEndDate', isGreaterThanOrEqualTo: today);
+        final boundedResult = await boundedQuery.get();
+        allHabitInstances = boundedResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+      } catch (error, stackTrace) {
+        _logQueryIssue(
+          error,
+          queryDescription:
+              'getActiveHabitInstances scoped (category=habit, windowEndDate>=today)',
+          stackTrace: stackTrace,
+        );
+        final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateCategoryType', isEqualTo: 'habit');
+        final fallbackResult = await fallbackQuery.get();
+        allHabitInstances = fallbackResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+      }
+
       // Group instances by templateId and apply window-based filtering
       final Map<String, List<ActivityInstanceRecord>> instancesByTemplate = {};
       for (final instance in allHabitInstances) {
@@ -538,7 +711,6 @@ class ActivityInstanceQueryService {
         (instancesByTemplate[templateId] ??= []).add(instance);
       }
       final List<ActivityInstanceRecord> relevantInstances = [];
-      final today = DateService.todayStart;
       for (final templateId in instancesByTemplate.keys) {
         final instances = instancesByTemplate[templateId]!;
         // Sort instances by due date (earliest first)

@@ -16,23 +16,82 @@ import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart'
 
 /// Service class for loading and processing calendar events
 class CalendarEventService {
+  static final Map<String, String> _lastOptimisticSignatureByScope = {};
+
+  static String _dateScopeKey({
+    required String userId,
+    required DateTime selectedDate,
+    required bool includePlanned,
+  }) {
+    final normalized = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+    final mode = includePlanned ? 'full' : 'completed_only';
+    return '$userId|${normalized.year}-${normalized.month}-${normalized.day}|$mode';
+  }
+
+  static String _buildOptimisticSignature(
+    Map<String, ActivityInstanceRecord> optimisticInstances,
+  ) {
+    if (optimisticInstances.isEmpty) {
+      return '';
+    }
+
+    final entries = optimisticInstances.values.map((instance) {
+      final dueDateMillis = instance.dueDate?.millisecondsSinceEpoch ?? 0;
+      final belongsDateMillis =
+          instance.belongsToDate?.millisecondsSinceEpoch ?? 0;
+      final updatedMillis = instance.lastUpdated?.millisecondsSinceEpoch ?? 0;
+      final sessionsSignature = instance.timeLogSessions.map((session) {
+        final start = session['startTime'];
+        final end = session['endTime'];
+        final startMs = start is DateTime ? start.millisecondsSinceEpoch : 0;
+        final endMs = end is DateTime ? end.millisecondsSinceEpoch : 0;
+        return '$startMs-$endMs';
+      }).join(',');
+      return '${instance.reference.id}:${instance.status}:$updatedMillis:${instance.totalTimeLogged}:$sessionsSignature:$dueDateMillis:${instance.dueTime ?? ''}:$belongsDateMillis';
+    }).toList()
+      ..sort();
+
+    return entries.join('|');
+  }
+
   /// Load and process calendar events for a given date
   /// Uses caching to avoid redundant queries when navigating between dates
   static Future<CalendarEventsResult> loadEvents({
     required String userId,
     required DateTime selectedDate,
+    required bool includePlanned,
     required Map<String, ActivityInstanceRecord> optimisticInstances,
   }) async {
     final cache = FirestoreCacheService();
+    final cacheVariant = includePlanned ? 'full' : 'completed_only';
+    final scopeKey = _dateScopeKey(
+      userId: userId,
+      selectedDate: selectedDate,
+      includePlanned: includePlanned,
+    );
+    final optimisticSignature = _buildOptimisticSignature(optimisticInstances);
 
-    // If we have optimistic instances, invalidate cache to ensure fresh merge
-    // This prevents stale cached data from being returned without optimistic instances
-    if (optimisticInstances.isNotEmpty) {
-      cache.invalidateCalendarDateCache(selectedDate);
+    if (optimisticSignature.isEmpty) {
+      _lastOptimisticSignatureByScope.remove(scopeKey);
+    } else {
+      final previousSignature = _lastOptimisticSignatureByScope[scopeKey];
+      if (previousSignature != optimisticSignature) {
+        // Invalidate once per changed optimistic state so cache can be reused
+        // across observer bursts while optimistic data remains unchanged.
+        cache.invalidateCalendarDateCache(selectedDate);
+        _lastOptimisticSignatureByScope[scopeKey] = optimisticSignature;
+      }
     }
 
-    // Check cache (will be empty if we just invalidated)
-    final cached = cache.getCachedCalendarEvents(selectedDate);
+    // Check cache (date + mode variant)
+    final cached = cache.getCachedCalendarEvents(
+      selectedDate,
+      variant: cacheVariant,
+    );
     if (cached != null) {
       return cached;
     }
@@ -47,15 +106,7 @@ class CalendarEventService {
     final selectedDateEnd = selectedDateStart.add(const Duration(days: 1));
     List<dynamic> results;
     try {
-      results = await Future.wait([
-        queryHabitCategoriesOnce(
-          userId: userId,
-          callerTag: 'CalendarPage._loadEvents.habits',
-        ),
-        queryTaskCategoriesOnce(
-          userId: userId,
-          callerTag: 'CalendarPage._loadEvents.tasks',
-        ),
+      final futures = <Future<dynamic>>[
         CalendarQueueService.getCompletedItems(
           userId: userId,
           date: selectedDate,
@@ -70,12 +121,19 @@ class CalendarEventService {
           startDate: selectedDateStart,
           endDate: selectedDateEnd,
         ),
-        CalendarQueueService.getPlannedItems(
-          userId: userId,
-          date: selectedDate,
-        ),
-        queryRoutineRecordOnce(userId: userId),
-      ]).timeout(
+      ];
+
+      if (includePlanned) {
+        futures.add(
+          CalendarQueueService.getPlannedItems(
+            userId: userId,
+            date: selectedDate,
+          ),
+        );
+        futures.add(queryRoutineRecordOnce(userId: userId));
+      }
+
+      results = await Future.wait(futures).timeout(
         const Duration(seconds: 30),
         onTimeout: () {
           throw TimeoutException(
@@ -95,16 +153,19 @@ class CalendarEventService {
       rethrow;
     }
 
-    final habitCategories = List<CategoryRecord>.from(results[0] ?? []);
-    final taskCategories = List<CategoryRecord>.from(results[1] ?? []);
-    final allCategories = [...habitCategories, ...taskCategories];
-    final completedItems = List<ActivityInstanceRecord>.from(results[2] ?? []);
-    final timeLoggedTasks = List<ActivityInstanceRecord>.from(results[3] ?? []);
+    var resultIndex = 0;
+    final completedItems =
+        List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
+    final timeLoggedTasks =
+        List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
     final essentialInstances =
-        List<ActivityInstanceRecord>.from(results[4] ?? []);
-    final plannedItemsFromBackend =
-        List<ActivityInstanceRecord>.from(results[5] ?? []);
-    final routines = List<RoutineRecord>.from(results[6] ?? []);
+        List<ActivityInstanceRecord>.from(results[resultIndex++] ?? []);
+    final plannedItemsFromBackend = includePlanned
+        ? List<ActivityInstanceRecord>.from(results[resultIndex++] ?? [])
+        : <ActivityInstanceRecord>[];
+    final routines = includePlanned
+        ? List<RoutineRecord>.from(results[resultIndex++] ?? [])
+        : <RoutineRecord>[];
 
     final routineItemMap = <String, List<String>>{};
     for (final routine in routines) {
@@ -112,14 +173,6 @@ class CalendarEventService {
       if (routine.uid.isNotEmpty) {
         routineItemMap[routine.uid] = routine.itemIds;
       }
-    }
-
-    // Optimize: Create category lookup maps once (O(1) lookup instead of O(n) firstWhere)
-    final categoryById = <String, CategoryRecord>{};
-    final categoryByName = <String, CategoryRecord>{};
-    for (final category in allCategories) {
-      categoryById[category.reference.id] = category;
-      categoryByName[category.name] = category;
     }
 
     final allItemsMap = <String, ActivityInstanceRecord>{};
@@ -137,6 +190,93 @@ class CalendarEventService {
     // This handles cases like deleting a time log session where backend might be slightly stale
     for (final optimisticInstance in optimisticInstances.values) {
       allItemsMap[optimisticInstance.reference.id] = optimisticInstance;
+    }
+
+    final selectedDateOnly = DateTime(
+      selectedDate.year,
+      selectedDate.month,
+      selectedDate.day,
+    );
+    final plannedItemsWithOptimistic = includePlanned
+        ? List<ActivityInstanceRecord>.from(plannedItemsFromBackend)
+        : <ActivityInstanceRecord>[];
+    if (includePlanned) {
+      for (final optimisticInstance in optimisticInstances.values) {
+        if (optimisticInstance.dueDate != null &&
+            optimisticInstance.dueTime != null &&
+            optimisticInstance.dueTime!.isNotEmpty) {
+          final dueDateOnly = DateTime(
+            optimisticInstance.dueDate!.year,
+            optimisticInstance.dueDate!.month,
+            optimisticInstance.dueDate!.day,
+          );
+          if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+            final exists = plannedItemsWithOptimistic.any(
+              (item) => item.reference.id == optimisticInstance.reference.id,
+            );
+            if (!exists) {
+              plannedItemsWithOptimistic.add(optimisticInstance);
+            }
+          }
+        }
+      }
+    }
+
+    bool needsCategoryLookup(ActivityInstanceRecord item) {
+      final isTaskOrHabit = item.templateCategoryType == 'task' ||
+          item.templateCategoryType == 'habit';
+      if (!isTaskOrHabit) {
+        return false;
+      }
+      if (item.templateCategoryColor.isNotEmpty) {
+        return false;
+      }
+      return item.templateCategoryId.isNotEmpty ||
+          item.templateCategoryName.isNotEmpty;
+    }
+
+    final shouldFetchCategories = allItemsMap.values.any(needsCategoryLookup) ||
+        plannedItemsWithOptimistic.any(needsCategoryLookup);
+
+    List<CategoryRecord> habitCategories = const [];
+    List<CategoryRecord> taskCategories = const [];
+    if (shouldFetchCategories) {
+      try {
+        final categoryResults = await Future.wait<dynamic>([
+          queryHabitCategoriesOnce(
+            userId: userId,
+            callerTag: 'CalendarPage._loadEvents.habits',
+          ),
+          queryTaskCategoriesOnce(
+            userId: userId,
+            callerTag: 'CalendarPage._loadEvents.tasks',
+          ),
+        ]).timeout(
+          const Duration(seconds: 20),
+          onTimeout: () {
+            throw TimeoutException(
+              'CalendarEventService.loadEvents category lookup timed out',
+              const Duration(seconds: 20),
+            );
+          },
+        );
+        habitCategories = List<CategoryRecord>.from(categoryResults[0] ?? []);
+        taskCategories = List<CategoryRecord>.from(categoryResults[1] ?? []);
+      } catch (e) {
+        logFirestoreIndexError(
+          e,
+          'CalendarEventService.loadEvents (category lookup)',
+          'categories',
+        );
+      }
+    }
+    final allCategories = [...habitCategories, ...taskCategories];
+    // Optimize: Create category lookup maps once (O(1) lookup instead of O(n) firstWhere)
+    final categoryById = <String, CategoryRecord>{};
+    final categoryByName = <String, CategoryRecord>{};
+    for (final category in allCategories) {
+      categoryById[category.reference.id] = category;
+      categoryByName[category.name] = category;
     }
 
     final completedEvents = <CalendarEventData>[];
@@ -186,14 +326,25 @@ class CalendarEventService {
             if (sessionEnd == null) {
               continue;
             }
-            int originalSessionIndex = -1;
-            for (int j = 0; j < item.timeLogSessions.length; j++) {
-              final fullSession = item.timeLogSessions[j];
-              final fullSessionStart = fullSession['startTime'] as DateTime;
-              if (fullSessionStart.isAtSameMomentAs(sessionStart)) {
-                originalSessionIndex = j;
-                break;
+            int originalSessionIndex =
+                item.timeLogSessions.indexWhere((fullSession) {
+              final fullSessionStart = fullSession['startTime'] as DateTime?;
+              final fullSessionEnd = fullSession['endTime'] as DateTime?;
+              if (fullSessionStart == null || fullSessionEnd == null) {
+                return false;
               }
+              return fullSessionStart.isAtSameMomentAs(sessionStart) &&
+                  fullSessionEnd.isAtSameMomentAs(sessionEnd);
+            });
+            if (originalSessionIndex < 0) {
+              originalSessionIndex =
+                  item.timeLogSessions.indexWhere((fullSession) {
+                final fullSessionStart = fullSession['startTime'] as DateTime?;
+                if (fullSessionStart == null) {
+                  return false;
+                }
+                return fullSessionStart.isAtSameMomentAs(sessionStart);
+              });
             }
             var actualSessionEnd = sessionEnd;
             if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
@@ -263,6 +414,8 @@ class CalendarEventService {
                 instanceId: item.reference.id,
                 sessionIndex:
                     originalSessionIndex >= 0 ? originalSessionIndex : i,
+                sessionStartEpochMs: sessionStart.millisecondsSinceEpoch,
+                sessionEndEpochMs: sessionEnd.millisecondsSinceEpoch,
                 activityName: item.templateName,
                 activityType: categoryType,
                 templateId: item.templateId,
@@ -342,162 +495,138 @@ class CalendarEventService {
       return a.startTime!.compareTo(b.startTime!);
     });
 
-    final plannedItems = List<ActivityInstanceRecord>.from(
-      plannedItemsFromBackend,
-    );
-    final selectedDateOnly = DateTime(
-      selectedDate.year,
-      selectedDate.month,
-      selectedDate.day,
-    );
-    for (final optimisticInstance in optimisticInstances.values) {
-      if (optimisticInstance.dueDate != null &&
-          optimisticInstance.dueTime != null &&
-          optimisticInstance.dueTime!.isNotEmpty) {
-        final dueDateOnly = DateTime(
-          optimisticInstance.dueDate!.year,
-          optimisticInstance.dueDate!.month,
-          optimisticInstance.dueDate!.day,
-        );
-        if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-          final exists = plannedItems.any(
-              (item) => item.reference.id == optimisticInstance.reference.id);
-          if (!exists) {
-            plannedItems.add(optimisticInstance);
+    if (includePlanned) {
+      final plannedItemsWithTime = plannedItemsWithOptimistic
+          .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
+          .toList();
+      final explicitlyScheduledTemplateIds = <String>{
+        ...plannedItemsWithTime.map((i) => i.templateId).whereType<String>(),
+      };
+      final plannedDurationByInstanceId = userId.isEmpty
+          ? <String, int?>{}
+          : await PlannedDurationResolver.resolveDurationMinutesForInstances(
+              userId: userId,
+              instances: plannedItemsWithTime,
+            );
+
+      for (final item in plannedItemsWithTime) {
+        Color categoryColor;
+        if (item.templateCategoryColor.isNotEmpty) {
+          try {
+            categoryColor =
+                CalendarFormattingUtils.parseColor(item.templateCategoryColor);
+          } catch (e) {
+            categoryColor = Colors.blue;
+          }
+        } else {
+          // Use map lookup instead of firstWhere (O(1) vs O(n))
+          CategoryRecord? category = categoryById[item.templateCategoryId] ??
+              categoryByName[item.templateCategoryName];
+          if (category != null) {
+            categoryColor = CalendarFormattingUtils.parseColor(category.color);
+          } else {
+            categoryColor = Colors.blue;
           }
         }
-      }
-    }
-
-    final plannedItemsWithTime = plannedItems
-        .where((item) => item.dueTime != null && item.dueTime!.isNotEmpty)
-        .toList();
-    final explicitlyScheduledTemplateIds = <String>{
-      ...plannedItemsWithTime.map((i) => i.templateId).whereType<String>(),
-    };
-    final plannedDurationByInstanceId = userId.isEmpty
-        ? <String, int?>{}
-        : await PlannedDurationResolver.resolveDurationMinutesForInstances(
-            userId: userId,
-            instances: plannedItemsWithTime,
-          );
-
-    for (final item in plannedItemsWithTime) {
-      Color categoryColor;
-      if (item.templateCategoryColor.isNotEmpty) {
-        try {
-          categoryColor =
-              CalendarFormattingUtils.parseColor(item.templateCategoryColor);
-        } catch (e) {
-          categoryColor = Colors.blue;
-        }
-      } else {
-        // Use map lookup instead of firstWhere (O(1) vs O(n))
-        CategoryRecord? category = categoryById[item.templateCategoryId] ??
-            categoryByName[item.templateCategoryName];
-        if (category != null) {
-          categoryColor = CalendarFormattingUtils.parseColor(category.color);
-        } else {
-          categoryColor = Colors.blue;
-        }
-      }
-      DateTime startTime =
-          CalendarFormattingUtils.parseDueTime(item.dueTime!, selectedDate);
-      final instanceId = item.reference.id;
-      final durationMinutes = plannedDurationByInstanceId[instanceId];
-
-      final metadata = CalendarEventMetadata(
-        instanceId: instanceId,
-        sessionIndex: -1,
-        activityName: item.templateName,
-        activityType: item.templateCategoryType,
-        templateId: item.templateId,
-        categoryId:
-            item.templateCategoryId.isNotEmpty ? item.templateCategoryId : null,
-        categoryName: item.templateCategoryName.isNotEmpty
-            ? item.templateCategoryName
-            : null,
-        categoryColorHex: item.templateCategoryColor.isNotEmpty
-            ? item.templateCategoryColor
-            : null,
-      );
-      final isDueMarker = durationMinutes == null || durationMinutes <= 0;
-      final endTime = isDueMarker
-          ? startTime.add(const Duration(minutes: 1))
-          : startTime.add(Duration(minutes: durationMinutes));
-
-      plannedEvents.add(CalendarEventData(
-        date: selectedDate,
-        startTime: startTime,
-        endTime: endTime,
-        title: item.templateName,
-        color: categoryColor,
-        description: isDueMarker
-            ? null
-            : CalendarFormattingUtils.formatDuration(
-                Duration(minutes: durationMinutes)),
-        event: {
-          ...metadata.toMap(),
-          'isDueMarker': isDueMarker,
-        },
-      ));
-    }
-
-    if (userId.isNotEmpty) {
-      final routinePlanned =
-          await RoutinePlannedCalendarService.getPlannedRoutineEvents(
-        userId: userId,
-        date: selectedDate,
-        routines: routines,
-        excludedTemplateIds: explicitlyScheduledTemplateIds,
-      );
-
-      for (final r in routinePlanned) {
-        final startTime =
-            CalendarFormattingUtils.parseDueTime(r.dueTime, selectedDate);
-        final isDueMarker =
-            r.durationMinutes == null || r.durationMinutes! <= 0;
-        final endTime = isDueMarker
-            ? startTime.add(const Duration(minutes: 1))
-            : startTime.add(Duration(minutes: r.durationMinutes!));
+        DateTime startTime =
+            CalendarFormattingUtils.parseDueTime(item.dueTime!, selectedDate);
+        final instanceId = item.reference.id;
+        final durationMinutes = plannedDurationByInstanceId[instanceId];
 
         final metadata = CalendarEventMetadata(
-          instanceId: r.routineId != null
-              ? 'routine:${r.routineId}'
-              : 'activity:${r.activityId}',
+          instanceId: instanceId,
           sessionIndex: -1,
-          activityName: r.name,
-          activityType: r.routineId != null ? 'routine' : 'essential',
-          templateId: r.activityId,
-          categoryId: null,
-          categoryName: null,
-          categoryColorHex: null,
+          activityName: item.templateName,
+          activityType: item.templateCategoryType,
+          templateId: item.templateId,
+          categoryId: item.templateCategoryId.isNotEmpty
+              ? item.templateCategoryId
+              : null,
+          categoryName: item.templateCategoryName.isNotEmpty
+              ? item.templateCategoryName
+              : null,
+          categoryColorHex: item.templateCategoryColor.isNotEmpty
+              ? item.templateCategoryColor
+              : null,
         );
+        final isDueMarker = durationMinutes == null || durationMinutes <= 0;
+        final endTime = isDueMarker
+            ? startTime.add(const Duration(minutes: 1))
+            : startTime.add(Duration(minutes: durationMinutes));
 
         plannedEvents.add(CalendarEventData(
           date: selectedDate,
           startTime: startTime,
           endTime: endTime,
-          title: r.routineId != null ? 'Routine: ${r.name}' : r.name,
-          color: r.routineId != null ? Colors.deepPurple : Colors.blueGrey,
+          title: item.templateName,
+          color: categoryColor,
           description: isDueMarker
               ? null
               : CalendarFormattingUtils.formatDuration(
-                  Duration(minutes: r.durationMinutes!)),
+                  Duration(minutes: durationMinutes)),
           event: {
             ...metadata.toMap(),
-            if (r.routineId != null) 'routineId': r.routineId,
-            if (r.activityId != null) 'activityId': r.activityId,
             'isDueMarker': isDueMarker,
           },
         ));
       }
-    }
 
-    plannedEvents.sort((a, b) {
-      if (a.startTime == null || b.startTime == null) return 0;
-      return a.startTime!.compareTo(b.startTime!);
-    });
+      if (userId.isNotEmpty) {
+        final routinePlanned =
+            await RoutinePlannedCalendarService.getPlannedRoutineEvents(
+          userId: userId,
+          date: selectedDate,
+          routines: routines,
+          excludedTemplateIds: explicitlyScheduledTemplateIds,
+        );
+
+        for (final r in routinePlanned) {
+          final startTime =
+              CalendarFormattingUtils.parseDueTime(r.dueTime, selectedDate);
+          final isDueMarker =
+              r.durationMinutes == null || r.durationMinutes! <= 0;
+          final endTime = isDueMarker
+              ? startTime.add(const Duration(minutes: 1))
+              : startTime.add(Duration(minutes: r.durationMinutes!));
+
+          final metadata = CalendarEventMetadata(
+            instanceId: r.routineId != null
+                ? 'routine:${r.routineId}'
+                : 'activity:${r.activityId}',
+            sessionIndex: -1,
+            activityName: r.name,
+            activityType: r.routineId != null ? 'routine' : 'essential',
+            templateId: r.activityId,
+            categoryId: null,
+            categoryName: null,
+            categoryColorHex: null,
+          );
+
+          plannedEvents.add(CalendarEventData(
+            date: selectedDate,
+            startTime: startTime,
+            endTime: endTime,
+            title: r.routineId != null ? 'Routine: ${r.name}' : r.name,
+            color: r.routineId != null ? Colors.deepPurple : Colors.blueGrey,
+            description: isDueMarker
+                ? null
+                : CalendarFormattingUtils.formatDuration(
+                    Duration(minutes: r.durationMinutes!)),
+            event: {
+              ...metadata.toMap(),
+              if (r.routineId != null) 'routineId': r.routineId,
+              if (r.activityId != null) 'activityId': r.activityId,
+              'isDueMarker': isDueMarker,
+            },
+          ));
+        }
+      }
+
+      plannedEvents.sort((a, b) {
+        if (a.startTime == null || b.startTime == null) return 0;
+        return a.startTime!.compareTo(b.startTime!);
+      });
+    }
 
     final result = CalendarEventsResult(
       completedEvents: cascadedEvents,
@@ -506,7 +635,11 @@ class CalendarEventService {
     );
 
     // Cache the result
-    cache.cacheCalendarEvents(selectedDate, result);
+    cache.cacheCalendarEvents(
+      selectedDate,
+      result,
+      variant: cacheVariant,
+    );
 
     return result;
   }

@@ -3,6 +3,8 @@ import 'package:calendar_view/calendar_view.dart';
 class CalendarEventMetadata {
   final String instanceId;
   final int sessionIndex; // Index in timeLogSessions array
+  final int? sessionStartEpochMs;
+  final int? sessionEndEpochMs;
   final String activityName;
   final String activityType; // 'task', 'habit', 'essential'
   final String? templateId;
@@ -13,6 +15,8 @@ class CalendarEventMetadata {
   CalendarEventMetadata({
     required this.instanceId,
     required this.sessionIndex,
+    this.sessionStartEpochMs,
+    this.sessionEndEpochMs,
     required this.activityName,
     required this.activityType,
     this.templateId,
@@ -25,6 +29,8 @@ class CalendarEventMetadata {
     return {
       'instanceId': instanceId,
       'sessionIndex': sessionIndex,
+      'sessionStartEpochMs': sessionStartEpochMs,
+      'sessionEndEpochMs': sessionEndEpochMs,
       'activityName': activityName,
       'activityType': activityType,
       'templateId': templateId,
@@ -36,9 +42,15 @@ class CalendarEventMetadata {
 
   static CalendarEventMetadata? fromMap(dynamic data) {
     if (data is Map<String, dynamic>) {
+      final rawSessionIndex = data['sessionIndex'];
+      final rawSessionStart = data['sessionStartEpochMs'];
+      final rawSessionEnd = data['sessionEndEpochMs'];
       return CalendarEventMetadata(
         instanceId: data['instanceId'] as String,
-        sessionIndex: data['sessionIndex'] as int,
+        sessionIndex: rawSessionIndex is num ? rawSessionIndex.toInt() : -1,
+        sessionStartEpochMs:
+            rawSessionStart is num ? rawSessionStart.toInt() : null,
+        sessionEndEpochMs: rawSessionEnd is num ? rawSessionEnd.toInt() : null,
         activityName: data['activityName'] as String,
         activityType: data['activityType'] as String,
         templateId: data['templateId'] as String?,

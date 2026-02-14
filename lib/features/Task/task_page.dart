@@ -74,11 +74,9 @@ class _TaskPageState extends State<TaskPage> {
     _quickHoursController.text = _quickTargetDuration.inHours.toString();
     _quickMinutesController.text =
         (_quickTargetDuration.inMinutes % 60).toString();
-    // Load expansion state and data in parallel for faster initialization
-    Future.wait([
-      _loadExpansionState(),
-      _loadData(),
-    ]);
+    // Load expansion state first; data load is driven by didChangeDependencies
+    // to avoid duplicate initial fetches.
+    _loadExpansionState();
     // Listen for search changes
     _searchManager.addListener(_onSearchChanged);
     // Register observers

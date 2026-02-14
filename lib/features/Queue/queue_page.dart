@@ -30,7 +30,6 @@ import 'package:habit_tracker/features/Queue/Queue_charts_section/queue_charts_s
 import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_dialog.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
-import 'package:habit_tracker/features/Progress/backend/progress_page_data_service.dart';
 import 'package:habit_tracker/features/Progress/backend/activity_template_service.dart';
 import 'package:habit_tracker/features/Progress/Point_system_helper/points_service.dart';
 import 'dart:async';
@@ -668,16 +667,12 @@ class _QueuePageState extends State<QueuePage>
           'version': calculationVersion,
         });
         // #endregion
-        // BACKEND RECONCILIATION: Use full calculation with Firestore
-        // Fetch full data to ensure completed items are included even if filtered from UI
-        final breakdownData =
-            await ProgressPageDataService.fetchInstancesForBreakdown(
-                userId: userId);
-        final allHabits =
-            breakdownData['habits'] as List<ActivityInstanceRecord>;
-        final allTasks = breakdownData['tasks'] as List<ActivityInstanceRecord>;
-        final allCategories =
-            breakdownData['categories'] as List<CategoryRecord>;
+        // Recalculate from local queue state to avoid broad refetch loops.
+        // Queue data is already loaded via queryAllInstances and kept updated by
+        // NotificationCenter + optimistic state handling.
+        final allHabits = _getHabitInstancesForScoring();
+        final allTasks = _getTaskInstancesForProgress();
+        final allCategories = _getHabitCategoriesForScoring();
         final allInstances = [...allHabits, ...allTasks];
 
         final progressData =
@@ -768,13 +763,9 @@ class _QueuePageState extends State<QueuePage>
         habitInstances = habitInstancesOverride;
         categories = categoriesOverride;
       } else {
-        // Fetch accurate data from DB to ensure score is correct even if local list is filtered
-        final breakdownData =
-            await ProgressPageDataService.fetchInstancesForBreakdown(
-                userId: userId);
-        habitInstances =
-            breakdownData['habits'] as List<ActivityInstanceRecord>;
-        categories = breakdownData['categories'] as List<CategoryRecord>;
+        // Use local queue state to avoid broad refetches on frequent progress events.
+        habitInstances = _getHabitInstancesForScoring();
+        categories = _getHabitCategoriesForScoring();
       }
 
       final scoreData = await ScoreCoordinator.updateTodayScore(
@@ -1003,17 +994,35 @@ class _QueuePageState extends State<QueuePage>
         }
 
         // Update score after progress calculation
-        final habitInstances = _instances
-            .where((inst) => inst.templateCategoryType == 'habit')
-            .toList();
+        final habitInstances = _getHabitInstancesForScoring();
         await _updateTodayScore(
           habitInstancesOverride: habitInstances,
-          categoriesOverride: _categories,
+          categoriesOverride: _getHabitCategoriesForScoring(),
         );
       }
     } finally {
       _isCalculatingProgress = false;
     }
+  }
+
+  List<ActivityInstanceRecord> _getHabitInstancesForScoring() {
+    return _instances
+        .where(
+          (inst) => inst.templateCategoryType == 'habit' && inst.isActive,
+        )
+        .toList();
+  }
+
+  List<ActivityInstanceRecord> _getTaskInstancesForProgress() {
+    return _instances
+        .where(
+          (inst) => inst.templateCategoryType == 'task' && inst.isActive,
+        )
+        .toList();
+  }
+
+  List<CategoryRecord> _getHabitCategoriesForScoring() {
+    return _categories.where((cat) => cat.categoryType == 'habit').toList();
   }
 
   /// Check if instance is active (counts toward today's target)
@@ -1143,8 +1152,8 @@ class _QueuePageState extends State<QueuePage>
 
       final scoreChanged = effectiveCumulativeScore != _cumulativeScore ||
           effectiveTodayScore != _dailyScoreGain;
-      final historyChanged =
-          !_historyLoaded || !_isHistoryEquivalent(history, _cumulativeScoreHistory);
+      final historyChanged = !_historyLoaded ||
+          !_isHistoryEquivalent(history, _cumulativeScoreHistory);
 
       if (mounted && (scoreChanged || historyChanged)) {
         setState(() {
@@ -1786,22 +1795,6 @@ class _QueuePageState extends State<QueuePage>
     bool isOptimistic = false;
     if (param is Map) {
       isOptimistic = param['isOptimistic'] as bool? ?? false;
-    }
-
-    // Use incremental update if initial load is complete
-    if (_isInitialLoadComplete && instance != null) {
-      // Pass both old and new (updated) instance to detect changes
-      // The updated instance is now in _instances, so we find it there
-      // (or just use the passed 'instance' which should have the new values)
-      // Actually 'instance' from param has the new values.
-      Future.microtask(() => _calculateProgressIncremental(
-            oldInstance: oldInstance,
-            newInstance: instance,
-          ));
-    } else {
-      // Full calculation for initial load
-      _calculateProgress(optimistic: true);
-      _scheduleFullSync();
     }
 
     // Use incremental update if initial load is complete, otherwise use full calculation

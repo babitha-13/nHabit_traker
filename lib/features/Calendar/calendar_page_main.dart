@@ -57,6 +57,10 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _isFetching = false;
   bool _pendingRefresh = false;
   Timer? _loadingStateSafetyTimer;
+  Timer? _observerRefreshDebounceTimer;
+  DateTime? _lastRefreshStartedAt;
+  static const Duration _observerRefreshDebounce = Duration(milliseconds: 600);
+  static const Duration _observerRefreshMinInterval = Duration(seconds: 2);
   Map<String, List<String>> _routineItemMap = {};
 
   CalendarEventTileBuilder get _eventTileBuilder {
@@ -90,12 +94,12 @@ class _CalendarPageState extends State<CalendarPage> {
     );
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
-        _loadEvents();
+        _scheduleObserverRefresh();
       }
     });
     NotificationCenter.addObserver(this, 'routineUpdated', (param) {
       if (mounted) {
-        _loadEvents();
+        _scheduleObserverRefresh();
       }
     });
     NotificationCenter.addObserver(
@@ -103,7 +107,7 @@ class _CalendarPageState extends State<CalendarPage> {
       ActivityTemplateEvents.templateUpdated,
       (param) {
         if (mounted) {
-          _loadEvents();
+          _scheduleObserverRefresh();
         }
       },
     );
@@ -275,6 +279,29 @@ class _CalendarPageState extends State<CalendarPage> {
     CalendarModals.removePreviewEvent(_plannedEventController);
   }
 
+  void _scheduleObserverRefresh({bool force = false}) {
+    if (!mounted) return;
+
+    _observerRefreshDebounceTimer?.cancel();
+    final now = DateTime.now();
+    Duration delay = _observerRefreshDebounce;
+
+    if (!force && _lastRefreshStartedAt != null) {
+      final elapsed = now.difference(_lastRefreshStartedAt!);
+      if (elapsed < _observerRefreshMinInterval) {
+        final remaining = _observerRefreshMinInterval - elapsed;
+        if (remaining > delay) {
+          delay = remaining;
+        }
+      }
+    }
+
+    _observerRefreshDebounceTimer = Timer(delay, () {
+      if (!mounted) return;
+      _loadEvents(isSilent: true);
+    });
+  }
+
   void _handleInstanceCreated(dynamic param) {
     if (!mounted) return;
     ActivityInstanceRecord instance;
@@ -355,7 +382,7 @@ class _CalendarPageState extends State<CalendarPage> {
       }
       if (affectsSelectedDate) {
         _applyOptimisticCompletedPatch(instance);
-        _loadEvents(isSilent: true);
+        _scheduleObserverRefresh();
       }
     } else {
       if (operationId != null) {
@@ -369,7 +396,7 @@ class _CalendarPageState extends State<CalendarPage> {
         _applyOptimisticCompletedPatch(instance);
       }
       if (affectsPlannedSection || affectsSelectedDate) {
-        _loadEvents(isSilent: true);
+        _scheduleObserverRefresh();
       }
     }
   }
@@ -464,7 +491,7 @@ class _CalendarPageState extends State<CalendarPage> {
       }
       if (affectsSelectedDate) {
         _applyOptimisticCompletedPatch(instance);
-        _loadEvents(isSilent: true);
+        _scheduleObserverRefresh();
       }
     } else {
       if (operationId != null) {
@@ -478,7 +505,7 @@ class _CalendarPageState extends State<CalendarPage> {
         _applyOptimisticCompletedPatch(instance);
       }
       if (affectsPlannedSection || affectsSelectedDate) {
-        _loadEvents(isSilent: true);
+        _scheduleObserverRefresh();
       }
     }
   }
@@ -585,7 +612,7 @@ class _CalendarPageState extends State<CalendarPage> {
       if (mounted) setState(() {});
     }
     if (affectsSelectedDate && instance.timeLogSessions.isNotEmpty) {
-      _loadEvents(isSilent: true);
+      _scheduleObserverRefresh();
     }
   }
 
@@ -635,7 +662,7 @@ class _CalendarPageState extends State<CalendarPage> {
             }
           }
         });
-        _loadEvents();
+        _scheduleObserverRefresh(force: true);
       }
     }
   }
@@ -644,6 +671,14 @@ class _CalendarPageState extends State<CalendarPage> {
     if (!mounted) return;
 
     final instanceId = instance.reference.id;
+    Color? previousColor;
+    for (final event in _sortedCompletedEvents) {
+      final metadata = CalendarEventMetadata.fromMap(event.event);
+      if (metadata?.instanceId == instanceId) {
+        previousColor = event.color;
+        break;
+      }
+    }
 
     // Remove old rendered sessions for this instance first.
     _sortedCompletedEvents.removeWhere((event) {
@@ -651,7 +686,10 @@ class _CalendarPageState extends State<CalendarPage> {
       return metadata?.instanceId == instanceId;
     });
 
-    final optimisticEvents = _buildCompletedEventsForSelectedDate(instance);
+    final optimisticEvents = _buildCompletedEventsForSelectedDate(
+      instance,
+      fallbackColor: previousColor,
+    );
     _sortedCompletedEvents.addAll(optimisticEvents);
     _sortedCompletedEvents = _cascadeCompletedEvents(_sortedCompletedEvents);
 
@@ -664,15 +702,15 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   List<CalendarEventData> _buildCompletedEventsForSelectedDate(
-    ActivityInstanceRecord instance,
-  ) {
+      ActivityInstanceRecord instance,
+      {Color? fallbackColor}) {
     final events = <CalendarEventData>[];
 
     if (instance.timeLogSessions.isEmpty) {
       return events;
     }
 
-    Color categoryColor = Colors.blue;
+    Color categoryColor = fallbackColor ?? Colors.blue;
     if (instance.templateCategoryColor.isNotEmpty) {
       try {
         categoryColor = _parseColor(instance.templateCategoryColor);
@@ -734,6 +772,8 @@ class _CalendarPageState extends State<CalendarPage> {
       final metadata = CalendarEventMetadata(
         instanceId: instance.reference.id,
         sessionIndex: i,
+        sessionStartEpochMs: sessionStart.millisecondsSinceEpoch,
+        sessionEndEpochMs: sessionEnd.millisecondsSinceEpoch,
         activityName: instance.templateName,
         activityType: instance.templateCategoryType,
         templateId: instance.templateId,
@@ -952,13 +992,22 @@ class _CalendarPageState extends State<CalendarPage> {
       _plannedOverlapGroups = overlapInfo.groups;
       if (mounted) setState(() {});
     } catch (e) {
-      _loadEvents();
+      _scheduleObserverRefresh(force: true);
     }
   }
 
   /// Helper to get stable event ID for comparison
   String? _getEventId(CalendarEventData event) {
     return CalendarOverlapCalculator.stableEventId(event);
+  }
+
+  String _eventSignature(CalendarEventData event) {
+    final start = event.startTime?.millisecondsSinceEpoch ?? -1;
+    final end = event.endTime?.millisecondsSinceEpoch ?? -1;
+    final color = event.color.value;
+    final title = event.title;
+    final description = event.description ?? '';
+    return '$start|$end|$color|$title|$description';
   }
 
   /// Efficiently update event controllers by comparing old and new events
@@ -968,31 +1017,31 @@ class _CalendarPageState extends State<CalendarPage> {
     List<CalendarEventData> newPlannedEvents,
   ) {
     // Build maps of new events by ID for quick lookup
-    final newCompletedMap = <String, CalendarEventData>{};
-    final newPlannedMap = <String, CalendarEventData>{};
+    final newCompletedMap = <String, String>{};
+    final newPlannedMap = <String, String>{};
 
     for (final event in newCompletedEvents) {
       final id = _getEventId(event);
-      if (id != null) newCompletedMap[id] = event;
+      if (id != null) newCompletedMap[id] = _eventSignature(event);
     }
 
     for (final event in newPlannedEvents) {
       final id = _getEventId(event);
-      if (id != null) newPlannedMap[id] = event;
+      if (id != null) newPlannedMap[id] = _eventSignature(event);
     }
 
     // Build maps of current events
-    final currentCompletedMap = <String, CalendarEventData>{};
-    final currentPlannedMap = <String, CalendarEventData>{};
+    final currentCompletedMap = <String, String>{};
+    final currentPlannedMap = <String, String>{};
 
     for (final event in _completedEventController.events) {
       final id = _getEventId(event);
-      if (id != null) currentCompletedMap[id] = event;
+      if (id != null) currentCompletedMap[id] = _eventSignature(event);
     }
 
     for (final event in _plannedEventController.events) {
       final id = _getEventId(event);
-      if (id != null) currentPlannedMap[id] = event;
+      if (id != null) currentPlannedMap[id] = _eventSignature(event);
     }
 
     // Only update if events actually changed (by ID)
@@ -1014,11 +1063,13 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   /// Compare two event maps for equality by ID
-  bool _mapsEqual(Map<String, CalendarEventData> map1,
-      Map<String, CalendarEventData> map2) {
+  bool _mapsEqual(Map<String, String> map1, Map<String, String> map2) {
     if (map1.length != map2.length) return false;
-    for (final key in map1.keys) {
-      if (!map2.containsKey(key)) return false;
+    for (final entry in map1.entries) {
+      final other = map2[entry.key];
+      if (other == null || other != entry.value) {
+        return false;
+      }
     }
     return true;
   }
@@ -1032,7 +1083,9 @@ class _CalendarPageState extends State<CalendarPage> {
       return;
     }
 
+    _observerRefreshDebounceTimer?.cancel();
     _isFetching = true;
+    _lastRefreshStartedAt = DateTime.now();
 
     // Check userId BEFORE setting loading state to avoid showing loader if not authenticated
     final userId = await waitForCurrentUserUid();
@@ -1065,6 +1118,7 @@ class _CalendarPageState extends State<CalendarPage> {
       final result = await CalendarEventService.loadEvents(
         userId: userId,
         selectedDate: _selectedDate,
+        includePlanned: _showPlanned,
         optimisticInstances: _optimisticInstances,
       ).timeout(
         const Duration(
@@ -1295,6 +1349,7 @@ class _CalendarPageState extends State<CalendarPage> {
   @override
   void dispose() {
     _loadingStateSafetyTimer?.cancel();
+    _observerRefreshDebounceTimer?.cancel();
     NotificationCenter.removeObserver(this);
     _completedEventController.dispose();
     _plannedEventController.dispose();
@@ -1371,10 +1426,14 @@ class _CalendarPageState extends State<CalendarPage> {
         },
         onSaveTabState: _saveTabState,
         onTogglePlanned: (value) {
+          final shouldLoadPlanned = value && !_showPlanned;
           setState(() {
             _showPlanned = value;
             _dayViewKey = GlobalKey<DayViewState>();
           });
+          if (shouldLoadPlanned) {
+            _loadEvents(isSilent: true);
+          }
         },
         onShowTimeBreakdownChart: _showTimeBreakdownChart,
         onShowManualEntryDialog: (startTime, endTime) {

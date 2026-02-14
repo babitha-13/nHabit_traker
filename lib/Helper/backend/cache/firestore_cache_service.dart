@@ -68,14 +68,17 @@ class FirestoreCacheService {
       this,
       InstanceEvents.instanceCreated,
       (param) {
-        invalidateInstancesCache();
-        // Invalidate calendar cache for affected dates
-        if (param is ActivityInstanceRecord) {
-          _invalidateCalendarCacheForInstance(param);
-        } else if (param is Map &&
-            param['instance'] is ActivityInstanceRecord) {
-          _invalidateCalendarCacheForInstance(
-              param['instance'] as ActivityInstanceRecord);
+        final instance = _extractInstanceFromEventParam(param);
+        final isOptimistic = _isOptimisticEventParam(param);
+
+        if (isOptimistic && instance != null) {
+          _applyOptimisticInstanceCacheUpdate(instance);
+        } else {
+          invalidateInstancesCache();
+        }
+
+        if (instance != null && !isOptimistic) {
+          _invalidateCalendarCacheForInstance(instance);
         }
       },
     );
@@ -83,14 +86,17 @@ class FirestoreCacheService {
       this,
       InstanceEvents.instanceUpdated,
       (param) {
-        invalidateInstancesCache();
-        // Invalidate calendar cache for affected dates
-        if (param is ActivityInstanceRecord) {
-          _invalidateCalendarCacheForInstance(param);
-        } else if (param is Map &&
-            param['instance'] is ActivityInstanceRecord) {
-          _invalidateCalendarCacheForInstance(
-              param['instance'] as ActivityInstanceRecord);
+        final instance = _extractInstanceFromEventParam(param);
+        final isOptimistic = _isOptimisticEventParam(param);
+
+        if (isOptimistic && instance != null) {
+          _applyOptimisticInstanceCacheUpdate(instance);
+        } else {
+          invalidateInstancesCache();
+        }
+
+        if (instance != null && !isOptimistic) {
+          _invalidateCalendarCacheForInstance(instance);
         }
       },
     );
@@ -134,6 +140,66 @@ class FirestoreCacheService {
       (_) => invalidateCategoriesCache(),
     );
     _listenersSetup = true;
+  }
+
+  ActivityInstanceRecord? _extractInstanceFromEventParam(Object? param) {
+    if (param is ActivityInstanceRecord) {
+      return param;
+    }
+    if (param is Map && param['instance'] is ActivityInstanceRecord) {
+      return param['instance'] as ActivityInstanceRecord;
+    }
+    return null;
+  }
+
+  bool _isOptimisticEventParam(Object? param) {
+    if (param is Map) {
+      return param['isOptimistic'] as bool? ?? false;
+    }
+    return false;
+  }
+
+  void _upsertInstanceInList(
+    List<ActivityInstanceRecord> instances,
+    ActivityInstanceRecord instance,
+  ) {
+    final index = instances.indexWhere(
+      (existing) => existing.reference.id == instance.reference.id,
+    );
+    if (index == -1) {
+      instances.add(instance);
+    } else {
+      instances[index] = instance;
+    }
+  }
+
+  void _applyOptimisticInstanceCacheUpdate(ActivityInstanceRecord instance) {
+    cacheInstance(instance);
+
+    // Aggregate caches only store habit/task instances.
+    if (instance.templateCategoryType != 'habit' &&
+        instance.templateCategoryType != 'task') {
+      return;
+    }
+
+    final now = DateTime.now();
+
+    if (_cachedAllInstances != null) {
+      _upsertInstanceInList(_cachedAllInstances!, instance);
+      _allInstancesTimestamp = now;
+    }
+
+    if (instance.templateCategoryType == 'task' &&
+        _cachedTaskInstances != null) {
+      _upsertInstanceInList(_cachedTaskInstances!, instance);
+      _taskInstancesTimestamp = now;
+    }
+
+    if (instance.templateCategoryType == 'habit' &&
+        _cachedHabitInstances != null) {
+      _upsertInstanceInList(_cachedHabitInstances!, instance);
+      _habitInstancesTimestamp = now;
+    }
   }
 
   /// Ensure listeners are set up (can be called from main.dart on reassemble)
@@ -346,10 +412,15 @@ class FirestoreCacheService {
 
   // ==================== CALENDAR DATE CACHE ====================
 
-  /// Get cache key for a date (normalized to start of day)
-  String _getDateCacheKey(DateTime date) {
+  /// Get cache key for a date (normalized to start of day) + optional variant.
+  String _getDateCacheKey(DateTime date, {String variant = 'full'}) {
     final normalized = DateService.normalizeToStartOfDay(date);
-    return '${normalized.year}-${normalized.month}-${normalized.day}';
+    return '${normalized.year}-${normalized.month}-${normalized.day}|$variant';
+  }
+
+  String _getDateCachePrefix(DateTime date) {
+    final normalized = DateService.normalizeToStartOfDay(date);
+    return '${normalized.year}-${normalized.month}-${normalized.day}|';
   }
 
   /// Check if a date is in the past (before today)
@@ -361,8 +432,11 @@ class FirestoreCacheService {
 
   /// Get cached calendar events for a date if available and fresh
   /// Uses longer TTL for past dates since they never change
-  CalendarEventsResult? getCachedCalendarEvents(DateTime date) {
-    final key = _getDateCacheKey(date);
+  CalendarEventsResult? getCachedCalendarEvents(
+    DateTime date, {
+    String variant = 'full',
+  }) {
+    final key = _getDateCacheKey(date, variant: variant);
     final timestamp = _calendarDateTimestamps[key];
 
     // Use longer TTL for past dates (they never change)
@@ -376,13 +450,17 @@ class FirestoreCacheService {
   }
 
   /// Cache calendar events for a date
-  void cacheCalendarEvents(DateTime date, CalendarEventsResult events) {
+  void cacheCalendarEvents(
+    DateTime date,
+    CalendarEventsResult events, {
+    String variant = 'full',
+  }) {
     // Prevent unbound growth of calendar cache
     if (_calendarDateCache.length > 100) {
       _calendarDateCache.clear();
       _calendarDateTimestamps.clear();
     }
-    final key = _getDateCacheKey(date);
+    final key = _getDateCacheKey(date, variant: variant);
     _calendarDateCache[key] = events;
     _calendarDateTimestamps[key] = DateTime.now();
   }
@@ -408,9 +486,9 @@ class FirestoreCacheService {
       return;
     }
 
-    final key = _getDateCacheKey(date);
-    _calendarDateCache.remove(key);
-    _calendarDateTimestamps.remove(key);
+    final prefix = _getDateCachePrefix(date);
+    _calendarDateCache.removeWhere((key, _) => key.startsWith(prefix));
+    _calendarDateTimestamps.removeWhere((key, _) => key.startsWith(prefix));
   }
 
   /// Invalidate calendar cache for multiple dates (useful when instance affects multiple dates)

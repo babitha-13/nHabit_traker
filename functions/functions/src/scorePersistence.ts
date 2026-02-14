@@ -17,6 +17,7 @@ import {
   isSameDay,
   formatDateKeyIST,
 } from './types.js';
+import { logFirestoreIndexHint } from './firestoreIndexLogger.js';
 
 // Firestore access helper
 const getDb = () => admin.firestore();
@@ -140,6 +141,150 @@ export async function persistScoresForDateRange(
   }
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+interface DailyScoringInputs {
+  habitInstances: ActivityInstance[];
+  taskInstances: ActivityInstance[];
+  categories: Array<CategoryRecord & { id: string }>;
+}
+
+async function fetchScoringInputsForDate(
+  userId: string,
+  targetDate: Date
+): Promise<DailyScoringInputs> {
+  const db = getDb();
+  const instancesRef = db
+    .collection('users')
+    .doc(userId)
+    .collection('activity_instances');
+  const categoriesRef = db
+    .collection('users')
+    .doc(userId)
+    .collection('categories');
+
+  const normalizedTargetDate = normalizeToStartOfDay(targetDate);
+  const nextDay = new Date(normalizedTargetDate.getTime() + DAY_MS);
+  const dayStartTs = Timestamp.fromDate(normalizedTargetDate);
+  const nextDayTs = Timestamp.fromDate(nextDay);
+
+  try {
+    // Use bounded/date-scoped queries. Keep query fields simple to avoid
+    // introducing new composite-index dependencies.
+    const [
+      openWindowSnapshot,
+      sameDayDueSnapshot,
+      pendingSnapshot,
+      completedOnDaySnapshot,
+      categoriesSnapshot,
+    ] = await Promise.all([
+      instancesRef.where('windowEndDate', '>=', dayStartTs).get(),
+      instancesRef
+        .where('dueDate', '>=', dayStartTs)
+        .where('dueDate', '<', nextDayTs)
+        .get(),
+      instancesRef.where('status', '==', 'pending').get(),
+      instancesRef
+        .where('completedAt', '>=', dayStartTs)
+        .where('completedAt', '<', nextDayTs)
+        .get(),
+      categoriesRef.where('categoryType', '==', 'habit').get(),
+    ]);
+
+    const habitsById = new Map<string, ActivityInstance>();
+    const tasksById = new Map<string, ActivityInstance>();
+
+    for (const doc of openWindowSnapshot.docs) {
+      const instance = doc.data() as ActivityInstance;
+      if (instance.templateCategoryType === 'habit') {
+        habitsById.set(doc.id, instance);
+      }
+    }
+
+    // Capture one-day/no-window habits that still participate on the target day.
+    for (const doc of sameDayDueSnapshot.docs) {
+      const instance = doc.data() as ActivityInstance;
+      if (instance.templateCategoryType === 'habit') {
+        habitsById.set(doc.id, instance);
+      }
+    }
+
+    // Pending tasks are needed for due/on-or-before target-day scoring math.
+    for (const doc of pendingSnapshot.docs) {
+      const instance = doc.data() as ActivityInstance;
+      if (instance.templateCategoryType === 'task') {
+        tasksById.set(doc.id, instance);
+      }
+    }
+
+    // Completed tasks on target day are also part of task scoring math.
+    for (const doc of completedOnDaySnapshot.docs) {
+      const instance = doc.data() as ActivityInstance;
+      if (instance.templateCategoryType === 'task') {
+        tasksById.set(doc.id, instance);
+      }
+    }
+
+    const categories: Array<CategoryRecord & { id: string }> = [];
+    categoriesSnapshot.forEach((doc) => {
+      categories.push({ ...doc.data() as CategoryRecord, id: doc.id });
+    });
+
+    return {
+      habitInstances: Array.from(habitsById.values()),
+      taskInstances: Array.from(tasksById.values()),
+      categories,
+    };
+  } catch (error) {
+    logFirestoreIndexHint('scorePersistence.fetchScoringInputsForDate', error);
+    console.warn(
+      `[scorePersistence] Scoped day-end reads failed for ${userId} on ${formatDateKeyIST(targetDate)}. Falling back to broad queries.`,
+      error
+    );
+    return fetchScoringInputsFallback(userId);
+  }
+}
+
+async function fetchScoringInputsFallback(userId: string): Promise<DailyScoringInputs> {
+  const db = getDb();
+  const instancesRef = db
+    .collection('users')
+    .doc(userId)
+    .collection('activity_instances');
+  const categoriesRef = db
+    .collection('users')
+    .doc(userId)
+    .collection('categories');
+
+  const [habitInstancesSnapshot, taskInstancesSnapshot, categoriesSnapshot] =
+    await Promise.all([
+      instancesRef.where('templateCategoryType', '==', 'habit').get(),
+      instancesRef.where('templateCategoryType', '==', 'task').get(),
+      categoriesRef.where('categoryType', '==', 'habit').get(),
+    ]);
+
+  const habitInstances: ActivityInstance[] = [];
+  habitInstancesSnapshot.forEach((doc) => {
+    habitInstances.push(doc.data() as ActivityInstance);
+  });
+
+  const taskInstances: ActivityInstance[] = [];
+  taskInstancesSnapshot.forEach((doc) => {
+    taskInstances.push(doc.data() as ActivityInstance);
+  });
+
+  const categories: Array<CategoryRecord & { id: string }> = [];
+  categoriesSnapshot.forEach((doc) => {
+    categories.push({ ...doc.data() as CategoryRecord, id: doc.id });
+  });
+
+  return {
+    habitInstances,
+    taskInstances,
+    categories,
+  };
+}
+
 /**
  * Create daily progress record for a specific date
  * @param setLastProcessedDate If true, sets lastProcessedDate in progress_stats
@@ -151,44 +296,9 @@ async function createDailyProgressRecordForDate(
 ): Promise<void> {
   try {
     const db = getDb();
-    // Fetch all instances and categories
-    const instancesRef = db
-      .collection('users')
-      .doc(userId)
-      .collection('activity_instances');
 
-    const habitInstancesSnapshot = await instancesRef
-      .where('templateCategoryType', '==', 'habit')
-      .get();
-
-    const taskInstancesSnapshot = await instancesRef
-      .where('templateCategoryType', '==', 'task')
-      .get();
-
-    const categoriesRef = db
-      .collection('users')
-      .doc(userId)
-      .collection('categories');
-
-    const categoriesSnapshot = await categoriesRef
-      .where('categoryType', '==', 'habit')
-      .get();
-
-    // Convert to typed objects
-    const habitInstances: ActivityInstance[] = [];
-    habitInstancesSnapshot.forEach((doc) => {
-      habitInstances.push(doc.data() as ActivityInstance);
-    });
-
-    const taskInstances: ActivityInstance[] = [];
-    taskInstancesSnapshot.forEach((doc) => {
-      taskInstances.push(doc.data() as ActivityInstance);
-    });
-
-    const categories: Array<CategoryRecord & { id: string }> = [];
-    categoriesSnapshot.forEach((doc) => {
-      categories.push({ ...doc.data() as CategoryRecord, id: doc.id });
-    });
+    const { habitInstances, taskInstances, categories } =
+      await fetchScoringInputsForDate(userId, targetDate);
 
     // Calculate daily progress
     const calculationResult = await calculateDailyProgress(

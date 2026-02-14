@@ -330,68 +330,93 @@ class TaskInstanceTimeLoggingService {
     final uid = userId ?? TaskInstanceHelperService.getCurrentUserId();
     try {
       final normalizedDate = DateService.normalizeToStartOfDay(date);
+      final mergedById = <String, ActivityInstanceRecord>{};
 
-      Future<List<ActivityInstanceRecord>> loadBySessionsForDate() async {
-        final result = await ActivityInstanceRecord.collectionForUser(uid)
-            .where('totalTimeLogged', isGreaterThan: 0)
-            .get();
-        final instances = result.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((instance) => instance.isActive)
-            .toList();
-        return instances.where((instance) {
-          final sessions = instance.timeLogSessions;
-          return sessions.any((session) {
-            final sessionStart = session['startTime'] as DateTime;
-            final normalizedSessionStart =
-                DateService.normalizeToStartOfDay(sessionStart);
-            return normalizedSessionStart.isAtSameMomentAs(normalizedDate);
-          });
-        }).toList();
+      void mergeInstances(Iterable<ActivityInstanceRecord> instances) {
+        for (final instance in instances) {
+          mergedById[instance.reference.id] = instance;
+        }
       }
 
-      try {
-        final dateQuery = ActivityInstanceRecord.collectionForUser(uid)
+      Future<void> collectFromQuery({
+        required Future<dynamic> Function() runQuery,
+        required String queryDescription,
+      }) async {
+        try {
+          final result = await runQuery();
+          final instances = result.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where(
+                (instance) =>
+                    instance.isActive && instance.timeLogSessions.isNotEmpty,
+              );
+          mergeInstances(instances);
+        } catch (e) {
+          logFirestoreIndexError(
+            e,
+            queryDescription,
+            'activity_instances',
+          );
+        }
+      }
+
+      await collectFromQuery(
+        runQuery: () => ActivityInstanceRecord.collectionForUser(uid)
             .where('totalTimeLogged', isGreaterThan: 0)
-            .where('belongsToDate', isEqualTo: normalizedDate);
-        final dateResult = await dateQuery.get();
-        final dateInstances = dateResult.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((instance) =>
-                instance.isActive && instance.timeLogSessions.isNotEmpty)
-            .toList();
-        final filtered = dateInstances.where((instance) {
-          final sessions = instance.timeLogSessions;
-          return sessions.any((session) {
-            final sessionStart = session['startTime'] as DateTime;
-            final normalizedSessionStart =
-                DateService.normalizeToStartOfDay(sessionStart);
-            return normalizedSessionStart.isAtSameMomentAs(normalizedDate);
-          });
-        }).toList();
-        if (filtered.isEmpty) {
-          return loadBySessionsForDate();
-        }
-        final sessionMatches = await loadBySessionsForDate();
-        if (sessionMatches.isEmpty) {
-          return filtered;
-        }
-        final mergedById = <String, ActivityInstanceRecord>{};
-        for (final instance in sessionMatches) {
-          mergedById[instance.reference.id] = instance;
-        }
-        for (final instance in filtered) {
-          mergedById[instance.reference.id] = instance;
-        }
-        return mergedById.values.toList();
-      } catch (e) {
-        logFirestoreIndexError(
-          e,
-          'Get time logged tasks by belongsToDate (totalTimeLogged + belongsToDate)',
-          'activity_instances',
+            .where('belongsToDate', isEqualTo: normalizedDate)
+            .limit(500)
+            .get(),
+        queryDescription:
+            'Get time logged tasks by belongsToDate (totalTimeLogged + belongsToDate)',
+      );
+
+      // Only run additional fallbacks when the primary date-scoped query returns nothing.
+      if (mergedById.isEmpty) {
+        final nextDate = normalizedDate.add(const Duration(days: 1));
+
+        await collectFromQuery(
+          runQuery: () => ActivityInstanceRecord.collectionForUser(uid)
+              .where('totalTimeLogged', isGreaterThan: 0)
+              .where('completedAt', isGreaterThanOrEqualTo: normalizedDate)
+              .where('completedAt', isLessThan: nextDate)
+              .limit(300)
+              .get(),
+          queryDescription:
+              'Get time logged tasks fallback by completedAt range',
         );
-        return loadBySessionsForDate();
+
+        await collectFromQuery(
+          runQuery: () => ActivityInstanceRecord.collectionForUser(uid)
+              .where('totalTimeLogged', isGreaterThan: 0)
+              .where('dueDate', isEqualTo: normalizedDate)
+              .limit(300)
+              .get(),
+          queryDescription:
+              'Get time logged tasks fallback by dueDate equality',
+        );
       }
+
+      // Final fallback: bounded broad scan instead of unbounded historical scan.
+      if (mergedById.isEmpty) {
+        await collectFromQuery(
+          runQuery: () => ActivityInstanceRecord.collectionForUser(uid)
+              .where('totalTimeLogged', isGreaterThan: 0)
+              .limit(250)
+              .get(),
+          queryDescription:
+              'Get time logged tasks final fallback (bounded totalTimeLogged scan)',
+        );
+      }
+
+      return mergedById.values.where((instance) {
+        final sessions = instance.timeLogSessions;
+        return sessions.any((session) {
+          final sessionStart = session['startTime'] as DateTime;
+          final normalizedSessionStart =
+              DateService.normalizeToStartOfDay(sessionStart);
+          return normalizedSessionStart.isAtSameMomentAs(normalizedDate);
+        });
+      }).toList();
     } catch (e, stackTrace) {
       logFirestoreQueryError(
         e,
@@ -878,12 +903,58 @@ class TaskInstanceTimeLoggingService {
     }
   }
 
+  static int _resolveSessionIndex({
+    required List<Map<String, dynamic>> sessions,
+    required int requestedIndex,
+    DateTime? sessionStartTime,
+    DateTime? sessionEndTime,
+  }) {
+    if (sessionStartTime != null) {
+      final exactIndex = sessions.indexWhere((session) {
+        final start = session['startTime'] as DateTime?;
+        final end = session['endTime'] as DateTime?;
+        if (start == null || end == null) {
+          return false;
+        }
+        if (!start.isAtSameMomentAs(sessionStartTime)) {
+          return false;
+        }
+        if (sessionEndTime == null) {
+          return true;
+        }
+        return end.isAtSameMomentAs(sessionEndTime);
+      });
+      if (exactIndex >= 0) {
+        return exactIndex;
+      }
+
+      final startOnlyIndex = sessions.indexWhere((session) {
+        final start = session['startTime'] as DateTime?;
+        if (start == null) {
+          return false;
+        }
+        return start.isAtSameMomentAs(sessionStartTime);
+      });
+      if (startOnlyIndex >= 0) {
+        return startOnlyIndex;
+      }
+    }
+
+    if (requestedIndex >= 0 && requestedIndex < sessions.length) {
+      return requestedIndex;
+    }
+
+    return -1;
+  }
+
   /// Update a specific time log session
   static Future<void> updateTimeLogSession({
     required String instanceId,
     required int sessionIndex,
     required DateTime startTime,
     required DateTime endTime,
+    DateTime? originalSessionStartTime,
+    DateTime? originalSessionEndTime,
     String? userId,
   }) async {
     final uid = userId ?? TaskInstanceHelperService.getCurrentUserId();
@@ -896,7 +967,15 @@ class TaskInstanceTimeLoggingService {
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
 
-      if (sessionIndex < 0 || sessionIndex >= instance.timeLogSessions.length) {
+      final sessions =
+          List<Map<String, dynamic>>.from(instance.timeLogSessions);
+      final resolvedSessionIndex = _resolveSessionIndex(
+        sessions: sessions,
+        requestedIndex: sessionIndex,
+        sessionStartTime: originalSessionStartTime,
+        sessionEndTime: originalSessionEndTime,
+      );
+      if (resolvedSessionIndex < 0 || resolvedSessionIndex >= sessions.length) {
         throw Exception('Session index out of range');
       }
       if (startTime.isAfter(endTime)) {
@@ -904,9 +983,7 @@ class TaskInstanceTimeLoggingService {
       }
       final duration = endTime.difference(startTime);
       final durationMs = duration.inMilliseconds;
-      final sessions =
-          List<Map<String, dynamic>>.from(instance.timeLogSessions);
-      sessions[sessionIndex] = {
+      sessions[resolvedSessionIndex] = {
         'startTime': startTime,
         'endTime': endTime,
         'durationMilliseconds': durationMs,
@@ -982,6 +1059,8 @@ class TaskInstanceTimeLoggingService {
   static Future<bool> deleteTimeLogSession({
     required String instanceId,
     required int sessionIndex,
+    DateTime? sessionStartTime,
+    DateTime? sessionEndTime,
     String? userId,
   }) async {
     final uid = userId ?? TaskInstanceHelperService.getCurrentUserId();
@@ -993,12 +1072,18 @@ class TaskInstanceTimeLoggingService {
         throw Exception('Instance not found');
       }
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      if (sessionIndex < 0 || sessionIndex >= instance.timeLogSessions.length) {
-        throw Exception('Session index out of range');
-      }
       final sessions =
           List<Map<String, dynamic>>.from(instance.timeLogSessions);
-      sessions.removeAt(sessionIndex);
+      final resolvedSessionIndex = _resolveSessionIndex(
+        sessions: sessions,
+        requestedIndex: sessionIndex,
+        sessionStartTime: sessionStartTime,
+        sessionEndTime: sessionEndTime,
+      );
+      if (resolvedSessionIndex < 0 || resolvedSessionIndex >= sessions.length) {
+        throw Exception('Session index out of range');
+      }
+      sessions.removeAt(resolvedSessionIndex);
       final totalTime = TimerUtil.calculateTotalFromSessions(sessions);
       dynamic newCurrentValue;
       if (instance.templateTrackingType == 'quantitative') {

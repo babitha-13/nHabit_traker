@@ -44,6 +44,9 @@ class ItemComponent extends StatefulWidget {
   final DateTime? progressReferenceTime;
   final bool showQuickLogOnLeft; // NEW: Flag to show + on left
   final VoidCallback? onQuickLog; // NEW: Callback for + on left
+  final bool showManagementActions;
+  final bool enableExpandedEdit;
+  final bool showSwipeTimerAction;
   final bool
       treatAsBinary; // NEW: Forces checklist behavior regardless of tracking type
   const ItemComponent(
@@ -69,6 +72,9 @@ class ItemComponent extends StatefulWidget {
       this.progressReferenceTime,
       this.showQuickLogOnLeft = false,
       this.onQuickLog,
+      this.showManagementActions = true,
+      this.enableExpandedEdit = true,
+      this.showSwipeTimerAction = true,
       this.treatAsBinary = false});
   @override
   State<ItemComponent> createState() => _ItemComponentState();
@@ -307,6 +313,268 @@ class _ItemComponentState extends State<ItemComponent>
     if (_isFullyCompleted && (widget.showCompleted != true)) {
       return const SizedBox.shrink();
     }
+    final content = Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+      padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
+      decoration: BoxDecoration(
+        gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(
+          color: FlutterFlowTheme.of(context).cardBorderColor,
+          width: 1,
+        ),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          ConstrainedBox(
+            constraints: const BoxConstraints(minHeight: 50),
+            child: _buildLeftStripe(),
+          ),
+          const SizedBox(width: 5),
+          Align(
+            alignment: Alignment.center,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 50),
+              child: SizedBox(
+                width: 48,
+                child: Center(child: _buildLeftControlsCompact()),
+              ),
+            ),
+          ),
+          const SizedBox(width: 5),
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) {
+                return GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () {
+                    setState(() {
+                      _isExpanded = !_isExpanded;
+                      if (_isExpanded && _hasReminders == null) {
+                        _checkForReminders();
+                      }
+                    });
+                  },
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(minHeight: 50),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          widget.instance.templateName,
+                          maxLines: _isExpanded ? null : 1,
+                          overflow: _isExpanded
+                              ? TextOverflow.visible
+                              : TextOverflow.ellipsis,
+                          style: FlutterFlowTheme.of(context)
+                              .bodyMedium
+                              .override(
+                                fontFamily: 'Readex Pro',
+                                fontWeight: FontWeight.w600,
+                                decoration: _isCompleted
+                                    ? TextDecoration.lineThrough
+                                    : TextDecoration.none,
+                                color: _isCompleted
+                                    ? FlutterFlowTheme.of(context).secondaryText
+                                    : FlutterFlowTheme.of(context).primaryText,
+                              ),
+                        ),
+                        if (_getEnhancedSubtitle(
+                                    includeProgress: _shouldShowProgress)
+                                .isNotEmpty &&
+                            !_isessential) ...[
+                          const SizedBox(height: 2),
+                          Text(
+                            _getEnhancedSubtitle(
+                                includeProgress: _shouldShowProgress),
+                            maxLines: _isExpanded ? null : 1,
+                            overflow: _isExpanded
+                                ? TextOverflow.visible
+                                : TextOverflow.ellipsis,
+                            style:
+                                FlutterFlowTheme.of(context).bodySmall.override(
+                                      fontFamily: 'Readex Pro',
+                                      color: FlutterFlowTheme.of(context)
+                                          .primaryText
+                                          .withOpacity(0.7),
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                          ),
+                        ],
+                        if (_isExpanded && !_isessential) ...[
+                          const SizedBox(height: 4),
+                          ItemExpandedDetails(
+                            instance: widget.instance,
+                            page: widget.page,
+                            subtitle: widget.subtitle,
+                            isHabit: widget.isHabit,
+                            isRecurring: _isRecurringItem(),
+                            frequencyDisplay: _getFrequencyDisplay(),
+                            hasReminders: _hasReminders,
+                            reminderDisplayText: _reminderDisplayText,
+                            showCategoryOnExpansion:
+                                widget.showExpandedCategoryName,
+                            timeEstimateMinutes: _resolvedTimeEstimateMinutes,
+                            onEdit: widget.enableExpandedEdit
+                                ? _editActivity
+                                : null,
+                          ),
+                        ],
+                        if (widget.instance.templateTrackingType != 'binary' &&
+                            !widget.treatAsBinary) ...[
+                          const SizedBox(height: 4),
+                          Container(
+                            height: 3,
+                            decoration: BoxDecoration(
+                              color: Colors.white,
+                              border: Border.all(
+                                color: _leftStripeColor,
+                                width: 1,
+                              ),
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                            child: Stack(
+                              children: [
+                                Container(
+                                  width: double.infinity,
+                                  height: 3,
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                                FractionallySizedBox(
+                                  alignment: Alignment.centerLeft,
+                                  widthFactor: _progressPercentClamped,
+                                  child: Container(
+                                    height: 3,
+                                    decoration: BoxDecoration(
+                                      color: _leftStripeColor,
+                                      borderRadius: BorderRadius.circular(2),
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+          Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ConstrainedBox(
+                constraints: const BoxConstraints(minHeight: 50),
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    bottom: _isExpanded && !_isessential ? 6.0 : 0.0,
+                  ),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const SizedBox(width: 5),
+                        if (_isExpanded && widget.isHabit) ...[
+                          GestureDetector(
+                            onTap: () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      HabitDetailStatisticsPage(
+                                    habitName: widget.instance.templateName,
+                                  ),
+                                ),
+                              );
+                            },
+                            child: Icon(
+                              Icons.bar_chart,
+                              size: 20,
+                              color: FlutterFlowTheme.of(context).primary,
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                        ],
+                        if (widget.showManagementActions && !_isessential) ...[
+                          Builder(
+                            builder: (btnCtx) => GestureDetector(
+                              onTap: () {
+                                ItemMenuLogicHelper.showScheduleMenu(
+                                  context: context,
+                                  anchorContext: btnCtx,
+                                  instance: widget.instance,
+                                  isRecurringItem: _isRecurringItem(),
+                                  currentProgressLocal: _currentProgressLocal(),
+                                  onInstanceUpdated: (updated) =>
+                                      widget.onInstanceUpdated?.call(updated),
+                                  onRefresh: widget.onRefresh,
+                                  showUncompleteDialog: _showUncompleteDialog,
+                                );
+                              },
+                              child: const Icon(Icons.calendar_month, size: 20),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                        ],
+                        if (widget.showManagementActions && !_isessential) ...[
+                          Builder(
+                            builder: (btnCtx) => GestureDetector(
+                              onTap: () {
+                                ItemManagementHelper.showHabitOverflowMenu(
+                                  context: context,
+                                  anchorContext: btnCtx,
+                                  instance: widget.instance,
+                                  categories: widget.categories ?? [],
+                                  onInstanceDeleted: (deleted) =>
+                                      widget.onInstanceDeleted?.call(deleted),
+                                  onInstanceUpdated: (updated) =>
+                                      widget.onInstanceUpdated?.call(updated),
+                                  setUpdating: (val) =>
+                                      setState(() => _isUpdating = val),
+                                  onRefresh: widget.onRefresh,
+                                  onEstimateUpdate: (newEst) => setState(() =>
+                                      _resolvedTimeEstimateMinutes = newEst),
+                                  editActivity: _editActivity, // ADD THIS
+                                  normalizeTimeEstimate:
+                                      _normalizeTimeEstimate, // ADD THIS
+                                  isMounted: () => mounted, // ADD THIS
+                                );
+                              },
+                              child: const Icon(Icons.more_vert, size: 20),
+                            ),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              if (_isExpanded &&
+                  !_isessential &&
+                  widget.showManagementActions) ...[
+                Center(
+                  child: _buildHabitPriorityStars(),
+                ),
+              ],
+            ],
+          ),
+        ],
+      ),
+    );
+
+    if (!widget.showSwipeTimerAction) {
+      return content;
+    }
+
     return Slidable(
       key: ValueKey(widget.instance.reference.id),
       endActionPane: ActionPane(
@@ -327,265 +595,7 @@ class _ItemComponentState extends State<ItemComponent>
           ),
         ],
       ),
-      child: Container(
-        margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 2),
-        padding: const EdgeInsets.fromLTRB(6, 6, 6, 6),
-        decoration: BoxDecoration(
-          gradient: FlutterFlowTheme.of(context).neumorphicGradientSubtle,
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(
-            color: FlutterFlowTheme.of(context).cardBorderColor,
-            width: 1,
-          ),
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 50),
-              child: _buildLeftStripe(),
-            ),
-            const SizedBox(width: 5),
-            Align(
-              alignment: Alignment.center,
-              child: ConstrainedBox(
-                constraints: const BoxConstraints(minHeight: 50),
-                child: SizedBox(
-                  width: 48,
-                  child: Center(child: _buildLeftControlsCompact()),
-                ),
-              ),
-            ),
-            const SizedBox(width: 5),
-            Expanded(
-              child: LayoutBuilder(
-                builder: (context, constraints) {
-                  return GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onTap: () {
-                      setState(() {
-                        _isExpanded = !_isExpanded;
-                        if (_isExpanded && _hasReminders == null) {
-                          _checkForReminders();
-                        }
-                      });
-                    },
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(minHeight: 50),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Text(
-                            widget.instance.templateName,
-                            maxLines: _isExpanded ? null : 1,
-                            overflow: _isExpanded
-                                ? TextOverflow.visible
-                                : TextOverflow.ellipsis,
-                            style: FlutterFlowTheme.of(context)
-                                .bodyMedium
-                                .override(
-                                  fontFamily: 'Readex Pro',
-                                  fontWeight: FontWeight.w600,
-                                  decoration: _isCompleted
-                                      ? TextDecoration.lineThrough
-                                      : TextDecoration.none,
-                                  color: _isCompleted
-                                      ? FlutterFlowTheme.of(context)
-                                          .secondaryText
-                                      : FlutterFlowTheme.of(context)
-                                          .primaryText,
-                                ),
-                          ),
-                          if (_getEnhancedSubtitle(
-                                      includeProgress: _shouldShowProgress)
-                                  .isNotEmpty &&
-                              !_isessential) ...[
-                            const SizedBox(height: 2),
-                            Text(
-                              _getEnhancedSubtitle(
-                                  includeProgress: _shouldShowProgress),
-                              maxLines: _isExpanded ? null : 1,
-                              overflow: _isExpanded
-                                  ? TextOverflow.visible
-                                  : TextOverflow.ellipsis,
-                              style: FlutterFlowTheme.of(context)
-                                  .bodySmall
-                                  .override(
-                                    fontFamily: 'Readex Pro',
-                                    color: FlutterFlowTheme.of(context)
-                                        .primaryText
-                                        .withOpacity(0.7),
-                                    fontSize: 13,
-                                    fontWeight: FontWeight.w500,
-                                  ),
-                            ),
-                          ],
-                          if (_isExpanded && !_isessential) ...[
-                            const SizedBox(height: 4),
-                            ItemExpandedDetails(
-                              instance: widget.instance,
-                              page: widget.page,
-                              subtitle: widget.subtitle,
-                              isHabit: widget.isHabit,
-                              isRecurring: _isRecurringItem(),
-                              frequencyDisplay: _getFrequencyDisplay(),
-                              hasReminders: _hasReminders,
-                              reminderDisplayText: _reminderDisplayText,
-                              showCategoryOnExpansion:
-                                  widget.showExpandedCategoryName,
-                              timeEstimateMinutes: _resolvedTimeEstimateMinutes,
-                              onEdit: _editActivity,
-                            ),
-                          ],
-                          if (widget.instance.templateTrackingType !=
-                                  'binary' &&
-                              !widget.treatAsBinary) ...[
-                            const SizedBox(height: 4),
-                            Container(
-                              height: 3,
-                              decoration: BoxDecoration(
-                                color: Colors.white,
-                                border: Border.all(
-                                  color: _leftStripeColor,
-                                  width: 1,
-                                ),
-                                borderRadius: BorderRadius.circular(2),
-                              ),
-                              child: Stack(
-                                children: [
-                                  Container(
-                                    width: double.infinity,
-                                    height: 3,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white,
-                                      borderRadius: BorderRadius.circular(2),
-                                    ),
-                                  ),
-                                  FractionallySizedBox(
-                                    alignment: Alignment.centerLeft,
-                                    widthFactor: _progressPercentClamped,
-                                    child: Container(
-                                      height: 3,
-                                      decoration: BoxDecoration(
-                                        color: _leftStripeColor,
-                                        borderRadius: BorderRadius.circular(2),
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                ConstrainedBox(
-                  constraints: const BoxConstraints(minHeight: 50),
-                  child: Padding(
-                    padding: EdgeInsets.only(
-                      bottom: _isExpanded && !_isessential ? 6.0 : 0.0,
-                    ),
-                    child: Center(
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const SizedBox(width: 5),
-                          if (_isExpanded && widget.isHabit) ...[
-                            GestureDetector(
-                              onTap: () {
-                                Navigator.push(
-                                  context,
-                                  MaterialPageRoute(
-                                    builder: (context) =>
-                                        HabitDetailStatisticsPage(
-                                      habitName: widget.instance.templateName,
-                                    ),
-                                  ),
-                                );
-                              },
-                              child: Icon(
-                                Icons.bar_chart,
-                                size: 20,
-                                color: FlutterFlowTheme.of(context).primary,
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                          ],
-                          if (!_isessential) ...[
-                            Builder(
-                              builder: (btnCtx) => GestureDetector(
-                                onTap: () {
-                                  ItemMenuLogicHelper.showScheduleMenu(
-                                    context: context,
-                                    anchorContext: btnCtx,
-                                    instance: widget.instance,
-                                    isRecurringItem: _isRecurringItem(),
-                                    currentProgressLocal:
-                                        _currentProgressLocal(),
-                                    onInstanceUpdated: (updated) =>
-                                        widget.onInstanceUpdated?.call(updated),
-                                    onRefresh: widget.onRefresh,
-                                    showUncompleteDialog: _showUncompleteDialog,
-                                  );
-                                },
-                                child:
-                                    const Icon(Icons.calendar_month, size: 20),
-                              ),
-                            ),
-                            const SizedBox(width: 5),
-                          ],
-                          if (!_isessential) ...[
-                            Builder(
-                              builder: (btnCtx) => GestureDetector(
-                                onTap: () {
-                                  ItemManagementHelper.showHabitOverflowMenu(
-                                    context: context,
-                                    anchorContext: btnCtx,
-                                    instance: widget.instance,
-                                    categories: widget.categories ?? [],
-                                    onInstanceDeleted: (deleted) =>
-                                        widget.onInstanceDeleted?.call(deleted),
-                                    onInstanceUpdated: (updated) =>
-                                        widget.onInstanceUpdated?.call(updated),
-                                    setUpdating: (val) =>
-                                        setState(() => _isUpdating = val),
-                                    onRefresh: widget.onRefresh,
-                                    onEstimateUpdate: (newEst) => setState(() =>
-                                        _resolvedTimeEstimateMinutes = newEst),
-                                    editActivity: _editActivity, // ADD THIS
-                                    normalizeTimeEstimate:
-                                        _normalizeTimeEstimate, // ADD THIS
-                                    isMounted: () => mounted, // ADD THIS
-                                  );
-                                },
-                                child: const Icon(Icons.more_vert, size: 20),
-                              ),
-                            ),
-                          ],
-                        ],
-                      ),
-                    ),
-                  ),
-                ),
-                if (_isExpanded && !_isessential) ...[
-                  Center(
-                    child: _buildHabitPriorityStars(),
-                  ),
-                ],
-              ],
-            ),
-          ],
-        ),
-      ),
+      child: content,
     );
   }
 

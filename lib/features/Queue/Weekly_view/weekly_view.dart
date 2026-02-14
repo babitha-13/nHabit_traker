@@ -32,6 +32,7 @@ class _WeeklyViewState extends State<WeeklyView> {
   List<CategoryRecord> _categories = [];
   Set<String> _expandedSections = {};
   final Map<String, GlobalKey> _sectionKeys = {};
+  final Set<String> _quickLogInProgress = {};
   bool _isLoading = true;
   // Optimistic operation tracking
   final Map<String, String> _optimisticOperations =
@@ -250,6 +251,14 @@ class _WeeklyViewState extends State<WeeklyView> {
                     color: theme.secondaryText,
                   ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  'Weekly view is for tracking. Quick + logs to today only.',
+                  style: theme.bodySmall.override(
+                    color: theme.secondaryText,
+                  ),
+                  textAlign: TextAlign.center,
+                ),
               ],
             ],
           ),
@@ -415,6 +424,12 @@ class _WeeklyViewState extends State<WeeklyView> {
           final weeklyCompletion = task['weeklyCompletion'] as double;
           final isRecurring = task['templateIsRecurring'] as bool;
           final isWeeklyTargetMet = task['isWeeklyTargetMet'] as bool? ?? false;
+          final templateInstances =
+              List<ActivityInstanceRecord>.from(task['instances'] as List);
+          final quickLogInstance =
+              _findTodayActionableInstance(templateInstances);
+          final canQuickLog = quickLogInstance != null &&
+              _supportsWeeklyQuickLog(quickLogInstance);
           if (currentInstance == null) {
             return const SizedBox.shrink();
           }
@@ -486,6 +501,33 @@ class _WeeklyViewState extends State<WeeklyView> {
               subtitle += ' • $nextDueSubtitle';
             }
           }
+          final itemCard = ItemComponent(
+            subtitle: subtitle,
+            key: Key('task_${task['templateId']}'),
+            instance: displayInstance,
+            categoryColorHex: _getCategoryColor(currentInstance),
+            onRefresh: _loadData,
+            onInstanceUpdated: _updateInstanceInLocalState,
+            onInstanceDeleted: _removeInstanceFromLocalState,
+            onHabitUpdated: (updated) => {},
+            onHabitDeleted: (deleted) async => _loadData(),
+            isHabit: false,
+            showTypeIcon: true,
+            showRecurringIcon: true,
+            showCompleted: true, // Show completed items in weekly view
+            page: 'weekly',
+            showQuickLogOnLeft: canQuickLog,
+            onQuickLog: canQuickLog
+                ? () => _handleWeeklyQuickLog(
+                      instance: quickLogInstance,
+                      label: currentInstance.templateName,
+                    )
+                : null,
+            showManagementActions: false,
+            enableExpandedEdit: false,
+            showSwipeTimerAction: false,
+          );
+
           return Container(
             decoration: isOverdue
                 ? BoxDecoration(
@@ -497,22 +539,22 @@ class _WeeklyViewState extends State<WeeklyView> {
                     ),
                   )
                 : null,
-            child: ItemComponent(
-              subtitle: subtitle,
-              key: Key('task_${task['templateId']}'),
-              instance: displayInstance,
-              categoryColorHex: _getCategoryColor(currentInstance),
-              onRefresh: _loadData,
-              onInstanceUpdated: _updateInstanceInLocalState,
-              onInstanceDeleted: _removeInstanceFromLocalState,
-              onHabitUpdated: (updated) => {},
-              onHabitDeleted: (deleted) async => _loadData(),
-              isHabit: false,
-              showTypeIcon: true,
-              showRecurringIcon: true,
-              showCompleted: true, // Show completed items in weekly view
-              page: 'weekly',
-            ),
+            child: canQuickLog
+                ? itemCard
+                : Column(
+                    crossAxisAlignment: CrossAxisAlignment.end,
+                    children: [
+                      itemCard,
+                      Padding(
+                        padding: const EdgeInsets.only(right: 12),
+                        child: TextButton.icon(
+                          onPressed: _switchToTodayTab,
+                          icon: const Icon(Icons.today, size: 16),
+                          label: const Text('Open Today'),
+                        ),
+                      ),
+                    ],
+                  ),
           );
         },
         childCount: tasks.length,
@@ -533,6 +575,12 @@ class _WeeklyViewState extends State<WeeklyView> {
           final weeklyCompletion = habit['weeklyCompletion'] as double;
           final isWeeklyTargetMet =
               habit['isWeeklyTargetMet'] as bool? ?? false;
+          final templateInstances =
+              List<ActivityInstanceRecord>.from(habit['instances'] as List);
+          final quickLogInstance =
+              _findTodayActionableInstance(templateInstances);
+          final canQuickLog = quickLogInstance != null &&
+              _supportsWeeklyQuickLog(quickLogInstance);
           if (currentInstance == null) {
             return const SizedBox.shrink();
           }
@@ -571,7 +619,7 @@ class _WeeklyViewState extends State<WeeklyView> {
             enhancedSubtitle +=
                 ' @ ${TimeUtils.formatTimeForDisplay(currentInstance.dueTime)}';
           }
-          return ItemComponent(
+          final itemCard = ItemComponent(
             subtitle: enhancedSubtitle,
             key: Key('habit_${habit['templateId']}'),
             instance: displayInstance,
@@ -586,11 +634,127 @@ class _WeeklyViewState extends State<WeeklyView> {
             showRecurringIcon: false,
             showCompleted: true, // Show completed items in weekly view
             page: 'weekly',
+            showQuickLogOnLeft: canQuickLog,
+            onQuickLog: canQuickLog
+                ? () => _handleWeeklyQuickLog(
+                      instance: quickLogInstance,
+                      label: currentInstance.templateName,
+                    )
+                : null,
+            showManagementActions: false,
+            enableExpandedEdit: false,
+            showSwipeTimerAction: false,
+          );
+
+          if (canQuickLog) {
+            return itemCard;
+          }
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              itemCard,
+              Padding(
+                padding: const EdgeInsets.only(right: 12),
+                child: TextButton.icon(
+                  onPressed: _switchToTodayTab,
+                  icon: const Icon(Icons.today, size: 16),
+                  label: const Text('Open Today'),
+                ),
+              ),
+            ],
           );
         },
         childCount: habits.length,
       ),
     );
+  }
+
+  void _switchToTodayTab() {
+    final tabController = DefaultTabController.maybeOf(context);
+    tabController?.animateTo(0);
+  }
+
+  bool _supportsWeeklyQuickLog(ActivityInstanceRecord instance) {
+    final trackingType = instance.templateTrackingType.toLowerCase();
+    return trackingType == 'binary' || trackingType == 'quantitative';
+  }
+
+  ActivityInstanceRecord? _findTodayActionableInstance(
+    List<ActivityInstanceRecord> instances,
+  ) {
+    final today = DateService.todayStart;
+    for (final instance in instances) {
+      if (!instance.isActive || instance.status != 'pending') continue;
+      if (_isActionableToday(instance, today)) {
+        return instance;
+      }
+    }
+    return null;
+  }
+
+  bool _isActionableToday(ActivityInstanceRecord instance, DateTime today) {
+    final dueDate = instance.dueDate;
+    if (dueDate == null) return false;
+    final dueDateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
+    if (instance.templateCategoryType == 'task') {
+      // Mirrors queue behavior: pending tasks due on/before today are actionable.
+      return !dueDateOnly.isAfter(today);
+    }
+    final windowEnd = instance.windowEndDate;
+    if (windowEnd != null) {
+      final windowEndOnly =
+          DateTime(windowEnd.year, windowEnd.month, windowEnd.day);
+      return !today.isBefore(dueDateOnly) && !today.isAfter(windowEndOnly);
+    }
+    return dueDateOnly.isAtSameMomentAs(today);
+  }
+
+  Future<void> _handleWeeklyQuickLog({
+    required ActivityInstanceRecord instance,
+    required String label,
+  }) async {
+    final instanceId = instance.reference.id;
+    if (_quickLogInProgress.contains(instanceId)) return;
+    setState(() {
+      _quickLogInProgress.add(instanceId);
+    });
+
+    try {
+      final trackingType = instance.templateTrackingType.toLowerCase();
+      if (trackingType == 'quantitative') {
+        final currentValue = instance.currentValue;
+        final current = currentValue is num ? currentValue.toDouble() : 0.0;
+        await ActivityInstanceService.updateInstanceProgress(
+          instanceId: instanceId,
+          currentValue: current + 1,
+          referenceTime: DateService.currentDate,
+        );
+      } else if (trackingType == 'binary') {
+        await ActivityInstanceService.completeInstance(
+          instanceId: instanceId,
+        );
+      }
+
+      await _loadData();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Logged today for $label')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Could not log today: $e')),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _quickLogInProgress.remove(instanceId);
+        });
+      }
+    }
   }
 
   String _getCategoryColor(ActivityInstanceRecord instance) {

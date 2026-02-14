@@ -6,8 +6,14 @@ class CalendarOverlapCalculator {
   /// Generate stable event ID from event data
   static String? stableEventId(CalendarEventData event) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
-    final id = metadata?.instanceId;
-    if (id != null && id.isNotEmpty) return id;
+    final instanceId = metadata?.instanceId;
+    if (instanceId != null && instanceId.isNotEmpty) {
+      final sessionIndex = metadata?.sessionIndex ?? -1;
+      if (sessionIndex >= 0) {
+        return '$instanceId#session:$sessionIndex';
+      }
+      return instanceId;
+    }
     if (event.startTime == null || event.endTime == null) return null;
     return '${event.title}_${event.startTime!.millisecondsSinceEpoch}_${event.endTime!.millisecondsSinceEpoch}';
   }

@@ -60,6 +60,29 @@ String _getQueryCollectionName(Query query) {
   return query.toString();
 }
 
+final Map<String, Future<dynamic>> _inFlightQueryFutures = {};
+
+Future<T> _runWithInFlightDedupe<T>(
+  String key,
+  Future<T> Function() fetcher,
+) async {
+  final existing = _inFlightQueryFutures[key];
+  if (existing != null) {
+    return existing as Future<T>;
+  }
+
+  final future = fetcher();
+  _inFlightQueryFutures[key] = future;
+
+  try {
+    return await future;
+  } finally {
+    if (identical(_inFlightQueryFutures[key], future)) {
+      _inFlightQueryFutures.remove(key);
+    }
+  }
+}
+
 Future<int> queryCollectionCount(
   Query collection, {
   Query Function(Query)? queryBuilder,
@@ -357,15 +380,20 @@ Future<List<CategoryRecord>> queryCategoriesRecordOnce({
     return [];
   }
   try {
-    // Use simple query without orderBy to avoid Firestore composite index requirements
-    final query = CategoryRecord.collectionForUser(userId)
-        .where('isActive', isEqualTo: true);
-    final result = await query.get();
-    final categories =
-        result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
-    // Sort in memory instead of in query
-    categories.sort((a, b) => a.name.compareTo(b.name));
-    return categories;
+    return await _runWithInFlightDedupe<List<CategoryRecord>>(
+      'queryCategoriesRecordOnce:$userId',
+      () async {
+        // Use simple query without orderBy to avoid Firestore composite index requirements
+        final query = CategoryRecord.collectionForUser(userId)
+            .where('isActive', isEqualTo: true);
+        final result = await query.get();
+        final categories =
+            result.docs.map((doc) => CategoryRecord.fromSnapshot(doc)).toList();
+        // Sort in memory instead of in query
+        categories.sort((a, b) => a.name.compareTo(b.name));
+        return categories;
+      },
+    );
   } catch (e, stackTrace) {
     logFirestoreQueryError(
       e,
@@ -505,22 +533,27 @@ Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
   bool useCache = true,
 }) async {
   try {
-    final cache = FirestoreCacheService();
-    // Check cache first
-    if (useCache) {
-      final cached = cache.getCachedTaskInstances();
-      if (cached != null) {
-        return cached;
-      }
-    }
-    // Fetch from Firestore if cache miss
-    final instances =
-        await ActivityInstanceService.getAllTaskInstances(userId: userId);
-    // Update cache if allowed
-    if (useCache) {
-      cache.cacheTaskInstances(instances);
-    }
-    return instances;
+    return await _runWithInFlightDedupe<List<ActivityInstanceRecord>>(
+      'queryAllTaskInstances:$userId:$useCache',
+      () async {
+        final cache = FirestoreCacheService();
+        // Check cache first
+        if (useCache) {
+          final cached = cache.getCachedTaskInstances();
+          if (cached != null) {
+            return cached;
+          }
+        }
+        // Fetch from Firestore if cache miss
+        final instances =
+            await ActivityInstanceService.getAllTaskInstances(userId: userId);
+        // Update cache if allowed
+        if (useCache) {
+          cache.cacheTaskInstances(instances);
+        }
+        return instances;
+      },
+    );
   } catch (e, stackTrace) {
     print('🔴 queryAllTaskInstances: ERROR - $e');
     print('🔴 queryAllTaskInstances: StackTrace: $stackTrace');
@@ -560,8 +593,10 @@ Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
   required String userId,
 }) async {
   try {
-    return await ActivityInstanceService.getCurrentHabitInstances(
-        userId: userId);
+    return await _runWithInFlightDedupe<List<ActivityInstanceRecord>>(
+      'queryCurrentHabitInstances:$userId',
+      () => ActivityInstanceService.getCurrentHabitInstances(userId: userId),
+    );
   } catch (e, stackTrace) {
     logFirestoreQueryError(
       e,
@@ -580,18 +615,32 @@ Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
   required String userId,
 }) async {
   try {
-    final cache = FirestoreCacheService();
-    // Check cache first
-    final cached = cache.getCachedHabitInstances();
-    if (cached != null) {
-      return cached;
-    }
-    // Fetch from Firestore if cache miss
-    final instances =
-        await ActivityInstanceService.getAllHabitInstances(userId: userId);
-    // Update cache
-    cache.cacheHabitInstances(instances);
-    return instances;
+    return await _runWithInFlightDedupe<List<ActivityInstanceRecord>>(
+      'queryAllHabitInstances:$userId',
+      () async {
+        final cache = FirestoreCacheService();
+        // Check cache first
+        final cached = cache.getCachedHabitInstances();
+        if (cached != null) {
+          return cached;
+        }
+
+        final cachedAllInstances = cache.getCachedAllInstances();
+        if (cachedAllInstances != null) {
+          final derivedHabits =
+              _derivePendingHabitInstancesFromAllInstances(cachedAllInstances);
+          cache.cacheHabitInstances(derivedHabits);
+          return derivedHabits;
+        }
+
+        // Fetch from Firestore if cache miss
+        final instances =
+            await ActivityInstanceService.getAllHabitInstances(userId: userId);
+        // Update cache
+        cache.cacheHabitInstances(instances);
+        return instances;
+      },
+    );
   } catch (e) {
     return []; // Return empty list on error
   }
@@ -604,23 +653,55 @@ Future<List<ActivityInstanceRecord>> queryLatestHabitInstances({
   required String userId,
 }) async {
   try {
-    final cache = FirestoreCacheService();
-    // Check cache first - if we have cached habit instances, compute "latest per template" from cache
-    final cached = cache.getCachedHabitInstances();
-    if (cached != null) {
-      // Compute "latest per template" from cached instances (no Firestore read needed)
-      return _computeLatestHabitInstancePerTemplate(cached);
-    }
-    // Cache miss - fetch all habit instances, cache them, then compute
-    final allInstances =
-        await ActivityInstanceService.getAllHabitInstances(userId: userId);
-    // Update cache
-    cache.cacheHabitInstances(allInstances);
-    // Compute "latest per template" from fetched instances
-    return _computeLatestHabitInstancePerTemplate(allInstances);
+    return await _runWithInFlightDedupe<List<ActivityInstanceRecord>>(
+      'queryLatestHabitInstances:$userId',
+      () async {
+        final cache = FirestoreCacheService();
+        // Check cache first - if we have cached habit instances, compute "latest per template" from cache
+        final cached = cache.getCachedHabitInstances();
+        if (cached != null) {
+          // Compute "latest per template" from cached instances (no Firestore read needed)
+          return _computeLatestHabitInstancePerTemplate(cached);
+        }
+
+        final cachedAllInstances = cache.getCachedAllInstances();
+        if (cachedAllInstances != null) {
+          final derivedHabits =
+              _derivePendingHabitInstancesFromAllInstances(cachedAllInstances);
+          cache.cacheHabitInstances(derivedHabits);
+          return _computeLatestHabitInstancePerTemplate(derivedHabits);
+        }
+
+        // Cache miss - fetch all habit instances, cache them, then compute
+        final allInstances =
+            await ActivityInstanceService.getAllHabitInstances(userId: userId);
+        // Update cache
+        cache.cacheHabitInstances(allInstances);
+        // Compute "latest per template" from fetched instances
+        return _computeLatestHabitInstancePerTemplate(allInstances);
+      },
+    );
   } catch (e) {
     return []; // Return empty list on error
   }
+}
+
+List<ActivityInstanceRecord> _derivePendingHabitInstancesFromAllInstances(
+  List<ActivityInstanceRecord> allInstances,
+) {
+  final pendingHabits = allInstances
+      .where((inst) => inst.templateCategoryType == 'habit')
+      .where((inst) => inst.status == 'pending')
+      .where((inst) => inst.isActive)
+      .toList();
+
+  pendingHabits.sort((a, b) {
+    final bUpdated = b.lastUpdated ?? DateTime(0);
+    final aUpdated = a.lastUpdated ?? DateTime(0);
+    return bUpdated.compareTo(aUpdated);
+  });
+
+  return pendingHabits;
 }
 
 /// Helper function to compute latest habit instance per template from a list of instances
@@ -687,18 +768,23 @@ Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,
 }) async {
   try {
-    final cache = FirestoreCacheService();
-    // Check cache first
-    final cached = cache.getCachedAllInstances();
-    if (cached != null) {
-      return cached;
-    }
-    // Fetch from Firestore if cache miss
-    final instances =
-        await ActivityInstanceService.getAllActiveInstances(userId: userId);
-    // Update cache
-    cache.cacheAllInstances(instances);
-    return instances;
+    return await _runWithInFlightDedupe<List<ActivityInstanceRecord>>(
+      'queryAllInstances:$userId',
+      () async {
+        final cache = FirestoreCacheService();
+        // Check cache first
+        final cached = cache.getCachedAllInstances();
+        if (cached != null) {
+          return cached;
+        }
+        // Fetch from Firestore if cache miss
+        final instances =
+            await ActivityInstanceService.getAllActiveInstances(userId: userId);
+        // Update cache
+        cache.cacheAllInstances(instances);
+        return instances;
+      },
+    );
   } catch (e) {
     return []; // Return empty list on error
   }

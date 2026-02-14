@@ -13,6 +13,7 @@ import {
   timestampToDate,
   isSameDay,
 } from './types.js';
+import { logFirestoreIndexHint } from './firestoreIndexLogger.js';
 
 const db = admin.firestore();
 
@@ -107,6 +108,7 @@ async function autoSkipExpiredHabitsBeforeYesterday(
       await batch.commit();
     }
   } catch (error) {
+    logFirestoreIndexHint('instanceMaintenance.autoSkipExpiredHabitsBeforeYesterday', error);
     console.error(`Error auto-skipping expired habits for user ${userId}:`, error);
     // Don't throw - continue with other maintenance tasks
   }
@@ -156,7 +158,10 @@ async function ensurePendingInstancesExist(
     // Batch fetch pending instances for all templates using whereIn
     // Firestore whereIn limit is 10, so batch in groups of 10
     const pendingInstancesByTemplate = new Map<string, ActivityInstance[]>();
-    const mostRecentInstancesByTemplate = new Map<string, { instance: ActivityInstance; ref: admin.firestore.DocumentReference }>();
+    const mostRecentInstancesByTemplate = new Map<
+      string,
+      { instance: ActivityInstance; ref: admin.firestore.DocumentReference } | null
+    >();
     
     const whereInBatchSize = 10;
     for (let i = 0; i < templateIds.length; i += whereInBatchSize) {
@@ -178,26 +183,33 @@ async function ensurePendingInstancesExist(
         }
         pendingInstancesByTemplate.get(templateId)!.push(instance);
       });
-      
-      // Batch fetch most recent instances for this group (for templates needing generation)
-      // Use parallel queries for each template in batch (limit 1 per template)
-      const mostRecentPromises = batchTemplateIds.map(async (templateId) => {
-        const allInstancesQuery = instancesRef
-          .where('templateId', '==', templateId)
-          .orderBy('windowEndDate', 'desc')
-          .limit(1);
-        
-        const snapshot = await allInstancesQuery.get();
-        if (!snapshot.empty) {
-          const doc = snapshot.docs[0];
-          mostRecentInstancesByTemplate.set(templateId, {
-            instance: doc.data() as ActivityInstance,
-            ref: doc.ref
-          });
-        }
-      });
-      
-      await Promise.all(mostRecentPromises);
+    }
+
+    const getMostRecentInstanceForTemplate = async (
+      templateId: string
+    ): Promise<{ instance: ActivityInstance; ref: admin.firestore.DocumentReference } | null> => {
+      if (mostRecentInstancesByTemplate.has(templateId)) {
+        return mostRecentInstancesByTemplate.get(templateId) ?? null;
+      }
+
+      const allInstancesQuery = instancesRef
+        .where('templateId', '==', templateId)
+        .orderBy('windowEndDate', 'desc')
+        .limit(1);
+      const snapshot = await allInstancesQuery.get();
+
+      if (snapshot.empty) {
+        mostRecentInstancesByTemplate.set(templateId, null);
+        return null;
+      }
+
+      const doc = snapshot.docs[0];
+      const result = {
+        instance: doc.data() as ActivityInstance,
+        ref: doc.ref,
+      };
+      mostRecentInstancesByTemplate.set(templateId, result);
+      return result;
     }
     
     // Process each template with pre-fetched instance data
@@ -251,7 +263,7 @@ async function ensurePendingInstancesExist(
       }
       
       // No pending instance found - need to generate one
-      const mostRecentData = mostRecentInstancesByTemplate.get(templateId);
+      const mostRecentData = await getMostRecentInstanceForTemplate(templateId);
       
       if (mostRecentData) {
         const mostRecentInstance = mostRecentData.instance;
@@ -274,6 +286,7 @@ async function ensurePendingInstancesExist(
       }
     }
   } catch (error) {
+    logFirestoreIndexHint('instanceMaintenance.ensurePendingInstancesExist', error);
     console.error(`Error ensuring pending instances for user ${userId}:`, error);
     // Don't throw - continue with other maintenance tasks
   }
@@ -335,6 +348,7 @@ async function updateLastDayValuesOnly(
       await batch.commit();
     }
   } catch (error) {
+    logFirestoreIndexHint('instanceMaintenance.updateLastDayValuesOnly', error);
     console.error(`Error updating lastDayValue for user ${userId}:`, error);
     // Don't throw - this is a background operation
   }
@@ -416,6 +430,7 @@ async function generateNextInstance(
     const nextInstanceRef = instancesRef.doc();
     batch.set(nextInstanceRef, nextInstanceData);
   } catch (error) {
+    logFirestoreIndexHint('instanceMaintenance.generateNextInstance', error);
     console.error(`Error generating next instance:`, error);
     // Don't rethrow - don't want to fail the entire batch
   }

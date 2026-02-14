@@ -8,6 +8,45 @@ import 'package:habit_tracker/features/Shared/Manual_Time_Log/manual_time_log_he
 
 /// Helper class for calendar modal dialogs
 class CalendarModals {
+  static int _resolveSessionIndex(
+    ActivityInstanceRecord instance,
+    CalendarEventMetadata metadata,
+  ) {
+    final requested = metadata.sessionIndex;
+    final sessionStart = metadata.sessionStartEpochMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(metadata.sessionStartEpochMs!)
+        : null;
+    final sessionEnd = metadata.sessionEndEpochMs != null
+        ? DateTime.fromMillisecondsSinceEpoch(metadata.sessionEndEpochMs!)
+        : null;
+
+    if (sessionStart != null) {
+      final exactIndex = instance.timeLogSessions.indexWhere((raw) {
+        final start = raw['startTime'] as DateTime?;
+        final end = raw['endTime'] as DateTime?;
+        if (start == null || end == null) {
+          return false;
+        }
+        if (!start.isAtSameMomentAs(sessionStart)) {
+          return false;
+        }
+        if (sessionEnd == null) {
+          return true;
+        }
+        return end.isAtSameMomentAs(sessionEnd);
+      });
+      if (exactIndex >= 0) {
+        return exactIndex;
+      }
+    }
+
+    if (requested >= 0 && requested < instance.timeLogSessions.length) {
+      return requested;
+    }
+
+    return -1;
+  }
+
   /// Show manual entry dialog
   static void showManualEntryDialog({
     required BuildContext context,
@@ -59,16 +98,31 @@ class CalendarModals {
         ActivityInstanceRecord.collectionForUser(userId)
             .doc(metadata.instanceId),
       );
+      final resolvedSessionIndex = _resolveSessionIndex(instance, metadata);
 
       if (instance.timeLogSessions.isEmpty ||
-          metadata.sessionIndex >= instance.timeLogSessions.length) {
+          resolvedSessionIndex < 0 ||
+          resolvedSessionIndex >= instance.timeLogSessions.length) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('Session not found')),
         );
         return;
       }
 
-      final session = instance.timeLogSessions[metadata.sessionIndex];
+      final resolvedMetadata = CalendarEventMetadata(
+        instanceId: metadata.instanceId,
+        sessionIndex: resolvedSessionIndex,
+        sessionStartEpochMs: metadata.sessionStartEpochMs,
+        sessionEndEpochMs: metadata.sessionEndEpochMs,
+        activityName: metadata.activityName,
+        activityType: metadata.activityType,
+        templateId: metadata.templateId,
+        categoryId: metadata.categoryId,
+        categoryName: metadata.categoryName,
+        categoryColorHex: metadata.categoryColorHex,
+      );
+
+      final session = instance.timeLogSessions[resolvedSessionIndex];
       final sessionStart = session['startTime'] as DateTime;
       final sessionEnd = session['endTime'] as DateTime?;
 
@@ -90,7 +144,7 @@ class CalendarModals {
             initialEndTime: sessionEnd,
             onPreviewChange: onPreviewChange,
             onSave: onSave,
-            editMetadata: metadata,
+            editMetadata: resolvedMetadata,
             optimisticUiOnSave: true,
             // Editing an entry should not auto-complete implicitly
             markCompleteOnSave: false,
