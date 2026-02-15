@@ -13,6 +13,21 @@ class ItemMenuLogicHelper {
     return a.year == b.year && a.month == b.month && a.day == b.day;
   }
 
+  static DateTime _dateOnly(DateTime d) => DateTime(d.year, d.month, d.day);
+
+  static DateTime _clampDateToRange(
+    DateTime value,
+    DateTime min,
+    DateTime max,
+  ) {
+    final v = _dateOnly(value);
+    final lo = _dateOnly(min);
+    final hi = _dateOnly(max);
+    if (v.isBefore(lo)) return lo;
+    if (v.isAfter(hi)) return hi;
+    return v;
+  }
+
   static Future<void> updateTemplatePriority({
     required int newPriority,
     required ActivityInstanceRecord instance,
@@ -404,11 +419,18 @@ class ItemMenuLogicHelper {
             }
           }
 
+          final firstDate = today;
+          final safeLastDate =
+              lastDate.isBefore(firstDate) ? firstDate : lastDate;
+          final rawInitial = instance.dueDate ?? tomorrow;
+          final initialDate =
+              _clampDateToRange(rawInitial, firstDate, safeLastDate);
           final picked = await showDatePicker(
-              context: context,
-              initialDate: instance.dueDate ?? tomorrow,
-              firstDate: today,
-              lastDate: lastDate);
+            context: context,
+            initialDate: initialDate,
+            firstDate: firstDate,
+            lastDate: safeLastDate,
+          );
           if (picked != null) {
             onInstanceUpdated(
                 InstanceEvents.createOptimisticRescheduledInstance(instance,

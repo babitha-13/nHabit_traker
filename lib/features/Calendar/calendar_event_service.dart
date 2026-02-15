@@ -22,6 +22,8 @@ import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 /// Service class for loading and processing calendar events
 class CalendarEventService {
   static final Map<String, String> _lastOptimisticSignatureByScope = {};
+  static final Map<String, DateTime> _cacheBypassUntilByScope = {};
+  static const Duration _postOptimisticCacheBypass = Duration(seconds: 8);
 
   static String _dateScopeKey({
     required String userId,
@@ -87,7 +89,8 @@ class CalendarEventService {
     return false;
   }
 
-  static bool _isDueOnToday(ActivityInstanceRecord instance, DateTime dayStart) {
+  static bool _isDueOnToday(
+      ActivityInstanceRecord instance, DateTime dayStart) {
     final due = instance.dueDate;
     if (due == null) {
       return true;
@@ -127,10 +130,31 @@ class CalendarEventService {
       includePlanned: includePlanned,
     );
     final optimisticSignature = _buildOptimisticSignature(optimisticInstances);
+    final now = DateService.currentDate;
+    bool bypassCache = false;
 
     if (optimisticSignature.isEmpty) {
-      _lastOptimisticSignatureByScope.remove(scopeKey);
+      final hadOptimisticState =
+          _lastOptimisticSignatureByScope.remove(scopeKey) != null;
+      if (hadOptimisticState) {
+        // Ensure we don't serve stale pre-reconciliation cache after optimistic
+        // state has been cleared.
+        cache.invalidateCalendarDateCache(selectedDate);
+        _cacheBypassUntilByScope[scopeKey] =
+            now.add(_postOptimisticCacheBypass);
+        bypassCache = true;
+      } else {
+        final bypassUntil = _cacheBypassUntilByScope[scopeKey];
+        if (bypassUntil != null) {
+          if (now.isBefore(bypassUntil)) {
+            bypassCache = true;
+          } else {
+            _cacheBypassUntilByScope.remove(scopeKey);
+          }
+        }
+      }
     } else {
+      _cacheBypassUntilByScope.remove(scopeKey);
       final previousSignature = _lastOptimisticSignatureByScope[scopeKey];
       if (previousSignature != optimisticSignature) {
         // Invalidate once per changed optimistic state so cache can be reused
@@ -141,12 +165,14 @@ class CalendarEventService {
     }
 
     // Check cache (date + mode variant)
-    final cached = cache.getCachedCalendarEvents(
-      selectedDate,
-      variant: cacheVariant,
-    );
-    if (cached != null) {
-      return cached;
+    if (!bypassCache) {
+      final cached = cache.getCachedCalendarEvents(
+        selectedDate,
+        variant: cacheVariant,
+      );
+      if (cached != null) {
+        return cached;
+      }
     }
     final selectedDateStart = DateTime(
       selectedDate.year,
@@ -191,8 +217,8 @@ class CalendarEventService {
         for (final item in repo.selectCalendarTodayCompleted()) {
           completedById[item.reference.id] = item;
         }
-        final completedFromCalendarQuery = await CalendarQueueService
-            .getCompletedItems(
+        final completedFromCalendarQuery =
+            await CalendarQueueService.getCompletedItems(
           userId: userId,
           date: selectedDate,
         );
@@ -201,8 +227,8 @@ class CalendarEventService {
         }
         for (final item in taskItems) {
           if (!item.isActive) continue;
-          final completedToday =
-              item.status == 'completed' && _isSameDay(item.completedAt, dayStart);
+          final completedToday = item.status == 'completed' &&
+              _isSameDay(item.completedAt, dayStart);
           final sessionToday = _hasSessionOnDay(item, dayStart, dayEnd);
           if (completedToday || sessionToday) {
             completedById[item.reference.id] = item;
@@ -429,10 +455,13 @@ class CalendarEventService {
       selectedDate.month,
       selectedDate.day,
     );
-    final plannedItemsWithOptimistic = includePlanned
-        ? List<ActivityInstanceRecord>.from(plannedItemsFromBackend)
-        : <ActivityInstanceRecord>[];
+    final plannedItemsWithOptimistic = <ActivityInstanceRecord>[];
     if (includePlanned) {
+      final plannedById = <String, ActivityInstanceRecord>{};
+      for (final backendPlanned in plannedItemsFromBackend) {
+        plannedById[backendPlanned.reference.id] = backendPlanned;
+      }
+
       for (final optimisticInstance in optimisticInstances.values) {
         if (optimisticInstance.dueDate != null &&
             optimisticInstance.dueTime != null &&
@@ -443,15 +472,17 @@ class CalendarEventService {
             optimisticInstance.dueDate!.day,
           );
           if (dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-            final exists = plannedItemsWithOptimistic.any(
-              (item) => item.reference.id == optimisticInstance.reference.id,
-            );
-            if (!exists) {
-              plannedItemsWithOptimistic.add(optimisticInstance);
+            if (optimisticInstance.status == 'pending') {
+              // Optimistic state should override stale backend planned entry.
+              plannedById[optimisticInstance.reference.id] = optimisticInstance;
+            } else {
+              // Remove stale planned entries for completed/skipped optimistic state.
+              plannedById.remove(optimisticInstance.reference.id);
             }
           }
         }
       }
+      plannedItemsWithOptimistic.addAll(plannedById.values);
     }
 
     bool needsCategoryLookup(ActivityInstanceRecord item) {
@@ -535,147 +566,117 @@ class CalendarEventService {
       }
 
       if (item.timeLogSessions.isNotEmpty) {
-        final sessionsOnDate = item.timeLogSessions.where((session) {
-          final sessionStart = session['startTime'] as DateTime;
+        final selectedDateOnly = DateTime(
+          selectedDate.year,
+          selectedDate.month,
+          selectedDate.day,
+        );
+
+        for (int sessionIndex = 0;
+            sessionIndex < item.timeLogSessions.length;
+            sessionIndex++) {
+          final session = item.timeLogSessions[sessionIndex];
+          final sessionStart = session['startTime'] as DateTime?;
+          final sessionEnd = session['endTime'] as DateTime?;
+          if (sessionStart == null || sessionEnd == null) {
+            continue;
+          }
           final sessionDate = DateTime(
             sessionStart.year,
             sessionStart.month,
             sessionStart.day,
           );
-          final selectedDateOnly = DateTime(
+          if (!sessionDate.isAtSameMomentAs(selectedDateOnly)) {
+            continue;
+          }
+          var actualSessionEnd = sessionEnd;
+          if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
+            actualSessionEnd = sessionStart.add(const Duration(minutes: 1));
+          }
+          final selectedDateStart = DateTime(
             selectedDate.year,
             selectedDate.month,
             selectedDate.day,
+            0,
+            0,
+            0,
           );
-          return sessionDate.isAtSameMomentAs(selectedDateOnly);
-        }).toList();
+          final selectedDateEnd =
+              selectedDateStart.add(const Duration(days: 1));
+          var validStartTime = sessionStart;
+          var validEndTime = actualSessionEnd;
 
-        if (sessionsOnDate.isNotEmpty) {
-          for (int i = 0; i < sessionsOnDate.length; i++) {
-            final session = sessionsOnDate[i];
-            final sessionStart = session['startTime'] as DateTime;
-            final sessionEnd = session['endTime'] as DateTime?;
-            if (sessionEnd == null) {
-              continue;
-            }
-            int originalSessionIndex =
-                item.timeLogSessions.indexWhere((fullSession) {
-              final fullSessionStart = fullSession['startTime'] as DateTime?;
-              final fullSessionEnd = fullSession['endTime'] as DateTime?;
-              if (fullSessionStart == null || fullSessionEnd == null) {
-                return false;
+          if (validStartTime.isBefore(selectedDateStart)) {
+            validStartTime = selectedDateStart;
+          } else if (validStartTime.isAfter(selectedDateEnd) ||
+              validStartTime.isAtSameMomentAs(selectedDateEnd)) {
+            continue;
+          }
+
+          if (validEndTime.isAfter(selectedDateEnd)) {
+            validEndTime = selectedDateEnd.subtract(const Duration(seconds: 1));
+          }
+
+          if (validEndTime.isBefore(validStartTime) ||
+              validEndTime.isAtSameMomentAs(validStartTime)) {
+            validEndTime = validStartTime.add(const Duration(minutes: 1));
+          }
+
+          final startDateOnly = DateTime(
+            validStartTime.year,
+            validStartTime.month,
+            validStartTime.day,
+          );
+          if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+            final prefix = item.status == 'completed' ? '✓ ' : '';
+            String? categoryColorHex;
+            if (item.templateCategoryType == 'habit' ||
+                item.templateCategoryType == 'task') {
+              // Use map lookup instead of firstWhere (O(1) vs O(n))
+              CategoryRecord? category =
+                  categoryById[item.templateCategoryId] ??
+                      categoryByName[item.templateCategoryName];
+              if (category != null) {
+                categoryColorHex = category.color;
+              } else if (item.templateCategoryColor.isNotEmpty) {
+                categoryColorHex = item.templateCategoryColor;
               }
-              return fullSessionStart.isAtSameMomentAs(sessionStart) &&
-                  fullSessionEnd.isAtSameMomentAs(sessionEnd);
-            });
-            if (originalSessionIndex < 0) {
-              originalSessionIndex =
-                  item.timeLogSessions.indexWhere((fullSession) {
-                final fullSessionStart = fullSession['startTime'] as DateTime?;
-                if (fullSessionStart == null) {
-                  return false;
-                }
-                return fullSessionStart.isAtSameMomentAs(sessionStart);
-              });
-            }
-            var actualSessionEnd = sessionEnd;
-            if (actualSessionEnd.difference(sessionStart).inSeconds < 60) {
-              actualSessionEnd = sessionStart.add(const Duration(minutes: 1));
-            }
-            final selectedDateStart = DateTime(
-              selectedDate.year,
-              selectedDate.month,
-              selectedDate.day,
-              0,
-              0,
-              0,
-            );
-            final selectedDateEnd =
-                selectedDateStart.add(const Duration(days: 1));
-            var validStartTime = sessionStart;
-            var validEndTime = actualSessionEnd;
-
-            if (validStartTime.isBefore(selectedDateStart)) {
-              validStartTime = selectedDateStart;
-            } else if (validStartTime.isAfter(selectedDateEnd) ||
-                validStartTime.isAtSameMomentAs(selectedDateEnd)) {
-              continue;
+            } else if (item.templateCategoryType == 'essential') {
+              categoryColorHex = '#808080'; // Grey hex
             }
 
-            if (validEndTime.isAfter(selectedDateEnd)) {
-              validEndTime =
-                  selectedDateEnd.subtract(const Duration(seconds: 1));
-            }
-
-            if (validEndTime.isBefore(validStartTime) ||
-                validEndTime.isAtSameMomentAs(validStartTime)) {
-              validEndTime = validStartTime.add(const Duration(minutes: 1));
-            }
-
-            final startDateOnly = DateTime(
-              validStartTime.year,
-              validStartTime.month,
-              validStartTime.day,
-            );
-            final selectedDateOnly = DateTime(
-              selectedDate.year,
-              selectedDate.month,
-              selectedDate.day,
+            final categoryType = item.templateCategoryType;
+            final metadata = CalendarEventMetadata(
+              instanceId: item.reference.id,
+              sessionIndex: sessionIndex,
+              sessionStartEpochMs: sessionStart.millisecondsSinceEpoch,
+              sessionEndEpochMs: sessionEnd.millisecondsSinceEpoch,
+              activityName: item.templateName,
+              activityType: categoryType,
+              templateId: item.templateId,
+              categoryId: item.templateCategoryId.isNotEmpty
+                  ? item.templateCategoryId
+                  : null,
+              categoryName: item.templateCategoryName.isNotEmpty
+                  ? item.templateCategoryName
+                  : null,
+              categoryColorHex: categoryColorHex,
             );
 
-            if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-              final prefix = item.status == 'completed' ? '✓ ' : '';
-              String? categoryColorHex;
-              if (item.templateCategoryType == 'habit' ||
-                  item.templateCategoryType == 'task') {
-                // Use map lookup instead of firstWhere (O(1) vs O(n))
-                CategoryRecord? category =
-                    categoryById[item.templateCategoryId] ??
-                        categoryByName[item.templateCategoryName];
-                if (category != null) {
-                  categoryColorHex = category.color;
-                } else if (item.templateCategoryColor.isNotEmpty) {
-                  categoryColorHex = item.templateCategoryColor;
-                }
-              } else if (item.templateCategoryType == 'essential') {
-                categoryColorHex = '#808080'; // Grey hex
-              }
-
-              final categoryType = item.templateCategoryType;
-              final metadata = CalendarEventMetadata(
-                instanceId: item.reference.id,
-                sessionIndex:
-                    originalSessionIndex >= 0 ? originalSessionIndex : i,
-                sessionStartEpochMs: sessionStart.millisecondsSinceEpoch,
-                sessionEndEpochMs: sessionEnd.millisecondsSinceEpoch,
-                activityName: item.templateName,
-                activityType: categoryType,
-                templateId: item.templateId,
-                categoryId: item.templateCategoryId.isNotEmpty
-                    ? item.templateCategoryId
-                    : null,
-                categoryName: item.templateCategoryName.isNotEmpty
-                    ? item.templateCategoryName
-                    : null,
-                categoryColorHex: categoryColorHex,
-              );
-
-              completedEvents.add(CalendarEventData(
-                date: selectedDate,
-                startTime: validStartTime,
-                endTime: validEndTime,
-                title: '$prefix${item.templateName}',
-                color: categoryColor,
-                description:
-                    'Session: ${CalendarFormattingUtils.formatDuration(validEndTime.difference(validStartTime))}',
-                event: metadata.toMap(),
-              ));
-            }
+            completedEvents.add(CalendarEventData(
+              date: selectedDate,
+              startTime: validStartTime,
+              endTime: validEndTime,
+              title: '$prefix${item.templateName}',
+              color: categoryColor,
+              description:
+                  'Session: ${CalendarFormattingUtils.formatDuration(validEndTime.difference(validStartTime))}',
+              event: metadata.toMap(),
+            ));
           }
         }
       }
     }
-
     // Optimize: Sort once and process cascading efficiently
     // Sort by end time descending, then start time descending
     completedEvents.sort((a, b) {
@@ -885,12 +886,14 @@ class CalendarEventService {
       routineItemMap: routineItemMap,
     );
 
-    // Cache the result
-    cache.cacheCalendarEvents(
-      selectedDate,
-      result,
-      variant: cacheVariant,
-    );
+    if (!bypassCache) {
+      // Cache the result
+      cache.cacheCalendarEvents(
+        selectedDate,
+        result,
+        variant: cacheVariant,
+      );
+    }
 
     return result;
   }

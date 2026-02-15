@@ -5,9 +5,11 @@ import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_servic
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/ist_day_boundary_service.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 
 /// Controller class for managing morning catch-up dialog business logic
 /// Separates business logic from UI concerns
@@ -271,6 +273,20 @@ class MorningCatchUpDialogLogic {
 
   /// Prepare for dialog close - triggers refresh notifications
   Future<void> prepareForClose() async {
+    // Catch-up batch operations don't emit per-instance events.
+    // Force the shared instance cache/snapshot to refresh so Habits/Queue
+    // pages do not keep showing stale yesterday items.
+    final userId = await waitForCurrentUserUid();
+    FirestoreCacheService().invalidateInstancesCache();
+    TodayInstanceRepository.instance.clearSnapshot();
+    if (userId.isNotEmpty) {
+      try {
+        await TodayInstanceRepository.instance.refreshToday(userId: userId);
+      } catch (_) {
+        // Best-effort refresh. View loaders below will still trigger a reload.
+      }
+    }
+
     // Trigger refresh of habit and queue pages
     NotificationCenter.post('loadHabits', null);
     NotificationCenter.post('loadData', null);

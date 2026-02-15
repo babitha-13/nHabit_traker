@@ -253,26 +253,16 @@ class ScoreHistoryService {
       final finalCumulativeScore = cumulativeScore ?? latestScore;
       final finalTodayScore = todayScore ?? latestGain;
 
-      // Update today's entry in the returned history if live values provided
+      // Apply live overlay for today when caller provides live values.
+      // This updates an existing today point or appends a new today point when
+      // history currently ends at yesterday.
       final history = List<Map<String, dynamic>>.from(lastNDays);
-      final todayStart = DateService.todayStart;
-      if (history.isNotEmpty) {
-        final lastEntry = history.last;
-        final lastDate = safeDateTime(lastEntry['date']);
-        if (lastDate != null) {
-          final isToday = lastDate.year == todayStart.year &&
-              lastDate.month == todayStart.month &&
-              lastDate.day == todayStart.day;
-          if (isToday && (cumulativeScore != null || todayScore != null)) {
-            // Update today's entry with live values
-            history[history.length - 1] = {
-              'date': lastDate,
-              'score': finalCumulativeScore,
-              'closingScore': finalCumulativeScore,
-              'gain': finalTodayScore,
-            };
-          }
-        }
+      if (cumulativeScore != null || todayScore != null) {
+        updateHistoryWithTodayScore(
+          history,
+          finalTodayScore,
+          finalCumulativeScore,
+        );
       }
 
       return {

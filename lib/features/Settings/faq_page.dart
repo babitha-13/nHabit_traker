@@ -109,7 +109,7 @@ class FaqPage extends StatelessWidget {
                 'Your points are primarily driven by Priority. As a simple mental model: 1-star ~ 1 point, 3-star ~ 3 points for the same amount of progress.',
               ),
               _Bullet(
-                'Quantity is scored by quantity progress. Time is scored by time progress. Binary is scored by completion (and optionally time spent if Effort Mode is ON).',
+                'Quantity is scored by quantity progress. Binary is completion-based. Time is completion-based in Goal mode and duration-weighted in Effort mode.',
               ),
             ],
           ),
@@ -118,24 +118,24 @@ class FaqPage extends StatelessWidget {
             title: 'Two scoring systems: Goal mode vs Effort mode',
             children: [
               _Bullet(
-                'Goal mode (Effort Mode OFF): over-completion is diminishing using target-sized blocks.',
+                'Goal mode (Effort Mode OFF): points are completion-based and not duration-based.',
               ),
               _Bullet(
-                'Effort mode (Effort Mode ON): binary + time-based activities can reward extra time, with diminishing returns per extra 30-minute block. Quantity remains quantity-only.',
+                'Effort mode (Effort Mode ON): time spent changes points for time and binary activities. First 30 minutes gives full points, then extra 30-minute blocks have diminishing returns.',
               ),
               SizedBox(height: 8),
               _Callout(
                 title:
                     'When Effort Mode is ON (examples for a 1-star activity)',
                 body: 'Binary:\n'
-                    '- Binary task, estimate 30m, logged 30m -> earned 1.0, target 1.0 (100%)\n'
-                    '- Binary task, estimate 30m, logged 60m -> earned 1.7, target 1.7 (100%)\n'
-                    '- Binary habit, estimate 30m, logged 60m -> earned 1.7, target 1.7 (100%)\n'
+                    '- Completed with <=30m logged -> 1.0 pt\n'
+                    '- Completed with 60m logged -> 1.7 pts\n'
+                    '- Completed with 90m logged -> ~2.2 pts\n'
                     '\n'
                     'Time:\n'
-                    '- Target 20m, logged 15m -> 0.75 pt\n'
-                    '- Target 60m, logged 30m -> 1.0 pt\n'
-                    '- Target 60m, logged 120m -> 2.53 pts\n'
+                    '- Logged 30m -> 1.0 pt\n'
+                    '- Logged 60m -> 1.7 pts\n'
+                    '- Logged 90m -> ~2.2 pts\n'
                     '\n'
                     'Quantity:\n'
                     '- Time does not matter; points depend on quantity vs target.',
@@ -147,12 +147,12 @@ class FaqPage extends StatelessWidget {
                 body: 'Binary:\n'
                     '- Completed -> 1 pt\n'
                     '- Not completed -> 0 pts\n'
-                    '- Binary completion stays completion-centric.\n'
+                    '- Duration does not change points.\n'
                     '\n'
                     'Time:\n'
-                    '- Over-completion is diminishing with target-sized blocks.\n'
-                    '  Example: target 20m, logged 40m -> 1.7 pts.\n'
-                    '  Example: target 60m, logged 120m -> 1.7 pts.\n'
+                    '- Completed -> 1 pt\n'
+                    '- Not completed -> 0 pts\n'
+                    '- Duration does not change points.\n'
                     '\n'
                     'Quantity:\n'
                     '- Scored by actual quantity vs target quantity.',
@@ -170,7 +170,7 @@ class FaqPage extends StatelessWidget {
               _Bullet(
                   'Quantity: points scale with completion ratio. Example: 4 out of 8 -> 0.5 points (for a 1-star item).'),
               _Bullet(
-                  'Time: points scale with completion ratio in Goal mode. Example: 15m out of 1h target -> 0.25 points (for a 1-star item).'),
+                  'Time: in Goal mode, points are awarded on completion (not proportional to minutes). In Effort mode, time contributes using 30-minute diminishing blocks.'),
             ],
           ),
           const SizedBox(height: 16),
@@ -180,13 +180,11 @@ class FaqPage extends StatelessWidget {
               _Bullet(
                   'You can earn more points by exceeding your targets - extra effort is rewarded.'),
               _Bullet(
-                  'Binary: over-completion is not shown. In Effort mode, target and earned move together so completion stays capped.'),
+                  'Binary: in Effort mode, logging more than 30 minutes can increase points with diminishing returns.'),
               _Bullet(
                   'Quantity: over-completion earns more points in both modes. Example: 10 vs 8 target -> 1.25 points (for a 1-star item).'),
               _Bullet(
-                'Time: you can earn more points by spending more time in both modes, but the calculation differs.\n'
-                '- Effort mode ON: diminishing uses fixed 30-minute blocks\n'
-                '- Effort mode OFF: diminishing uses target-sized blocks',
+                'Time: extra time only affects points in Effort mode, using fixed 30-minute diminishing blocks.',
               ),
             ],
           ),
@@ -355,4 +353,3 @@ class _Callout extends StatelessWidget {
     );
   }
 }
-

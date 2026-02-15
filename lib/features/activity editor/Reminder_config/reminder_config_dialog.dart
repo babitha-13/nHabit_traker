@@ -259,6 +259,14 @@ class _ReminderItemState extends State<_ReminderItem> {
     widget.onUpdate(_reminder);
   }
 
+  Future<void> _handleSetTimeTap() async {
+    if (!_reminder.enabled) return;
+    if (_isRelativeMode) {
+      _selectMode(false);
+    }
+    await _selectOffset();
+  }
+
   void _toggleType() {
     setState(() {
       _reminder = _reminder.copyWith(
@@ -476,6 +484,36 @@ class _ReminderItemState extends State<_ReminderItem> {
     return hasExactTime ? formatted : 'Pick time';
   }
 
+  Widget _buildCompactActionButton({
+    required IconData icon,
+    required VoidCallback? onTap,
+    required Color iconColor,
+    required String tooltip,
+    Color? backgroundColor,
+    Color? borderColor,
+  }) {
+    return Material(
+      color: backgroundColor ?? Colors.transparent,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Tooltip(
+          message: tooltip,
+          child: Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: borderColor ?? Colors.grey.shade300),
+            ),
+            child: Icon(icon, size: 18, color: iconColor),
+          ),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Card(
@@ -495,7 +533,7 @@ class _ReminderItemState extends State<_ReminderItem> {
                       borderRadius: BorderRadius.circular(14),
                       child: Container(
                         padding: const EdgeInsets.symmetric(
-                          vertical: 12,
+                          vertical: 10,
                           horizontal: 12,
                         ),
                         decoration: BoxDecoration(
@@ -530,17 +568,17 @@ class _ReminderItemState extends State<_ReminderItem> {
                             Expanded(
                               child: Text(
                                 _reminder.type == 'alarm'
-                                    ? 'Alarm reminder'
-                                    : 'Notification reminder',
+                                    ? 'Alarm'
+                                    : 'Notification',
                                 style: TextStyle(
-                                  fontSize: 16,
+                                  fontSize: 14,
                                   fontWeight: FontWeight.w600,
                                   color: _reminder.enabled
                                       ? Colors.black87
                                       : Colors.grey,
                                 ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                maxLines: 2,
+                                overflow: TextOverflow.fade,
                               ),
                             ),
                             const SizedBox(width: 4),
@@ -557,22 +595,31 @@ class _ReminderItemState extends State<_ReminderItem> {
                     ),
                   ),
                 ),
-                const SizedBox(width: 8),
-                Transform.scale(
-                  scale: 0.8,
-                  child: Switch(
-                    value: _reminder.enabled,
-                    onChanged: (_) => _toggleEnabled(),
-                    materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
+                const SizedBox(width: 6),
+                _buildCompactActionButton(
+                  icon: _reminder.enabled ? Icons.toggle_on : Icons.toggle_off,
+                  onTap: _toggleEnabled,
+                  iconColor: _reminder.enabled
+                      ? Theme.of(context).colorScheme.primary
+                      : Colors.grey,
+                  tooltip: _reminder.enabled
+                      ? 'Turn reminder off'
+                      : 'Turn reminder on',
+                  backgroundColor: _reminder.enabled
+                      ? Theme.of(context).colorScheme.primary.withOpacity(0.08)
+                      : Colors.grey.shade100,
+                  borderColor: _reminder.enabled
+                      ? Theme.of(context).colorScheme.primary.withOpacity(0.3)
+                      : Colors.grey.shade300,
                 ),
                 const SizedBox(width: 4),
-                IconButton(
-                  icon: const Icon(Icons.delete_outline),
-                  color: Colors.red,
-                  onPressed: widget.onRemove,
+                _buildCompactActionButton(
+                  icon: Icons.delete_outline,
+                  onTap: widget.onRemove,
+                  iconColor: Colors.red,
                   tooltip: 'Delete reminder',
-                  splashRadius: 20,
+                  backgroundColor: Colors.red.withOpacity(0.06),
+                  borderColor: Colors.red.withOpacity(0.2),
                 ),
               ],
             ),
@@ -695,9 +742,7 @@ class _ReminderItemState extends State<_ReminderItem> {
                 ),
                 const SizedBox(height: 6),
                 InkWell(
-                  onTap: _reminder.enabled && _isRelativeMode
-                      ? () => _selectMode(false)
-                      : null,
+                  onTap: _reminder.enabled ? _handleSetTimeTap : null,
                   borderRadius: BorderRadius.circular(10),
                   child: Container(
                     width: double.infinity,
@@ -734,7 +779,8 @@ class _ReminderItemState extends State<_ReminderItem> {
                         ),
                         const SizedBox(height: 6),
                         TextButton.icon(
-                          onPressed: _reminder.enabled ? _selectOffset : null,
+                          onPressed:
+                              _reminder.enabled ? _handleSetTimeTap : null,
                           icon: const Icon(Icons.schedule),
                           label: Text(
                             _timeButtonLabel(context),

@@ -59,14 +59,14 @@ class BinaryTimeBonusHelper {
   }
 
   /// Base span for the first full point block.
-  /// - ON mode: min(target, 30)
+  /// - ON mode: fixed 30 minutes
   /// - OFF mode: target
   static double resolveBaseSpanMinutes({
     required double targetMinutes,
     required bool timeBonusEnabled,
   }) {
+    if (timeBonusEnabled) return 30.0;
     if (targetMinutes <= 0) return 0.0;
-    if (timeBonusEnabled) return min(targetMinutes, 30.0);
     return targetMinutes;
   }
 
@@ -94,7 +94,8 @@ class BinaryTimeBonusHelper {
 
     double totalBonus = 0.0;
     for (int i = 1; i <= blocks; i++) {
-      totalBonus += pow(0.7, i) * priority;
+      final roundedFactor = (pow(0.7, i) * 10).round() / 10.0;
+      totalBonus += roundedFactor * priority;
     }
     return totalBonus;
   }
@@ -186,25 +187,21 @@ class BinaryTimeBonusHelper {
 
     if (!FFAppState.instance.timeBonusEnabled) return 0.0;
 
-    final estimateMinutes = binaryEstimateMinutes(instance);
-    double targetScore = scoreForTargetMinutes(
-      targetMinutes: estimateMinutes,
-      priority: priority,
-      timeBonusEnabled: true,
-    );
-
     final loggedMinutes = loggedTimeMinutes(instance);
-    if (instance.status == 'completed' &&
-        loggedMinutes != null &&
-        loggedMinutes > estimateMinutes) {
-      targetScore = scoreForLoggedMinutes(
+    if (instance.status != 'completed' || loggedMinutes == null) {
+      return 0.0;
+    }
+
+    if (loggedMinutes > 30.0) {
+      final targetScore = scoreForLoggedMinutes(
         loggedMinutes: loggedMinutes,
-        targetMinutes: estimateMinutes,
+        targetMinutes: 30.0,
         priority: priority,
         timeBonusEnabled: true,
       );
+      return (targetScore - priority).clamp(0.0, double.infinity);
     }
 
-    return (targetScore - priority).clamp(0.0, double.infinity);
+    return 0.0;
   }
 }

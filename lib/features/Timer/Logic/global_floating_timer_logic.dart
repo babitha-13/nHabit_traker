@@ -71,11 +71,12 @@ mixin GlobalFloatingTimerLogic
   /// Handle instance update events from NotificationCenter
   void onInstanceUpdated(Object? data) {
     if (data is ActivityInstanceRecord) {
-      // Check if it's a timer instance (time type or binary with time logging) and sync with TimerManager
-      final isTimeType = data.templateTrackingType == 'time';
-      final isBinaryTimerSession = data.templateTrackingType == 'binary' &&
-          (data.isTimeLogging || data.currentSessionStartTime != null);
-      if (isTimeType || isBinaryTimerSession) {
+      // Keep TimerManager in sync for all timer-capable tracking types.
+      final trackingType = data.templateTrackingType;
+      final supportsTimerSession = trackingType == 'time' ||
+          trackingType == 'binary' ||
+          trackingType == 'quantitative';
+      if (supportsTimerSession) {
         timerManager.updateInstance(data);
       }
     }
@@ -124,9 +125,8 @@ mixin GlobalFloatingTimerLogic
   int getCurrentTime(ActivityInstanceRecord instance) {
     int totalMilliseconds = instance.accumulatedTime;
 
-    // For binary timer sessions, use currentSessionStartTime
-    if (instance.templateTrackingType == 'binary' &&
-        instance.currentSessionStartTime != null) {
+    // Session-based timer flows (binary/quantitative and swipe-driven time logging)
+    if (instance.currentSessionStartTime != null) {
       final elapsed = DateTime.now()
           .difference(instance.currentSessionStartTime!)
           .inMilliseconds;
@@ -338,9 +338,11 @@ mixin GlobalFloatingTimerLogic
           }
         }
       } else {
-        // For time-tracking instances, use existing toggle logic
-        final wasActive = instance.isTimerActive;
-        if (wasActive) {
+        // For time/quantitative sessions, stop through toggle logic.
+        final hadActiveSession = instance.isTimerActive ||
+            instance.isTimeLogging ||
+            instance.currentSessionStartTime != null;
+        if (hadActiveSession) {
           await ActivityInstanceService.toggleInstanceTimer(
             instanceId: instance.reference.id,
           );
@@ -349,8 +351,11 @@ mixin GlobalFloatingTimerLogic
             await ActivityInstanceService.getUpdatedInstance(
           instanceId: instance.reference.id,
         );
-        // If timer was stopped, remove it from TimerManager
-        if (wasActive && !updatedInstance.isTimerActive) {
+        final isStillActive = updatedInstance.isTimerActive ||
+            updatedInstance.isTimeLogging ||
+            updatedInstance.currentSessionStartTime != null;
+        // If timer session was stopped, remove it from TimerManager.
+        if (hadActiveSession && !isStillActive) {
           timerManager.stopInstance(updatedInstance);
         } else {
           timerManager.updateInstance(updatedInstance);

@@ -10,6 +10,11 @@ class CalendarOverlapCalculator {
     if (instanceId != null && instanceId.isNotEmpty) {
       final sessionIndex = metadata?.sessionIndex ?? -1;
       if (sessionIndex >= 0) {
+        final sessionStartMs = metadata?.sessionStartEpochMs;
+        final sessionEndMs = metadata?.sessionEndEpochMs;
+        if (sessionStartMs != null && sessionEndMs != null) {
+          return '$instanceId#session:$sessionIndex@$sessionStartMs-$sessionEndMs';
+        }
         return '$instanceId#session:$sessionIndex';
       }
       return instanceId;

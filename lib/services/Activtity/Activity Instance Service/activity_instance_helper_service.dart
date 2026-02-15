@@ -416,7 +416,17 @@ class ActivityInstanceHelperService {
     try {
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
-      final instanceDoc = await instanceRef.get();
+      DocumentSnapshot instanceDoc;
+      try {
+        instanceDoc = await instanceRef.get(
+          const GetOptions(source: Source.server),
+        );
+      } catch (_) {
+        // Fallback to cache when server fetch is temporarily unavailable.
+        instanceDoc = await instanceRef.get(
+          const GetOptions(source: Source.cache),
+        );
+      }
       if (!instanceDoc.exists) {
         throw Exception('Activity instance not found');
       }

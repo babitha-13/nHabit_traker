@@ -186,6 +186,8 @@ class ItemQuantitativeControlsHelper {
     required Function(int) setPendingQuantIncrement,
     required Timer? Function() getQuantUpdateTimer,
     required Function(Timer?) setQuantUpdateTimer,
+    String? categoryColorHex,
+    int? optimisticTimeEstimateMinutes,
     required Future<void> Function() processPendingQuantUpdate,
   }) async {
     if (instance.templateTrackingType == 'binary' &&
@@ -250,11 +252,35 @@ class ItemQuantitativeControlsHelper {
       SoundHelper().playCompletionSound();
 
       try {
+        List<Map<String, dynamic>>? optimisticSessions;
+        int? optimisticTotalTime;
+        final resolvedEstimateMinutes = optimisticTimeEstimateMinutes ??
+            instance.templateTimeEstimateMinutes;
+        if (instance.timeLogSessions.isEmpty &&
+            resolvedEstimateMinutes != null &&
+            resolvedEstimateMinutes > 0) {
+          final durationMs = resolvedEstimateMinutes.clamp(1, 600) * 60000;
+          final completionTime = progressReferenceTime ?? DateTime.now();
+          optimisticSessions = [
+            {
+              'startTime':
+                  completionTime.subtract(Duration(milliseconds: durationMs)),
+              'endTime': completionTime,
+              'durationMilliseconds': durationMs,
+            }
+          ];
+          optimisticTotalTime = durationMs;
+        }
+
         // Create optimistic instance for immediate UI update
         final optimisticInstance =
             InstanceEvents.createOptimisticCompletedInstance(
           instance,
           finalValue: newValue,
+          completedAt: progressReferenceTime,
+          timeLogSessions: optimisticSessions,
+          totalTimeLogged: optimisticTotalTime,
+          templateCategoryColorHex: categoryColorHex,
         );
         final operationId = OptimisticOperationTracker.generateOperationId();
 

@@ -114,19 +114,14 @@ class PointsService {
         if (!timeBonusEnabled || _isLegacyBinaryTimeScoringDisabled(instance)) {
           return dailyFrequency * priority;
         }
-        final estimateMinutes = _binaryEstimateMinutes(instance);
-        double perInstanceTarget = BinaryTimeBonusHelper.scoreForTargetMinutes(
-          targetMinutes: estimateMinutes,
-          priority: priority,
-          timeBonusEnabled: true,
-        );
+        double perInstanceTarget = priority;
         final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
         if (instance.status == 'completed' &&
             loggedMinutes != null &&
-            loggedMinutes > estimateMinutes) {
+            loggedMinutes > 30.0) {
           perInstanceTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
             loggedMinutes: loggedMinutes,
-            targetMinutes: estimateMinutes,
+            targetMinutes: 30.0,
             priority: priority,
             timeBonusEnabled: true,
           );
@@ -172,19 +167,14 @@ class PointsService {
         if (!timeBonusEnabled || _isLegacyBinaryTimeScoringDisabled(instance)) {
           return dailyFrequency * priority;
         }
-        final estimateMinutes = _binaryEstimateMinutes(instance, template);
-        double perInstanceTarget = BinaryTimeBonusHelper.scoreForTargetMinutes(
-          targetMinutes: estimateMinutes,
-          priority: priority,
-          timeBonusEnabled: true,
-        );
+        double perInstanceTarget = priority;
         final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
         if (instance.status == 'completed' &&
             loggedMinutes != null &&
-            loggedMinutes > estimateMinutes) {
+            loggedMinutes > 30.0) {
           perInstanceTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
             loggedMinutes: loggedMinutes,
-            targetMinutes: estimateMinutes,
+            targetMinutes: 30.0,
             priority: priority,
             timeBonusEnabled: true,
           );
@@ -251,12 +241,19 @@ class PointsService {
       case 'time':
         final targetMinutes = PointsValueHelper.targetValue(instance);
         if (targetMinutes <= 0) return 0.0;
-        final loggedMinutes = instance.accumulatedTime / 60000.0;
+        final loggedMinutes =
+            BinaryTimeBonusHelper.loggedTimeMinutes(instance) ?? 0.0;
+        final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+        if (!timeBonusEnabled) {
+          final isCompleted = instance.status == 'completed' ||
+              (targetMinutes > 0 && loggedMinutes >= targetMinutes);
+          return isCompleted ? priority : 0.0;
+        }
         return BinaryTimeBonusHelper.scoreForLoggedMinutes(
           loggedMinutes: loggedMinutes,
-          targetMinutes: targetMinutes,
+          targetMinutes: 30.0,
           priority: priority,
-          timeBonusEnabled: FFAppState.instance.timeBonusEnabled,
+          timeBonusEnabled: true,
         );
 
       default:
@@ -285,41 +282,34 @@ class PointsService {
       targetValue: counterTarget,
     );
 
-    double earnedBase;
-    if (!isTimeLikeUnit && !isTimerTaskValue && countValue > 0) {
-      final completionFraction = (countValue / counterTarget).clamp(0.0, 1.0);
-      earnedBase = isLegacyFrozen ? priority : completionFraction * priority;
-    } else if (instance.status == 'completed') {
-      earnedBase = priority;
-    } else {
-      earnedBase = 0.0;
-    }
+    final isCompleted = instance.status == 'completed' ||
+        (!isTimeLikeUnit &&
+            !isTimerTaskValue &&
+            counterTarget > 0 &&
+            countValue >= counterTarget);
+
+    final earnedBase = isCompleted ? priority : 0.0;
 
     final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
     if (!timeBonusEnabled || isLegacyFrozen || earnedBase <= 0) {
       return earnedBase;
     }
 
-    if (instance.status != 'completed') {
+    if (!isCompleted) {
       return earnedBase;
     }
 
-    final estimateMinutes = _binaryEstimateMinutes(instance);
     final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
-    if (loggedMinutes != null && loggedMinutes > estimateMinutes) {
+    if (loggedMinutes != null && loggedMinutes > 30.0) {
       return BinaryTimeBonusHelper.scoreForLoggedMinutes(
         loggedMinutes: loggedMinutes,
-        targetMinutes: estimateMinutes,
+        targetMinutes: 30.0,
         priority: priority,
         timeBonusEnabled: true,
       );
     }
 
-    return BinaryTimeBonusHelper.scoreForTargetMinutes(
-      targetMinutes: estimateMinutes,
-      priority: priority,
-      timeBonusEnabled: true,
-    );
+    return priority;
   }
 
   static bool _isLegacyBinaryTimeScoringDisabled(
@@ -338,17 +328,6 @@ class PointsService {
         );
   }
 
-  static double _binaryEstimateMinutes(
-    ActivityInstanceRecord instance, [
-    ActivityRecord? template,
-  ]) {
-    final templateEstimate = template?.timeEstimateMinutes;
-    if (templateEstimate != null && templateEstimate > 0) {
-      return templateEstimate.toDouble();
-    }
-    return BinaryTimeBonusHelper.binaryEstimateMinutes(instance);
-  }
-
   /// Calculate total daily target for all habit instances
   static double calculateTotalDailyTarget(
     List<ActivityInstanceRecord> instances,
@@ -357,7 +336,9 @@ class PointsService {
     for (final instance in instances) {
       // Skip Essential Activities, only process habits
       if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'essential') continue;
+          instance.templateCategoryType == 'essential') {
+        continue;
+      }
       final target = calculateDailyTarget(instance);
       totalTarget += target;
     }
@@ -374,7 +355,9 @@ class PointsService {
     for (final instance in instances) {
       // Skip Essential Activities, only process habits
       if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'essential') continue;
+          instance.templateCategoryType == 'essential') {
+        continue;
+      }
       // Fetch template data for accurate frequency calculation
       final template = await ActivityTemplateService.getTemplateById(
         userId: userId,

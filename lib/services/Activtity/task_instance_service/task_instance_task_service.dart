@@ -12,6 +12,29 @@ import 'task_instance_helper_service.dart';
 
 /// Service for task instance operations
 class TaskInstanceTaskService {
+  static Future<ActivityInstanceRecord> _getInstanceServerFirst(
+    DocumentReference instanceRef,
+  ) async {
+    try {
+      final serverDoc = await instanceRef.get(
+        const GetOptions(source: Source.server),
+      );
+      if (serverDoc.exists) {
+        return ActivityInstanceRecord.fromSnapshot(serverDoc);
+      }
+    } catch (_) {
+      // Fallback to cache when server read is temporarily unavailable.
+    }
+
+    final cacheDoc = await instanceRef.get(
+      const GetOptions(source: Source.cache),
+    );
+    if (!cacheDoc.exists) {
+      throw Exception('Task instance not found');
+    }
+    return ActivityInstanceRecord.fromSnapshot(cacheDoc);
+  }
+
   /// Get all active activity instances for today and overdue
   static Future<List<ActivityInstanceRecord>> getTodaysTaskInstances({
     String? userId,
@@ -181,8 +204,7 @@ class TaskInstanceTaskService {
         });
 
         // 6. Reconcile with actual data
-        final updatedInstance =
-            await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+        final updatedInstance = await _getInstanceServerFirst(instanceRef);
         OptimisticOperationTracker.reconcileOperation(
             operationId, updatedInstance);
 

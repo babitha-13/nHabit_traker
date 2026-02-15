@@ -75,10 +75,7 @@ class FirestoreCacheService {
           _applyOptimisticInstanceCacheUpdate(instance);
         } else {
           invalidateInstancesCache();
-        }
-
-        if (instance != null && !isOptimistic) {
-          _invalidateCalendarCacheForInstance(instance);
+          invalidateCalendarCache();
         }
       },
     );
@@ -93,10 +90,7 @@ class FirestoreCacheService {
           _applyOptimisticInstanceCacheUpdate(instance);
         } else {
           invalidateInstancesCache();
-        }
-
-        if (instance != null && !isOptimistic) {
-          _invalidateCalendarCacheForInstance(instance);
+          invalidateCalendarCache();
         }
       },
     );
@@ -105,10 +99,7 @@ class FirestoreCacheService {
       InstanceEvents.instanceDeleted,
       (param) {
         invalidateInstancesCache();
-        // Invalidate calendar cache for affected dates
-        if (param is ActivityInstanceRecord) {
-          _invalidateCalendarCacheForInstance(param);
-        }
+        invalidateCalendarCache();
       },
     );
 
@@ -502,56 +493,6 @@ class FirestoreCacheService {
   void invalidateCalendarCache() {
     _calendarDateCache.clear();
     _calendarDateTimestamps.clear();
-  }
-
-  /// Invalidate calendar cache when instance changes affect specific dates
-  /// This is called from the notification handlers to invalidate only affected dates
-  /// Past dates are automatically filtered out since they never change
-  void _invalidateCalendarCacheForInstance(ActivityInstanceRecord instance) {
-    final affectedDates = <DateTime>{};
-    final todayStart = DateService.todayStart;
-
-    // Check completedAt date (only if today or future)
-    if (instance.completedAt != null) {
-      final date = DateService.normalizeToStartOfDay(instance.completedAt!);
-      if (!date.isBefore(todayStart)) {
-        affectedDates.add(date);
-      }
-    }
-
-    // Check dueDate (only if today or future)
-    if (instance.dueDate != null) {
-      final date = DateService.normalizeToStartOfDay(instance.dueDate!);
-      if (!date.isBefore(todayStart)) {
-        affectedDates.add(date);
-      }
-    }
-
-    // Check belongsToDate (only if today or future)
-    if (instance.belongsToDate != null) {
-      final date = DateService.normalizeToStartOfDay(instance.belongsToDate!);
-      if (!date.isBefore(todayStart)) {
-        affectedDates.add(date);
-      }
-    }
-
-    // Check time log sessions (only if today or future)
-    if (instance.timeLogSessions.isNotEmpty) {
-      for (final session in instance.timeLogSessions) {
-        final sessionStart = session['startTime'] as DateTime?;
-        if (sessionStart != null) {
-          final date = DateService.normalizeToStartOfDay(sessionStart);
-          if (!date.isBefore(todayStart)) {
-            affectedDates.add(date);
-          }
-        }
-      }
-    }
-
-    // Only invalidate current/future dates
-    if (affectedDates.isNotEmpty) {
-      invalidateCalendarDatesCache(affectedDates.toList());
-    }
   }
 
   /// Invalidate all caches

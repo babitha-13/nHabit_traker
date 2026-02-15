@@ -2,11 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/services/Activtity/activity_update_broadcast.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
+import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 /// Service to manage Essential Activities (sleep, travel, rest, etc.)
@@ -137,6 +139,20 @@ class essentialService {
     } catch (e) {
       // If order lookup fails, continue with null values (will use default sorting)
     }
+    String? templateCategoryColor;
+    if (template.categoryId.isNotEmpty) {
+      try {
+        final categoryDoc = await CategoryRecord.collectionForUser(uid)
+            .doc(template.categoryId)
+            .get();
+        if (categoryDoc.exists) {
+          final category = CategoryRecord.fromSnapshot(categoryDoc);
+          templateCategoryColor = category.color;
+        }
+      } catch (e) {
+        // If category lookup fails, continue without color fallback.
+      }
+    }
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       status:
@@ -151,6 +167,7 @@ class essentialService {
       templateCategoryId: template.categoryId,
       templateCategoryName: template.categoryName,
       templateCategoryType: 'essential',
+      templateCategoryColor: templateCategoryColor,
       templatePriority: template.priority,
       templateTrackingType: template.trackingType,
       templateDescription: template.description,
@@ -168,19 +185,14 @@ class essentialService {
     final instanceRef =
         await ActivityInstanceRecord.collectionForUser(uid).add(instanceData);
 
-    // Fetch the created instance and broadcast optimistic update
+    // Fetch the created instance and broadcast immediate updates.
     final createdInstance =
         await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+    cache.cacheInstance(createdInstance);
 
-    // Broadcast optimistic instance creation for immediate calendar update
-    final operationId =
-        'essential_create_${DateTime.now().millisecondsSinceEpoch}';
-    InstanceEvents.broadcastInstanceCreatedOptimistic(
-        createdInstance, operationId);
-
-    // Also broadcast as updated since it's completed with time logs
-    InstanceEvents.broadcastInstanceUpdatedOptimistic(
-        createdInstance, operationId);
+    // Broadcast as concrete events (not optimistic): backend write is complete.
+    InstanceEvents.broadcastInstanceCreated(createdInstance);
+    InstanceEvents.broadcastInstanceUpdated(createdInstance);
 
     return instanceRef;
   }
@@ -212,6 +224,7 @@ class essentialService {
     String? userId,
   }) async {
     final uid = userId ?? _currentUserId;
+    String? operationId;
     try {
       final cache = FirestoreCacheService();
       // Check cache first
@@ -246,7 +259,30 @@ class essentialService {
       // Calculate total time across all sessions
       final totalTime = existingSessions.fold<int>(
           0, (sum, session) => sum + (session['durationMilliseconds'] as int));
-      // Update instance
+
+      // Use optimistic + reconciled lifecycle so calendar updates match other pages.
+      operationId = OptimisticOperationTracker.generateOperationId();
+      final optimisticInstance =
+          InstanceEvents.createOptimisticCompletedInstance(
+        instance,
+        finalAccumulatedTime: totalTime,
+        completedAt: endTime,
+        timeLogSessions: existingSessions,
+        totalTimeLogged: totalTime,
+      );
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: instance.reference.id,
+        operationType: 'progress',
+        optimisticInstance: optimisticInstance,
+        originalInstance: instance,
+      );
+      InstanceEvents.broadcastInstanceUpdatedOptimistic(
+        optimisticInstance,
+        operationId,
+      );
+
+      // Update instance in backend
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
       await instanceRef.update({
@@ -258,7 +294,21 @@ class essentialService {
         'status': 'completed',
         'completedAt': endTime,
       });
+      final updatedSnapshot = await instanceRef.get();
+      if (!updatedSnapshot.exists) {
+        throw Exception('Instance not found after update');
+      }
+      final updatedInstance =
+          ActivityInstanceRecord.fromSnapshot(updatedSnapshot);
+      cache.cacheInstance(updatedInstance);
+      OptimisticOperationTracker.reconcileOperation(
+        operationId,
+        updatedInstance,
+      );
     } catch (e) {
+      if (operationId != null) {
+        OptimisticOperationTracker.rollbackOperation(operationId);
+      }
       rethrow;
     }
   }

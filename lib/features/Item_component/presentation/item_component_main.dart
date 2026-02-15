@@ -812,6 +812,8 @@ class _ItemComponentState extends State<ItemComponent>
           setState(() => _pendingQuantIncrement = val),
       getQuantUpdateTimer: () => _quantUpdateTimer,
       setQuantUpdateTimer: (val) => setState(() => _quantUpdateTimer = val),
+      categoryColorHex: widget.categoryColorHex,
+      optimisticTimeEstimateMinutes: _resolvedTimeEstimateMinutes,
       processPendingQuantUpdate: () => _processPendingQuantUpdate(),
     );
   }
@@ -880,6 +882,7 @@ class _ItemComponentState extends State<ItemComponent>
       context: context,
       showUncompleteDialog: _showUncompleteDialog,
       currentProgressLocal: _currentProgressLocal(),
+      categoryColorHex: widget.categoryColorHex,
       isMounted: () => mounted,
       setState: (callback) => setState(callback),
     );
@@ -952,6 +955,8 @@ class _ItemComponentState extends State<ItemComponent>
             setState(() => _pendingQuantIncrement = val),
         getQuantUpdateTimer: () => _quantUpdateTimer,
         setQuantUpdateTimer: (val) => setState(() => _quantUpdateTimer = val),
+        categoryColorHex: widget.categoryColorHex,
+        optimisticTimeEstimateMinutes: _resolvedTimeEstimateMinutes,
         processPendingQuantUpdate: () => _processPendingQuantUpdate(),
       ),
     );

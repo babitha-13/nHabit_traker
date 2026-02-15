@@ -258,7 +258,10 @@ class ManualTimeLogSaveService {
 
             // 7. Reconcile with actual data
             final updatedInstance =
-                await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+                await ActivityInstanceService.getUpdatedInstance(
+              instanceId: currentInstance.reference.id,
+              userId: userId,
+            );
             OptimisticOperationTracker.reconcileOperation(
                 operationId, updatedInstance);
           } catch (e) {

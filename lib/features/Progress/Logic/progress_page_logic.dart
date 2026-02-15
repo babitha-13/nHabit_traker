@@ -419,6 +419,11 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           cumulativeScoreHistory = history;
         });
       }
+
+      // Ensure today's live point is applied after history load.
+      // This mirrors Queue behavior and avoids timing gaps when history
+      // only contains finalized days up to yesterday.
+      updateHistoryWithTodayScore();
     } catch (e) {}
   }
 

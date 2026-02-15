@@ -92,6 +92,7 @@ class InstanceEvents {
     DateTime? completedAt,
     List<Map<String, dynamic>>? timeLogSessions,
     int? totalTimeLogged,
+    String? templateCategoryColorHex,
   }) {
     final updatedData = Map<String, dynamic>.from(original.snapshotData);
     final now = completedAt ?? DateTime.now();
@@ -114,6 +115,13 @@ class InstanceEvents {
     }
     if (totalTimeLogged != null) {
       updatedData['totalTimeLogged'] = totalTimeLogged;
+    }
+    final existingCategoryColor =
+        (updatedData['templateCategoryColor'] as String?)?.trim() ?? '';
+    if (existingCategoryColor.isEmpty &&
+        templateCategoryColorHex != null &&
+        templateCategoryColorHex.trim().isNotEmpty) {
+      updatedData['templateCategoryColor'] = templateCategoryColorHex.trim();
     }
 
     if (!_hasSessions(updatedData['timeLogSessions'])) {
@@ -173,6 +181,8 @@ class InstanceEvents {
       inferredMs = original.accumulatedTime;
     } else if (original.totalTimeLogged > 0) {
       inferredMs = original.totalTimeLogged;
+    } else if ((original.templateTimeEstimateMinutes ?? 0) > 0) {
+      inferredMs = original.templateTimeEstimateMinutes! * 60000;
     } else if (original.templateTrackingType == 'time') {
       final target = original.templateTarget;
       final targetMinutes = (target is num)

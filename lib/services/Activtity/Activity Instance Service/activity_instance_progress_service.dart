@@ -10,6 +10,49 @@ import 'activity_instance_completion_service.dart';
 
 /// Service for updating instance progress and timer operations
 class ActivityInstanceProgressService {
+  static DateTime _shiftEndTimeBeforeExistingSessionOverlaps({
+    required DateTime candidateEndTime,
+    required int durationMs,
+    required List<Map<String, dynamic>> existingSessions,
+  }) {
+    var adjustedEnd = candidateEndTime;
+    if (existingSessions.isEmpty || durationMs <= 0) {
+      return adjustedEnd;
+    }
+
+    var shouldCheck = true;
+    while (shouldCheck) {
+      shouldCheck = false;
+      final candidateStart =
+          adjustedEnd.subtract(Duration(milliseconds: durationMs));
+      DateTime? earliestOverlapStart;
+
+      for (final session in existingSessions) {
+        final start = session['startTime'] as DateTime?;
+        final end = session['endTime'] as DateTime?;
+        if (start == null || end == null) {
+          continue;
+        }
+        final overlaps =
+            candidateStart.isBefore(end) && adjustedEnd.isAfter(start);
+        if (!overlaps) {
+          continue;
+        }
+        if (earliestOverlapStart == null ||
+            start.isBefore(earliestOverlapStart)) {
+          earliestOverlapStart = start;
+        }
+      }
+
+      if (earliestOverlapStart != null) {
+        adjustedEnd = earliestOverlapStart;
+        shouldCheck = true;
+      }
+    }
+
+    return adjustedEnd;
+  }
+
   /// Update instance progress (for quantitative tracking)
   static Future<void> updateInstanceProgress({
     required String instanceId,
@@ -28,6 +71,7 @@ class ActivityInstanceProgressService {
       final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
       final now = DateService.currentDate;
       final effectiveReferenceTime = referenceTime ?? now;
+      ActivityInstanceRecord optimisticBaseInstance = instance;
 
       // For windowed habits, update lastDayValue to current value for next day's calculation
       final updateData = <String, dynamic>{
@@ -59,6 +103,7 @@ class ActivityInstanceProgressService {
         final latestInstance = latestInstanceDoc.exists
             ? ActivityInstanceRecord.fromSnapshot(latestInstanceDoc)
             : instance;
+        optimisticBaseInstance = latestInstance;
 
         // Calculate delta using the refreshed instance's current value
         // This ensures correct delta calculation even when batches overlap
@@ -106,11 +151,18 @@ class ActivityInstanceProgressService {
 
                 DateTime sessionEndTime;
                 if (i == 0) {
+                  final nonOverlappingEndTime =
+                      _shiftEndTimeBeforeExistingSessionOverlaps(
+                    candidateEndTime: currentEndTime,
+                    durationMs: perUnitMs,
+                    existingSessions: existingSessions,
+                  );
+
                   // First block: use calculateStackedStartTime to account for simultaneous items
                   final stackedTimes = await ActivityInstanceCompletionService
                       .calculateStackedStartTime(
                     userId: uid,
-                    completionTime: currentEndTime,
+                    completionTime: nonOverlappingEndTime,
                     durationMs: perUnitMs,
                     instanceId: instanceId,
                     effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
@@ -153,10 +205,26 @@ class ActivityInstanceProgressService {
 
       // ==================== OPTIMISTIC BROADCAST ====================
       // 1. Create optimistic instance
+      List<Map<String, dynamic>>? optimisticSessions;
+      final rawOptimisticSessions = updateData['timeLogSessions'];
+      if (rawOptimisticSessions is List) {
+        optimisticSessions = rawOptimisticSessions
+            .whereType<Map>()
+            .map((session) => Map<String, dynamic>.from(session))
+            .toList();
+      }
+      final optimisticAccumulatedTime =
+          (updateData['accumulatedTime'] as num?)?.toInt();
+      final optimisticTotalTimeLogged =
+          (updateData['totalTimeLogged'] as num?)?.toInt();
+
       final optimisticInstance =
           InstanceEvents.createOptimisticProgressInstance(
-        instance,
+        optimisticBaseInstance,
         currentValue: currentValue,
+        accumulatedTime: optimisticAccumulatedTime,
+        timeLogSessions: optimisticSessions,
+        totalTimeLogged: optimisticTotalTimeLogged,
       );
 
       // 2. Generate operation ID

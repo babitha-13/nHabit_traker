@@ -19,6 +19,7 @@ class ItemBinaryControlsHelper {
     required BuildContext context,
     required Future<String?> Function() showUncompleteDialog,
     required num currentProgressLocal,
+    String? categoryColorHex,
     required bool Function() isMounted,
     required void Function(VoidCallback) setState,
   }) async {
@@ -71,6 +72,7 @@ class ItemBinaryControlsHelper {
         instance,
         finalValue: targetValue,
         finalAccumulatedTime: targetAccumulatedTime,
+        templateCategoryColorHex: categoryColorHex,
       );
     } else {
       optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(

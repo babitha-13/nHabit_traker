@@ -16,13 +16,35 @@ import 'task_instance_timer_task_service.dart';
 
 /// Service for time logging operations
 class TaskInstanceTimeLoggingService {
+  static Future<ActivityInstanceRecord> _getInstanceServerFirst(
+    DocumentReference instanceRef,
+  ) async {
+    try {
+      final serverDoc = await instanceRef.get(
+        const GetOptions(source: Source.server),
+      );
+      if (serverDoc.exists) {
+        return ActivityInstanceRecord.fromSnapshot(serverDoc);
+      }
+    } catch (_) {
+      // Fallback to cache when server read is temporarily unavailable.
+    }
+
+    final cacheDoc = await instanceRef.get(
+      const GetOptions(source: Source.cache),
+    );
+    if (!cacheDoc.exists) {
+      throw Exception('Instance not found');
+    }
+    return ActivityInstanceRecord.fromSnapshot(cacheDoc);
+  }
+
   static Future<void> startTimeLogging({
     required DocumentReference activityInstanceRef,
     String? userId,
   }) async {
     try {
-      final instance =
-          await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
+      final instance = await _getInstanceServerFirst(activityInstanceRef);
       final error = TimeValidationHelper.getStartTimerError(instance);
       if (error != null) {
         throw Exception(error);
@@ -44,8 +66,7 @@ class TaskInstanceTimeLoggingService {
     String? userId,
   }) async {
     try {
-      final instance =
-          await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
+      final instance = await _getInstanceServerFirst(activityInstanceRef);
       if (instance.currentSessionStartTime == null) {
         throw Exception('No active session to stop');
       }
@@ -115,10 +136,9 @@ class TaskInstanceTimeLoggingService {
       try {
         await activityInstanceRef.update(updateData);
         final updatedInstance =
-            await ActivityInstanceRecord.getDocumentOnce(activityInstanceRef);
+            await _getInstanceServerFirst(activityInstanceRef);
         OptimisticOperationTracker.reconcileOperation(
             operationId, updatedInstance);
-        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
       } catch (e) {
         OptimisticOperationTracker.rollbackOperation(operationId);
         rethrow;
@@ -706,7 +726,7 @@ class TaskInstanceTimeLoggingService {
           try {
             await targetInstanceRef.update(updateData);
             final updatedInstance =
-                await ActivityInstanceRecord.getDocumentOnce(targetInstanceRef);
+                await _getInstanceServerFirst(targetInstanceRef);
             OptimisticOperationTracker.reconcileOperation(
                 operationId, updatedInstance);
             if (existingInstance.status != 'completed' &&
@@ -749,8 +769,7 @@ class TaskInstanceTimeLoggingService {
                       instanceDueDate, // Preserve no due date if template doesn't have one
                   template: template,
                   userId: uid);
-          final createdInstance =
-              await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+          final createdInstance = await _getInstanceServerFirst(instanceRef);
           final sessions = [newSession];
           final newCurrentValue =
               template.trackingType == 'time' ? totalTime : null;
@@ -809,8 +828,7 @@ class TaskInstanceTimeLoggingService {
 
           try {
             await instanceRef.update(updateData);
-            final updatedInstance =
-                await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+            final updatedInstance = await _getInstanceServerFirst(instanceRef);
             OptimisticOperationTracker.reconcileOperation(
                 operationId, updatedInstance);
           } catch (e) {
@@ -844,8 +862,7 @@ class TaskInstanceTimeLoggingService {
         showInFloatingTimer: false,
       );
       final now = DateTime.now();
-      final currentInstance =
-          await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+      final currentInstance = await _getInstanceServerFirst(taskInstanceRef);
       final isessential = activityType == 'essential';
       final timeLogSessions = [newSession];
       if (isessential) {
@@ -923,7 +940,7 @@ class TaskInstanceTimeLoggingService {
         try {
           await taskInstanceRef.update(updateData);
           final updatedInstance =
-              await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+              await _getInstanceServerFirst(taskInstanceRef);
           OptimisticOperationTracker.reconcileOperation(
               operationId, updatedInstance);
         } catch (e) {
@@ -999,7 +1016,7 @@ class TaskInstanceTimeLoggingService {
         try {
           await taskInstanceRef.update(updateData);
           final updatedInstance =
-              await ActivityInstanceRecord.getDocumentOnce(taskInstanceRef);
+              await _getInstanceServerFirst(taskInstanceRef);
           OptimisticOperationTracker.reconcileOperation(
               operationId, updatedInstance);
         } catch (e) {
@@ -1087,11 +1104,7 @@ class TaskInstanceTimeLoggingService {
     try {
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
-      final instanceDoc = await instanceRef.get();
-      if (!instanceDoc.exists) {
-        throw Exception('Instance not found');
-      }
-      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+      final instance = await _getInstanceServerFirst(instanceRef);
 
       final sessions =
           List<Map<String, dynamic>>.from(instance.timeLogSessions);
@@ -1148,8 +1161,7 @@ class TaskInstanceTimeLoggingService {
               newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
           'lastUpdated': DateTime.now(),
         });
-        final updatedInstance =
-            await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+        final updatedInstance = await _getInstanceServerFirst(instanceRef);
         OptimisticOperationTracker.reconcileOperation(
             operationId, updatedInstance);
         if (instance.templateTrackingType == 'time' &&
@@ -1193,11 +1205,7 @@ class TaskInstanceTimeLoggingService {
     try {
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
-      final instanceDoc = await instanceRef.get();
-      if (!instanceDoc.exists) {
-        throw Exception('Instance not found');
-      }
-      final instance = ActivityInstanceRecord.fromSnapshot(instanceDoc);
+      final instance = await _getInstanceServerFirst(instanceRef);
       final sessions =
           List<Map<String, dynamic>>.from(instance.timeLogSessions);
       final resolvedSessionIndex = _resolveSessionIndex(
@@ -1246,8 +1254,7 @@ class TaskInstanceTimeLoggingService {
           'currentValue': newCurrentValue,
           'lastUpdated': DateTime.now(),
         });
-        final updatedInstance =
-            await ActivityInstanceRecord.getDocumentOnce(instanceRef);
+        final updatedInstance = await _getInstanceServerFirst(instanceRef);
         OptimisticOperationTracker.reconcileOperation(
             operationId, updatedInstance);
         bool wasUncompleted = false;

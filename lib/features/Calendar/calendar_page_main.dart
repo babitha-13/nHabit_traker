@@ -62,7 +62,9 @@ class _CalendarPageState extends State<CalendarPage> {
   DateTime? _lastRefreshStartedAt;
   static const Duration _observerRefreshDebounce = Duration(milliseconds: 600);
   static const Duration _observerRefreshMinInterval = Duration(seconds: 2);
+  static const int _staleInstanceEventToleranceMs = 1500;
   Map<String, List<String>> _routineItemMap = {};
+  final Map<String, int> _latestInstanceUpdateMsById = {};
 
   CalendarEventTileBuilder get _eventTileBuilder {
     return CalendarEventTileBuilder(
@@ -303,6 +305,65 @@ class _CalendarPageState extends State<CalendarPage> {
     });
   }
 
+  Color? _findCurrentColorForInstance(String instanceId) {
+    for (final event in _sortedCompletedEvents) {
+      final metadata = CalendarEventMetadata.fromMap(event.event);
+      if (metadata?.instanceId == instanceId) {
+        return event.color;
+      }
+    }
+    for (final event in _sortedPlannedEvents) {
+      final metadata = CalendarEventMetadata.fromMap(event.event);
+      if (metadata?.instanceId == instanceId) {
+        return event.color;
+      }
+    }
+    return null;
+  }
+
+  DateTime get _selectedDateOnly => DateTime(
+        _selectedDate.year,
+        _selectedDate.month,
+        _selectedDate.day,
+      );
+
+  bool _hasSessionOnSelectedDate(ActivityInstanceRecord instance) {
+    if (instance.timeLogSessions.isEmpty) return false;
+    final selectedDateOnly = _selectedDateOnly;
+    for (final session in instance.timeLogSessions) {
+      final sessionStart = session['startTime'];
+      if (sessionStart is! DateTime) {
+        continue;
+      }
+      final sessionDate = DateTime(
+        sessionStart.year,
+        sessionStart.month,
+        sessionStart.day,
+      );
+      if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  bool _shouldIgnoreAsStaleInstanceEvent(ActivityInstanceRecord instance) {
+    final incomingMs = instance.lastUpdated?.millisecondsSinceEpoch;
+    if (incomingMs == null || incomingMs <= 0) {
+      return false;
+    }
+    final instanceId = instance.reference.id;
+    final knownMs = _latestInstanceUpdateMsById[instanceId];
+    if (knownMs != null &&
+        incomingMs + _staleInstanceEventToleranceMs < knownMs) {
+      return true;
+    }
+    if (knownMs == null || incomingMs > knownMs) {
+      _latestInstanceUpdateMsById[instanceId] = incomingMs;
+    }
+    return false;
+  }
+
   void _handleInstanceCreated(dynamic param) {
     if (!mounted) return;
     ActivityInstanceRecord instance;
@@ -318,28 +379,22 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
-    final selectedDateOnly = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-    );
+    if (isOptimistic) {
+      _shouldIgnoreAsStaleInstanceEvent(instance);
+    } else if (_shouldIgnoreAsStaleInstanceEvent(instance)) {
+      if (operationId != null) {
+        _optimisticOperations.remove(operationId);
+      }
+      return;
+    }
+    final selectedDateOnly = _selectedDateOnly;
+    final instanceId = instance.reference.id;
+    final incomingHasSelectedSessions = _hasSessionOnSelectedDate(instance);
     bool affectsSelectedDate = false;
     bool affectsPlannedSection = false;
 
-    // Check if instance has time log sessions on selected date
-    if (instance.timeLogSessions.isNotEmpty) {
-      for (final session in instance.timeLogSessions) {
-        final sessionStart = session['startTime'] as DateTime;
-        final sessionDate = DateTime(
-          sessionStart.year,
-          sessionStart.month,
-          sessionStart.day,
-        );
-        if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
-          affectsSelectedDate = true;
-          break;
-        }
-      }
+    if (incomingHasSelectedSessions) {
+      affectsSelectedDate = true;
     }
 
     if (instance.dueDate != null &&
@@ -370,31 +425,39 @@ class _CalendarPageState extends State<CalendarPage> {
       }
     }
 
+    final existingColorHint = _findCurrentColorForInstance(instanceId);
+
     if (isOptimistic) {
       if (operationId != null) {
-        _optimisticOperations[operationId] = instance.reference.id;
+        _optimisticOperations[operationId] = instanceId;
       }
       // Add to optimistic instances if it affects planned section OR has time log sessions on selected date
       if (affectsPlannedSection || affectsSelectedDate) {
-        _optimisticInstances[instance.reference.id] = instance;
+        _optimisticInstances[instanceId] = instance;
       }
       if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
-        _applyOptimisticCompletedPatch(instance);
+        _applyOptimisticCompletedPatch(
+          instance,
+          fallbackColor: existingColorHint,
+        );
         _scheduleObserverRefresh();
       }
     } else {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      _optimisticInstances.remove(instance.reference.id);
+      _optimisticInstances.remove(instanceId);
       if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
-        _applyOptimisticCompletedPatch(instance);
+        _applyOptimisticCompletedPatch(
+          instance,
+          fallbackColor: existingColorHint,
+        );
       }
       if (affectsPlannedSection || affectsSelectedDate) {
         _scheduleObserverRefresh();
@@ -417,38 +480,32 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
+    if (isOptimistic) {
+      _shouldIgnoreAsStaleInstanceEvent(instance);
+    } else if (_shouldIgnoreAsStaleInstanceEvent(instance)) {
+      if (operationId != null) {
+        _optimisticOperations.remove(operationId);
+      }
+      return;
+    }
 
-    final selectedDateOnly = DateTime(
-      _selectedDate.year,
-      _selectedDate.month,
-      _selectedDate.day,
-    );
+    final selectedDateOnly = _selectedDateOnly;
+    final instanceId = instance.reference.id;
+    final incomingHasSelectedSessions = _hasSessionOnSelectedDate(instance);
     bool affectsSelectedDate = false;
     bool affectsPlannedSection = false;
 
     // Check if the instance was *previously* visible on this date
     // This is crucial for deletion/uncompletion where the new state has no logs
     // We check if we have an existing optimistic version or a completed event for this instance
-    bool wasVisibleOnDate =
-        _optimisticInstances.containsKey(instance.reference.id) ||
-            _sortedCompletedEvents.any((e) {
-              final metadata = CalendarEventMetadata.fromMap(e.event);
-              return metadata?.instanceId == instance.reference.id;
-            });
+    bool wasVisibleOnDate = _optimisticInstances.containsKey(instanceId) ||
+        _sortedCompletedEvents.any((e) {
+          final metadata = CalendarEventMetadata.fromMap(e.event);
+          return metadata?.instanceId == instanceId;
+        });
 
-    if (instance.timeLogSessions.isNotEmpty) {
-      for (final session in instance.timeLogSessions) {
-        final sessionStart = session['startTime'] as DateTime;
-        final sessionDate = DateTime(
-          sessionStart.year,
-          sessionStart.month,
-          sessionStart.day,
-        );
-        if (sessionDate.isAtSameMomentAs(selectedDateOnly)) {
-          affectsSelectedDate = true;
-          break;
-        }
-      }
+    if (incomingHasSelectedSessions) {
+      affectsSelectedDate = true;
     } else if (wasVisibleOnDate) {
       // If it was visible but now has no logs (e.g. deleted/uncompleted), it definitely affects this date
       affectsSelectedDate = true;
@@ -477,33 +534,41 @@ class _CalendarPageState extends State<CalendarPage> {
         affectsSelectedDate = true;
       }
     }
+
+    final existingColorHint = _findCurrentColorForInstance(instanceId);
     if (isOptimistic) {
       if (operationId != null) {
-        _optimisticOperations[operationId] = instance.reference.id;
+        _optimisticOperations[operationId] = instanceId;
       }
       // Add to optimistic instances if it affects planned section OR has time log sessions on selected date
       if (affectsPlannedSection || affectsSelectedDate) {
         // ALWAYS update optimistic instances if it affects the date, even if logs are empty.
         // This ensures that "cleared logs" state overrides any stale backend data during _loadEvents.
-        _optimisticInstances[instance.reference.id] = instance;
+        _optimisticInstances[instanceId] = instance;
       }
       if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
-        _applyOptimisticCompletedPatch(instance);
+        _applyOptimisticCompletedPatch(
+          instance,
+          fallbackColor: existingColorHint,
+        );
         _scheduleObserverRefresh();
       }
     } else {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      _optimisticInstances.remove(instance.reference.id);
+      _optimisticInstances.remove(instanceId);
       if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
       }
       if (affectsSelectedDate) {
-        _applyOptimisticCompletedPatch(instance);
+        _applyOptimisticCompletedPatch(
+          instance,
+          fallbackColor: existingColorHint,
+        );
       }
       if (affectsPlannedSection || affectsSelectedDate) {
         _scheduleObserverRefresh();
@@ -527,6 +592,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
     final instanceId = instance.reference.id;
     _optimisticInstances.remove(instanceId);
+    _latestInstanceUpdateMsById.remove(instanceId);
     bool affectsSelectedDate = false;
     bool affectsPlannedSection = false;
     if (instance.dueDate != null &&
@@ -628,6 +694,7 @@ class _CalendarPageState extends State<CalendarPage> {
           _optimisticOperations.remove(operationId);
           if (instanceId != null) {
             _optimisticInstances.remove(instanceId);
+            _latestInstanceUpdateMsById.remove(instanceId);
             _plannedEventController.removeWhere((e) {
               final metadata = CalendarEventMetadata.fromMap(e.event);
               return metadata?.instanceId == instanceId;
@@ -668,16 +735,30 @@ class _CalendarPageState extends State<CalendarPage> {
     }
   }
 
-  void _applyOptimisticCompletedPatch(ActivityInstanceRecord instance) {
+  void _applyOptimisticCompletedPatch(
+    ActivityInstanceRecord instance, {
+    Color? fallbackColor,
+  }) {
     if (!mounted) return;
 
     final instanceId = instance.reference.id;
-    Color? previousColor;
-    for (final event in _sortedCompletedEvents) {
-      final metadata = CalendarEventMetadata.fromMap(event.event);
-      if (metadata?.instanceId == instanceId) {
-        previousColor = event.color;
-        break;
+    Color? previousColor = fallbackColor;
+    if (previousColor == null) {
+      for (final event in _sortedCompletedEvents) {
+        final metadata = CalendarEventMetadata.fromMap(event.event);
+        if (metadata?.instanceId == instanceId) {
+          previousColor = event.color;
+          break;
+        }
+      }
+    }
+    if (previousColor == null) {
+      for (final event in _sortedPlannedEvents) {
+        final metadata = CalendarEventMetadata.fromMap(event.event);
+        if (metadata?.instanceId == instanceId) {
+          previousColor = event.color;
+          break;
+        }
       }
     }
 

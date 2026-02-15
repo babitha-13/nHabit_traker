@@ -14,15 +14,20 @@ class TimerManager extends ChangeNotifier {
   final Set<String> _hiddenTimers = {};
   Timer? _updateTimer;
 
+  bool _isSessionLogging(ActivityInstanceRecord instance) {
+    return instance.isTimeLogging || instance.currentSessionStartTime != null;
+  }
+
   /// Check if an instance is an active timer session (time type or binary with time logging)
   bool _isTimerSession(ActivityInstanceRecord instance) {
-    // Time-tracking instances
-    if (instance.templateTrackingType == 'time') {
-      return true;
+    final trackingType = instance.templateTrackingType;
+    // Time tracking can run through legacy timer fields or session fields.
+    if (trackingType == 'time') {
+      return instance.isTimerActive || _isSessionLogging(instance);
     }
-    // Binary timer sessions (created from timer page)
-    if (instance.templateTrackingType == 'binary' &&
-        (instance.isTimeLogging || instance.currentSessionStartTime != null)) {
+    // Session-based timer logging for swipe/start timer flows.
+    if ((trackingType == 'binary' || trackingType == 'quantitative') &&
+        _isSessionLogging(instance)) {
       return true;
     }
     return false;
@@ -38,27 +43,19 @@ class TimerManager extends ChangeNotifier {
         return false;
       }
 
-      // Always show timer habits, or respect templateShowInFloatingTimer for others
-      final shouldShow = inst.templateShowInFloatingTimer ||
-          (inst.templateTrackingType == 'time' &&
-              inst.templateCategoryType == 'habit');
-
-      if (!shouldShow) {
-        return false;
+      // Session-based timers for binary/quantitative tracking.
+      if (inst.templateTrackingType == 'binary' ||
+          inst.templateTrackingType == 'quantitative') {
+        return _isSessionLogging(inst);
       }
 
-      // For binary timer sessions, check if time logging is active
-      if (inst.templateTrackingType == 'binary') {
-        return inst.isTimeLogging || inst.currentSessionStartTime != null;
-      }
-
-      // For time-tracking instances, check if timer is active and target not met
+      // For time-tracking instances, check active state and target not met.
+      final isRunning = inst.isTimerActive || _isSessionLogging(inst);
       final targetInMs = inst.templateTarget != null && inst.templateTarget! > 0
           ? inst.templateTarget! * 60 * 1000
           : null;
 
-      return inst.isTimerActive &&
-          (targetInMs == null || inst.accumulatedTime < targetInMs);
+      return isRunning && (targetInMs == null || inst.accumulatedTime < targetInMs);
     }).toList();
   }
 
@@ -70,37 +67,25 @@ class TimerManager extends ChangeNotifier {
     // Check if this is a timer session
     if (!_isTimerSession(instance)) {
       debugPrint(
-          'TimerManager: Not adding instance ${instance.reference.id} - not a timer session (type: ${instance.templateTrackingType}, isTimeLogging: ${instance.isTimeLogging})');
+          'TimerManager: Not adding instance ${instance.reference.id} - not an active timer session (type: ${instance.templateTrackingType}, isTimerActive: ${instance.isTimerActive}, isTimeLogging: ${instance.isTimeLogging})');
       return;
     }
 
-    // For binary timer sessions, check if time logging is active
-    if (instance.templateTrackingType == 'binary') {
-      if (!instance.isTimeLogging && instance.currentSessionStartTime == null) {
+    // For session-based timers, logging must be active.
+    if (instance.templateTrackingType == 'binary' ||
+        instance.templateTrackingType == 'quantitative') {
+      if (!_isSessionLogging(instance)) {
         debugPrint(
-            'TimerManager: Not adding instance ${instance.reference.id} - binary timer not actively logging');
+            'TimerManager: Not adding instance ${instance.reference.id} - session is not actively logging');
         return;
       }
     } else {
-      // For time-tracking instances, check if timer is active
-      if (!instance.isTimerActive) {
+      // For time-tracking instances, support legacy active flag and session logging.
+      if (!instance.isTimerActive && !_isSessionLogging(instance)) {
         debugPrint(
-            'TimerManager: Not adding instance ${instance.reference.id} - timer not active');
+            'TimerManager: Not adding instance ${instance.reference.id} - time timer not active');
         return;
       }
-    }
-
-    // Always show timer habits in floating timer, or respect templateShowInFloatingTimer
-    final shouldShow = instance.templateShowInFloatingTimer ||
-        (instance.templateTrackingType == 'time' &&
-            instance.templateCategoryType == 'habit');
-
-    if (!shouldShow) {
-      debugPrint(
-          'TimerManager: Not adding instance ${instance.reference.id} - templateShowInFloatingTimer is false');
-      debugPrint(
-          '  Instance: ${instance.templateName}, hasFlag: ${instance.hasTemplateShowInFloatingTimer()}, value: ${instance.templateShowInFloatingTimer}');
-      return;
     }
 
     _activeTimers[instance.reference.id] = instance;
@@ -131,12 +116,12 @@ class TimerManager extends ChangeNotifier {
 
     // Always remove from hiddenTimers if instance is an active timer session
     if (_isTimerSession(instance)) {
-      if (instance.templateTrackingType == 'binary') {
-        if (instance.isTimeLogging ||
-            instance.currentSessionStartTime != null) {
+      if (instance.templateTrackingType == 'binary' ||
+          instance.templateTrackingType == 'quantitative') {
+        if (_isSessionLogging(instance)) {
           _hiddenTimers.remove(instance.reference.id);
         }
-      } else if (instance.isTimerActive) {
+      } else if (instance.isTimerActive || _isSessionLogging(instance)) {
         _hiddenTimers.remove(instance.reference.id);
       }
     }
@@ -148,18 +133,19 @@ class TimerManager extends ChangeNotifier {
 
       // For binary timer sessions, check if time logging stopped
       bool timerSessionStopped = false;
-      if (instance.templateTrackingType == 'binary') {
-        timerSessionStopped =
-            !instance.isTimeLogging && instance.currentSessionStartTime == null;
+      if (instance.templateTrackingType == 'binary' ||
+          instance.templateTrackingType == 'quantitative') {
+        timerSessionStopped = !_isSessionLogging(instance);
       } else {
-        // For time-tracking instances, check if target met
+        // For time-tracking instances, check if timer is no longer active
+        final isRunning = instance.isTimerActive || _isSessionLogging(instance);
         final hasTarget =
             instance.templateTarget != null && instance.templateTarget != 0;
         final targetInMs =
             hasTarget ? instance.templateTarget! * 60 * 1000 : null;
-        timerSessionStopped = hasTarget &&
-            targetInMs != null &&
-            instance.accumulatedTime >= targetInMs;
+        final targetReached =
+            hasTarget && targetInMs != null && instance.accumulatedTime >= targetInMs;
+        timerSessionStopped = !isRunning || targetReached;
       }
 
       debugPrint(
@@ -181,14 +167,14 @@ class TimerManager extends ChangeNotifier {
       }
     } else if (_isTimerSession(instance)) {
       // Instance is not in map but is an active timer session - add it
-      if (instance.templateTrackingType == 'binary') {
-        if (instance.isTimeLogging ||
-            instance.currentSessionStartTime != null) {
+      if (instance.templateTrackingType == 'binary' ||
+          instance.templateTrackingType == 'quantitative') {
+        if (_isSessionLogging(instance)) {
           debugPrint(
-              'TimerManager: Adding instance ${instance.reference.id} via updateInstance (binary timer session)');
+              'TimerManager: Adding instance ${instance.reference.id} via updateInstance (session timer)');
           startInstance(instance);
         }
-      } else if (instance.isTimerActive) {
+      } else if (instance.isTimerActive || _isSessionLogging(instance)) {
         debugPrint(
             'TimerManager: Adding instance ${instance.reference.id} via updateInstance (time timer restart)');
         startInstance(instance);
@@ -210,31 +196,26 @@ class TimerManager extends ChangeNotifier {
           .where('isTimerActive', isEqualTo: true)
           .where('templateTrackingType', isEqualTo: 'time');
 
-      // Load binary timer sessions (with time logging active)
-      final binaryQuery = ActivityInstanceRecord.collectionForUser(uid)
-          .where('isTimeLogging', isEqualTo: true)
-          .where('templateTrackingType', isEqualTo: 'binary');
+      // Load all active session-based timers (binary/time/quantitative).
+      final sessionQuery = ActivityInstanceRecord.collectionForUser(uid)
+          .where('isTimeLogging', isEqualTo: true);
 
       final timeResult = await timeQuery.get();
-      final binaryResult = await binaryQuery.get();
+      final sessionResult = await sessionQuery.get();
 
       // Process time-tracking instances
       for (final doc in timeResult.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
-        final shouldShow = instance.templateShowInFloatingTimer ||
-            (instance.templateTrackingType == 'time' &&
-                instance.templateCategoryType == 'habit');
-
-        if (shouldShow) {
+        if (_isTimerSession(instance)) {
           _activeTimers[instance.reference.id] = instance;
           _hiddenTimers.remove(instance.reference.id);
         }
       }
 
-      // Process binary timer sessions
-      for (final doc in binaryResult.docs) {
+      // Process session-based timers
+      for (final doc in sessionResult.docs) {
         final instance = ActivityInstanceRecord.fromSnapshot(doc);
-        if (instance.templateShowInFloatingTimer) {
+        if (_isTimerSession(instance)) {
           _activeTimers[instance.reference.id] = instance;
           _hiddenTimers.remove(instance.reference.id);
         }
@@ -261,24 +242,16 @@ class TimerManager extends ChangeNotifier {
 
         // Check if still a timer session and should show
         if (_isTimerSession(updatedInstance)) {
-          final shouldShow = updatedInstance.templateShowInFloatingTimer ||
-              (updatedInstance.templateTrackingType == 'time' &&
-                  updatedInstance.templateCategoryType == 'habit');
-
-          if (shouldShow) {
-            // For binary timer sessions, check if still logging
-            if (updatedInstance.templateTrackingType == 'binary') {
-              if (updatedInstance.isTimeLogging ||
-                  updatedInstance.currentSessionStartTime != null) {
-                _activeTimers[instanceId] = updatedInstance;
-              } else {
-                _activeTimers.remove(instanceId);
-              }
-            } else if (updatedInstance.isTimerActive) {
+          if (updatedInstance.templateTrackingType == 'binary' ||
+              updatedInstance.templateTrackingType == 'quantitative') {
+            if (_isSessionLogging(updatedInstance)) {
               _activeTimers[instanceId] = updatedInstance;
             } else {
               _activeTimers.remove(instanceId);
             }
+          } else if (updatedInstance.isTimerActive ||
+              _isSessionLogging(updatedInstance)) {
+            _activeTimers[instanceId] = updatedInstance;
           } else {
             _activeTimers.remove(instanceId);
           }

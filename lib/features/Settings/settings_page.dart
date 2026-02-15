@@ -117,7 +117,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.grey),
+              const Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
         ),
@@ -161,7 +161,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.grey),
+              const Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
         ),
@@ -199,7 +199,9 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
               ),
               subtitle: Text(
-                'ON: 30-minute diminishing blocks. OFF: target-sized diminishing blocks.',
+                _timeBonusEnabled
+                    ? 'Effort Mode ON: long duration activities get more points, with diminishing returns.'
+                    : 'Effort Mode OFF: points depend on completion status, not duration.',
                 style: theme.bodySmall,
               ),
               value: _timeBonusEnabled,
@@ -226,8 +228,14 @@ class _SettingsPageState extends State<SettingsPage> {
                   Expanded(
                     child: Text(
                       _timeBonusEnabled
-                          ? 'Effort Mode is ON. Binary and time activities use 30-minute diminishing blocks. Binary completion stays capped by matching target and earned. Quantity activities still score by quantity.'
-                          : 'Effort Mode is OFF. Over-completion is still diminishing, but uses target-sized blocks. Binary remains completion-centric and quantity remains quantity-based.',
+                          ? 'Effort Mode ON:\n'
+                              'Long duration activities get more points than short duration activities (less than one hour). Even binary activities get more points if time is recorded and it takes more than half an hour.\n'
+                              'Ex: A 30 mins task gets 1 point, and a 1 hr task gets 1.7 points. However additional points exhibit diminishing returns.\n\n'
+                              'Diminishing returns:\n'
+                              'If priority is one, the first half hour gets 1 full point. But the next half an hour gets 0.7 points and the next 0.5 points. Returns are not proportional to avoid over-focusing on the same activity the entire day.'
+                          : 'Effort Mode OFF:\n'
+                              'Points are defined by completion status and not dependent on duration.\n'
+                              'Ex: A 30 min task and a 2 hr task both get 1 point if priority is 1.',
                       style: theme.bodySmall.override(
                         color: Colors.blue.shade700,
                       ),
@@ -278,7 +286,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-              Icon(Icons.chevron_right, color: Colors.grey),
+              const Icon(Icons.chevron_right, color: Colors.grey),
             ],
           ),
         ),

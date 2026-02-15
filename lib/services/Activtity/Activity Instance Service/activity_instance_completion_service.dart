@@ -332,6 +332,7 @@ class ActivityInstanceCompletionService {
           completedAt: completionTime,
           timeLogSessions: optimisticTimeLogSessions,
           totalTimeLogged: optimisticTotalTimeLogged,
+          templateCategoryColorHex: instance.templateCategoryColor,
         );
         operationId = OptimisticOperationTracker.generateOperationId();
         OptimisticOperationTracker.trackOperation(
@@ -516,7 +517,10 @@ class ActivityInstanceCompletionService {
       String? operationId;
       if (!skipOptimisticUpdate) {
         final optimisticInstance =
-            InstanceEvents.createOptimisticUncompletedInstance(instance);
+            InstanceEvents.createOptimisticUncompletedInstance(
+          instance,
+          deleteLogs: deleteLogs,
+        );
         operationId = OptimisticOperationTracker.generateOperationId();
         OptimisticOperationTracker.trackOperation(
           operationId,
