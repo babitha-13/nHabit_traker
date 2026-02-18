@@ -184,16 +184,16 @@ class ActivityInstanceService {
     );
   }
 
-  /// Find other instances completed within a time window (for backward stacking)
-  static Future<List<ActivityInstanceRecord>> findSimultaneousCompletions({
+  /// Find all instances with recent sessions near the given time (for stacking)
+  static Future<List<ActivityInstanceRecord>> findInstancesWithRecentSessions({
     required String userId,
-    required DateTime completionTime,
+    required DateTime nearTime,
     required String excludeInstanceId,
-    Duration window = const Duration(seconds: 15),
+    Duration window = const Duration(seconds: 30),
   }) async {
-    return ActivityInstanceCompletionService.findSimultaneousCompletions(
+    return ActivityInstanceCompletionService.findInstancesWithRecentSessions(
       userId: userId,
-      completionTime: completionTime,
+      nearTime: nearTime,
       excludeInstanceId: excludeInstanceId,
       window: window,
     );
@@ -207,6 +207,7 @@ class ActivityInstanceService {
     required int durationMs,
     required String instanceId,
     int? effectiveEstimateMinutes,
+    List<Map<String, dynamic>>? currentInstanceSessions,
   }) async {
     return ActivityInstanceCompletionService.calculateStackedStartTime(
       userId: userId,
@@ -214,6 +215,7 @@ class ActivityInstanceService {
       durationMs: durationMs,
       instanceId: instanceId,
       effectiveEstimateMinutes: effectiveEstimateMinutes,
+      currentInstanceSessions: currentInstanceSessions,
     );
   }
 

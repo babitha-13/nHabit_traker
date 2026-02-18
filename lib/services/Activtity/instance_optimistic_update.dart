@@ -247,6 +247,7 @@ class InstanceEvents {
   static ActivityInstanceRecord createOptimisticUncompletedInstance(
     ActivityInstanceRecord original, {
     bool deleteLogs = false,
+    int? forcedCurrentValue,
   }) {
     final updatedData = Map<String, dynamic>.from(original.snapshotData);
     final now = DateService.currentDate;
@@ -263,11 +264,19 @@ class InstanceEvents {
     // For quantitative/time-based, preserve currentValue/accumulatedTime
     // (user might want to keep partial progress)
 
+    if (forcedCurrentValue != null) {
+      updatedData['currentValue'] = forcedCurrentValue;
+    }
+
     if (deleteLogs) {
       updatedData['timeLogSessions'] = [];
       updatedData['totalTimeLogged'] = 0;
       updatedData['accumulatedTime'] = 0;
-      updatedData['currentValue'] = 0;
+      if (forcedCurrentValue != null) {
+        updatedData['currentValue'] = forcedCurrentValue;
+      } else {
+        updatedData['currentValue'] = 0;
+      }
     }
 
     // Mark as optimistic

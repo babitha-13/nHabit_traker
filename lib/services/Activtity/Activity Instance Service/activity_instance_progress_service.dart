@@ -10,49 +10,6 @@ import 'activity_instance_completion_service.dart';
 
 /// Service for updating instance progress and timer operations
 class ActivityInstanceProgressService {
-  static DateTime _shiftEndTimeBeforeExistingSessionOverlaps({
-    required DateTime candidateEndTime,
-    required int durationMs,
-    required List<Map<String, dynamic>> existingSessions,
-  }) {
-    var adjustedEnd = candidateEndTime;
-    if (existingSessions.isEmpty || durationMs <= 0) {
-      return adjustedEnd;
-    }
-
-    var shouldCheck = true;
-    while (shouldCheck) {
-      shouldCheck = false;
-      final candidateStart =
-          adjustedEnd.subtract(Duration(milliseconds: durationMs));
-      DateTime? earliestOverlapStart;
-
-      for (final session in existingSessions) {
-        final start = session['startTime'] as DateTime?;
-        final end = session['endTime'] as DateTime?;
-        if (start == null || end == null) {
-          continue;
-        }
-        final overlaps =
-            candidateStart.isBefore(end) && adjustedEnd.isAfter(start);
-        if (!overlaps) {
-          continue;
-        }
-        if (earliestOverlapStart == null ||
-            start.isBefore(earliestOverlapStart)) {
-          earliestOverlapStart = start;
-        }
-      }
-
-      if (earliestOverlapStart != null) {
-        adjustedEnd = earliestOverlapStart;
-        shouldCheck = true;
-      }
-    }
-
-    return adjustedEnd;
-  }
-
   /// Update instance progress (for quantitative tracking)
   static Future<void> updateInstanceProgress({
     required String instanceId,
@@ -142,49 +99,33 @@ class ActivityInstanceProgressService {
 
               // Create one time block per increment
               final newSessions = <Map<String, dynamic>>[];
-              DateTime currentEndTime =
-                  effectiveReferenceTime; // Start from the desired reference time
 
-              // Loop through each increment to create separate time blocks
+              // For each increment, use global stacking to place the block
+              // above ALL existing sessions (own + other instances)
               for (int i = 0; i < delta.toInt(); i++) {
-                DateTime sessionStartTime;
+                // Include own existing sessions + any new sessions created so far
+                final allOwnSessions = <Map<String, dynamic>>[
+                  ...existingSessions,
+                  ...newSessions,
+                ];
 
-                DateTime sessionEndTime;
-                if (i == 0) {
-                  final nonOverlappingEndTime =
-                      _shiftEndTimeBeforeExistingSessionOverlaps(
-                    candidateEndTime: currentEndTime,
-                    durationMs: perUnitMs,
-                    existingSessions: existingSessions,
-                  );
-
-                  // First block: use calculateStackedStartTime to account for simultaneous items
-                  final stackedTimes = await ActivityInstanceCompletionService
-                      .calculateStackedStartTime(
-                    userId: uid,
-                    completionTime: nonOverlappingEndTime,
-                    durationMs: perUnitMs,
-                    instanceId: instanceId,
-                    effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
-                  );
-                  sessionStartTime = stackedTimes.startTime;
-                  sessionEndTime = stackedTimes.endTime;
-                } else {
-                  // Subsequent blocks: stack directly before the previous block
-                  sessionStartTime = currentEndTime
-                      .subtract(Duration(milliseconds: perUnitMs));
-                  sessionEndTime = currentEndTime;
-                }
+                final stackedTimes = await ActivityInstanceCompletionService
+                    .calculateStackedStartTime(
+                  userId: uid,
+                  completionTime: effectiveReferenceTime,
+                  durationMs: perUnitMs,
+                  instanceId: instanceId,
+                  effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
+                  currentInstanceSessions: allOwnSessions,
+                );
 
                 final newSession = {
-                  'startTime': sessionStartTime,
-                  'endTime': sessionEndTime,
+                  'startTime': stackedTimes.startTime,
+                  'endTime': stackedTimes.endTime,
                   'durationMilliseconds': perUnitMs,
                 };
 
                 newSessions.add(newSession);
-                currentEndTime =
-                    sessionStartTime; // Next block ends where this one starts
               }
 
               // Add all new sessions to existing sessions

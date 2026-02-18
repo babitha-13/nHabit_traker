@@ -232,17 +232,22 @@ class ItemTimeControlsHelper {
       }
 
       final completionTime = DateTime.now();
+
+      final instanceBeforeSession =
+          await ActivityInstanceService.getUpdatedInstance(
+        instanceId: instance.reference.id,
+      );
+
+      final existingSessions = List<Map<String, dynamic>>.from(
+          instanceBeforeSession.timeLogSessions);
+
       final stackedTimes =
           await ActivityInstanceService.calculateStackedStartTime(
         userId: userId,
         completionTime: completionTime,
         durationMs: newAccumulatedTime,
         instanceId: updatedInstance.reference.id,
-      );
-
-      final instanceBeforeSession =
-          await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instance.reference.id,
+        currentInstanceSessions: existingSessions,
       );
 
       final newSession = {
@@ -250,9 +255,6 @@ class ItemTimeControlsHelper {
         'endTime': stackedTimes.endTime,
         'durationMilliseconds': newAccumulatedTime,
       };
-
-      final existingSessions = List<Map<String, dynamic>>.from(
-          instanceBeforeSession.timeLogSessions);
 
       existingSessions.add(newSession);
       final totalTime = existingSessions.fold<int>(

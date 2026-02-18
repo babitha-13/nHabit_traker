@@ -52,106 +52,147 @@ class ActivityInstanceCompletionService {
     }
   }
 
-  /// Find other instances completed within a time window (for backward stacking)
-  static Future<List<ActivityInstanceRecord>> findSimultaneousCompletions({
+  /// Find all instances with recent sessions near the given time (for stacking).
+  /// Includes completed items (by completedAt) AND any items with recent updates
+  /// (by lastUpdated) to catch pending quantitative items with time log sessions.
+  static Future<List<ActivityInstanceRecord>> findInstancesWithRecentSessions({
     required String userId,
-    required DateTime completionTime,
+    required DateTime nearTime,
     required String excludeInstanceId,
-    Duration window = const Duration(seconds: 15),
+    Duration window = const Duration(seconds: 30),
   }) async {
-    try {
-      final windowStart = completionTime.subtract(window);
-      final windowEnd = completionTime.add(window);
+    final windowStart = nearTime.subtract(window);
+    final windowEnd = nearTime.add(window);
+    final seen = <String>{};
+    final results = <ActivityInstanceRecord>[];
 
-      final query = ActivityInstanceRecord.collectionForUser(userId)
+    // Query 1: Completed items by completedAt (existing behavior)
+    try {
+      final completedQuery = ActivityInstanceRecord.collectionForUser(userId)
           .where('status', isEqualTo: 'completed')
           .where('completedAt', isGreaterThanOrEqualTo: windowStart)
           .where('completedAt', isLessThanOrEqualTo: windowEnd);
-
-      final results = await query.get();
-      return results.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((instance) => instance.reference.id != excludeInstanceId)
-          .toList();
-    } catch (e) {
-      if (e.toString().contains('index') || e.toString().contains('https://')) {
-        print('   Click the link to create the index automatically.');
+      final completedResults = await completedQuery.get();
+      for (final doc in completedResults.docs) {
+        final inst = ActivityInstanceRecord.fromSnapshot(doc);
+        if (inst.reference.id != excludeInstanceId &&
+            seen.add(inst.reference.id)) {
+          results.add(inst);
+        }
       }
-      return [];
+    } catch (e) {
+      // Index might not exist yet
     }
+
+    // Query 2: Any status items recently updated (catches pending quantitative items)
+    try {
+      final recentQuery = ActivityInstanceRecord.collectionForUser(userId)
+          .where('lastUpdated', isGreaterThanOrEqualTo: windowStart)
+          .where('lastUpdated', isLessThanOrEqualTo: windowEnd);
+      final recentResults = await recentQuery.get();
+      for (final doc in recentResults.docs) {
+        final inst = ActivityInstanceRecord.fromSnapshot(doc);
+        if (inst.reference.id != excludeInstanceId &&
+            seen.add(inst.reference.id) &&
+            inst.timeLogSessions.isNotEmpty) {
+          results.add(inst);
+        }
+      }
+    } catch (e) {
+      // Index might not exist yet
+    }
+
+    return results;
   }
 
+  /// Calculate start and end times for a new session block, placing it above
+  /// all existing session blocks from all recent instances (global stacking).
+  ///
+  /// [currentInstanceSessions] should contain the current instance's own
+  /// existing sessions so they are also considered in overlap avoidance.
   static Future<StackedSessionTimes> calculateStackedStartTime({
     required String userId,
     required DateTime completionTime,
     required int durationMs,
     required String instanceId,
     int? effectiveEstimateMinutes,
+    List<Map<String, dynamic>>? currentInstanceSessions,
   }) async {
-    final simultaneous = await findSimultaneousCompletions(
+    // 1. Find all instances with recent sessions (any status)
+    final recentInstances = await findInstancesWithRecentSessions(
       userId: userId,
-      completionTime: completionTime,
+      nearTime: completionTime,
       excludeInstanceId: instanceId,
     );
 
-    if (simultaneous.isEmpty) {
-      final startTime =
-          completionTime.subtract(Duration(milliseconds: durationMs));
-      return StackedSessionTimes(
-        startTime: startTime,
-        endTime: completionTime,
-      );
-    }
-    int totalDurationMs = 0;
-    for (final item in simultaneous) {
-      if (item.timeLogSessions.isNotEmpty) {
-        final lastSession = item.timeLogSessions.last;
-        final sessionDuration =
-            lastSession['durationMilliseconds'] as int? ?? 0;
-        totalDurationMs += sessionDuration;
-      } else {
-        ActivityRecord? itemTemplate;
-        if (item.hasTemplateId()) {
-          try {
-            final itemTemplateRef =
-                ActivityRecord.collectionForUser(userId).doc(item.templateId);
-            final itemTemplateDoc = await itemTemplateRef.get();
-            if (itemTemplateDoc.exists) {
-              itemTemplate = ActivityRecord.fromSnapshot(itemTemplateDoc);
-            }
-          } catch (e) {
-            //
-          }
-        }
-        final itemEffectiveEstimate =
-            await TimeEstimateResolver.getEffectiveEstimateMinutes(
-          userId: userId,
-          trackingType: item.templateTrackingType,
-          target: item.templateTarget,
-          hasExplicitSessions: item.timeLogSessions.isNotEmpty,
-          template: itemTemplate,
-        );
-        final itemDuration = calculateCompletionDuration(
-          item,
-          item.completedAt ?? completionTime,
-          effectiveEstimateMinutes: itemEffectiveEstimate,
-        );
-        if (itemDuration > 0) {
-          totalDurationMs += itemDuration;
-        }
+    // 2. Collect ALL sessions from all instances
+    final allSessions = <Map<String, dynamic>>[];
+    for (final item in recentInstances) {
+      for (final session in item.timeLogSessions) {
+        allSessions.add(Map<String, dynamic>.from(session));
       }
     }
-    final stackedStartTime = completionTime.subtract(
-      Duration(milliseconds: totalDurationMs + durationMs),
-    );
-    final stackedEndTime = completionTime.subtract(
-      Duration(milliseconds: totalDurationMs),
+
+    // 3. Also include current instance's own existing sessions
+    if (currentInstanceSessions != null) {
+      for (final session in currentInstanceSessions) {
+        allSessions.add(Map<String, dynamic>.from(session));
+      }
+    }
+
+    // 4. Use overlap-avoidance: shift end time before any overlapping session
+    final adjustedEnd = _shiftEndTimeBeforeAllSessionOverlaps(
+      candidateEndTime: completionTime,
+      durationMs: durationMs,
+      allSessions: allSessions,
     );
 
     return StackedSessionTimes(
-      startTime: stackedStartTime,
-      endTime: stackedEndTime,
+      startTime: adjustedEnd.subtract(Duration(milliseconds: durationMs)),
+      endTime: adjustedEnd,
     );
+  }
+
+  /// Shift a candidate end time earlier so that the proposed block
+  /// [candidateEndTime - durationMs, candidateEndTime] does not overlap
+  /// with any existing session.
+  static DateTime _shiftEndTimeBeforeAllSessionOverlaps({
+    required DateTime candidateEndTime,
+    required int durationMs,
+    required List<Map<String, dynamic>> allSessions,
+  }) {
+    var adjustedEnd = candidateEndTime;
+    if (allSessions.isEmpty || durationMs <= 0) {
+      return adjustedEnd;
+    }
+
+    var shouldCheck = true;
+    while (shouldCheck) {
+      shouldCheck = false;
+      final candidateStart =
+          adjustedEnd.subtract(Duration(milliseconds: durationMs));
+      DateTime? earliestOverlapStart;
+
+      for (final session in allSessions) {
+        final start = session['startTime'] as DateTime?;
+        final end = session['endTime'] as DateTime?;
+        if (start == null || end == null) continue;
+        final overlaps =
+            candidateStart.isBefore(end) && adjustedEnd.isAfter(start);
+        if (!overlaps) continue;
+        if (earliestOverlapStart == null ||
+            start.isBefore(earliestOverlapStart)) {
+          earliestOverlapStart = start;
+        }
+      }
+
+      if (earliestOverlapStart != null) {
+        adjustedEnd = earliestOverlapStart;
+        shouldCheck = true;
+      }
+    }
+
+    return adjustedEnd;
   }
 
   /// Complete an activity instance
@@ -279,6 +320,7 @@ class ActivityInstanceCompletionService {
           durationMs: forcedDurationMs!,
           instanceId: instanceId,
           effectiveEstimateMinutes: effectiveEstimateMinutes,
+          currentInstanceSessions: existingSessions,
         );
 
         final forcedSession = {
@@ -302,6 +344,7 @@ class ActivityInstanceCompletionService {
           durationMs: durationMs,
           instanceId: instanceId,
           effectiveEstimateMinutes: effectiveEstimateMinutes,
+          currentInstanceSessions: existingSessions,
         );
 
         final newSession = {

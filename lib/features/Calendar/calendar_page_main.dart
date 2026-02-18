@@ -23,6 +23,7 @@ import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/calen
 import 'package:habit_tracker/features/Calendar/calendar_time_entry_modal.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/services/diagnostics/calendar_optimistic_trace_logger.dart';
+import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -542,7 +543,12 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      _optimisticInstances.remove(instanceId);
+      // Keep authoritative local state even after reconciliation to bridge query latency
+      if (affectsPlannedSection || affectsSelectedDate) {
+        _optimisticInstances[instanceId] = instance;
+      } else {
+        _optimisticInstances.remove(instanceId);
+      }
       if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
       }
@@ -553,6 +559,7 @@ class _CalendarPageState extends State<CalendarPage> {
         );
       }
       if (affectsPlannedSection || affectsSelectedDate) {
+        FirestoreCacheService().invalidateCalendarDateCache(_selectedDate);
         _scheduleObserverRefresh();
       }
       _traceCalendarFlow(
@@ -697,7 +704,12 @@ class _CalendarPageState extends State<CalendarPage> {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
-      _optimisticInstances.remove(instanceId);
+      // Keep authoritative local state even after reconciliation to bridge query latency
+      if (affectsPlannedSection || affectsSelectedDate) {
+        _optimisticInstances[instanceId] = instance;
+      } else {
+        _optimisticInstances.remove(instanceId);
+      }
       if (affectsPlannedSection) {
         _applyOptimisticPlannedPatch(instance);
       }
@@ -708,6 +720,7 @@ class _CalendarPageState extends State<CalendarPage> {
         );
       }
       if (affectsPlannedSection || affectsSelectedDate) {
+        FirestoreCacheService().invalidateCalendarDateCache(_selectedDate);
         _scheduleObserverRefresh();
       }
       _traceCalendarFlow(
@@ -846,6 +859,7 @@ class _CalendarPageState extends State<CalendarPage> {
       );
     }
     if (affectsSelectedDate && instance.timeLogSessions.isNotEmpty) {
+      FirestoreCacheService().invalidateCalendarDateCache(_selectedDate);
       _scheduleObserverRefresh();
     }
   }
@@ -1356,7 +1370,7 @@ class _CalendarPageState extends State<CalendarPage> {
 
   /// Remove duplicate logical events while preserving order.
   List<CalendarEventData> _dedupeEvents(List<CalendarEventData> events) {
-    if (events.isEmpty) return const [];
+    if (events.isEmpty) return [];
     final seen = <String>{};
     final deduped = <CalendarEventData>[];
     for (final event in events) {

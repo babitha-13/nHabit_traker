@@ -124,29 +124,45 @@ class ItemQuantitativeControlsHelper {
       setQuantProgressOverride(null);
     });
     try {
-      await ActivityInstanceService.updateInstanceProgress(
-        instanceId: instance.reference.id,
-        currentValue: 0,
-        referenceTime: progressReferenceTime,
-      );
-      if (instance.status == 'completed' || instance.status == 'skipped') {
-        if (instance.templateTrackingType == 'quantitative') {
-          bool deleteLogs = false;
-          if (instance.timeLogSessions.isNotEmpty) {
-            final userChoice = await showUncompleteDialog();
-            if (userChoice == null || userChoice == 'cancel') {
-              if (isMounted()) {
-                setState(() {
-                  setUpdating(false);
-                });
-              }
-              return;
-            }
-            deleteLogs = userChoice == 'delete';
+      if (instance.timeLogSessions.isNotEmpty) {
+        // If there are time logs, ALWAYS ask the user what to do, regardless of status
+        final userChoice = await showUncompleteDialog();
+        if (userChoice == null || userChoice == 'cancel') {
+          if (isMounted()) {
+            setState(() {
+              setUpdating(false);
+            });
           }
+          return;
+        }
+        final deleteLogs = userChoice == 'delete';
+
+        // Use handleQuantUncompletion to ensure consistent optimistic updates and error handling
+        await handleQuantUncompletion(
+          instance: instance,
+          updatedInstance:
+              instance, // Pass original instance as updated since we are forcing uncompletion
+          onInstanceUpdated: onInstanceUpdated,
+          onRefresh: onRefresh,
+          context: context,
+          isMounted: isMounted,
+          shouldAutoUncompleteQuant: (_) => true, // Force execution
+          deleteLogs: deleteLogs, // Pass this new parameter
+          forcedCurrentValue: 0, // Pass this new parameter
+        );
+      } else {
+        // No logs to worry about
+        if (instance.status == 'completed' || instance.status == 'skipped') {
           await ActivityInstanceService.uncompleteInstance(
             instanceId: instance.reference.id,
-            deleteLogs: deleteLogs,
+            currentValue: 0,
+          );
+        } else {
+          // Just reset the value for pending items
+          await ActivityInstanceService.updateInstanceProgress(
+            instanceId: instance.reference.id,
+            currentValue: 0,
+            referenceTime: progressReferenceTime,
           );
         }
       }
@@ -490,6 +506,8 @@ class ItemQuantitativeControlsHelper {
     required BuildContext context,
     required bool Function() isMounted,
     required bool Function(ActivityInstanceRecord) shouldAutoUncompleteQuant,
+    bool deleteLogs = false,
+    int? forcedCurrentValue,
   }) async {
     if (!shouldAutoUncompleteQuant(updatedInstance)) return;
 
@@ -500,6 +518,8 @@ class ItemQuantitativeControlsHelper {
     final optimisticInstance =
         InstanceEvents.createOptimisticUncompletedInstance(
       updatedInstance,
+      deleteLogs: deleteLogs,
+      forcedCurrentValue: forcedCurrentValue,
     );
 
     // Track the optimistic operation
@@ -522,6 +542,8 @@ class ItemQuantitativeControlsHelper {
     try {
       await ActivityInstanceService.uncompleteInstance(
         instanceId: instance.reference.id,
+        deleteLogs: deleteLogs,
+        currentValue: forcedCurrentValue,
       );
 
       // Get actual instance from backend and reconcile
