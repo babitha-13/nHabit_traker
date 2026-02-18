@@ -22,6 +22,7 @@ import 'package:habit_tracker/features/Calendar/Event_tiles/calendar_event_tile.
 import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/calendar_overlap_ui.dart';
 import 'package:habit_tracker/features/Calendar/calendar_time_entry_modal.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/diagnostics/calendar_optimistic_trace_logger.dart';
 
 class CalendarPage extends StatefulWidget {
   const CalendarPage({super.key});
@@ -39,7 +40,7 @@ class _CalendarPageState extends State<CalendarPage> {
   bool _showPlanned = true;
   static const double _minVerticalZoom = 0.5;
   static const double _maxVerticalZoom = 3.0;
-  static const double _zoomStep = 0.2;
+  static const double _zoomStep = 0.5;
   double _verticalZoom = 1.0;
   static const double _baseHeightPerMinute = 2.0;
   List<CalendarEventData> _sortedCompletedEvents = [];
@@ -49,13 +50,10 @@ class _CalendarPageState extends State<CalendarPage> {
   List<PlannedOverlapGroup> _plannedOverlapGroups = const [];
   GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
   Offset? _lastTapDownPosition;
-  final Map<int, Offset> _activePointerPositions = {};
-  double? _pinchStartDistance;
-  double? _pinchStartZoom;
-  double? _pinchAnchorMinute;
-  bool _isPinching = false;
   double? _pendingScrollSyncOffset;
   bool _pendingScrollSyncScheduled = false;
+  double? _latestZoomScrollTarget;
+  bool _zoomScrollCorrectionScheduled = false;
   int _defaultDurationMinutes = 10;
   final Map<String, String> _optimisticOperations = {};
   final Map<String, ActivityInstanceRecord> _optimisticInstances = {};
@@ -306,8 +304,26 @@ class _CalendarPageState extends State<CalendarPage> {
 
     _observerRefreshDebounceTimer = Timer(delay, () {
       if (!mounted) return;
+      _traceCalendarFlow(
+        'observer_refresh_fire',
+        extras: <String, Object?>{
+          'force': force,
+          'delayMs': delay.inMilliseconds,
+          'isFetching': _isFetching,
+          'pendingRefresh': _pendingRefresh,
+        },
+      );
       _loadEvents(isSilent: true);
     });
+    _traceCalendarFlow(
+      'observer_refresh_scheduled',
+      extras: <String, Object?>{
+        'force': force,
+        'delayMs': delay.inMilliseconds,
+        'isFetching': _isFetching,
+        'pendingRefresh': _pendingRefresh,
+      },
+    );
   }
 
   Color? _findCurrentColorForInstance(String instanceId) {
@@ -331,6 +347,28 @@ class _CalendarPageState extends State<CalendarPage> {
         _selectedDate.month,
         _selectedDate.day,
       );
+
+  void _traceCalendarFlow(
+    String stage, {
+    String? operationId,
+    String? instanceId,
+    ActivityInstanceRecord? instance,
+    Map<String, Object?> extras = const <String, Object?>{},
+  }) {
+    CalendarOptimisticTraceLogger.log(
+      stage,
+      source: 'calendar_page_main',
+      operationId: operationId,
+      instanceId: instanceId,
+      instance: instance,
+      extras: <String, Object?>{
+        'selectedDate': _selectedDateOnly.toIso8601String(),
+        'showPlanned': _showPlanned,
+        'optimisticInstances': _optimisticInstances.length,
+        ...extras,
+      },
+    );
+  }
 
   bool _hasSessionOnSelectedDate(ActivityInstanceRecord instance) {
     if (instance.timeLogSessions.isEmpty) return false;
@@ -361,10 +399,27 @@ class _CalendarPageState extends State<CalendarPage> {
     final knownMs = _latestInstanceUpdateMsById[instanceId];
     if (knownMs != null &&
         incomingMs + _staleInstanceEventToleranceMs < knownMs) {
+      _traceCalendarFlow(
+        'instance_event_stale_ignored',
+        instance: instance,
+        extras: <String, Object?>{
+          'incomingMs': incomingMs,
+          'knownMs': knownMs,
+          'toleranceMs': _staleInstanceEventToleranceMs,
+        },
+      );
       return true;
     }
     if (knownMs == null || incomingMs > knownMs) {
       _latestInstanceUpdateMsById[instanceId] = incomingMs;
+      _traceCalendarFlow(
+        'instance_event_version_advanced',
+        instance: instance,
+        extras: <String, Object?>{
+          'incomingMs': incomingMs,
+          'previousKnownMs': knownMs,
+        },
+      );
     }
     return false;
   }
@@ -384,12 +439,25 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
+    _traceCalendarFlow(
+      'observer_instance_created_received',
+      operationId: operationId,
+      instance: instance,
+      extras: <String, Object?>{
+        'isOptimistic': isOptimistic,
+      },
+    );
     if (isOptimistic) {
       _shouldIgnoreAsStaleInstanceEvent(instance);
     } else if (_shouldIgnoreAsStaleInstanceEvent(instance)) {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
+      _traceCalendarFlow(
+        'observer_instance_created_dropped_stale',
+        operationId: operationId,
+        instance: instance,
+      );
       return;
     }
     final selectedDateOnly = _selectedDateOnly;
@@ -429,6 +497,16 @@ class _CalendarPageState extends State<CalendarPage> {
         affectsSelectedDate = true;
       }
     }
+    _traceCalendarFlow(
+      'observer_instance_created_classified',
+      operationId: operationId,
+      instance: instance,
+      extras: <String, Object?>{
+        'affectsSelectedDate': affectsSelectedDate,
+        'affectsPlannedSection': affectsPlannedSection,
+        'incomingHasSelectedSessions': incomingHasSelectedSessions,
+      },
+    );
 
     final existingColorHint = _findCurrentColorForInstance(instanceId);
 
@@ -450,6 +528,16 @@ class _CalendarPageState extends State<CalendarPage> {
         );
         _scheduleObserverRefresh();
       }
+      _traceCalendarFlow(
+        'observer_instance_created_applied_optimistic',
+        operationId: operationId,
+        instance: instance,
+        extras: <String, Object?>{
+          'affectsSelectedDate': affectsSelectedDate,
+          'affectsPlannedSection': affectsPlannedSection,
+          'trackedOperations': _optimisticOperations.length,
+        },
+      );
     } else {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
@@ -467,6 +555,16 @@ class _CalendarPageState extends State<CalendarPage> {
       if (affectsPlannedSection || affectsSelectedDate) {
         _scheduleObserverRefresh();
       }
+      _traceCalendarFlow(
+        'observer_instance_created_applied_reconciled',
+        operationId: operationId,
+        instance: instance,
+        extras: <String, Object?>{
+          'affectsSelectedDate': affectsSelectedDate,
+          'affectsPlannedSection': affectsPlannedSection,
+          'trackedOperations': _optimisticOperations.length,
+        },
+      );
     }
   }
 
@@ -485,12 +583,25 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
+    _traceCalendarFlow(
+      'observer_instance_updated_received',
+      operationId: operationId,
+      instance: instance,
+      extras: <String, Object?>{
+        'isOptimistic': isOptimistic,
+      },
+    );
     if (isOptimistic) {
       _shouldIgnoreAsStaleInstanceEvent(instance);
     } else if (_shouldIgnoreAsStaleInstanceEvent(instance)) {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
       }
+      _traceCalendarFlow(
+        'observer_instance_updated_dropped_stale',
+        operationId: operationId,
+        instance: instance,
+      );
       return;
     }
 
@@ -539,6 +650,17 @@ class _CalendarPageState extends State<CalendarPage> {
         affectsSelectedDate = true;
       }
     }
+    _traceCalendarFlow(
+      'observer_instance_updated_classified',
+      operationId: operationId,
+      instance: instance,
+      extras: <String, Object?>{
+        'affectsSelectedDate': affectsSelectedDate,
+        'affectsPlannedSection': affectsPlannedSection,
+        'incomingHasSelectedSessions': incomingHasSelectedSessions,
+        'wasVisibleOnDate': wasVisibleOnDate,
+      },
+    );
 
     final existingColorHint = _findCurrentColorForInstance(instanceId);
     if (isOptimistic) {
@@ -561,6 +683,16 @@ class _CalendarPageState extends State<CalendarPage> {
         );
         _scheduleObserverRefresh();
       }
+      _traceCalendarFlow(
+        'observer_instance_updated_applied_optimistic',
+        operationId: operationId,
+        instance: instance,
+        extras: <String, Object?>{
+          'affectsSelectedDate': affectsSelectedDate,
+          'affectsPlannedSection': affectsPlannedSection,
+          'trackedOperations': _optimisticOperations.length,
+        },
+      );
     } else {
       if (operationId != null) {
         _optimisticOperations.remove(operationId);
@@ -578,6 +710,16 @@ class _CalendarPageState extends State<CalendarPage> {
       if (affectsPlannedSection || affectsSelectedDate) {
         _scheduleObserverRefresh();
       }
+      _traceCalendarFlow(
+        'observer_instance_updated_applied_reconciled',
+        operationId: operationId,
+        instance: instance,
+        extras: <String, Object?>{
+          'affectsSelectedDate': affectsSelectedDate,
+          'affectsPlannedSection': affectsPlannedSection,
+          'trackedOperations': _optimisticOperations.length,
+        },
+      );
     }
   }
 
@@ -589,6 +731,10 @@ class _CalendarPageState extends State<CalendarPage> {
     } else {
       return;
     }
+    _traceCalendarFlow(
+      'observer_instance_deleted_received',
+      instance: instance,
+    );
     final selectedDateOnly = DateTime(
       _selectedDate.year,
       _selectedDate.month,
@@ -637,6 +783,14 @@ class _CalendarPageState extends State<CalendarPage> {
         affectsSelectedDate = true;
       }
     }
+    _traceCalendarFlow(
+      'observer_instance_deleted_classified',
+      instance: instance,
+      extras: <String, Object?>{
+        'affectsSelectedDate': affectsSelectedDate,
+        'affectsPlannedSection': affectsPlannedSection,
+      },
+    );
     if (affectsPlannedSection) {
       // Find and remove the event(s) for this instance
       CalendarEventData? removedEvent;
@@ -682,6 +836,14 @@ class _CalendarPageState extends State<CalendarPage> {
       _plannedOverlapGroups = overlapInfo.groups;
 
       if (mounted) setState(() {});
+      _traceCalendarFlow(
+        'observer_instance_deleted_planned_removed',
+        instance: instance,
+        extras: <String, Object?>{
+          'plannedCount': _sortedPlannedEvents.length,
+          'overlapPairs': _plannedOverlapPairCount,
+        },
+      );
     }
     if (affectsSelectedDate && instance.timeLogSessions.isNotEmpty) {
       _scheduleObserverRefresh();
@@ -693,6 +855,11 @@ class _CalendarPageState extends State<CalendarPage> {
     if (param is Map) {
       final operationId = param['operationId'] as String?;
       final instanceId = param['instanceId'] as String?;
+      _traceCalendarFlow(
+        'observer_rollback_received',
+        operationId: operationId,
+        instanceId: instanceId,
+      );
       if (operationId != null &&
           _optimisticOperations.containsKey(operationId)) {
         setState(() {
@@ -736,6 +903,15 @@ class _CalendarPageState extends State<CalendarPage> {
           }
         });
         _scheduleObserverRefresh(force: true);
+        _traceCalendarFlow(
+          'observer_rollback_applied',
+          operationId: operationId,
+          instanceId: instanceId,
+          extras: <String, Object?>{
+            'trackedOperations': _optimisticOperations.length,
+            'optimisticInstances': _optimisticInstances.length,
+          },
+        );
       }
     }
   }
@@ -747,6 +923,7 @@ class _CalendarPageState extends State<CalendarPage> {
     if (!mounted) return;
 
     final instanceId = instance.reference.id;
+    final beforeCount = _sortedCompletedEvents.length;
     Color? previousColor = fallbackColor;
     if (previousColor == null) {
       for (final event in _sortedCompletedEvents) {
@@ -772,6 +949,7 @@ class _CalendarPageState extends State<CalendarPage> {
       final metadata = CalendarEventMetadata.fromMap(event.event);
       return metadata?.instanceId == instanceId;
     });
+    final removedCount = beforeCount - _sortedCompletedEvents.length;
 
     final optimisticEvents = _buildCompletedEventsForSelectedDate(
       instance,
@@ -786,6 +964,15 @@ class _CalendarPageState extends State<CalendarPage> {
     if (mounted) {
       setState(() {});
     }
+    _traceCalendarFlow(
+      'apply_completed_patch',
+      instance: instance,
+      extras: <String, Object?>{
+        'removedEvents': removedCount,
+        'addedEvents': optimisticEvents.length,
+        'totalCompletedEvents': _sortedCompletedEvents.length,
+      },
+    );
   }
 
   List<CalendarEventData> _buildCompletedEventsForSelectedDate(
@@ -970,6 +1157,10 @@ class _CalendarPageState extends State<CalendarPage> {
     if (instance.dueDate == null ||
         instance.dueTime == null ||
         instance.dueTime!.isEmpty) {
+      _traceCalendarFlow(
+        'apply_planned_patch_skipped_missing_due',
+        instance: instance,
+      );
       return;
     }
 
@@ -980,10 +1171,18 @@ class _CalendarPageState extends State<CalendarPage> {
     );
 
     if (!dueDateOnly.isAtSameMomentAs(selectedDateOnly)) {
+      _traceCalendarFlow(
+        'apply_planned_patch_skipped_other_date',
+        instance: instance,
+        extras: <String, Object?>{
+          'dueDate': dueDateOnly.toIso8601String(),
+        },
+      );
       return;
     }
 
     final instanceId = instance.reference.id;
+    final beforePlanned = _sortedPlannedEvents.length;
     _plannedEventController.removeWhere((e) {
       final metadata = CalendarEventMetadata.fromMap(e.event);
       return metadata?.instanceId == instanceId;
@@ -992,6 +1191,7 @@ class _CalendarPageState extends State<CalendarPage> {
       final metadata = CalendarEventMetadata.fromMap(e.event);
       return metadata?.instanceId == instanceId;
     });
+    final removedCount = beforePlanned - _sortedPlannedEvents.length;
     if (instance.status == 'completed' || instance.status == 'skipped') {
       final overlapInfo = _computePlannedOverlaps(_sortedPlannedEvents);
       _plannedOverlapPairCount = overlapInfo.pairCount;
@@ -1000,6 +1200,15 @@ class _CalendarPageState extends State<CalendarPage> {
         ..addAll(overlapInfo.overlappedIds);
       _plannedOverlapGroups = overlapInfo.groups;
       if (mounted) setState(() {});
+      _traceCalendarFlow(
+        'apply_planned_patch_removed_due_to_status',
+        instance: instance,
+        extras: <String, Object?>{
+          'removedEvents': removedCount,
+          'plannedCount': _sortedPlannedEvents.length,
+          'overlapPairs': _plannedOverlapPairCount,
+        },
+      );
       return;
     }
     try {
@@ -1073,7 +1282,7 @@ class _CalendarPageState extends State<CalendarPage> {
       PlannedOverlapInfo overlapInfo;
       if (_plannedOverlapPairCount == 0 && _sortedPlannedEvents.length == 1) {
         // No overlaps possible with just one event
-        overlapInfo = PlannedOverlapInfo(
+        overlapInfo = const PlannedOverlapInfo(
           pairCount: 0,
           overlappedIds: {},
           groups: [],
@@ -1097,7 +1306,23 @@ class _CalendarPageState extends State<CalendarPage> {
         ..addAll(overlapInfo.overlappedIds);
       _plannedOverlapGroups = overlapInfo.groups;
       if (mounted) setState(() {});
+      _traceCalendarFlow(
+        'apply_planned_patch_upserted',
+        instance: instance,
+        extras: <String, Object?>{
+          'removedEvents': removedCount,
+          'plannedCount': _sortedPlannedEvents.length,
+          'overlapPairs': _plannedOverlapPairCount,
+        },
+      );
     } catch (e) {
+      _traceCalendarFlow(
+        'apply_planned_patch_error',
+        instance: instance,
+        extras: <String, Object?>{
+          'error': e.toString(),
+        },
+      );
       _scheduleObserverRefresh(force: true);
     }
   }
@@ -1197,17 +1422,36 @@ class _CalendarPageState extends State<CalendarPage> {
     // This ensures we don't have race conditions and we always get the latest state eventually.
     if (_isFetching) {
       _pendingRefresh = true;
+      _traceCalendarFlow(
+        'load_events_queued_while_fetching',
+        extras: <String, Object?>{
+          'isSilent': isSilent,
+        },
+      );
       return;
     }
 
     _observerRefreshDebounceTimer?.cancel();
     _isFetching = true;
     _lastRefreshStartedAt = DateService.currentDate;
+    _traceCalendarFlow(
+      'load_events_start',
+      extras: <String, Object?>{
+        'isSilent': isSilent,
+        'trackedOperations': _optimisticOperations.length,
+      },
+    );
 
     // Check userId BEFORE setting loading state to avoid showing loader if not authenticated
     final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) {
       _isFetching = false;
+      _traceCalendarFlow(
+        'load_events_abort_no_user',
+        extras: <String, Object?>{
+          'isSilent': isSilent,
+        },
+      );
       return;
     }
 
@@ -1270,11 +1514,29 @@ class _CalendarPageState extends State<CalendarPage> {
       );
 
       if (mounted) setState(() {});
+      _traceCalendarFlow(
+        'load_events_success',
+        extras: <String, Object?>{
+          'isSilent': isSilent,
+          'completedEvents': normalizedCompleted.length,
+          'plannedEvents': normalizedPlanned.length,
+          'overlapPairs': _plannedOverlapPairCount,
+          'routineCount': _routineItemMap.length,
+          'trackedOperations': _optimisticOperations.length,
+        },
+      );
     } catch (e, stackTrace) {
       // Log errors, especially index errors and timeouts
       print('❌ Calendar page error loading events:');
       print('   Error: $e');
       print('   Stack trace: $stackTrace');
+      _traceCalendarFlow(
+        'load_events_error',
+        extras: <String, Object?>{
+          'isSilent': isSilent,
+          'error': e.toString(),
+        },
+      );
 
       // Check if it's an index error and log it
       logFirestoreIndexError(
@@ -1306,7 +1568,20 @@ class _CalendarPageState extends State<CalendarPage> {
         // Recursive call to process the queued update
         // We use isSilent: true because the user has likely already seen the initial loader
         // or this is a background update chain.
+        _traceCalendarFlow(
+          'load_events_process_queued_refresh',
+          extras: <String, Object?>{
+            'isSilent': isSilent,
+          },
+        );
         _loadEvents(isSilent: true);
+      } else {
+        _traceCalendarFlow(
+          'load_events_complete',
+          extras: <String, Object?>{
+            'isSilent': isSilent,
+          },
+        );
       }
     }
   }
@@ -1450,14 +1725,7 @@ class _CalendarPageState extends State<CalendarPage> {
     }
 
     try {
-      final dynamic position = controller.position;
-      try {
-        // Avoid ballistic settling between zoom steps.
-        // ignore: deprecated_member_use
-        position.jumpToWithoutSettling(targetOffset);
-      } catch (_) {
-        controller.jumpTo(targetOffset);
-      }
+      controller.jumpTo(targetOffset);
       _currentScrollOffset = targetOffset;
       _initialScrollOffset = targetOffset;
     } catch (_) {}
@@ -1506,12 +1774,43 @@ class _CalendarPageState extends State<CalendarPage> {
     final offsetChanged = (clampedOffset - currentOffset).abs() >= 0.5;
     if (!zoomChanged && !offsetChanged) return;
 
+    // Pre-jump the scroll controller BEFORE setState. This updates the
+    // DayView's internal _lastScrollOffset via its scroll listener.
+    _syncDayViewScroll(clampedOffset);
+
     setState(() {
       _verticalZoom = clampedZoom;
       _initialScrollOffset = clampedOffset;
       _currentScrollOffset = clampedOffset;
     });
-    _syncDayViewScroll(clampedOffset);
+
+    // Post-frame correction: the DayView package recreates its internal page
+    // (new ValueKey) when heightPerMinute changes, and the new ScrollPosition
+    // starts at the controller's immutable initialScrollOffset (often 0).
+    // We must correct it after the rebuild. We use a shared target field so
+    // that during rapid pinch events, all callbacks read the LATEST target
+    // rather than a stale captured value — preventing flicker.
+    _latestZoomScrollTarget = clampedOffset;
+    if (!_zoomScrollCorrectionScheduled) {
+      _zoomScrollCorrectionScheduled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _zoomScrollCorrectionScheduled = false;
+        if (!mounted) return;
+        final target = _latestZoomScrollTarget;
+        if (target == null) return;
+        _latestZoomScrollTarget = null;
+        final controller = _dayViewScrollController();
+        if (controller != null &&
+            controller.hasClients &&
+            (controller.offset - target).abs() >= 0.5) {
+          try {
+            controller.jumpTo(target);
+            _currentScrollOffset = target;
+            _initialScrollOffset = target;
+          } catch (_) {}
+        }
+      });
+    }
   }
 
   void _zoomIn() {
@@ -1544,110 +1843,8 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  double _pointerDistance(Offset a, Offset b) {
-    final delta = a - b;
-    return delta.distance;
-  }
-
-  void _setPinching(bool value) {
-    if (_isPinching == value) return;
-    if (!mounted) {
-      _isPinching = value;
-      return;
-    }
-    setState(() {
-      _isPinching = value;
-    });
-  }
-
-  void _startPinchIfPossible() {
-    if (_activePointerPositions.length < 2) return;
-    final points = _activePointerPositions.values.take(2).toList();
-    final distance = _pointerDistance(points[0], points[1]);
-    if (distance <= 0 || distance.isNaN || distance.isInfinite) {
-      return;
-    }
-    final focalPoint = Offset(
-      (points[0].dx + points[1].dx) / 2,
-      (points[0].dy + points[1].dy) / 2,
-    );
-    _pinchStartDistance = distance;
-    _pinchStartZoom = _verticalZoom;
-    _pinchAnchorMinute = _anchorMinuteAtFocalPoint(focalPoint.dy);
-    _setPinching(true);
-  }
-
-  void _resetPinchIfNeeded() {
-    if (_activePointerPositions.length >= 2) {
-      return;
-    }
-    _setPinching(false);
-    _pinchStartDistance = null;
-    _pinchStartZoom = null;
-    _pinchAnchorMinute = null;
-  }
-
   void _onCalendarPointerDown(PointerDownEvent event) {
     _lastTapDownPosition = event.localPosition;
-    _activePointerPositions[event.pointer] = event.localPosition;
-    if (_activePointerPositions.length == 2) {
-      _startPinchIfPossible();
-    }
-  }
-
-  void _onCalendarPointerMove(PointerMoveEvent event) {
-    if (!_activePointerPositions.containsKey(event.pointer)) {
-      return;
-    }
-    _activePointerPositions[event.pointer] = event.localPosition;
-
-    if (!_hasLiveDayViewClient()) {
-      return;
-    }
-
-    if (_activePointerPositions.length < 2) {
-      _resetPinchIfNeeded();
-      return;
-    }
-    if (!_isPinching ||
-        _pinchStartDistance == null ||
-        _pinchStartZoom == null) {
-      _startPinchIfPossible();
-      if (!_isPinching ||
-          _pinchStartDistance == null ||
-          _pinchStartZoom == null) {
-        return;
-      }
-    }
-
-    final points = _activePointerPositions.values.take(2).toList();
-    final currentDistance = _pointerDistance(points[0], points[1]);
-    if (currentDistance <= 0 ||
-        currentDistance.isNaN ||
-        currentDistance.isInfinite ||
-        _pinchStartDistance! <= 0) {
-      return;
-    }
-    final scale = currentDistance / _pinchStartDistance!;
-    final focalPoint = Offset(
-      (points[0].dx + points[1].dx) / 2,
-      (points[0].dy + points[1].dy) / 2,
-    );
-    _applyZoomAroundFocalPoint(
-      proposedZoom: _pinchStartZoom! * scale,
-      focalDy: focalPoint.dy,
-      anchorMinute: _pinchAnchorMinute,
-    );
-  }
-
-  void _onCalendarPointerUp(PointerUpEvent event) {
-    _activePointerPositions.remove(event.pointer);
-    _resetPinchIfNeeded();
-  }
-
-  void _onCalendarPointerCancel(PointerCancelEvent event) {
-    _activePointerPositions.remove(event.pointer);
-    _resetPinchIfNeeded();
   }
 
   @override
@@ -1710,7 +1907,7 @@ class _CalendarPageState extends State<CalendarPage> {
       ),
       body: CalendarDayViewBody(
         showPlanned: _showPlanned,
-        isPinching: _isPinching,
+        isPinching: false,
         selectedDate: _selectedDate,
         dayViewKey: _dayViewKey,
         plannedOverlapPairCount: _plannedOverlapPairCount,
@@ -1752,9 +1949,9 @@ class _CalendarPageState extends State<CalendarPage> {
           _showManualEntryDialog(startTime: startTime, endTime: endTime);
         },
         onPointerDownEvent: _onCalendarPointerDown,
-        onPointerMoveEvent: _onCalendarPointerMove,
-        onPointerUpEvent: _onCalendarPointerUp,
-        onPointerCancelEvent: _onCalendarPointerCancel,
+        onPointerMoveEvent: (_) {},
+        onPointerUpEvent: (_) {},
+        onPointerCancelEvent: (_) {},
         onCalendarViewportHeightChanged: (height) {
           if ((height - _calendarViewportHeight).abs() < 0.5) {
             return;

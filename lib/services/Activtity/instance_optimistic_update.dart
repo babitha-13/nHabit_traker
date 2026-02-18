@@ -1,6 +1,7 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/diagnostics/calendar_optimistic_trace_logger.dart';
 
 /// Centralized instance event management
 /// Provides constants and helper methods for broadcasting instance changes
@@ -14,21 +15,40 @@ class InstanceEvents {
 
   /// Broadcast when a new instance is created
   static void broadcastInstanceCreated(ActivityInstanceRecord instance) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_created',
+      source: 'instance_events',
+      instance: instance,
+    );
     NotificationCenter.post(instanceCreated, instance);
   }
 
   /// Broadcast when an instance is updated (completed, uncompleted, etc.)
   static void broadcastInstanceUpdated(ActivityInstanceRecord instance) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_updated',
+      source: 'instance_events',
+      instance: instance,
+    );
     NotificationCenter.post(instanceUpdated, instance);
   }
 
   /// Broadcast when an instance is deleted
   static void broadcastInstanceDeleted(ActivityInstanceRecord instance) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_deleted',
+      source: 'instance_events',
+      instance: instance,
+    );
     NotificationCenter.post(instanceDeleted, instance);
   }
 
   /// Broadcast when progress needs to be recalculated
   static void broadcastProgressRecalculated() {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_progress_recalculated',
+      source: 'instance_events',
+    );
     NotificationCenter.post(progressRecalculated, null);
   }
 
@@ -39,6 +59,12 @@ class InstanceEvents {
     ActivityInstanceRecord optimisticInstance,
     String operationId, // Unique ID for this operation
   ) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_updated_optimistic',
+      source: 'instance_events',
+      operationId: operationId,
+      instance: optimisticInstance,
+    );
     NotificationCenter.post(instanceUpdated, {
       'instance': optimisticInstance,
       'isOptimistic': true,
@@ -51,6 +77,12 @@ class InstanceEvents {
     ActivityInstanceRecord actualInstance,
     String operationId,
   ) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_updated_reconciled',
+      source: 'instance_events',
+      operationId: operationId,
+      instance: actualInstance,
+    );
     NotificationCenter.post(instanceUpdated, {
       'instance': actualInstance,
       'isOptimistic': false,
@@ -63,6 +95,12 @@ class InstanceEvents {
     ActivityInstanceRecord optimisticInstance,
     String operationId,
   ) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_created_optimistic',
+      source: 'instance_events',
+      operationId: operationId,
+      instance: optimisticInstance,
+    );
     NotificationCenter.post(instanceCreated, {
       'instance': optimisticInstance,
       'isOptimistic': true,
@@ -75,6 +113,12 @@ class InstanceEvents {
     ActivityInstanceRecord actualInstance,
     String operationId,
   ) {
+    CalendarOptimisticTraceLogger.log(
+      'broadcast_instance_created_reconciled',
+      source: 'instance_events',
+      operationId: operationId,
+      instance: actualInstance,
+    );
     NotificationCenter.post(instanceCreated, {
       'instance': actualInstance,
       'isOptimistic': false,

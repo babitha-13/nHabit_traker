@@ -6,12 +6,12 @@ import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/main.dart';
-import 'package:habit_tracker/features/Queue/queue_page.dart';
 import 'package:habit_tracker/features/Goals/goal_dialog.dart';
 import 'package:habit_tracker/features/Goals/goal_data_service.dart';
 import 'package:habit_tracker/core/constants.dart';
 import 'package:habit_tracker/features/Alarm/alarm_ringing_page.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/reminder_scheduler.dart';
 import 'package:habit_tracker/features/Timer/Helpers/timer_notification_service.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/snooze_dialog.dart';
@@ -250,25 +250,10 @@ class NotificationService {
 
   /// Handle complete action
   static Future<void> _handleCompleteAction(
-      String instanceId, BuildContext context) async {
+      String instanceId, BuildContext _) async {
     try {
       await ActivityInstanceService.completeInstance(instanceId: instanceId);
-
-      // Navigate to Queue page
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        home,
-        (route) => false,
-      );
-      Future.delayed(const Duration(milliseconds: 500), () {
-        final homeContext = navigatorKey.currentContext;
-        if (homeContext != null) {
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => const QueuePage(),
-            ),
-          );
-        }
-      });
+      await _navigateToQueue(focusInstanceId: instanceId);
     } catch (e) {
       print('NotificationService: Error completing instance: $e');
     }
@@ -276,7 +261,7 @@ class NotificationService {
 
   /// Handle add action (increment quantitative value)
   static Future<void> _handleAddAction(
-      String instanceId, BuildContext context) async {
+      String instanceId, BuildContext _) async {
     try {
       final instance = await ActivityInstanceService.getUpdatedInstance(
           instanceId: instanceId);
@@ -289,22 +274,7 @@ class NotificationService {
         instanceId: instanceId,
         currentValue: newValue,
       );
-
-      // Navigate to Queue page
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        home,
-        (route) => false,
-      );
-      Future.delayed(const Duration(milliseconds: 500), () {
-        final homeContext = navigatorKey.currentContext;
-        if (homeContext != null) {
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => const QueuePage(),
-            ),
-          );
-        }
-      });
+      await _navigateToQueue(focusInstanceId: instanceId);
     } catch (e) {
       print('NotificationService: Error adding to instance: $e');
     }
@@ -312,22 +282,8 @@ class NotificationService {
 
   /// Handle timer action
   static Future<void> _handleTimerAction(
-      String instanceId, BuildContext context) async {
-    // Navigate to Queue page - timer logic will be handled there
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      home,
-      (route) => false,
-    );
-    Future.delayed(const Duration(milliseconds: 500), () {
-      final homeContext = navigatorKey.currentContext;
-      if (homeContext != null) {
-        Navigator.of(homeContext).push(
-          MaterialPageRoute(
-            builder: (context) => const QueuePage(),
-          ),
-        );
-      }
-    });
+      String instanceId, BuildContext _) async {
+    await _navigateToQueue(focusInstanceId: instanceId);
   }
 
   /// Handle snooze action
@@ -369,79 +325,59 @@ class NotificationService {
   }
 
   /// Handle routine reminder notification tap (open Routine detail page)
-  static bool _handleRoutineReminderNotificationTap(String payload) {
-    final context = navigatorKey.currentContext;
-    if (context == null) return false;
-
+  static Future<bool> _handleRoutineReminderNotificationTap(
+      String payload) async {
     // Extract routine ID from payload (format: "routine:routineId")
     final routineId = payload.substring('routine:'.length);
     if (routineId.isEmpty) return true;
 
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      home,
-      (route) => false,
-    );
-    Future.delayed(const Duration(milliseconds: 500), () async {
-      final homeContext = navigatorKey.currentContext;
-      if (homeContext == null) return;
+    final navigator = await _waitForNavigatorState();
+    if (navigator == null) return false;
 
-      try {
-        final userId = await waitForCurrentUserUid();
-        if (userId.isEmpty) return;
-        final routineDoc = await RoutineRecord.collectionForUser(
-          userId,
-        ).doc(routineId).get();
+    try {
+      navigator.pushNamedAndRemoveUntil(
+        home,
+        (route) => false,
+      );
 
-        if (routineDoc.exists) {
-          final routine = RoutineRecord.fromSnapshot(routineDoc);
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => RoutineDetailPage(routine: routine),
-            ),
-          );
-        } else {
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => const QueuePage(),
-            ),
-          );
-        }
-      } catch (e) {
-        Navigator.of(homeContext).push(
-          MaterialPageRoute(
-            builder: (context) => const QueuePage(),
-          ),
-        );
+      await Future.delayed(const Duration(milliseconds: 350));
+      final latestNavigator = await _waitForNavigatorState();
+      if (latestNavigator == null) {
+        return false;
       }
-    });
 
-    return true;
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) {
+        return await _navigateToQueue();
+      }
+      final routineDoc = await RoutineRecord.collectionForUser(
+        userId,
+      ).doc(routineId).get();
+
+      if (!routineDoc.exists) {
+        return await _navigateToQueue();
+      }
+
+      final routine = RoutineRecord.fromSnapshot(routineDoc);
+      latestNavigator.push(
+        MaterialPageRoute(
+          builder: (context) => RoutineDetailPage(routine: routine),
+        ),
+      );
+      return true;
+    } catch (e) {
+      return await _navigateToQueue();
+    }
   }
 
   /// Handle reminder notification tap (open Queue page)
-  static bool _handleReminderNotificationTap(String payload) {
-    final context = navigatorKey.currentContext;
-    if (context == null) return false;
+  static Future<bool> _handleReminderNotificationTap(String payload) async {
     final templateId = _extractTemplateIdFromPayload(payload);
     final instanceId = _extractInstanceIdFromPayload(payload);
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      home,
-      (route) => false,
+    return await _navigateToQueue(
+      focusTemplateId: templateId,
+      focusInstanceId: instanceId,
     );
-    Future.delayed(const Duration(milliseconds: 500), () {
-      final homeContext = navigatorKey.currentContext;
-      if (homeContext != null) {
-        Navigator.of(homeContext).push(
-          MaterialPageRoute(
-            builder: (context) => QueuePage(
-              focusTemplateId: templateId,
-              focusInstanceId: instanceId,
-            ),
-          ),
-        );
-      }
-    });
-    return true;
   }
 
   /// Handle alarm ringing notification tap
@@ -488,88 +424,43 @@ class NotificationService {
   }
 
   /// Handle day-end notification tap
-  static bool _handleDayEndNotificationTap() {
-    // Show goal dialog first, then navigate to Queue page
+  static Future<bool> _handleDayEndNotificationTap() async {
     final context = navigatorKey.currentContext;
-    if (context == null) return false;
-    // Show goal dialog first
-    _showGoalDialogFromNotification(context);
-
-    // Then navigate to Queue page
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (context) => const QueuePage(),
-      ),
-    );
-    return true;
+    if (context != null) {
+      _showGoalDialogFromNotification();
+    }
+    return await _navigateToQueue();
   }
 
   /// Show goal dialog from notification tap
-  static void _showGoalDialogFromNotification(BuildContext context) async {
-    try {
-      final userId = users.uid;
-      if (userId == null || userId.isEmpty) {
-        return;
-      }
-      // Check if goal should be shown (bypass time check for notification)
-      final shouldShow =
-          await GoalService.shouldShowGoalFromNotification(userId);
-      if (shouldShow) {
-        showDialog(
-          context: context,
-          barrierDismissible: false,
-          builder: (context) => const GoalDialog(),
-        );
-      }
-    } catch (e) {
-      // Silently handle error
+  static void _showGoalDialogFromNotification() {
+    final userId = users.uid;
+    if (userId == null || userId.isEmpty) {
+      return;
     }
+
+    GoalService.shouldShowGoalFromNotification(userId).then((shouldShow) {
+      if (!shouldShow) return;
+      final activeContext = navigatorKey.currentContext;
+      if (activeContext == null) return;
+      showDialog(
+        context: activeContext,
+        barrierDismissible: false,
+        builder: (context) => const GoalDialog(),
+      );
+    }).catchError((_) {
+      // Silently handle error
+    });
   }
 
   /// Handle morning reminder notification tap
-  static bool _handleMorningReminderTap() {
-    final context = navigatorKey.currentContext;
-    if (context == null) return false;
-    // Navigate to Queue page
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      home,
-      (route) => false,
-    );
-    // Then navigate to Queue page after a short delay to ensure Home is loaded
-    Future.delayed(const Duration(milliseconds: 500), () {
-      final homeContext = navigatorKey.currentContext;
-      if (homeContext != null) {
-        Navigator.of(homeContext).push(
-          MaterialPageRoute(
-            builder: (context) => const QueuePage(),
-          ),
-        );
-      }
-    });
-    return true;
+  static Future<bool> _handleMorningReminderTap() async {
+    return await _navigateToQueue();
   }
 
   /// Handle evening reminder notification tap
-  static bool _handleEveningReminderTap() {
-    final context = navigatorKey.currentContext;
-    if (context == null) return false;
-    // Navigate to Queue page
-    Navigator.of(context).pushNamedAndRemoveUntil(
-      home,
-      (route) => false,
-    );
-    // Then navigate to Queue page after a short delay to ensure Home is loaded
-    Future.delayed(const Duration(milliseconds: 500), () {
-      final homeContext = navigatorKey.currentContext;
-      if (homeContext != null) {
-        Navigator.of(homeContext).push(
-          MaterialPageRoute(
-            builder: (context) => const QueuePage(),
-          ),
-        );
-      }
-    });
-    return true;
+  static Future<bool> _handleEveningReminderTap() async {
+    return await _navigateToQueue();
   }
 
   /// Handle engagement reminder notification tap
@@ -1038,6 +929,16 @@ class NotificationService {
     );
   }
 
+  static Future<bool> navigateToQueueFromNotification({
+    String? focusInstanceId,
+    String? focusTemplateId,
+  }) async {
+    return await _navigateToQueue(
+      focusInstanceId: focusInstanceId,
+      focusTemplateId: focusTemplateId,
+    );
+  }
+
   static Future<bool> _navigateToQueue({
     String? focusInstanceId,
     String? focusTemplateId,
@@ -1050,23 +951,36 @@ class NotificationService {
         home,
         (route) => false,
       );
+      await Future.delayed(const Duration(milliseconds: 250));
+      _postQueueNavigationEvents(
+        focusTemplateId: focusTemplateId,
+        focusInstanceId: focusInstanceId,
+        forceRefresh: true,
+      );
       await Future.delayed(const Duration(milliseconds: 350));
-      final latestNavigator = await _waitForNavigatorState();
-      if (latestNavigator == null) return false;
-
-      latestNavigator.push(
-        MaterialPageRoute(
-          builder: (context) => QueuePage(
-            focusTemplateId: focusTemplateId,
-            focusInstanceId: focusInstanceId,
-          ),
-        ),
+      _postQueueNavigationEvents(
+        focusTemplateId: focusTemplateId,
+        focusInstanceId: focusInstanceId,
+        forceRefresh: true,
       );
       return true;
     } catch (e) {
       print('NotificationService: Queue navigation failed: $e');
       return false;
     }
+  }
+
+  static void _postQueueNavigationEvents({
+    String? focusTemplateId,
+    String? focusInstanceId,
+    required bool forceRefresh,
+  }) {
+    NotificationCenter.post('navigateBottomTab', 'Queue');
+    NotificationCenter.post('queueFocusRequest', <String, dynamic>{
+      'focusTemplateId': focusTemplateId,
+      'focusInstanceId': focusInstanceId,
+      'forceRefresh': forceRefresh,
+    });
   }
 
   static Future<void> _cancelActiveAlarmNotification() async {
@@ -1161,15 +1075,15 @@ class NotificationService {
 
     // Handle day-end notifications
     if (payload == 'day_end_notification') {
-      handled = _handleDayEndNotificationTap();
+      handled = await _handleDayEndNotificationTap();
     }
     // Handle morning reminder
     else if (payload == 'morning_reminder') {
-      handled = _handleMorningReminderTap();
+      handled = await _handleMorningReminderTap();
     }
     // Handle evening reminder
     else if (payload == 'evening_reminder') {
-      handled = _handleEveningReminderTap();
+      handled = await _handleEveningReminderTap();
     }
     // Handle engagement reminder
     else if (payload == 'engagement_reminder') {
@@ -1181,11 +1095,11 @@ class NotificationService {
     }
     // Handle routine reminders (open Routine detail page)
     else if (payload.startsWith('routine:')) {
-      handled = _handleRoutineReminderNotificationTap(payload);
+      handled = await _handleRoutineReminderNotificationTap(payload);
     }
     // Handle reminder notifications (open Queue page)
     else if (payload.isNotEmpty && !payload.startsWith('ALARM_RINGING:')) {
-      handled = _handleReminderNotificationTap(payload);
+      handled = await _handleReminderNotificationTap(payload);
     }
 
     if (!handled && allowQueue) {

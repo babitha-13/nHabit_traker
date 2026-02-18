@@ -5,12 +5,10 @@ import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/a
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
-import 'package:habit_tracker/features/Queue/queue_page.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/snooze_dialog.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/reminder_scheduler.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/core/constants.dart';
-import 'package:habit_tracker/main.dart';
 
 class AlarmRingingPage extends StatefulWidget {
   final String title;
@@ -177,23 +175,9 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
       await ActivityInstanceService.completeInstance(
           instanceId: _instance!.reference.id);
       _dismissAlarm();
-      // Navigate to Queue page
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        home,
-        (route) => false,
+      await NotificationService.navigateToQueueFromNotification(
+        focusInstanceId: _instance?.reference.id,
       );
-      Future.delayed(const Duration(milliseconds: 500), () {
-        final homeContext = navigatorKey.currentContext;
-        if (homeContext != null) {
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => QueuePage(
-                focusInstanceId: _instance?.reference.id,
-              ),
-            ),
-          );
-        }
-      });
     } catch (e) {
       print('AlarmRingingPage: Error completing instance: $e');
     }
@@ -213,23 +197,9 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
         currentValue: newValue,
       );
       _dismissAlarm();
-      // Navigate to Queue page
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        home,
-        (route) => false,
+      await NotificationService.navigateToQueueFromNotification(
+        focusInstanceId: _instance?.reference.id,
       );
-      Future.delayed(const Duration(milliseconds: 500), () {
-        final homeContext = navigatorKey.currentContext;
-        if (homeContext != null) {
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => QueuePage(
-                focusInstanceId: _instance?.reference.id,
-              ),
-            ),
-          );
-        }
-      });
     } catch (e) {
       print('AlarmRingingPage: Error adding to instance: $e');
     }
@@ -244,24 +214,9 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
       );
 
       _dismissAlarm();
-      // Navigate to Queue page
-      Navigator.of(context).pushNamedAndRemoveUntil(
-        home,
-        (route) => false,
+      await NotificationService.navigateToQueueFromNotification(
+        focusInstanceId: _instance?.reference.id,
       );
-      Future.delayed(const Duration(milliseconds: 500), () {
-        final homeContext = navigatorKey.currentContext;
-        if (homeContext != null) {
-          Navigator.of(homeContext).push(
-            MaterialPageRoute(
-              builder: (context) => QueuePage(
-                expandCompleted: true,
-                focusInstanceId: _instance?.reference.id,
-              ),
-            ),
-          );
-        }
-      });
     } catch (e) {
       print('AlarmRingingPage: Error starting timer: $e');
     }
