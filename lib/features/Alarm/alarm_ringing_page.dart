@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:vibration/vibration.dart';
-import 'package:flutter/services.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -281,7 +280,9 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
         widget.payload!.startsWith('ALARM_RINGING:')) {
       final parts =
           widget.payload!.substring('ALARM_RINGING:'.length).split('|');
-      if (parts.length >= 4 && parts[3].trim().isNotEmpty && parts[3] != 'null') {
+      if (parts.length >= 4 &&
+          parts[3].trim().isNotEmpty &&
+          parts[3] != 'null') {
         return parts[3].trim();
       }
     }
@@ -435,94 +436,118 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
                 ),
               ),
               const SizedBox(height: 20),
-              if (_isLoadingInstance)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 32),
-                  child: Center(child: CircularProgressIndicator()),
-                ),
-              if (!_isLoadingInstance && _instance == null)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 8),
-                  child: Text(
-                    'Task details are unavailable. You can still snooze or dismiss this alarm.',
-                    style: TextStyle(
-                      color: Colors.white60,
-                      fontSize: 13,
-                    ),
-                  ),
-                ),
-              if (!_isLoadingInstance && _instance != null) ...[
-                SizedBox(
-                  height: 64,
-                  child: ElevatedButton(
-                    onPressed: _handlePrimaryAction,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2EB67D),
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    if (_isLoadingInstance)
+                      const Center(child: CircularProgressIndicator()),
+                    if (!_isLoadingInstance && _instance == null)
+                      Container(
+                        padding: const EdgeInsets.all(14),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF1C2129),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFF2F3743)),
+                        ),
+                        child: const Text(
+                          'Task details are unavailable. You can still snooze or dismiss this alarm.',
+                          style: TextStyle(
+                            color: Colors.white60,
+                            fontSize: 13,
+                          ),
+                        ),
+                      ),
+                    if (!_isLoadingInstance && _instance != null)
+                      SizedBox(
+                        height: 64,
+                        child: ElevatedButton(
+                          onPressed: _handlePrimaryAction,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2EB67D),
+                            foregroundColor: Colors.white,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                          ),
+                          child: Text(
+                            _primaryActionLabel(),
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFF1C2129),
                         borderRadius: BorderRadius.circular(14),
+                        border: Border.all(color: const Color(0xFF2F3743)),
+                      ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Quick snooze',
+                            style: TextStyle(
+                              color: canSnooze ? Colors.white : Colors.white38,
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              for (final minutes in const [5, 10, 15, 30])
+                                ActionChip(
+                                  label: Text('${minutes}m'),
+                                  onPressed: canSnooze
+                                      ? () => _quickSnooze(minutes)
+                                      : null,
+                                  backgroundColor: const Color(0xFF2A2F38),
+                                  labelStyle:
+                                      const TextStyle(color: Colors.white),
+                                ),
+                              ActionChip(
+                                label: const Text('More'),
+                                onPressed: canSnooze ? _handleSnooze : null,
+                                backgroundColor: const Color(0xFF2A2F38),
+                                labelStyle:
+                                    const TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ],
                       ),
                     ),
-                    child: Text(
-                      _primaryActionLabel(),
-                      style: const TextStyle(
-                        fontSize: 20,
-                        fontWeight: FontWeight.w700,
+                    SizedBox(
+                      width: double.infinity,
+                      height: 58,
+                      child: ElevatedButton(
+                        onPressed: _dismissAlarm,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: const Color(0xFFD94B4B),
+                          foregroundColor: Colors.white,
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(30),
+                          ),
+                        ),
+                        child: const Text(
+                          'Dismiss',
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.4,
+                          ),
+                        ),
                       ),
                     ),
-                  ),
-                ),
-                const SizedBox(height: 18),
-              ],
-              Text(
-                'Quick snooze',
-                style: TextStyle(
-                  color: canSnooze ? Colors.white : Colors.white38,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 8),
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: [
-                  for (final minutes in const [5, 10, 15, 30])
-                    ActionChip(
-                      label: Text('${minutes}m'),
-                      onPressed: canSnooze ? () => _quickSnooze(minutes) : null,
-                      backgroundColor: const Color(0xFF2A2F38),
-                      labelStyle: const TextStyle(color: Colors.white),
-                    ),
-                  ActionChip(
-                    label: const Text('More'),
-                    onPressed: canSnooze ? _handleSnooze : null,
-                    backgroundColor: const Color(0xFF2A2F38),
-                    labelStyle: const TextStyle(color: Colors.white),
-                  ),
-                ],
-              ),
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                height: 58,
-                child: ElevatedButton(
-                  onPressed: _dismissAlarm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFFD94B4B),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                    ),
-                  ),
-                  child: const Text(
-                    'Dismiss',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.4,
-                    ),
-                  ),
+                  ],
                 ),
               ),
             ],

@@ -49,8 +49,13 @@ class _CalendarPageState extends State<CalendarPage> {
   List<PlannedOverlapGroup> _plannedOverlapGroups = const [];
   GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
   Offset? _lastTapDownPosition;
-  double? _initialZoomOnGestureStart;
-  double? _initialScaleOnGestureStart;
+  final Map<int, Offset> _activePointerPositions = {};
+  double? _pinchStartDistance;
+  double? _pinchStartZoom;
+  double? _pinchAnchorMinute;
+  bool _isPinching = false;
+  double? _pendingScrollSyncOffset;
+  bool _pendingScrollSyncScheduled = false;
   int _defaultDurationMinutes = 10;
   final Map<String, String> _optimisticOperations = {};
   final Map<String, ActivityInstanceRecord> _optimisticInstances = {};
@@ -1102,6 +1107,15 @@ class _CalendarPageState extends State<CalendarPage> {
     return CalendarOverlapCalculator.stableEventId(event);
   }
 
+  String _eventIdentityKey(CalendarEventData event) {
+    final id = _getEventId(event);
+    if (id != null) return id;
+    final start = event.startTime?.millisecondsSinceEpoch ?? -1;
+    final end = event.endTime?.millisecondsSinceEpoch ?? -1;
+    final title = event.title;
+    return 'fallback:$start|$end|$title';
+  }
+
   String _eventSignature(CalendarEventData event) {
     final start = event.startTime?.millisecondsSinceEpoch ?? -1;
     final end = event.endTime?.millisecondsSinceEpoch ?? -1;
@@ -1111,68 +1125,70 @@ class _CalendarPageState extends State<CalendarPage> {
     return '$start|$end|$color|$title|$description';
   }
 
-  /// Efficiently update event controllers by comparing old and new events
-  /// This minimizes rebuilds by only updating changed events
-  void _updateEventControllers(
-    List<CalendarEventData> newCompletedEvents,
-    List<CalendarEventData> newPlannedEvents,
+  String _eventCompareToken(CalendarEventData event) {
+    return '${_eventIdentityKey(event)}|${_eventSignature(event)}';
+  }
+
+  /// Remove duplicate logical events while preserving order.
+  List<CalendarEventData> _dedupeEvents(List<CalendarEventData> events) {
+    if (events.isEmpty) return const [];
+    final seen = <String>{};
+    final deduped = <CalendarEventData>[];
+    for (final event in events) {
+      final token = _eventCompareToken(event);
+      if (seen.add(token)) {
+        deduped.add(event);
+      }
+    }
+    return deduped;
+  }
+
+  bool _eventCollectionsEqual(
+    Iterable<CalendarEventData> currentEvents,
+    List<CalendarEventData> incomingEvents,
   ) {
-    // Build maps of new events by ID for quick lookup
-    final newCompletedMap = <String, String>{};
-    final newPlannedMap = <String, String>{};
-
-    for (final event in newCompletedEvents) {
-      final id = _getEventId(event);
-      if (id != null) newCompletedMap[id] = _eventSignature(event);
+    final currentTokens = currentEvents.map(_eventCompareToken).toList()
+      ..sort();
+    final incomingTokens = incomingEvents.map(_eventCompareToken).toList()
+      ..sort();
+    if (currentTokens.length != incomingTokens.length) return false;
+    for (int i = 0; i < currentTokens.length; i++) {
+      if (currentTokens[i] != incomingTokens[i]) return false;
     }
+    return true;
+  }
 
-    for (final event in newPlannedEvents) {
-      final id = _getEventId(event);
-      if (id != null) newPlannedMap[id] = _eventSignature(event);
-    }
+  /// Efficiently update event controllers by comparing full event snapshots.
+  /// This avoids stale/duplicated controller state when IDs repeat.
+  void _updateEventControllers(List<CalendarEventData> newCompletedEvents,
+      List<CalendarEventData> newPlannedEvents,
+      {bool forceReplace = false}) {
+    final normalizedCompleted = _dedupeEvents(newCompletedEvents);
+    final normalizedPlanned = _dedupeEvents(newPlannedEvents);
 
-    // Build maps of current events
-    final currentCompletedMap = <String, String>{};
-    final currentPlannedMap = <String, String>{};
-
-    for (final event in _completedEventController.events) {
-      final id = _getEventId(event);
-      if (id != null) currentCompletedMap[id] = _eventSignature(event);
-    }
-
-    for (final event in _plannedEventController.events) {
-      final id = _getEventId(event);
-      if (id != null) currentPlannedMap[id] = _eventSignature(event);
-    }
-
-    // Only update if events actually changed (by ID)
-    final completedChanged = !_mapsEqual(currentCompletedMap, newCompletedMap);
-    final plannedChanged = !_mapsEqual(currentPlannedMap, newPlannedMap);
+    final completedChanged = forceReplace ||
+        !_eventCollectionsEqual(
+          _completedEventController.allEvents,
+          normalizedCompleted,
+        );
+    final plannedChanged = forceReplace ||
+        !_eventCollectionsEqual(
+          _plannedEventController.allEvents,
+          normalizedPlanned,
+        );
 
     if (completedChanged || plannedChanged) {
       // Batch all controller updates before setState
       if (completedChanged) {
         _completedEventController.removeWhere((e) => true);
-        _completedEventController.addAll(newCompletedEvents);
+        _completedEventController.addAll(normalizedCompleted);
       }
 
       if (plannedChanged) {
         _plannedEventController.removeWhere((e) => true);
-        _plannedEventController.addAll(newPlannedEvents);
+        _plannedEventController.addAll(normalizedPlanned);
       }
     }
-  }
-
-  /// Compare two event maps for equality by ID
-  bool _mapsEqual(Map<String, String> map1, Map<String, String> map2) {
-    if (map1.length != map2.length) return false;
-    for (final entry in map1.entries) {
-      final other = map2[entry.key];
-      if (other == null || other != entry.value) {
-        return false;
-      }
-    }
-    return true;
   }
 
   Future<void> _loadEvents({bool isSilent = false}) async {
@@ -1233,10 +1249,13 @@ class _CalendarPageState extends State<CalendarPage> {
         },
       );
 
-      _sortedCompletedEvents = result.completedEvents;
-      _sortedPlannedEvents = result.plannedEvents;
+      final normalizedCompleted = _dedupeEvents(result.completedEvents);
+      final normalizedPlanned = _dedupeEvents(result.plannedEvents);
+
+      _sortedCompletedEvents = normalizedCompleted;
+      _sortedPlannedEvents = normalizedPlanned;
       _routineItemMap = result.routineItemMap;
-      final overlapInfo = _computePlannedOverlaps(result.plannedEvents);
+      final overlapInfo = _computePlannedOverlaps(normalizedPlanned);
       _plannedOverlapPairCount = overlapInfo.pairCount;
       _plannedOverlappedEventIds
         ..clear()
@@ -1244,7 +1263,11 @@ class _CalendarPageState extends State<CalendarPage> {
       _plannedOverlapGroups = overlapInfo.groups;
 
       // Use optimized update method instead of clear/addAll
-      _updateEventControllers(result.completedEvents, result.plannedEvents);
+      _updateEventControllers(
+        normalizedCompleted,
+        normalizedPlanned,
+        forceReplace: !isSilent,
+      );
 
       if (mounted) setState(() {});
     } catch (e, stackTrace) {
@@ -1327,104 +1350,160 @@ class _CalendarPageState extends State<CalendarPage> {
     return _baseHeightPerMinute * _verticalZoom;
   }
 
+  double _effectiveScrollOffset() {
+    if (_currentScrollOffset.isNaN || _currentScrollOffset.isInfinite) {
+      _currentScrollOffset = 0.0;
+    }
+    return _currentScrollOffset;
+  }
+
+  ScrollController? _dayViewScrollController() {
+    final state = _dayViewKey.currentState;
+    if (state == null) return null;
+    final dynamic dayViewState = state;
+    try {
+      final ScrollController? controller = dayViewState.scrollController;
+      if (controller != null) {
+        return controller;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  bool _hasLiveDayViewClient() {
+    final controller = _dayViewScrollController();
+    return controller != null && controller.hasClients;
+  }
+
+  double _resolveViewportHeight() {
+    if (_calendarViewportHeight > 0) {
+      return _calendarViewportHeight;
+    }
+    final controller = _dayViewScrollController();
+    if (controller != null && controller.hasClients) {
+      final viewport = controller.position.viewportDimension;
+      if (!viewport.isNaN && !viewport.isInfinite && viewport > 0) {
+        return viewport;
+      }
+    }
+    return 0.0;
+  }
+
+  double _buttonZoomFocalPoint() {
+    final viewport = _resolveViewportHeight();
+    if (viewport > 0) {
+      return viewport / 2;
+    }
+    return 0.0;
+  }
+
+  double _normalizedFocalDy(double focalDy) {
+    final viewportHeight = _resolveViewportHeight();
+    return viewportHeight > 0
+        ? focalDy.clamp(0.0, viewportHeight).toDouble()
+        : math.max(0.0, focalDy);
+  }
+
+  double _anchorMinuteAtFocalPoint(double focalDy) {
+    final heightPerMinute = _calculateHeightPerMinute();
+    if (heightPerMinute <= 0) {
+      return 0.0;
+    }
+    final normalizedFocalDy = _normalizedFocalDy(focalDy);
+    final baseOffset = _effectiveScrollOffset();
+    final totalPixelsBefore =
+        (baseOffset + normalizedFocalDy).clamp(0.0, double.infinity);
+    return totalPixelsBefore / heightPerMinute;
+  }
+
   double _calculateMaxScrollExtent(double zoom) {
     final heightPerMinute = _baseHeightPerMinute * zoom;
     final totalHeight = heightPerMinute * 24 * 60;
-    final viewport = _calendarViewportHeight > 0
-        ? _calendarViewportHeight
-        : totalHeight; // Fallback before layout
-    return math.max(0.0, totalHeight - viewport);
+    final viewport = _resolveViewportHeight();
+    final effectiveViewport =
+        viewport > 0 ? viewport : totalHeight; // Fallback before layout
+    return math.max(0.0, totalHeight - effectiveViewport);
   }
 
   double _clampScrollOffsetForZoom(double desiredOffset, double zoom) {
     final maxScrollExtent = _calculateMaxScrollExtent(zoom);
     if (desiredOffset.isNaN || desiredOffset.isInfinite) {
-      return _currentScrollOffset.clamp(0.0, maxScrollExtent);
+      return _effectiveScrollOffset().clamp(0.0, maxScrollExtent);
     }
     return desiredOffset.clamp(0.0, maxScrollExtent);
   }
 
   void _syncDayViewScroll(double offset) {
-    final state = _dayViewKey.currentState;
-    if (state == null) return;
-    final dynamic dayViewState = state;
-    try {
-      final ScrollController? controller = dayViewState.scrollController;
-      if (controller != null && controller.hasClients) {
-        controller.jumpTo(offset);
-        return;
-      }
-    } catch (_) {}
-    try {
-      dayViewState.animateTo(
-        offset,
-        duration: const Duration(milliseconds: 1),
-        curve: Curves.linear,
-      );
-    } catch (_) {}
-  }
-
-  void _zoomIn() {
-    final oldHeight = _calculateHeightPerMinute();
-    final newScale =
-        (_verticalZoom + _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
-
-    if ((newScale - _verticalZoom).abs() < 0.001) return;
-    final newHeight = _baseHeightPerMinute * newScale;
-    final ratio = newHeight / oldHeight;
-    _initialScrollOffset = _currentScrollOffset * ratio;
-
-    setState(() {
-      _verticalZoom = newScale;
-    });
-  }
-
-  void _zoomOut() {
-    final oldHeight = _calculateHeightPerMinute();
-    final newScale =
-        (_verticalZoom - _zoomStep).clamp(_minVerticalZoom, _maxVerticalZoom);
-
-    if ((newScale - _verticalZoom).abs() < 0.001) return;
-    final newHeight = _baseHeightPerMinute * newScale;
-    final ratio = newHeight / oldHeight;
-    _initialScrollOffset = _currentScrollOffset * ratio;
-
-    setState(() {
-      _verticalZoom = newScale;
-    });
-  }
-
-  void _resetZoom() {
-    setState(() {
-      _verticalZoom = 1.0;
-    });
-  }
-
-  void _onScaleStart(ScaleStartDetails details) {
-    _initialZoomOnGestureStart = _verticalZoom;
-    _initialScaleOnGestureStart = 1.0; // Scale starts at 1.0
-  }
-
-  void _onScaleUpdate(ScaleUpdateDetails details) {
-    if (_initialZoomOnGestureStart == null ||
-        _initialScaleOnGestureStart == null) {
-      return; // Gesture not properly initialized
+    final controller = _dayViewScrollController();
+    final targetOffset = offset.clamp(0.0, double.infinity).toDouble();
+    if (controller == null || !controller.hasClients) {
+      _pendingScrollSyncOffset = targetOffset;
+      _schedulePendingScrollSync();
+      _currentScrollOffset = targetOffset;
+      _initialScrollOffset = targetOffset;
+      return;
+    }
+    if ((controller.offset - targetOffset).abs() < 0.5) {
+      _currentScrollOffset = targetOffset;
+      _initialScrollOffset = targetOffset;
+      return;
     }
 
-    final scaleChange = details.scale / _initialScaleOnGestureStart!;
-    final proposedZoom = _initialZoomOnGestureStart! * scaleChange;
+    try {
+      final dynamic position = controller.position;
+      try {
+        // Avoid ballistic settling between zoom steps.
+        // ignore: deprecated_member_use
+        position.jumpToWithoutSettling(targetOffset);
+      } catch (_) {
+        controller.jumpTo(targetOffset);
+      }
+      _currentScrollOffset = targetOffset;
+      _initialScrollOffset = targetOffset;
+    } catch (_) {}
+  }
+
+  void _schedulePendingScrollSync() {
+    if (!mounted || _pendingScrollSyncScheduled) {
+      return;
+    }
+    _pendingScrollSyncScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _pendingScrollSyncScheduled = false;
+      if (!mounted) return;
+      if (_pendingScrollSyncOffset == null) return;
+
+      final pending = _pendingScrollSyncOffset!;
+      final controller = _dayViewScrollController();
+      if (controller == null || !controller.hasClients) {
+        _schedulePendingScrollSync();
+        return;
+      }
+      _pendingScrollSyncOffset = null;
+      _syncDayViewScroll(pending);
+    });
+  }
+
+  void _applyZoomAroundFocalPoint({
+    required double proposedZoom,
+    required double focalDy,
+    double? anchorMinute,
+  }) {
+    if (!_hasLiveDayViewClient()) {
+      return;
+    }
+    final normalizedFocalDy = _normalizedFocalDy(focalDy);
+    final resolvedAnchorMinute =
+        anchorMinute ?? _anchorMinuteAtFocalPoint(normalizedFocalDy);
     final clampedZoom = proposedZoom.clamp(_minVerticalZoom, _maxVerticalZoom);
-    final oldHeight = _baseHeightPerMinute * _verticalZoom;
     final newHeight = _baseHeightPerMinute * clampedZoom;
-    final focalDy = details.localFocalPoint.dy;
-    final totalPixelsBefore =
-        (_currentScrollOffset + focalDy).clamp(0.0, double.infinity);
-    final focalMinutes = oldHeight > 0 ? totalPixelsBefore / oldHeight : 0.0;
-    final desiredOffset = (focalMinutes * newHeight) - focalDy;
+    final currentOffset = _effectiveScrollOffset();
+    final desiredOffset =
+        (resolvedAnchorMinute * newHeight) - normalizedFocalDy;
     final clampedOffset = _clampScrollOffsetForZoom(desiredOffset, clampedZoom);
+
     final zoomChanged = (clampedZoom - _verticalZoom).abs() >= 0.001;
-    final offsetChanged = (clampedOffset - _currentScrollOffset).abs() >=
-        0.5; // avoid noisy rebuilds
+    final offsetChanged = (clampedOffset - currentOffset).abs() >= 0.5;
     if (!zoomChanged && !offsetChanged) return;
 
     setState(() {
@@ -1435,9 +1514,140 @@ class _CalendarPageState extends State<CalendarPage> {
     _syncDayViewScroll(clampedOffset);
   }
 
-  void _onScaleEnd(ScaleEndDetails details) {
-    _initialZoomOnGestureStart = null;
-    _initialScaleOnGestureStart = null;
+  void _zoomIn() {
+    final focalDy = _buttonZoomFocalPoint();
+    final anchorMinute = _anchorMinuteAtFocalPoint(focalDy);
+    _applyZoomAroundFocalPoint(
+      proposedZoom: _verticalZoom + _zoomStep,
+      focalDy: focalDy,
+      anchorMinute: anchorMinute,
+    );
+  }
+
+  void _zoomOut() {
+    final focalDy = _buttonZoomFocalPoint();
+    final anchorMinute = _anchorMinuteAtFocalPoint(focalDy);
+    _applyZoomAroundFocalPoint(
+      proposedZoom: _verticalZoom - _zoomStep,
+      focalDy: focalDy,
+      anchorMinute: anchorMinute,
+    );
+  }
+
+  void _resetZoom() {
+    final focalDy = _buttonZoomFocalPoint();
+    final anchorMinute = _anchorMinuteAtFocalPoint(focalDy);
+    _applyZoomAroundFocalPoint(
+      proposedZoom: 1.0,
+      focalDy: focalDy,
+      anchorMinute: anchorMinute,
+    );
+  }
+
+  double _pointerDistance(Offset a, Offset b) {
+    final delta = a - b;
+    return delta.distance;
+  }
+
+  void _setPinching(bool value) {
+    if (_isPinching == value) return;
+    if (!mounted) {
+      _isPinching = value;
+      return;
+    }
+    setState(() {
+      _isPinching = value;
+    });
+  }
+
+  void _startPinchIfPossible() {
+    if (_activePointerPositions.length < 2) return;
+    final points = _activePointerPositions.values.take(2).toList();
+    final distance = _pointerDistance(points[0], points[1]);
+    if (distance <= 0 || distance.isNaN || distance.isInfinite) {
+      return;
+    }
+    final focalPoint = Offset(
+      (points[0].dx + points[1].dx) / 2,
+      (points[0].dy + points[1].dy) / 2,
+    );
+    _pinchStartDistance = distance;
+    _pinchStartZoom = _verticalZoom;
+    _pinchAnchorMinute = _anchorMinuteAtFocalPoint(focalPoint.dy);
+    _setPinching(true);
+  }
+
+  void _resetPinchIfNeeded() {
+    if (_activePointerPositions.length >= 2) {
+      return;
+    }
+    _setPinching(false);
+    _pinchStartDistance = null;
+    _pinchStartZoom = null;
+    _pinchAnchorMinute = null;
+  }
+
+  void _onCalendarPointerDown(PointerDownEvent event) {
+    _lastTapDownPosition = event.localPosition;
+    _activePointerPositions[event.pointer] = event.localPosition;
+    if (_activePointerPositions.length == 2) {
+      _startPinchIfPossible();
+    }
+  }
+
+  void _onCalendarPointerMove(PointerMoveEvent event) {
+    if (!_activePointerPositions.containsKey(event.pointer)) {
+      return;
+    }
+    _activePointerPositions[event.pointer] = event.localPosition;
+
+    if (!_hasLiveDayViewClient()) {
+      return;
+    }
+
+    if (_activePointerPositions.length < 2) {
+      _resetPinchIfNeeded();
+      return;
+    }
+    if (!_isPinching ||
+        _pinchStartDistance == null ||
+        _pinchStartZoom == null) {
+      _startPinchIfPossible();
+      if (!_isPinching ||
+          _pinchStartDistance == null ||
+          _pinchStartZoom == null) {
+        return;
+      }
+    }
+
+    final points = _activePointerPositions.values.take(2).toList();
+    final currentDistance = _pointerDistance(points[0], points[1]);
+    if (currentDistance <= 0 ||
+        currentDistance.isNaN ||
+        currentDistance.isInfinite ||
+        _pinchStartDistance! <= 0) {
+      return;
+    }
+    final scale = currentDistance / _pinchStartDistance!;
+    final focalPoint = Offset(
+      (points[0].dx + points[1].dx) / 2,
+      (points[0].dy + points[1].dy) / 2,
+    );
+    _applyZoomAroundFocalPoint(
+      proposedZoom: _pinchStartZoom! * scale,
+      focalDy: focalPoint.dy,
+      anchorMinute: _pinchAnchorMinute,
+    );
+  }
+
+  void _onCalendarPointerUp(PointerUpEvent event) {
+    _activePointerPositions.remove(event.pointer);
+    _resetPinchIfNeeded();
+  }
+
+  void _onCalendarPointerCancel(PointerCancelEvent event) {
+    _activePointerPositions.remove(event.pointer);
+    _resetPinchIfNeeded();
   }
 
   @override
@@ -1500,6 +1710,7 @@ class _CalendarPageState extends State<CalendarPage> {
       ),
       body: CalendarDayViewBody(
         showPlanned: _showPlanned,
+        isPinching: _isPinching,
         selectedDate: _selectedDate,
         dayViewKey: _dayViewKey,
         plannedOverlapPairCount: _plannedOverlapPairCount,
@@ -1540,23 +1751,20 @@ class _CalendarPageState extends State<CalendarPage> {
         onShowManualEntryDialog: (startTime, endTime) {
           _showManualEntryDialog(startTime: startTime, endTime: endTime);
         },
-        onScaleStart: _onScaleStart,
-        onScaleUpdate: _onScaleUpdate,
-        onScaleEnd: _onScaleEnd,
+        onPointerDownEvent: _onCalendarPointerDown,
+        onPointerMoveEvent: _onCalendarPointerMove,
+        onPointerUpEvent: _onCalendarPointerUp,
+        onPointerCancelEvent: _onCalendarPointerCancel,
         onCalendarViewportHeightChanged: (height) {
+          if ((height - _calendarViewportHeight).abs() < 0.5) {
+            return;
+          }
           setState(() {
             _calendarViewportHeight = height;
           });
         },
         onCurrentScrollOffsetChanged: (offset) {
-          setState(() {
-            _currentScrollOffset = offset;
-          });
-        },
-        onPointerDown: (position) {
-          setState(() {
-            _lastTapDownPosition = position;
-          });
+          _currentScrollOffset = offset;
         },
         calculateHeightPerMinute: _calculateHeightPerMinute,
         buildEventTile: _buildEventTile,

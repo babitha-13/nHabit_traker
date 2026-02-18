@@ -248,7 +248,7 @@ class TaskQuickAddUIHelper {
                           controller: controller,
                           keyboardType: TextInputType.number,
                           decoration: InputDecoration(
-                            hintText: 'Minutes (1–600)',
+                            hintText: 'Minutes (1-600)',
                             hintStyle: TextStyle(
                               color: theme.secondaryText,
                               fontSize: 14,
@@ -310,7 +310,7 @@ class TaskQuickAddUIHelper {
                           Navigator.pop(ctx, null);
                           return;
                         }
-                        Navigator.pop(ctx, parsed.clamp(1, 600));
+                        Navigator.pop(ctx, parsed.clamp(1, 600).toInt());
                       },
                       style: ElevatedButton.styleFrom(
                         backgroundColor: theme.primary,

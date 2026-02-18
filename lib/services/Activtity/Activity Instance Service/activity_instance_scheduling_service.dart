@@ -474,6 +474,11 @@ class ActivityInstanceSchedulingService {
           'originalDueDate': instance.originalDueDate ?? instance.dueDate,
           'lastUpdated': DateService.currentDate,
         });
+        await _syncTemplateDueDateForOneTimeTask(
+          uid: uid,
+          instance: instance,
+          dueDate: newDueDate,
+        );
         try {
           final updatedInstance =
               await ActivityInstanceHelperService.getUpdatedInstance(
@@ -532,6 +537,11 @@ class ActivityInstanceSchedulingService {
           'dueDate': null,
           'lastUpdated': DateService.currentDate,
         });
+        await _syncTemplateDueDateForOneTimeTask(
+          uid: uid,
+          instance: instance,
+          dueDate: null,
+        );
         final updatedInstance =
             await ActivityInstanceHelperService.getUpdatedInstance(
                 instanceId: instanceId, userId: uid);
@@ -543,6 +553,28 @@ class ActivityInstanceSchedulingService {
       }
     } catch (e) {
       rethrow;
+    }
+  }
+
+  static Future<void> _syncTemplateDueDateForOneTimeTask({
+    required String uid,
+    required ActivityInstanceRecord instance,
+    required DateTime? dueDate,
+  }) async {
+    final isOneTimeTask = instance.templateCategoryType == 'task' &&
+        !instance.templateIsRecurring;
+    if (!isOneTimeTask) return;
+
+    try {
+      final templateRef =
+          ActivityRecord.collectionForUser(uid).doc(instance.templateId);
+      await templateRef.update({
+        'dueDate': dueDate,
+        'lastUpdated': DateService.currentDate,
+      });
+    } catch (e) {
+      // Best-effort sync; instance update already succeeded.
+      print('Failed to sync template dueDate after instance reschedule: $e');
     }
   }
 

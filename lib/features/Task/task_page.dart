@@ -401,15 +401,15 @@ class _TaskPageState extends State<TaskPage> {
       _quickHoursController,
       _quickMinutesController,
       _quickUnitController,
-      (value) => setState(() {
+      (value) {
         _selectedQuickTrackingType = value;
         if (value == 'binary') {
           _quickTargetNumber = 1;
           _quickTargetDuration = const Duration(hours: 1);
           _quickUnitController.clear();
         }
-      }),
-      (value) => setState(() {
+      },
+      (value) {
         _selectedQuickDueDate = value;
         if (quickIsRecurring &&
             _quickFrequencyConfig != null &&
@@ -420,24 +420,24 @@ class _TaskPageState extends State<TaskPage> {
         if (value == null && !quickIsRecurring) {
           _quickReminders = [];
         }
-      }),
-      (value) => setState(() => _selectedQuickDueTime = value),
-      (value) => setState(() => _quickTimeEstimateMinutes = value),
-      (isRecurring, config) => setState(() {
+      },
+      (value) => _selectedQuickDueTime = value,
+      (value) => _quickTimeEstimateMinutes = value,
+      (isRecurring, config) {
         quickIsRecurring = isRecurring;
         _quickFrequencyConfig = config;
         if (config != null) {
           _selectedQuickDueDate = config.startDate;
         }
-      }),
-      (reminders) => setState(() {
+      },
+      (reminders) {
         _quickReminders = reminders;
         if (reminders.isNotEmpty &&
             !quickIsRecurring &&
             _selectedQuickDueDate == null) {
           _selectedQuickDueDate = DateTime.now();
         }
-      }),
+      },
       _submitQuickAdd,
     );
   }

@@ -50,12 +50,12 @@ class ActivityEditorInitializationService {
         : const Duration(hours: 1);
     state.unit = t?.unit ?? '';
     state.dueDate = t?.dueDate;
-    // If the template doesn't have a due date but the instance was scheduled,
-    // use the instance-specific due date so the editor reflects what the user set.
-    if (state.dueDate == null &&
-        state.widget.instance?.dueDate != null &&
-        !state.quickIsTaskRecurring &&
-        !state.widget.isHabit) {
+    // When editing a one-time task from an instance card, the instance date is
+    // authoritative (it may have been rescheduled from the context menu).
+    if (!state.quickIsTaskRecurring &&
+        !state.widget.isHabit &&
+        !ActivityEditorHelperService.isEssential(state) &&
+        state.widget.instance != null) {
       state.dueDate = state.widget.instance!.dueDate;
     }
     state.endDate = t?.endDate;
@@ -71,6 +71,18 @@ class ActivityEditorInitializationService {
     // Load due time
     if (t != null && t.hasDueTime()) {
       state.selectedDueTime = TimeUtils.stringToTimeOfDay(t.dueTime);
+    }
+    // For one-time tasks opened from an instance card, prefer instance due time
+    // so date/time/reminder chips reflect the same scheduled occurrence.
+    if (!state.quickIsTaskRecurring &&
+        !state.widget.isHabit &&
+        !ActivityEditorHelperService.isEssential(state) &&
+        state.widget.instance != null) {
+      final instanceDueTime = state.widget.instance!.dueTime ??
+          state.widget.instance!.templateDueTime;
+      if (instanceDueTime != null && instanceDueTime.isNotEmpty) {
+        state.selectedDueTime = TimeUtils.stringToTimeOfDay(instanceDueTime);
+      }
     }
     // Fall back to the instance's due time (or cached template due time) if needed.
     if (state.selectedDueTime == null && state.widget.instance != null) {

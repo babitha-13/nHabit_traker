@@ -165,7 +165,7 @@ class ReminderScheduler {
         if (reminder.type == 'alarm') {
           // Schedule as system alarm
           if (AlarmService.isSupported()) {
-            await AlarmService.scheduleAlarm(
+            final alarmScheduled = await AlarmService.scheduleAlarm(
               id: reminderId.hashCode,
               scheduledTime: reminderTime,
               title: instance.templateName,
@@ -177,6 +177,21 @@ class ReminderScheduler {
               payload: instance.reference.id,
               reminderId: reminderId,
             );
+            if (!alarmScheduled) {
+              await NotificationService.scheduleReminder(
+                id: reminderId,
+                title: instance.templateName,
+                scheduledTime: reminderTime,
+                body: _getReminderBody(
+                  dueDateTime: dueDateTime,
+                  reminderTime: reminderTime,
+                  offsetMinutes: reminder.offsetMinutes,
+                ),
+                payload: instance.templateId,
+                matchDateTimeComponents: recurrence,
+                actions: actions,
+              );
+            }
           } else {
             // Fallback to notification if alarms not supported
             await NotificationService.scheduleReminder(
@@ -241,7 +256,11 @@ class ReminderScheduler {
   }) {
     final rawDueDate = instance.dueDate;
     if (rawDueDate == null) return null;
-    final dueDate = DateService.normalizeToStartOfDay(rawDueDate);
+    // Keep the user's selected calendar date in local time. Using IST
+    // normalization here can shift the reminder to the wrong day/time.
+    final localDueDate = rawDueDate.toLocal();
+    final dueDate =
+        DateTime(localDueDate.year, localDueDate.month, localDueDate.day);
 
     int hour;
     int minute;
@@ -531,22 +550,10 @@ class ReminderScheduler {
   /// Calculate reminder time (10 minutes before due time)
   static DateTime? _calculateReminderTime(ActivityInstanceRecord instance) {
     try {
-      // Parse the due time string to TimeOfDay
-      final timeOfDay = TimeUtils.stringToTimeOfDay(instance.dueTime);
-      if (timeOfDay == null) {
-        return null;
-      }
-      // Combine date and time in local timezone
-      final dueDateStart = DateService.normalizeToStartOfDay(instance.dueDate!);
-      final dueDateTime = dueDateStart.add(
-        Duration(
-          hours: timeOfDay.hour,
-          minutes: timeOfDay.minute,
-        ),
+      return _calculateReminderTimeFromOffset(
+        instance: instance,
+        offsetMinutes: -10,
       );
-      // Calculate reminder time (10 minutes before)
-      final reminderTime = dueDateTime.subtract(const Duration(minutes: 10));
-      return reminderTime;
     } catch (e) {
       return null;
     }

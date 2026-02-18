@@ -1398,25 +1398,28 @@ class _QueuePageState extends State<QueuePage>
             _buildFilterButton(theme),
           ],
         ),
-        body: Stack(
-          children: [
-            Column(
-              children: [
-                Expanded(
-                  child: TabBarView(
-                    children: [
-                      _buildDailyTabContent(),
-                      SafeArea(
-                        top: false,
-                        child: WeeklyView(searchQuery: _searchQuery),
-                      ),
-                    ],
+        body: SafeArea(
+          top: false,
+          child: Stack(
+            children: [
+              Column(
+                children: [
+                  Expanded(
+                    child: TabBarView(
+                      children: [
+                        _buildDailyTabContent(),
+                        SafeArea(
+                          top: false,
+                          child: WeeklyView(searchQuery: _searchQuery),
+                        ),
+                      ],
+                    ),
                   ),
-                ),
-              ],
-            ),
-            const SearchFAB(heroTag: 'search_fab_queue'),
-          ],
+                ],
+              ),
+              const SearchFAB(heroTag: 'search_fab_queue'),
+            ],
+          ),
         ),
       ),
     );

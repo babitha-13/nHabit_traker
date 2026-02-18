@@ -9,9 +9,123 @@ class OptimisticOperationTracker {
   static final Map<String, OptimisticOperation> _pendingOperations = {};
   static final Random _random = Random();
   static const Duration _operationTimeout = Duration(seconds: 30);
+  static const int _reconcileStalenessToleranceMs = 1200;
   static const Duration _cleanupInterval =
       Duration(seconds: 10); // Check every 10 seconds
   static Timer? _cleanupTimer;
+
+  static int _versionMs(ActivityInstanceRecord instance) {
+    final lastUpdatedMs = instance.lastUpdated?.millisecondsSinceEpoch;
+    if (lastUpdatedMs != null && lastUpdatedMs > 0) {
+      return lastUpdatedMs;
+    }
+    final createdMs = instance.createdTime?.millisecondsSinceEpoch;
+    if (createdMs != null && createdMs > 0) {
+      return createdMs;
+    }
+    return 0;
+  }
+
+  static bool _valuesEqual(dynamic a, dynamic b) {
+    if (a is num && b is num) {
+      return a.toDouble() == b.toDouble();
+    }
+    return a == b;
+  }
+
+  static String _timeLogSignature(ActivityInstanceRecord instance) {
+    if (instance.timeLogSessions.isEmpty) {
+      return '';
+    }
+    final segments = <String>[];
+    for (final raw in instance.timeLogSessions) {
+      final start = raw['startTime'];
+      final end = raw['endTime'];
+      final duration = raw['durationMilliseconds'];
+      final startMs = start is DateTime ? start.millisecondsSinceEpoch : 0;
+      final endMs = end is DateTime ? end.millisecondsSinceEpoch : 0;
+      final durationMs = duration is num ? duration.toInt() : 0;
+      segments.add('$startMs-$endMs-$durationMs');
+    }
+    return segments.join('|');
+  }
+
+  static bool _isSemanticProgressReconcileStale({
+    required OptimisticOperation operation,
+    required ActivityInstanceRecord actualInstance,
+  }) {
+    final original = operation.originalInstance;
+    final optimistic = operation.optimisticInstance;
+
+    final sessionsChanged =
+        _timeLogSignature(original) != _timeLogSignature(optimistic);
+    final totalLoggedChanged =
+        original.totalTimeLogged != optimistic.totalTimeLogged;
+    final accumulatedChanged =
+        original.accumulatedTime != optimistic.accumulatedTime;
+    final currentValueChanged =
+        !_valuesEqual(original.currentValue, optimistic.currentValue);
+    final statusChanged = original.status != optimistic.status;
+
+    final hasTrackedChange = sessionsChanged ||
+        totalLoggedChanged ||
+        accumulatedChanged ||
+        currentValueChanged ||
+        statusChanged;
+    if (!hasTrackedChange) {
+      return false;
+    }
+
+    final matchesOptimistic = (!sessionsChanged ||
+            _timeLogSignature(actualInstance) ==
+                _timeLogSignature(optimistic)) &&
+        (!totalLoggedChanged ||
+            actualInstance.totalTimeLogged == optimistic.totalTimeLogged) &&
+        (!accumulatedChanged ||
+            actualInstance.accumulatedTime == optimistic.accumulatedTime) &&
+        (!currentValueChanged ||
+            _valuesEqual(
+                actualInstance.currentValue, optimistic.currentValue)) &&
+        (!statusChanged || actualInstance.status == optimistic.status);
+    if (matchesOptimistic) {
+      return false;
+    }
+
+    final optimisticMs = _versionMs(optimistic) > 0
+        ? _versionMs(optimistic)
+        : operation.timestamp.millisecondsSinceEpoch;
+    final actualMs = _versionMs(actualInstance);
+    if (actualMs <= 0) {
+      return true;
+    }
+    return actualMs <= optimisticMs + _reconcileStalenessToleranceMs;
+  }
+
+  static bool _isStaleReconcilePayload({
+    required OptimisticOperation operation,
+    required ActivityInstanceRecord actualInstance,
+  }) {
+    final optimisticMs = _versionMs(operation.optimisticInstance) > 0
+        ? _versionMs(operation.optimisticInstance)
+        : operation.timestamp.millisecondsSinceEpoch;
+    final actualMs = _versionMs(actualInstance);
+    if (actualMs <= 0) {
+      if (_versionMs(operation.optimisticInstance) > 0) {
+        return true;
+      }
+      return _isSemanticProgressReconcileStale(
+        operation: operation,
+        actualInstance: actualInstance,
+      );
+    }
+    if (actualMs + _reconcileStalenessToleranceMs < optimisticMs) {
+      return true;
+    }
+    return _isSemanticProgressReconcileStale(
+      operation: operation,
+      actualInstance: actualInstance,
+    );
+  }
 
   /// Generate unique operation ID
   static String generateOperationId() {
@@ -137,6 +251,14 @@ class OptimisticOperationTracker {
   ) {
     final operation = _pendingOperations.remove(operationId);
     if (operation != null) {
+      if (_isStaleReconcilePayload(
+        operation: operation,
+        actualInstance: actualInstance,
+      )) {
+        // Backend write succeeded, but read payload is older than optimistic.
+        // Keep optimistic UI and rely on subsequent refresh/event to converge.
+        return;
+      }
       InstanceEvents.broadcastInstanceUpdatedReconciled(
         actualInstance,
         operationId,
@@ -151,11 +273,22 @@ class OptimisticOperationTracker {
   ) {
     final operation = _pendingOperations.remove(operationId);
     if (operation != null) {
+      if (_isStaleReconcilePayload(
+        operation: operation,
+        actualInstance: actualInstance,
+      )) {
+        return;
+      }
       InstanceEvents.broadcastInstanceCreatedReconciled(
         actualInstance,
         operationId,
       );
     }
+  }
+
+  /// Mark operation as successful without forcing a reconciled payload broadcast.
+  static void completeOperationWithoutReconcile(String operationId) {
+    _pendingOperations.remove(operationId);
   }
 
   /// Rollback an optimistic operation

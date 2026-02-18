@@ -13,7 +13,6 @@ import 'package:habit_tracker/core/constants.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/engagement_tracker.dart';
 import 'package:habit_tracker/services/global_route_observer.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
-import 'package:habit_tracker/features/Notifications%20and%20alarms/presentation/active_alarm_overlay.dart';
 import 'package:habit_tracker/features/Timer/Helpers/timer_notification_service.dart';
 import 'package:habit_tracker/core/services/local_storage_services.dart';
 import 'package:habit_tracker/services/sound_helper.dart';
@@ -304,14 +303,6 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
       title: 'Habit Tracker',
       debugShowCheckedModeBanner: false,
       navigatorKey: navigatorKey,
-      builder: (context, child) {
-        return Stack(
-          children: [
-            if (child != null) child,
-            const ActiveAlarmOverlay(),
-          ],
-        );
-      },
       theme: _buildThemeData(lightTheme, Brightness.light),
       darkTheme: _buildThemeData(darkTheme, Brightness.dark),
       themeMode: themeMode,
