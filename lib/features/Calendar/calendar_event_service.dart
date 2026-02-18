@@ -18,6 +18,7 @@ import 'package:habit_tracker/features/Calendar/Helpers/calendar_formatting_util
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
+import 'package:habit_tracker/services/diagnostics/calendar_optimistic_trace_logger.dart';
 
 /// Service class for loading and processing calendar events
 class CalendarEventService {
@@ -124,6 +125,16 @@ class CalendarEventService {
   }) async {
     final cache = FirestoreCacheService();
     final cacheVariant = includePlanned ? 'full' : 'completed_only';
+    CalendarOptimisticTraceLogger.log(
+      'load_events_start',
+      source: 'calendar_event_service',
+      extras: <String, Object?>{
+        'userId': userId,
+        'selectedDate': _normalizeDate(selectedDate).toIso8601String(),
+        'includePlanned': includePlanned,
+        'optimisticCount': optimisticInstances.length,
+      },
+    );
     final scopeKey = _dateScopeKey(
       userId: userId,
       selectedDate: selectedDate,
@@ -140,6 +151,14 @@ class CalendarEventService {
         // Ensure we don't serve stale pre-reconciliation cache after optimistic
         // state has been cleared.
         cache.invalidateCalendarDateCache(selectedDate);
+        CalendarOptimisticTraceLogger.log(
+          'cache_invalidate_post_optimistic_clear',
+          source: 'calendar_event_service',
+          extras: <String, Object?>{
+            'scope': scopeKey,
+            'selectedDate': _normalizeDate(selectedDate).toIso8601String(),
+          },
+        );
         _cacheBypassUntilByScope[scopeKey] =
             now.add(_postOptimisticCacheBypass);
         bypassCache = true;
@@ -160,6 +179,15 @@ class CalendarEventService {
         // Invalidate once per changed optimistic state so cache can be reused
         // across observer bursts while optimistic data remains unchanged.
         cache.invalidateCalendarDateCache(selectedDate);
+        CalendarOptimisticTraceLogger.log(
+          'cache_invalidate_optimistic_signature_change',
+          source: 'calendar_event_service',
+          extras: <String, Object?>{
+            'scope': scopeKey,
+            'selectedDate': _normalizeDate(selectedDate).toIso8601String(),
+            'optimisticCount': optimisticInstances.length,
+          },
+        );
         _lastOptimisticSignatureByScope[scopeKey] = optimisticSignature;
       }
     }
@@ -171,6 +199,16 @@ class CalendarEventService {
         variant: cacheVariant,
       );
       if (cached != null) {
+        CalendarOptimisticTraceLogger.log(
+          'load_events_cache_hit',
+          source: 'calendar_event_service',
+          extras: <String, Object?>{
+            'selectedDate': _normalizeDate(selectedDate).toIso8601String(),
+            'variant': cacheVariant,
+            'completedCount': cached.completedEvents.length,
+            'plannedCount': cached.plannedEvents.length,
+          },
+        );
         return cached;
       }
     }
@@ -446,7 +484,9 @@ class CalendarEventService {
 
     // Merge optimistic instances (overwriting backend data) to ensure immediate UI updates
     // This handles cases like deleting a time log session where backend might be slightly stale
+    var optimisticMergedCount = 0;
     for (final optimisticInstance in optimisticInstances.values) {
+      optimisticMergedCount++;
       allItemsMap[optimisticInstance.reference.id] = optimisticInstance;
     }
 
@@ -462,6 +502,8 @@ class CalendarEventService {
         plannedById[backendPlanned.reference.id] = backendPlanned;
       }
 
+      var plannedOptimisticUpserts = 0;
+      var plannedOptimisticRemovals = 0;
       for (final optimisticInstance in optimisticInstances.values) {
         if (optimisticInstance.dueDate != null &&
             optimisticInstance.dueTime != null &&
@@ -475,14 +517,28 @@ class CalendarEventService {
             if (optimisticInstance.status == 'pending') {
               // Optimistic state should override stale backend planned entry.
               plannedById[optimisticInstance.reference.id] = optimisticInstance;
+              plannedOptimisticUpserts++;
             } else {
               // Remove stale planned entries for completed/skipped optimistic state.
               plannedById.remove(optimisticInstance.reference.id);
+              plannedOptimisticRemovals++;
             }
           }
         }
       }
       plannedItemsWithOptimistic.addAll(plannedById.values);
+      CalendarOptimisticTraceLogger.log(
+        'planned_merge_with_optimistic',
+        source: 'calendar_event_service',
+        extras: <String, Object?>{
+          'selectedDate': _normalizeDate(selectedDate).toIso8601String(),
+          'backendPlanned': plannedItemsFromBackend.length,
+          'optimisticCount': optimisticInstances.length,
+          'upserts': plannedOptimisticUpserts,
+          'removals': plannedOptimisticRemovals,
+          'plannedAfterMerge': plannedItemsWithOptimistic.length,
+        },
+      );
     }
 
     bool needsCategoryLookup(ActivityInstanceRecord item) {
@@ -884,6 +940,22 @@ class CalendarEventService {
       completedEvents: cascadedEvents,
       plannedEvents: plannedEvents,
       routineItemMap: routineItemMap,
+    );
+    CalendarOptimisticTraceLogger.log(
+      'load_events_result',
+      source: 'calendar_event_service',
+      extras: <String, Object?>{
+        'selectedDate': _normalizeDate(selectedDate).toIso8601String(),
+        'includePlanned': includePlanned,
+        'backendCompleted': completedItems.length,
+        'backendTimeLogged': timeLoggedTasks.length,
+        'backendEssential': essentialInstances.length,
+        'backendPlanned': plannedItemsFromBackend.length,
+        'optimisticMerged': optimisticMergedCount,
+        'completedEvents': cascadedEvents.length,
+        'plannedEvents': plannedEvents.length,
+        'bypassCache': bypassCache,
+      },
     );
 
     if (!bypassCache) {

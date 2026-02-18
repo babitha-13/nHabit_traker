@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/services/diagnostics/calendar_optimistic_trace_logger.dart';
 
 /// Tracks optimistic operations for reconciliation and rollback
 class OptimisticOperationTracker {
@@ -101,7 +102,7 @@ class OptimisticOperationTracker {
     return actualMs <= optimisticMs + _reconcileStalenessToleranceMs;
   }
 
-  static bool _isStaleReconcilePayload({
+  static String? _staleReconcileReason({
     required OptimisticOperation operation,
     required ActivityInstanceRecord actualInstance,
   }) {
@@ -111,20 +112,61 @@ class OptimisticOperationTracker {
     final actualMs = _versionMs(actualInstance);
     if (actualMs <= 0) {
       if (_versionMs(operation.optimisticInstance) > 0) {
-        return true;
+        return 'missing_actual_version';
       }
-      return _isSemanticProgressReconcileStale(
+      final semanticStale = _isSemanticProgressReconcileStale(
         operation: operation,
         actualInstance: actualInstance,
       );
+      if (semanticStale) {
+        return 'semantic_stale_no_versions';
+      }
+      return null;
     }
     if (actualMs + _reconcileStalenessToleranceMs < optimisticMs) {
-      return true;
+      return 'actual_older_than_optimistic';
     }
-    return _isSemanticProgressReconcileStale(
+    final semanticStale = _isSemanticProgressReconcileStale(
       operation: operation,
       actualInstance: actualInstance,
     );
+    if (semanticStale) {
+      return 'semantic_stale';
+    }
+    return null;
+  }
+
+  static Map<String, Object?> _reconcileDebugFields({
+    required OptimisticOperation operation,
+    required ActivityInstanceRecord actualInstance,
+  }) {
+    final optimistic = operation.optimisticInstance;
+    final original = operation.originalInstance;
+    final optimisticMs = _versionMs(optimistic) > 0
+        ? _versionMs(optimistic)
+        : operation.timestamp.millisecondsSinceEpoch;
+    final actualMs = _versionMs(actualInstance);
+    return <String, Object?>{
+      'opType': operation.operationType,
+      'pendingCount': _pendingOperations.length,
+      'optimisticMs': optimisticMs,
+      'actualMs': actualMs,
+      'originalStatus': original.status,
+      'optimisticStatus': optimistic.status,
+      'actualStatus': actualInstance.status,
+      'originalSessions': original.timeLogSessions.length,
+      'optimisticSessions': optimistic.timeLogSessions.length,
+      'actualSessions': actualInstance.timeLogSessions.length,
+      'originalTotalLogged': original.totalTimeLogged,
+      'optimisticTotalLogged': optimistic.totalTimeLogged,
+      'actualTotalLogged': actualInstance.totalTimeLogged,
+      'originalAccumulated': original.accumulatedTime,
+      'optimisticAccumulated': optimistic.accumulatedTime,
+      'actualAccumulated': actualInstance.accumulatedTime,
+      'originalCurrentValue': original.currentValue,
+      'optimisticCurrentValue': optimistic.currentValue,
+      'actualCurrentValue': actualInstance.currentValue,
+    };
   }
 
   /// Generate unique operation ID
@@ -136,6 +178,17 @@ class OptimisticOperationTracker {
   static void cancelPendingOperationForInstance(String instanceId) {
     final operation = getPendingOperation(instanceId);
     if (operation != null) {
+      CalendarOptimisticTraceLogger.log(
+        'cancel_pending_for_instance',
+        source: 'optimistic_tracker',
+        operationId: operation.operationId,
+        instanceId: instanceId,
+        instance: operation.optimisticInstance,
+        extras: <String, Object?>{
+          'reason': 'new_operation_for_instance',
+          'opType': operation.operationType,
+        },
+      );
       rollbackOperation(operation.operationId);
     }
   }
@@ -179,6 +232,21 @@ class OptimisticOperationTracker {
 
     for (final operationId in staleOperationIds) {
       // Rollback stale operations
+      final operation = _pendingOperations[operationId];
+      if (operation != null) {
+        CalendarOptimisticTraceLogger.log(
+          'stale_operation_timeout',
+          source: 'optimistic_tracker',
+          operationId: operationId,
+          instanceId: operation.instanceId,
+          instance: operation.optimisticInstance,
+          extras: <String, Object?>{
+            'ageMs': now.difference(operation.timestamp).inMilliseconds,
+            'timeoutMs': _operationTimeout.inMilliseconds,
+            'opType': operation.operationType,
+          },
+        );
+      }
       rollbackOperation(operationId);
     }
   }
@@ -219,6 +287,17 @@ class OptimisticOperationTracker {
           getPendingCreationForTemplate(optimisticInstance.templateId);
       if (existingCreation != null) {
         // Cancel previous creation operation to prevent duplicates
+        CalendarOptimisticTraceLogger.log(
+          'track_replaces_existing_create',
+          source: 'optimistic_tracker',
+          operationId: existingCreation.operationId,
+          instanceId: existingCreation.instanceId,
+          instance: existingCreation.optimisticInstance,
+          extras: <String, Object?>{
+            'newOp': operationId,
+            'templateId': optimisticInstance.templateId,
+          },
+        );
         rollbackOperation(existingCreation.operationId);
       }
     } else {
@@ -228,6 +307,18 @@ class OptimisticOperationTracker {
         // If operations conflict, cancel old operation
         if (_areOperationsConflicting(
             existingOperation.operationType, operationType)) {
+          CalendarOptimisticTraceLogger.log(
+            'track_conflict_replaces_existing',
+            source: 'optimistic_tracker',
+            operationId: existingOperation.operationId,
+            instanceId: existingOperation.instanceId,
+            instance: existingOperation.optimisticInstance,
+            extras: <String, Object?>{
+              'existingType': existingOperation.operationType,
+              'incomingType': operationType,
+              'newOp': operationId,
+            },
+          );
           rollbackOperation(existingOperation.operationId);
         }
         // If compatible (e.g., progress updates), allow both but old one will be superseded
@@ -242,6 +333,18 @@ class OptimisticOperationTracker {
       originalInstance: originalInstance,
       timestamp: DateTime.now(),
     );
+    CalendarOptimisticTraceLogger.log(
+      'track',
+      source: 'optimistic_tracker',
+      operationId: operationId,
+      instanceId: instanceId,
+      instance: optimisticInstance,
+      extras: <String, Object?>{
+        'opType': operationType,
+        'pendingCount': _pendingOperations.length,
+        'originalStatus': originalInstance.status,
+      },
+    );
   }
 
   /// Reconcile operation with actual backend data
@@ -250,20 +353,55 @@ class OptimisticOperationTracker {
     ActivityInstanceRecord actualInstance,
   ) {
     final operation = _pendingOperations.remove(operationId);
-    if (operation != null) {
-      if (_isStaleReconcilePayload(
-        operation: operation,
-        actualInstance: actualInstance,
-      )) {
-        // Backend write succeeded, but read payload is older than optimistic.
-        // Keep optimistic UI and rely on subsequent refresh/event to converge.
-        return;
-      }
-      InstanceEvents.broadcastInstanceUpdatedReconciled(
-        actualInstance,
-        operationId,
+    if (operation == null) {
+      CalendarOptimisticTraceLogger.log(
+        'reconcile_update_missing_operation',
+        source: 'optimistic_tracker',
+        operationId: operationId,
+        instance: actualInstance,
       );
+      return;
     }
+    final staleReason = _staleReconcileReason(
+      operation: operation,
+      actualInstance: actualInstance,
+    );
+    if (staleReason != null) {
+      // Backend write succeeded, but read payload is older than optimistic.
+      // Keep optimistic UI and rely on subsequent refresh/event to converge.
+      CalendarOptimisticTraceLogger.log(
+        'reconcile_update_ignored_stale',
+        source: 'optimistic_tracker',
+        operationId: operationId,
+        instanceId: operation.instanceId,
+        instance: actualInstance,
+        extras: <String, Object?>{
+          'reason': staleReason,
+          ..._reconcileDebugFields(
+            operation: operation,
+            actualInstance: actualInstance,
+          ),
+        },
+      );
+      return;
+    }
+    CalendarOptimisticTraceLogger.log(
+      'reconcile_update_apply',
+      source: 'optimistic_tracker',
+      operationId: operationId,
+      instanceId: operation.instanceId,
+      instance: actualInstance,
+      extras: <String, Object?>{
+        ..._reconcileDebugFields(
+          operation: operation,
+          actualInstance: actualInstance,
+        ),
+      },
+    );
+    InstanceEvents.broadcastInstanceUpdatedReconciled(
+      actualInstance,
+      operationId,
+    );
   }
 
   /// Reconcile instance creation with actual backend data
@@ -272,29 +410,87 @@ class OptimisticOperationTracker {
     ActivityInstanceRecord actualInstance,
   ) {
     final operation = _pendingOperations.remove(operationId);
-    if (operation != null) {
-      if (_isStaleReconcilePayload(
-        operation: operation,
-        actualInstance: actualInstance,
-      )) {
-        return;
-      }
-      InstanceEvents.broadcastInstanceCreatedReconciled(
-        actualInstance,
-        operationId,
+    if (operation == null) {
+      CalendarOptimisticTraceLogger.log(
+        'reconcile_create_missing_operation',
+        source: 'optimistic_tracker',
+        operationId: operationId,
+        instance: actualInstance,
       );
+      return;
     }
+    final staleReason = _staleReconcileReason(
+      operation: operation,
+      actualInstance: actualInstance,
+    );
+    if (staleReason != null) {
+      CalendarOptimisticTraceLogger.log(
+        'reconcile_create_ignored_stale',
+        source: 'optimistic_tracker',
+        operationId: operationId,
+        instanceId: operation.instanceId,
+        instance: actualInstance,
+        extras: <String, Object?>{
+          'reason': staleReason,
+          ..._reconcileDebugFields(
+            operation: operation,
+            actualInstance: actualInstance,
+          ),
+        },
+      );
+      return;
+    }
+    CalendarOptimisticTraceLogger.log(
+      'reconcile_create_apply',
+      source: 'optimistic_tracker',
+      operationId: operationId,
+      instanceId: operation.instanceId,
+      instance: actualInstance,
+      extras: <String, Object?>{
+        ..._reconcileDebugFields(
+          operation: operation,
+          actualInstance: actualInstance,
+        ),
+      },
+    );
+    InstanceEvents.broadcastInstanceCreatedReconciled(
+      actualInstance,
+      operationId,
+    );
   }
 
   /// Mark operation as successful without forcing a reconciled payload broadcast.
   static void completeOperationWithoutReconcile(String operationId) {
-    _pendingOperations.remove(operationId);
+    final removed = _pendingOperations.remove(operationId);
+    CalendarOptimisticTraceLogger.log(
+      'complete_without_reconcile',
+      source: 'optimistic_tracker',
+      operationId: operationId,
+      instanceId: removed?.instanceId,
+      instance: removed?.optimisticInstance,
+      extras: <String, Object?>{
+        'removed': removed != null,
+        'pendingCount': _pendingOperations.length,
+        'opType': removed?.operationType ?? '-',
+      },
+    );
   }
 
   /// Rollback an optimistic operation
   static void rollbackOperation(String operationId) {
     final operation = _pendingOperations.remove(operationId);
     if (operation != null) {
+      CalendarOptimisticTraceLogger.log(
+        'rollback',
+        source: 'optimistic_tracker',
+        operationId: operationId,
+        instanceId: operation.instanceId,
+        instance: operation.optimisticInstance,
+        extras: <String, Object?>{
+          'opType': operation.operationType,
+          'pendingCount': _pendingOperations.length,
+        },
+      );
       // Broadcast rollback event with original instance for restoration
       // Include optimistic instance for creation rollbacks (to identify temp instances)
       NotificationCenter.post('instanceUpdateRollback', {

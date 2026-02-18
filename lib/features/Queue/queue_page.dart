@@ -182,6 +182,9 @@ class _QueuePageState extends State<QueuePage>
         _loadData();
       }
     });
+    NotificationCenter.addObserver(this, 'queueFocusRequest', (param) {
+      _handleQueueFocusRequest(param);
+    });
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
         _silentRefreshInstances();
@@ -456,6 +459,43 @@ class _QueuePageState extends State<QueuePage>
         _isSearchBarVisible = isVisible;
       });
     }
+  }
+
+  void _handleQueueFocusRequest(Object? param) {
+    String? requestedTemplateId;
+    String? requestedInstanceId;
+    bool forceRefresh = false;
+
+    if (param is Map) {
+      final map = Map<String, dynamic>.from(param);
+      final templateId = map['focusTemplateId'];
+      final instanceId = map['focusInstanceId'];
+      final refresh = map['forceRefresh'];
+      if (templateId is String && templateId.isNotEmpty) {
+        requestedTemplateId = templateId;
+      }
+      if (instanceId is String && instanceId.isNotEmpty) {
+        requestedInstanceId = instanceId;
+      }
+      if (refresh is bool) {
+        forceRefresh = refresh;
+      }
+    }
+
+    _pendingFocusTemplateId = requestedTemplateId;
+    _pendingFocusInstanceId = requestedInstanceId;
+    _hasAppliedInitialFocus = false;
+
+    if (forceRefresh) {
+      unawaited(_silentRefreshInstances());
+      return;
+    }
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) {
+        _maybeApplyPendingFocus();
+      }
+    });
   }
 
   Future<void> _loadData({bool isInitialLoad = false}) async {
@@ -1914,6 +1954,11 @@ class _QueuePageState extends State<QueuePage>
           _cachedBucketedItems = null;
           _instancesHashCode = newInstancesHash;
           _categoriesHashCode = newCategoriesHash;
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) {
+            _maybeApplyPendingFocus();
+          }
         });
         // Fast UI update using local instances
         _calculateProgress(optimistic: true);
