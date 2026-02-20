@@ -38,12 +38,18 @@ class ActivityInstanceUtilityService {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .where('templateId', isEqualTo: templateId)
-          .orderBy('dueDate', descending: false);
+          .where('templateId', isEqualTo: templateId);
       final result = await query.get();
-      return result.docs
+      final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
+      instances.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return -1;
+        if (b.dueDate == null) return 1;
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+      return instances;
     } catch (e, stackTrace) {
       logFirestoreQueryError(
         e,
@@ -63,11 +69,18 @@ class ActivityInstanceUtilityService {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
       final query = ActivityInstanceRecord.collectionForUser(uid)
-          .orderBy('dueDate', descending: false);
+          ;
       final result = await query.get();
-      return result.docs
+      final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .toList();
+      instances.sort((a, b) {
+        if (a.dueDate == null && b.dueDate == null) return 0;
+        if (a.dueDate == null) return -1;
+        if (b.dueDate == null) return 1;
+        return a.dueDate!.compareTo(b.dueDate!);
+      });
+      return instances;
     } catch (e, stackTrace) {
       logFirestoreQueryError(
         e,

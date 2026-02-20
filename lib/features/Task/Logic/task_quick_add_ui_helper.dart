@@ -220,110 +220,114 @@ class TaskQuickAddUIHelper {
         final bottomInset = MediaQuery.of(ctx).viewInsets.bottom;
         return Padding(
           padding: EdgeInsets.only(bottom: bottomInset),
-          child: Container(
-            decoration: BoxDecoration(
-              color: theme.primaryBackground,
-              borderRadius:
-                  const BorderRadius.vertical(top: Radius.circular(20)),
-              border: Border.all(color: theme.surfaceBorderColor, width: 1),
-            ),
-            child: Padding(
-              padding: const EdgeInsets.all(16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Time estimate',
-                    style: theme.titleMedium.override(
-                      fontFamily: 'Readex Pro',
-                      fontWeight: FontWeight.w600,
+          child: SafeArea(
+            top: false,
+            child: Container(
+              decoration: BoxDecoration(
+                color: theme.primaryBackground,
+                borderRadius:
+                    const BorderRadius.vertical(top: Radius.circular(20)),
+                border: Border.all(color: theme.surfaceBorderColor, width: 1),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.all(16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Time estimate',
+                      style: theme.titleMedium.override(
+                        fontFamily: 'Readex Pro',
+                        fontWeight: FontWeight.w600,
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: TextField(
-                          controller: controller,
-                          keyboardType: TextInputType.number,
-                          decoration: InputDecoration(
-                            hintText: 'Minutes (1-600)',
-                            hintStyle: TextStyle(
-                              color: theme.secondaryText,
-                              fontSize: 14,
-                            ),
-                            filled: true,
-                            fillColor: theme.tertiary.withOpacity(0.3),
-                            border: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide:
-                                  BorderSide(color: theme.surfaceBorderColor),
-                            ),
-                            enabledBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide:
-                                  BorderSide(color: theme.surfaceBorderColor),
-                            ),
-                            focusedBorder: OutlineInputBorder(
-                              borderRadius: BorderRadius.circular(10),
-                              borderSide: BorderSide(color: theme.primary),
-                            ),
-                            isDense: true,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      TextButton(
-                        onPressed: () => Navigator.pop(ctx, null),
-                        child: const Text('Clear'),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: presets
-                        .map(
-                          (m) => OutlinedButton(
-                            onPressed: () => Navigator.pop(ctx, m),
-                            style: OutlinedButton.styleFrom(
-                              side: BorderSide(color: theme.surfaceBorderColor),
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10),
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextField(
+                            controller: controller,
+                            keyboardType: TextInputType.number,
+                            decoration: InputDecoration(
+                              hintText: 'Minutes (1-600)',
+                              hintStyle: TextStyle(
+                                color: theme.secondaryText,
+                                fontSize: 14,
                               ),
-                              foregroundColor: theme.primaryText,
+                              filled: true,
+                              fillColor: theme.tertiary.withOpacity(0.3),
+                              border: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              enabledBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                              ),
+                              focusedBorder: OutlineInputBorder(
+                                borderRadius: BorderRadius.circular(10),
+                                borderSide: BorderSide(color: theme.primary),
+                              ),
+                              isDense: true,
                             ),
-                            child: Text('${m}m'),
                           ),
-                        )
-                        .toList(),
-                  ),
-                  const SizedBox(height: 16),
-                  SizedBox(
-                    width: double.infinity,
-                    child: ElevatedButton(
-                      onPressed: () {
-                        final parsed = int.tryParse(controller.text.trim());
-                        if (parsed == null) {
-                          Navigator.pop(ctx, null);
-                          return;
-                        }
-                        Navigator.pop(ctx, parsed.clamp(1, 600).toInt());
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: theme.primary,
-                        foregroundColor: Colors.white,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12),
                         ),
-                      ),
-                      child: const Text('Save'),
+                        const SizedBox(width: 12),
+                        TextButton(
+                          onPressed: () => Navigator.pop(ctx, null),
+                          child: const Text('Clear'),
+                        ),
+                      ],
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: presets
+                          .map(
+                            (m) => OutlinedButton(
+                              onPressed: () => Navigator.pop(ctx, m),
+                              style: OutlinedButton.styleFrom(
+                                side:
+                                    BorderSide(color: theme.surfaceBorderColor),
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10),
+                                ),
+                                foregroundColor: theme.primaryText,
+                              ),
+                              child: Text('${m}m'),
+                            ),
+                          )
+                          .toList(),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      width: double.infinity,
+                      child: ElevatedButton(
+                        onPressed: () {
+                          final parsed = int.tryParse(controller.text.trim());
+                          if (parsed == null) {
+                            Navigator.pop(ctx, null);
+                            return;
+                          }
+                          Navigator.pop(ctx, parsed.clamp(1, 600).toInt());
+                        },
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: theme.primary,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        child: const Text('Save'),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
