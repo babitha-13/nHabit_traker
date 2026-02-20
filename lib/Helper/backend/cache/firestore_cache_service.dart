@@ -37,7 +37,8 @@ class FirestoreCacheService {
   Map<String, DateTime> _calendarDateTimestamps = {};
 
   // Cache TTL (Time To Live) in seconds
-  static const int _instancesCacheTTL = 30; // 30 seconds for instances
+  static const int _instancesCacheTTL =
+      120; // 2 min — TodayInstanceRepository handles real-time updates
   static const int _categoriesCacheTTL =
       900; // 15 minutes for categories (change infrequently)
   static const int _templateCacheTTL = 60; // 1 minute for templates
@@ -73,11 +74,11 @@ class FirestoreCacheService {
 
         if (instance != null) {
           _applyInstanceCacheUpdate(instance);
+          if (!isOptimistic) {
+            _invalidateCalendarForInstance(instance);
+          }
         } else {
           invalidateInstancesCache();
-        }
-        if (!isOptimistic) {
-          invalidateCalendarCache();
         }
       },
     );
@@ -90,11 +91,11 @@ class FirestoreCacheService {
 
         if (instance != null) {
           _applyInstanceCacheUpdate(instance);
+          if (!isOptimistic) {
+            _invalidateCalendarForInstance(instance);
+          }
         } else {
           invalidateInstancesCache();
-        }
-        if (!isOptimistic) {
-          invalidateCalendarCache();
         }
       },
     );
@@ -105,10 +106,10 @@ class FirestoreCacheService {
         final instance = _extractInstanceFromEventParam(param);
         if (instance != null) {
           _removeInstanceFromCache(instance);
+          _invalidateCalendarForInstance(instance);
         } else {
           invalidateInstancesCache();
         }
-        invalidateCalendarCache();
       },
     );
 
@@ -202,6 +203,23 @@ class FirestoreCacheService {
     }
   }
 
+  /// Invalidate only the calendar dates affected by an instance.
+  /// Extracts dueDate, completedAt, belongsToDate from the instance and
+  /// invalidates only those specific date entries instead of the entire cache.
+  void _invalidateCalendarForInstance(ActivityInstanceRecord instance) {
+    final dates = <DateTime>{};
+    if (instance.dueDate != null) dates.add(instance.dueDate!);
+    if (instance.completedAt != null) dates.add(instance.completedAt!);
+    if (instance.belongsToDate != null) dates.add(instance.belongsToDate!);
+    if (dates.isEmpty) {
+      // Fallback: invalidate today if no date info is available
+      dates.add(DateService.todayStart);
+    }
+    for (final date in dates) {
+      invalidateCalendarDateCache(date);
+    }
+  }
+
   void _removeInstanceFromCache(ActivityInstanceRecord instance) {
     final id = instance.reference.id;
     _cachedInstancesById.remove(id);
@@ -244,7 +262,8 @@ class FirestoreCacheService {
   /// Cache all instances
   void cacheAllInstances(List<ActivityInstanceRecord> instances) {
     _cachedAllInstances = instances;
-    _allInstancesTimestamp = DateTime.now();
+    final now = DateTime.now();
+    _allInstancesTimestamp = now;
     // Also cache individual instances by ID for quick lookup (with size limit)
     // Clear old entries if cache is getting too large
     if (_cachedInstancesById.length > _maxInstancesByIdCache) {
@@ -253,7 +272,7 @@ class FirestoreCacheService {
     }
     for (final instance in instances) {
       _cachedInstancesById[instance.reference.id] = instance;
-      _instanceTimestamps[instance.reference.id] = DateTime.now();
+      _instanceTimestamps[instance.reference.id] = now;
     }
   }
 
@@ -385,19 +404,14 @@ class FirestoreCacheService {
   /// Partially invalidate instances cache for a specific instance
   /// This is more efficient than invalidating the entire cache
   void invalidateInstanceCache(String instanceId) {
-    // Remove specific instance from cache
+    // Remove specific instance from by-ID cache
     _cachedInstancesById.remove(instanceId);
     _instanceTimestamps.remove(instanceId);
 
-    // Invalidate aggregate caches that might contain this instance
-    // Note: We could be smarter and update the lists, but for simplicity
-    // we invalidate the aggregate caches. The TTL will handle freshness.
-    _cachedAllInstances = null;
-    _cachedTaskInstances = null;
-    _cachedHabitInstances = null;
-    _allInstancesTimestamp = null;
-    _taskInstancesTimestamp = null;
-    _habitInstancesTimestamp = null;
+    // Aggregate caches (_cachedAllInstances, _cachedTaskInstances,
+    // _cachedHabitInstances) are maintained surgically by
+    // _applyInstanceCacheUpdate via NotificationCenter listeners.
+    // No need to nuke them here — that was causing cascading re-fetches.
   }
 
   /// Invalidate categories cache

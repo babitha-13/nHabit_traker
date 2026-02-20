@@ -275,19 +275,19 @@ class MorningCatchUpDialogLogic {
 
   /// Prepare for dialog close - triggers refresh notifications
   Future<void> prepareForClose() async {
-    // Catch-up batch operations don't emit per-instance events.
-    // Force the shared instance cache/snapshot to refresh so Habits/Queue
-    // pages do not keep showing stale yesterday items.
+    // Batch catch-up operations may not have emitted per-instance events.
+    // A single refreshToday re-queries Firestore and rebuilds the snapshot,
+    // which is sufficient. No need to also nuke FirestoreCacheService —
+    // that was causing redundant triple-fetches.
     final userId = await waitForCurrentUserUid();
-    FirestoreCacheService().invalidateInstancesCache();
-    TodayInstanceRepository.instance.clearSnapshot();
-    
+
     TodayScoreCalculator.invalidateCache();
     if (userId.isNotEmpty) {
       DailyProgressQueryService.invalidateUserCache(userId);
     }
 
     if (userId.isNotEmpty) {
+      FirestoreCacheService().invalidateInstancesCache();
       try {
         await TodayInstanceRepository.instance.refreshToday(userId: userId);
       } catch (_) {

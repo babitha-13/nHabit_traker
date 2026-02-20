@@ -98,9 +98,11 @@ class OptimisticUpdateHelper {
       // 5. Perform backend update
       await backendUpdate();
 
-      // Note: For void version, we can't reconcile with actual instance
-      // The caller should handle reconciliation if needed
-      // or use the non-void version
+      // 6. Mark operation complete — no reconcile payload available but
+      //    we must remove the tracked operation. Without this the 30-second
+      //    stale-cleanup timer would roll back the UI even though the
+      //    backend write succeeded.
+      OptimisticOperationTracker.completeOperationWithoutReconcile(operationId);
     } catch (e) {
       // 7. Rollback on error
       OptimisticOperationTracker.rollbackOperation(operationId);

@@ -13,7 +13,7 @@ import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
 
-import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+// FirestoreCacheService handles its own cache updates via NotificationCenter.
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 
@@ -338,13 +338,9 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
     } else {
       return;
     }
-    final cache = FirestoreCacheService();
-    cache.invalidateInstanceCache(instance.reference.id);
-    if (!isOptimistic) {
-      cache.cacheInstance(instance);
-    } else {
-      cache.invalidateInstancesCache();
-    }
+    // FirestoreCacheService handles surgical cache updates via its own
+    // NotificationCenter listeners (_applyInstanceCacheUpdate).
+    // Manual invalidation here was causing full Firestore re-fetches on every tap.
     if (reorderingInstanceIds.contains(instance.reference.id)) {
       return;
     }

@@ -19,16 +19,6 @@ class TodayScoreCalculator {
   static UserProgressStatsRecord? _cachedUserStats;
   static double? _cachedYesterdayCumulative;
 
-  /// Invalidate the internal caches
-  static void invalidateCache() {
-    _last7DaysCachedAt = null;
-    _userStatsCachedAt = null;
-    _yesterdayCumulativeCachedAt = null;
-    _cachedLast7Days = null;
-    _cachedUserStats = null;
-    _cachedYesterdayCumulative = null;
-  }
-
   /// Invalidate the internal caches
   static void invalidateCache() {
     _last7DaysCachedAt = null;
