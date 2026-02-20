@@ -298,7 +298,7 @@ class TodayInstanceRepository extends ChangeNotifier {
       return;
     }
     if (instance.templateCategoryType == 'task') {
-      _clearTaskItemsSnapshot();
+      _upsertTaskItemsSnapshot(instance);
     }
 
     if (_extractUserIdFromPath(instance.reference.path) != existing.userId) {
@@ -362,7 +362,10 @@ class TodayInstanceRepository extends ChangeNotifier {
     if (deletedId == null || deletedId.isEmpty) {
       return;
     }
-    _clearTaskItemsSnapshot();
+    if (deletedInstance != null &&
+        deletedInstance.templateCategoryType == 'task') {
+      _removeFromTaskItemsSnapshot(deletedId);
+    }
 
     if (deletedInstance != null &&
         _extractUserIdFromPath(deletedInstance.reference.path) !=
@@ -389,7 +392,7 @@ class TodayInstanceRepository extends ChangeNotifier {
     if (param is! Map) {
       return;
     }
-    _clearTaskItemsSnapshot();
+    // Rollback may restore the original or remove an optimistic create.
     final existing = _snapshot;
     if (existing == null) {
       return;
@@ -547,5 +550,21 @@ class TodayInstanceRepository extends ChangeNotifier {
     _inFlightTaskHydrationKey = null;
     _taskItemsUserId = null;
     _taskItemsDayStart = null;
+  }
+
+  void _upsertTaskItemsSnapshot(ActivityInstanceRecord instance) {
+    final items = _taskItemsSnapshot;
+    if (items == null) return;
+    final id = instance.reference.id;
+    final index = items.indexWhere((i) => i.reference.id == id);
+    if (index >= 0) {
+      items[index] = instance;
+    } else {
+      items.add(instance);
+    }
+  }
+
+  void _removeFromTaskItemsSnapshot(String instanceId) {
+    _taskItemsSnapshot?.removeWhere((i) => i.reference.id == instanceId);
   }
 }

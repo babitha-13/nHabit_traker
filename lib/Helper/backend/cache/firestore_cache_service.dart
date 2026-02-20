@@ -63,7 +63,7 @@ class FirestoreCacheService {
     if (_listenersSetup) {
       return;
     }
-    // Invalidate instances cache when instances are created/updated/deleted
+    // Update instances cache in-place when instances are created/updated/deleted
     NotificationCenter.addObserver(
       this,
       InstanceEvents.instanceCreated,
@@ -71,10 +71,12 @@ class FirestoreCacheService {
         final instance = _extractInstanceFromEventParam(param);
         final isOptimistic = _isOptimisticEventParam(param);
 
-        if (isOptimistic && instance != null) {
-          _applyOptimisticInstanceCacheUpdate(instance);
+        if (instance != null) {
+          _applyInstanceCacheUpdate(instance);
         } else {
           invalidateInstancesCache();
+        }
+        if (!isOptimistic) {
           invalidateCalendarCache();
         }
       },
@@ -86,10 +88,12 @@ class FirestoreCacheService {
         final instance = _extractInstanceFromEventParam(param);
         final isOptimistic = _isOptimisticEventParam(param);
 
-        if (isOptimistic && instance != null) {
-          _applyOptimisticInstanceCacheUpdate(instance);
+        if (instance != null) {
+          _applyInstanceCacheUpdate(instance);
         } else {
           invalidateInstancesCache();
+        }
+        if (!isOptimistic) {
           invalidateCalendarCache();
         }
       },
@@ -98,7 +102,12 @@ class FirestoreCacheService {
       this,
       InstanceEvents.instanceDeleted,
       (param) {
-        invalidateInstancesCache();
+        final instance = _extractInstanceFromEventParam(param);
+        if (instance != null) {
+          _removeInstanceFromCache(instance);
+        } else {
+          invalidateInstancesCache();
+        }
         invalidateCalendarCache();
       },
     );
@@ -164,7 +173,7 @@ class FirestoreCacheService {
     }
   }
 
-  void _applyOptimisticInstanceCacheUpdate(ActivityInstanceRecord instance) {
+  void _applyInstanceCacheUpdate(ActivityInstanceRecord instance) {
     cacheInstance(instance);
 
     // Aggregate caches only store habit/task instances.
@@ -191,6 +200,16 @@ class FirestoreCacheService {
       _upsertInstanceInList(_cachedHabitInstances!, instance);
       _habitInstancesTimestamp = now;
     }
+  }
+
+  void _removeInstanceFromCache(ActivityInstanceRecord instance) {
+    final id = instance.reference.id;
+    _cachedInstancesById.remove(id);
+    _instanceTimestamps.remove(id);
+
+    _cachedAllInstances?.removeWhere((i) => i.reference.id == id);
+    _cachedTaskInstances?.removeWhere((i) => i.reference.id == id);
+    _cachedHabitInstances?.removeWhere((i) => i.reference.id == id);
   }
 
   /// Ensure listeners are set up (can be called from main.dart on reassemble)

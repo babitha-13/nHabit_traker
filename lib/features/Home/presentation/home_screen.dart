@@ -72,6 +72,8 @@ class _HomeState extends State<Home> {
       // Reset all observers to prevent accumulation from previous hot reloads
       NotificationCenter.reset();
       FirestoreCacheService.resetListenersSetup();
+      FirestoreCacheService()
+          .ensureListenersSetup(); // Re-register observers for cache
       ResourceTracker.reset();
     }
     NotificationCenter.addObserver(
