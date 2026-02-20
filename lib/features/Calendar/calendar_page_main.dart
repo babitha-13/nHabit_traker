@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Calendar/calender_page_ui.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/completed_event_sort.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_formatting_utils.dart';
 import 'package:habit_tracker/features/Calendar/Time_breakdown_chart/time_breakdown_chart.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
@@ -69,6 +70,12 @@ class _CalendarPageState extends State<CalendarPage> {
   static const int _staleInstanceEventToleranceMs = 1500;
   Map<String, List<String>> _routineItemMap = {};
   final Map<String, int> _latestInstanceUpdateMsById = {};
+
+  int? _toEpochMs(dynamic value) {
+    if (value is DateTime) return value.millisecondsSinceEpoch;
+    if (value is num) return value.toInt();
+    return null;
+  }
 
   CalendarEventTileBuilder get _eventTileBuilder {
     return CalendarEventTileBuilder(
@@ -1062,6 +1069,8 @@ class _CalendarPageState extends State<CalendarPage> {
         sessionIndex: i,
         sessionStartEpochMs: sessionStart.millisecondsSinceEpoch,
         sessionEndEpochMs: sessionEnd.millisecondsSinceEpoch,
+        sessionLoggedAtEpochMs: _toEpochMs(session['loggedAt']) ??
+            sessionEnd.millisecondsSinceEpoch,
         activityName: instance.templateName,
         activityType: instance.templateCategoryType,
         templateId: instance.templateId,
@@ -1101,11 +1110,7 @@ class _CalendarPageState extends State<CalendarPage> {
         .where((e) => e.startTime != null && e.endTime != null)
         .toList();
 
-    events.sort((a, b) {
-      final endCompare = b.endTime!.compareTo(a.endTime!);
-      if (endCompare != 0) return endCompare;
-      return b.startTime!.compareTo(a.startTime!);
-    });
+    events.sort(compareCompletedEvents);
 
     DateTime? earliestStartTime;
     final cascaded = <CalendarEventData>[];
@@ -1155,7 +1160,11 @@ class _CalendarPageState extends State<CalendarPage> {
       );
     }
 
-    cascaded.sort((a, b) => a.startTime!.compareTo(b.startTime!));
+    cascaded.sort((a, b) {
+      final startCompare = a.startTime!.compareTo(b.startTime!);
+      if (startCompare != 0) return startCompare;
+      return compareCompletedEvents(a, b);
+    });
     return cascaded;
   }
 

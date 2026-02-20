@@ -253,6 +253,7 @@ class ItemTimeControlsHelper {
       final newSession = {
         'startTime': stackedTimes.startTime,
         'endTime': stackedTimes.endTime,
+        'loggedAt': completionTime,
         'durationMilliseconds': newAccumulatedTime,
       };
 

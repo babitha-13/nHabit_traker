@@ -72,7 +72,16 @@ class CalendarEventTileBuilder {
       return _labelOffsetCache[cacheKey]!;
     }
 
-    final index = sortedEvents.indexOf(event);
+    final eventIdForMatch = CalendarOverlapCalculator.stableEventId(event);
+    final index = sortedEvents.indexWhere((e) {
+      if (eventIdForMatch != null) {
+        return CalendarOverlapCalculator.stableEventId(e) == eventIdForMatch;
+      }
+      return e.startTime == event.startTime &&
+          e.endTime == event.endTime &&
+          e.title == event.title;
+    });
+
     if (index <= 0) {
       _labelOffsetCache[cacheKey] = 0.0;
       return 0.0;

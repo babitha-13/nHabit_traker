@@ -105,11 +105,9 @@ class ActivityInstanceCompletionService {
     return results;
   }
 
-  /// Calculate start and end times for a new session block, placing it above
-  /// all existing session blocks from all recent instances (global stacking).
-  ///
-  /// [currentInstanceSessions] should contain the current instance's own
-  /// existing sessions so they are also considered in overlap avoidance.
+  /// Calculate start/end times for a new session block anchored at completion.
+  /// This keeps write-time semantics stable and lets calendar rendering decide
+  /// visual stacking order deterministically.
   static Future<StackedSessionTimes> calculateStackedStartTime({
     required String userId,
     required DateTime completionTime,
@@ -127,120 +125,6 @@ class ActivityInstanceCompletionService {
       startTime: candidateStartTime,
       endTime: completionTime,
     );
-  }
-
-  /// Finds and pushes older sessions backward in time if they overlap with the new block.
-  /// Returns a map of instanceId -> list of updated time modules for instances that must be updated.
-  static Future<Map<String, List<Map<String, dynamic>>>>
-      _pushOlderSessionsBackwards({
-    required String userId,
-    required DateTime newBlockStart,
-    required DateTime newBlockEnd,
-    required String excludeInstanceId,
-  }) async {
-    final recentInstances = await findInstancesWithRecentSessions(
-      userId: userId,
-      nearTime: newBlockEnd,
-      excludeInstanceId: excludeInstanceId,
-      window:
-          const Duration(hours: 4), // generous window to catch deep overlaps
-    );
-
-    final updatesToSave = <String, List<Map<String, dynamic>>>{};
-
-    // We collect all sessions across all older instances to push them backward iteratively
-    // to avoid overlapping with each other after being pushed.
-    // For simplicity, we just push any session that overlaps with the new block
-    // to start exactly before the new block begins. If that causes it to overlap
-    // with another older session, we push *that* one back, etc.
-
-    // Structure: InstanceID -> List of Sessions
-    final activeSessions = <String, List<Map<String, dynamic>>>{};
-    for (final inst in recentInstances) {
-      activeSessions[inst.reference.id] = List<Map<String, dynamic>>.from(
-          inst.timeLogSessions.map((s) => Map<String, dynamic>.from(s)));
-    }
-
-    var pushedAnything = true;
-    while (pushedAnything) {
-      pushedAnything = false;
-
-      // The "new block" is the primary obstacle.
-      // We will check all sessions against all "obstacles" (the new block, plus any shifted sessions).
-      // If session A overlaps obstacle B, we push A back.
-
-      for (final instId in activeSessions.keys) {
-        final sessions = activeSessions[instId]!;
-        var updatedInstance = false;
-
-        for (var i = 0; i < sessions.length; i++) {
-          final session = sessions[i];
-          final start = session['startTime'] as DateTime?;
-          final end = session['endTime'] as DateTime?;
-          if (start == null || end == null) continue;
-
-          final duration = end.difference(start);
-
-          // Check overlap with the primary new block
-          if (start.isBefore(newBlockEnd) && end.isAfter(newBlockStart)) {
-            // Overlaps! Push it back so it ends at newBlockStart
-            final newEnd = newBlockStart;
-            final newStart = newEnd.subtract(duration);
-
-            session['startTime'] = newStart;
-            session['endTime'] = newEnd;
-            updatedInstance = true;
-            pushedAnything = true;
-          }
-
-          // Check overlap with other already-shifted sessions
-          for (final otherInstId in activeSessions.keys) {
-            final otherSessions = activeSessions[otherInstId]!;
-            for (var j = 0; j < otherSessions.length; j++) {
-              if (instId == otherInstId && i == j) continue;
-
-              final otherSession = otherSessions[j];
-              final oStart = otherSession['startTime'] as DateTime?;
-              final oEnd = otherSession['endTime'] as DateTime?;
-              if (oStart == null || oEnd == null) continue;
-
-              final currentStart = session['startTime'] as DateTime;
-              final currentEnd = session['endTime'] as DateTime;
-
-              // If we overlap with another session, and we are considered the "earlier" or equal one,
-              // we push ourselves back.
-              // Tie breaker: instanceId
-              if (currentStart.isBefore(oEnd) && currentEnd.isAfter(oStart)) {
-                bool shouldPushMe = false;
-                if (currentEnd.isBefore(oEnd) ||
-                    currentEnd.isAtSameMomentAs(oEnd)) {
-                  shouldPushMe = true;
-                }
-                if (currentEnd.isAtSameMomentAs(oEnd) &&
-                    instId.compareTo(otherInstId) > 0) {
-                  shouldPushMe = false;
-                }
-
-                if (shouldPushMe) {
-                  final newEnd = oStart;
-                  final newStart = newEnd.subtract(duration);
-                  session['startTime'] = newStart;
-                  session['endTime'] = newEnd;
-                  updatedInstance = true;
-                  pushedAnything = true;
-                }
-              }
-            }
-          }
-        }
-
-        if (updatedInstance) {
-          updatesToSave[instId] = sessions;
-        }
-      }
-    }
-
-    return updatesToSave;
   }
 
   /// Complete an activity instance
@@ -374,6 +258,7 @@ class ActivityInstanceCompletionService {
         final forcedSession = {
           'startTime': stackedTimes.startTime,
           'endTime': stackedTimes.endTime,
+          'loggedAt': completionTime,
           'durationMilliseconds': forcedDurationMs,
         };
 
@@ -385,25 +270,6 @@ class ActivityInstanceCompletionService {
         updateData['totalTimeLogged'] = forcedDurationMs;
         updateData['accumulatedTime'] =
             finalAccumulatedTime ?? forcedDurationMs;
-
-        // Push older sessions backward to make room for this forced session
-        final updatesToSave = await _pushOlderSessionsBackwards(
-          userId: uid,
-          newBlockStart: stackedTimes.startTime,
-          newBlockEnd: stackedTimes.endTime,
-          excludeInstanceId: instanceId,
-        );
-
-        for (final entry in updatesToSave.entries) {
-          final instId = entry.key;
-          final updatedSessions = entry.value;
-          final otherRef =
-              ActivityInstanceRecord.collectionForUser(uid).doc(instId);
-          await otherRef.update({
-            'timeLogSessions': updatedSessions,
-            'lastUpdated': now,
-          });
-        }
       } else if (durationMs > 0 && existingSessions.isEmpty) {
         final stackedTimes = await calculateStackedStartTime(
           userId: uid,
@@ -417,6 +283,7 @@ class ActivityInstanceCompletionService {
         final newSession = {
           'startTime': stackedTimes.startTime,
           'endTime': stackedTimes.endTime,
+          'loggedAt': completionTime,
           'durationMilliseconds': durationMs,
         };
         existingSessions.add(newSession);
@@ -427,25 +294,6 @@ class ActivityInstanceCompletionService {
         );
         updateData['timeLogSessions'] = existingSessions;
         updateData['totalTimeLogged'] = totalTime;
-
-        // Push older sessions backward to make room for this new session
-        final updatesToSave = await _pushOlderSessionsBackwards(
-          userId: uid,
-          newBlockStart: stackedTimes.startTime,
-          newBlockEnd: stackedTimes.endTime,
-          excludeInstanceId: instanceId,
-        );
-
-        for (final entry in updatesToSave.entries) {
-          final instId = entry.key;
-          final updatedSessions = entry.value;
-          final otherRef =
-              ActivityInstanceRecord.collectionForUser(uid).doc(instId);
-          await otherRef.update({
-            'timeLogSessions': updatedSessions,
-            'lastUpdated': now,
-          });
-        }
       }
       String? operationId;
       if (!skipOptimisticUpdate) {

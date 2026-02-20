@@ -10,6 +10,18 @@ import 'activity_instance_completion_service.dart';
 
 /// Service for updating instance progress and timer operations
 class ActivityInstanceProgressService {
+  static DateTime completionAnchorForQuantitativeIncrement({
+    required DateTime effectiveReferenceTime,
+    required int totalIncrements,
+    required int incrementIndex,
+  }) {
+    if (totalIncrements <= 1) {
+      return effectiveReferenceTime;
+    }
+    final offsetMs = totalIncrements - 1 - incrementIndex;
+    return effectiveReferenceTime.subtract(Duration(milliseconds: offsetMs));
+  }
+
   /// Update instance progress (for quantitative tracking)
   static Future<void> updateInstanceProgress({
     required String instanceId,
@@ -96,13 +108,20 @@ class ActivityInstanceProgressService {
 
               final existingSessions = List<Map<String, dynamic>>.from(
                   latestInstance.timeLogSessions);
+              final incrementCount = delta.toInt();
 
               // Create one time block per increment
               final newSessions = <Map<String, dynamic>>[];
 
-              // For each increment, use global stacking to place the block
-              // above ALL existing sessions (own + other instances)
-              for (int i = 0; i < delta.toInt(); i++) {
+              // For each increment, anchor completion time with deterministic
+              // millisecond offsets to avoid duplicate timestamps.
+              for (int i = 0; i < incrementCount; i++) {
+                final incrementCompletionTime =
+                    completionAnchorForQuantitativeIncrement(
+                  effectiveReferenceTime: effectiveReferenceTime,
+                  totalIncrements: incrementCount,
+                  incrementIndex: i,
+                );
                 // Include own existing sessions + any new sessions created so far
                 final allOwnSessions = <Map<String, dynamic>>[
                   ...existingSessions,
@@ -112,7 +131,7 @@ class ActivityInstanceProgressService {
                 final stackedTimes = await ActivityInstanceCompletionService
                     .calculateStackedStartTime(
                   userId: uid,
-                  completionTime: effectiveReferenceTime,
+                  completionTime: incrementCompletionTime,
                   durationMs: perUnitMs,
                   instanceId: instanceId,
                   effectiveEstimateMinutes: effectiveEstimateMinutes.toInt(),
@@ -122,6 +141,7 @@ class ActivityInstanceProgressService {
                 final newSession = {
                   'startTime': stackedTimes.startTime,
                   'endTime': stackedTimes.endTime,
+                  'loggedAt': incrementCompletionTime,
                   'durationMilliseconds': perUnitMs,
                 };
 
@@ -501,6 +521,7 @@ class ActivityInstanceProgressService {
         final newSession = {
           'startTime': instance.currentSessionStartTime!,
           'endTime': now,
+          'loggedAt': now,
           'durationMilliseconds': elapsed,
         };
         // Get existing sessions and add new one

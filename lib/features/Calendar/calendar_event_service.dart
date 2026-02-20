@@ -14,6 +14,7 @@ import 'package:habit_tracker/features/Calendar/Helpers/planned_duration_resolve
 import 'package:habit_tracker/features/Routine/Backend_data/routine_planned_calendar_service.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_events_result.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
+import 'package:habit_tracker/features/Calendar/Helpers/completed_event_sort.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_formatting_utils.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
@@ -113,6 +114,12 @@ class CalendarEventService {
   static bool _hasDueTime(ActivityInstanceRecord instance) {
     final dueTime = instance.dueTime;
     return dueTime != null && dueTime.isNotEmpty;
+  }
+
+  static int? _toEpochMs(dynamic value) {
+    if (value is DateTime) return value.millisecondsSinceEpoch;
+    if (value is num) return value.toInt();
+    return null;
   }
 
   /// Load and process calendar events for a given date
@@ -702,11 +709,15 @@ class CalendarEventService {
             }
 
             final categoryType = item.templateCategoryType;
+            final sessionLoggedAtEpochMs =
+                _toEpochMs(session['loggedAt']) ??
+                    sessionEnd.millisecondsSinceEpoch;
             final metadata = CalendarEventMetadata(
               instanceId: item.reference.id,
               sessionIndex: sessionIndex,
               sessionStartEpochMs: sessionStart.millisecondsSinceEpoch,
               sessionEndEpochMs: sessionEnd.millisecondsSinceEpoch,
+              sessionLoggedAtEpochMs: sessionLoggedAtEpochMs,
               activityName: item.templateName,
               activityType: categoryType,
               templateId: item.templateId,
@@ -735,13 +746,7 @@ class CalendarEventService {
     }
     // Optimize: Sort once and process cascading efficiently
     // Sort by end time descending, then start time descending
-    completedEvents.sort((a, b) {
-      if (a.endTime == null || b.endTime == null) return 0;
-      final endCompare = b.endTime!.compareTo(a.endTime!);
-      if (endCompare != 0) return endCompare;
-      if (a.startTime == null || b.startTime == null) return 0;
-      return b.startTime!.compareTo(a.startTime!);
-    });
+    completedEvents.sort(compareCompletedEvents);
 
     // Optimize cascading calculation: filter valid events first, then process
     final validEvents = completedEvents
@@ -799,8 +804,11 @@ class CalendarEventService {
 
     // Sort by start time ascending for final display order
     cascadedEvents.sort((a, b) {
-      if (a.startTime == null || b.startTime == null) return 0;
-      return a.startTime!.compareTo(b.startTime!);
+      final aStart = a.startTime?.millisecondsSinceEpoch ?? -1;
+      final bStart = b.startTime?.millisecondsSinceEpoch ?? -1;
+      final startCompare = aStart.compareTo(bStart);
+      if (startCompare != 0) return startCompare;
+      return compareCompletedEvents(a, b);
     });
 
     if (includePlanned) {
