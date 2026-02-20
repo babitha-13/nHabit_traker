@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'dart:math' as math;
@@ -76,18 +76,16 @@ class _CalendarPageState extends State<CalendarPage> {
     if (value is num) return value.toInt();
     return null;
   }
-
-  CalendarEventTileBuilder get _eventTileBuilder {
-    return CalendarEventTileBuilder(
-      calculateHeightPerMinute: _calculateHeightPerMinute,
-      plannedOverlappedEventIds: _plannedOverlappedEventIds,
-      onEditEntry: (metadata) => _showEditEntryDialog(metadata: metadata),
-    );
-  }
+  late final CalendarEventTileBuilder _eventTileBuilder;
 
   @override
   void initState() {
     super.initState();
+    _eventTileBuilder = CalendarEventTileBuilder(
+      calculateHeightPerMinute: _calculateHeightPerMinute,
+      plannedOverlappedEventIds: _plannedOverlappedEventIds,
+      onEditEntry: (metadata) => _showEditEntryDialog(metadata: metadata),
+    );
     _calculateInitialScrollOffset();
     _initializeTabState();
     _loadDefaultDuration();
@@ -1085,7 +1083,7 @@ class _CalendarPageState extends State<CalendarPage> {
             : null,
       );
 
-      final prefix = instance.status == 'completed' ? '✓ ' : '';
+      final prefix = instance.status == 'completed' ? 'âœ“ ' : '';
       events.add(
         CalendarEventData(
           date: _selectedDate,
@@ -1489,7 +1487,7 @@ class _CalendarPageState extends State<CalendarPage> {
       _loadingStateSafetyTimer = Timer(const Duration(seconds: 60), () {
         if (mounted && _isLoadingEvents) {
           print(
-              '⚠️ Calendar loading state stuck for 60+ seconds, resetting...');
+              'âš ï¸ Calendar loading state stuck for 60+ seconds, resetting...');
           setState(() {
             _isLoadingEvents = false;
           });
@@ -1550,7 +1548,7 @@ class _CalendarPageState extends State<CalendarPage> {
       );
     } catch (e, stackTrace) {
       // Log errors, especially index errors and timeouts
-      print('❌ Calendar page error loading events:');
+      print('âŒ Calendar page error loading events:');
       print('   Error: $e');
       print('   Stack trace: $stackTrace');
       _traceCalendarFlow(
@@ -1812,7 +1810,7 @@ class _CalendarPageState extends State<CalendarPage> {
     // starts at the controller's immutable initialScrollOffset (often 0).
     // We must correct it after the rebuild. We use a shared target field so
     // that during rapid pinch events, all callbacks read the LATEST target
-    // rather than a stale captured value — preventing flicker.
+    // rather than a stale captured value â€” preventing flicker.
     _latestZoomScrollTarget = clampedOffset;
     if (!_zoomScrollCorrectionScheduled) {
       _zoomScrollCorrectionScheduled = true;
@@ -1993,3 +1991,5 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 }
+
+
