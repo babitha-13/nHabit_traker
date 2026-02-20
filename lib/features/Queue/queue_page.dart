@@ -178,6 +178,7 @@ class _QueuePageState extends State<QueuePage>
     });
     NotificationCenter.addObserver(this, 'loadData', (param) {
       if (mounted) {
+        _loadCumulativeScoreHistory(forceReload: true);
         // Don't wrap async call in setState - call directly
         _loadData();
       }

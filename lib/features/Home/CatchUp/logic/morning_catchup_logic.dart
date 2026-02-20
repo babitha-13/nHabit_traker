@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/today_score_calculator.dart';
+import 'package:habit_tracker/features/Progress/backend/daily_progress_query_service.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/morning_catchup_service.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -279,6 +281,12 @@ class MorningCatchUpDialogLogic {
     final userId = await waitForCurrentUserUid();
     FirestoreCacheService().invalidateInstancesCache();
     TodayInstanceRepository.instance.clearSnapshot();
+    
+    TodayScoreCalculator.invalidateCache();
+    if (userId.isNotEmpty) {
+      DailyProgressQueryService.invalidateUserCache(userId);
+    }
+
     if (userId.isNotEmpty) {
       try {
         await TodayInstanceRepository.instance.refreshToday(userId: userId);

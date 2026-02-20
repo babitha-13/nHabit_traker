@@ -73,11 +73,12 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     required MorningCatchUpDialogResult result,
     bool runBackgroundOperations = true,
   }) async {
+    final scaffoldMessenger = ScaffoldMessenger.of(context);
     if (mounted) {
       Navigator.of(context).pop(result);
     }
     if (runBackgroundOperations) {
-      unawaited(_runBackgroundOperations());
+      unawaited(_runBackgroundOperations(scaffoldMessenger));
     }
   }
 

@@ -4,6 +4,7 @@ import 'package:habit_tracker/services/milestone_service.dart';
 import 'package:habit_tracker/features/Progress/backend/aggregate_score_statistics_service.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_formulas.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_history_service.dart';
 
 /// Service for database read/write operations for user score data
 /// Handles persistence of cumulative scores, user stats, and historical data
@@ -17,10 +18,21 @@ class ScorePersistenceService {
 
       if (!snapshot.exists) {
         // Document doesn't exist, create it with default values
+        double initialScore = 0.0;
+        try {
+          final historyData = await ScoreHistoryService.loadScoreHistoryFromSingleDoc(
+            userId: userId,
+            days: 1, // We only need the latest
+          );
+          initialScore = historyData['cumulativeScore'] as double;
+        } catch (_) {
+          // Keep as 0.0 if history fetch fails
+        }
+
         final now = DateTime.now();
         final data = createUserProgressStatsRecordData(
           userId: userId,
-          cumulativeScore: 0.0,
+          cumulativeScore: initialScore,
           lastCalculationDate: now,
           historicalHighScore: 0.0,
           totalDaysTracked: 0,
