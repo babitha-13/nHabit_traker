@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
@@ -374,6 +375,10 @@ class ItemQuantitativeControlsHelper {
       SoundHelper().playCompletionSound();
     }
     getQuantUpdateTimer()?.cancel();
+    if (kDebugMode) {
+      debugPrint(
+          '[quant-debug][updateProgress] delta=$delta accumulated=${getPendingQuantIncrement()} override=${newOptimisticValue.toInt()} id=${instance.reference.id}');
+    }
     setQuantUpdateTimer(Timer(const Duration(milliseconds: 300), () {
       processPendingQuantUpdate();
     }));
@@ -399,7 +404,15 @@ class ItemQuantitativeControlsHelper {
     required Future<void> Function() processPendingQuantUpdateCallback,
   }) async {
     if (getPendingQuantIncrement() == 0) return;
+    if (kDebugMode) {
+      debugPrint(
+          '[quant-debug][processPending] ENTRY pending=${getPendingQuantIncrement()} isUpdating=$isUpdating id=${instance.reference.id}');
+    }
     if (isUpdating) {
+      if (kDebugMode) {
+        debugPrint(
+            '[quant-debug][processPending] BLOCKED by isUpdating — rescheduling 300ms');
+      }
       setQuantUpdateTimer(Timer(const Duration(milliseconds: 300), () {
         processPendingQuantUpdateCallback();
       }));
@@ -409,6 +422,10 @@ class ItemQuantitativeControlsHelper {
     final incrementToProcess = getPendingQuantIncrement();
     final currentValue = currentProgressLocal();
     setPendingQuantIncrement(0); // Reset before processing
+    if (kDebugMode) {
+      debugPrint(
+          '[quant-debug][processPending] CALLING backend currentValue=$currentValue increment=$incrementToProcess id=${instance.reference.id}');
+    }
 
     setState(() {
       setUpdating(true);

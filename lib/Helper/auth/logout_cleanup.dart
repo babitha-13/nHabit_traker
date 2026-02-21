@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
@@ -38,6 +40,15 @@ Future<void> performLogout({
   required Future<void> Function() onLoggedOut,
 }) async {
   final userId = currentUserUid;
+
+  // Ensure all optimistic progress and pending offline writes are synced
+  // before clearing the auth token, avoiding PERMISSION_DENIED data loss.
+  try {
+    await FirebaseFirestore.instance.waitForPendingWrites();
+  } catch (e) {
+    debugPrint('Error waiting for pending writes during logout: $e');
+  }
+
   await handleLogoutCleanup(userId: userId);
   await authManager.signOut();
   await sharedPref.remove(SharedPreference.name.sUserDetails);

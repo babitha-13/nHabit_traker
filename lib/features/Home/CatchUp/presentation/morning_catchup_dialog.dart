@@ -73,17 +73,32 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     required MorningCatchUpDialogResult result,
     bool runBackgroundOperations = true,
   }) async {
+    ScaffoldMessengerState? messenger;
     if (mounted) {
+      if (runBackgroundOperations) {
+        messenger = ScaffoldMessenger.of(context);
+      }
       Navigator.of(context).pop(result);
     }
     if (runBackgroundOperations) {
-      unawaited(_runBackgroundOperations());
+      if (messenger != null) {
+        messenger.showSnackBar(
+          SnackBar(
+            content: const Text('Background process is ongoing...'),
+            duration: const Duration(days: 1), // Manually dismissed
+            backgroundColor: FlutterFlowTheme.of(context).primary,
+          ),
+        );
+      }
+      unawaited(_runBackgroundOperations(messenger: messenger));
     }
   }
 
   /// Run background operations after dialog closes
   /// Includes: clearing snooze/pending state, saving progress, showing toasts
-  Future<void> _runBackgroundOperations() async {
+  Future<void> _runBackgroundOperations({
+    ScaffoldMessengerState? messenger,
+  }) async {
     final userId = await waitForCurrentUserUid();
     try {
       await MorningCatchUpService.clearSnooze();
@@ -94,6 +109,10 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
 
       // Prepare for close (triggers refresh notifications)
       await _logic.prepareForClose();
+
+      if (messenger != null && messenger.mounted) {
+        messenger.hideCurrentSnackBar();
+      }
 
       // Show pending toasts after all background operations complete
       final hasPendingToasts = MorningCatchUpService.hasPendingToasts();
@@ -107,6 +126,11 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
     } catch (e) {
       // Silent error handling - background operations shouldn't affect user experience
       print('Error in background operations after dialog close: $e');
+
+      if (messenger != null && messenger.mounted) {
+        messenger.hideCurrentSnackBar();
+      }
+
       // Still try to show toasts even if other operations failed
       final hasPendingToasts = MorningCatchUpService.hasPendingToasts();
       MorningCatchUpService.showPendingToasts();

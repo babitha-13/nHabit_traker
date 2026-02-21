@@ -56,18 +56,28 @@ class CalendarQueueService {
     }
   }
 
-  /// Check if instance was completed on target date
-  static bool _wasCompletedOnDate(
+  /// Check if instance was completed or skipped on target date
+  static bool _wasActionedOnDate(
       ActivityInstanceRecord instance, DateTime targetDate) {
-    if (instance.status != 'completed' || instance.completedAt == null) {
-      return false;
+    final targetStart = _startOfDay(targetDate);
+
+    // Completed on target date
+    if (instance.status == 'completed' && instance.completedAt != null) {
+      final completedAt = instance.completedAt!;
+      final completedDateOnly =
+          DateTime(completedAt.year, completedAt.month, completedAt.day);
+      return completedDateOnly.isAtSameMomentAs(targetStart);
     }
 
-    final targetStart = _startOfDay(targetDate);
-    final completedAt = instance.completedAt!;
-    final completedDateOnly =
-        DateTime(completedAt.year, completedAt.month, completedAt.day);
-    return completedDateOnly.isAtSameMomentAs(targetStart);
+    // Skipped on target date (may have partial progress/sessions)
+    if (instance.status == 'skipped' && instance.skippedAt != null) {
+      final skippedAt = instance.skippedAt!;
+      final skippedDateOnly =
+          DateTime(skippedAt.year, skippedAt.month, skippedAt.day);
+      return skippedDateOnly.isAtSameMomentAs(targetStart);
+    }
+
+    return false;
   }
 
   static void _mergeInstancesById(
@@ -165,56 +175,6 @@ class CalendarQueueService {
             'Planned fallback candidates (date pending habits windowEndDate>=target)',
       );
     }
-
-    return merged.values.toList();
-  }
-
-  static Future<List<ActivityInstanceRecord>>
-      _queryCompletedFallbackCandidates({
-    required String userId,
-    required DateTime targetDate,
-    required DateTime targetDateEnd,
-  }) async {
-    final merged = <String, ActivityInstanceRecord>{};
-
-    Future<void> collectCandidates({
-      required Future<dynamic> Function() runQuery,
-      required String queryDescription,
-    }) async {
-      try {
-        final result = await runQuery();
-        final items = result.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((instance) => instance.isActive);
-        _mergeInstancesById(merged, items);
-      } catch (e) {
-        logFirestoreIndexError(
-          e,
-          queryDescription,
-          'activity_instances',
-        );
-      }
-    }
-
-    await collectCandidates(
-      runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
-          .where('completedAt', isGreaterThanOrEqualTo: targetDate)
-          .where('completedAt', isLessThan: targetDateEnd)
-          .limit(500)
-          .get(),
-      queryDescription:
-          'Completed fallback candidates (completedAt range only)',
-    );
-
-    await collectCandidates(
-      runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
-          .where('status', isEqualTo: 'completed')
-          .where('belongsToDate', isEqualTo: targetDate)
-          .limit(300)
-          .get(),
-      queryDescription:
-          'Completed fallback candidates (status=completed, belongsToDate==target)',
-    );
 
     return merged.values.toList();
   }
@@ -345,8 +305,8 @@ class CalendarQueueService {
     }
   }
 
-  /// Get completed tasks/habits that were completed on date
-  /// Optimized: Uses Firestore completedAt query when possible
+  /// Get completed and skipped tasks/habits that were actioned on date.
+  /// Skipped items are only included if they have time log sessions.
   static Future<List<ActivityInstanceRecord>> getCompletedItems({
     String? userId,
     DateTime? date,
@@ -356,73 +316,55 @@ class CalendarQueueService {
 
     final targetDate = _startOfDay(date);
     final targetDateEnd = targetDate.add(const Duration(days: 1));
+    final mergedById = <String, ActivityInstanceRecord>{};
 
+    // Query 1: Completed items by completedAt range
     try {
-      List<ActivityInstanceRecord> instances;
-
-      // Optimize: Query by completedAt field at Firestore level
-      try {
-        // Query for items completed on targetDate (completedAt >= start of day AND < end of day)
-        final query = ActivityInstanceRecord.collectionForUser(uid)
-            .where('status', isEqualTo: 'completed')
-            .where('completedAt', isGreaterThanOrEqualTo: targetDate)
-            .where('completedAt', isLessThan: targetDateEnd);
-        final result = await query.get();
-        instances = result.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .where((instance) => instance.isActive)
-            .toList();
-      } catch (e) {
-        // Log index error if present
-        logFirestoreIndexError(
-          e,
-          'Get completed items (status=completed, completedAt range query)',
-          'activity_instances',
-        );
-        instances = await _queryCompletedFallbackCandidates(
-          userId: uid,
-          targetDate: targetDate,
-          targetDateEnd: targetDateEnd,
-        );
+      final result = await ActivityInstanceRecord.collectionForUser(uid)
+          .where('status', isEqualTo: 'completed')
+          .where('completedAt', isGreaterThanOrEqualTo: targetDate)
+          .where('completedAt', isLessThan: targetDateEnd)
+          .get();
+      for (final doc in result.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.isActive) {
+          mergedById[instance.reference.id] = instance;
+        }
       }
-
-      // Filter for items completed on targetDate (verify date match)
-      final completedItems = instances.where((instance) {
-        // Must be active (already filtered, but double-check)
-        if (!instance.isActive) return false;
-
-        // Must be completed on targetDate
-        return _wasCompletedOnDate(instance, targetDate);
-      }).toList();
-
-      return completedItems;
     } catch (e) {
-      // Log any unexpected errors
       logFirestoreIndexError(
         e,
-        'Get completed items (unexpected error)',
+        'getCompletedItems (status=completed, completedAt range)',
         'activity_instances',
       );
-      // Error getting completed items - fallback to date-scoped candidate queries
-      try {
-        final fallbackInstances = await _queryCompletedFallbackCandidates(
-          userId: uid,
-          targetDate: targetDate,
-          targetDateEnd: targetDateEnd,
-        );
-        return fallbackInstances.where((instance) {
-          if (!instance.isActive) return false;
-          return _wasCompletedOnDate(instance, targetDate);
-        }).toList();
-      } catch (e2) {
-        logFirestoreIndexError(
-          e2,
-          'Get completed items fallback (date-scoped queries)',
-          'activity_instances',
-        );
-        return [];
-      }
     }
+
+    // Query 2: Skipped items by skippedAt range (only those with time sessions)
+    try {
+      final result = await ActivityInstanceRecord.collectionForUser(uid)
+          .where('status', isEqualTo: 'skipped')
+          .where('skippedAt', isGreaterThanOrEqualTo: targetDate)
+          .where('skippedAt', isLessThan: targetDateEnd)
+          .get();
+      for (final doc in result.docs) {
+        final instance = ActivityInstanceRecord.fromSnapshot(doc);
+        if (instance.isActive && instance.timeLogSessions.isNotEmpty) {
+          mergedById[instance.reference.id] = instance;
+        }
+      }
+    } catch (e) {
+      logFirestoreIndexError(
+        e,
+        'getCompletedItems (status=skipped, skippedAt range)',
+        'activity_instances',
+      );
+    }
+
+    // Verify date match in-memory
+    return mergedById.values.where((instance) {
+      if (!instance.isActive) return false;
+      return _wasActionedOnDate(instance, targetDate);
+    }).toList();
   }
 
   // Deprecated/Alias methods for backward compatibility

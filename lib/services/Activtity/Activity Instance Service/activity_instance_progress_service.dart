@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
@@ -201,6 +202,13 @@ class ActivityInstanceProgressService {
       );
 
       // 4. Broadcast optimistically (IMMEDIATE)
+      if (kDebugMode) {
+        debugPrint('[quant-debug][svc] OPTIMISTIC_BROADCAST opId=$operationId'
+            ' currentValue=$currentValue'
+            ' sessions=${optimisticInstance.timeLogSessions.length}'
+            ' lastUpdatedMs=${optimisticInstance.lastUpdated?.millisecondsSinceEpoch}'
+            ' id=$instanceId');
+      }
       InstanceEvents.broadcastInstanceUpdatedOptimistic(
           optimisticInstance, operationId);
 
@@ -259,6 +267,13 @@ class ActivityInstanceProgressService {
               final updatedInstance =
                   await ActivityInstanceHelperService.getUpdatedInstance(
                       instanceId: instanceId, userId: uid);
+              if (kDebugMode) {
+                debugPrint('[quant-debug][svc] PRE_RECONCILE opId=$operationId'
+                    ' actualCurrentValue=${updatedInstance.currentValue}'
+                    ' actualSessions=${updatedInstance.timeLogSessions.length}'
+                    ' actualLastUpdatedMs=${updatedInstance.lastUpdated?.millisecondsSinceEpoch}'
+                    ' id=$instanceId');
+              }
               OptimisticOperationTracker.reconcileOperation(
                   operationId, updatedInstance);
             }
