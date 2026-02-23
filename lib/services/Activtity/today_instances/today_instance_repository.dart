@@ -55,6 +55,11 @@ class TodayInstanceRepository extends ChangeNotifier {
   String? _inFlightTaskHydrationKey;
   String? _taskItemsUserId;
   DateTime? _taskItemsDayStart;
+  List<ActivityInstanceRecord>? _habitItemsSnapshot;
+  Future<List<ActivityInstanceRecord>>? _inFlightHabitHydration;
+  String? _inFlightHabitHydrationKey;
+  String? _habitItemsUserId;
+  DateTime? _habitItemsDayStart;
   int _revision = 0;
 
   TodayInstanceSnapshot? get snapshot => _snapshot;
@@ -123,6 +128,7 @@ class TodayInstanceRepository extends ChangeNotifier {
   Future<TodayInstanceSnapshot> ensureHydratedForTasks({
     required String userId,
     bool forceRefresh = false,
+    bool includeHabitItems = false,
   }) async {
     final hydrated = await ensureHydrated(
       userId: userId,
@@ -132,15 +138,23 @@ class TodayInstanceRepository extends ChangeNotifier {
       userId: userId,
       forceRefresh: forceRefresh,
     );
+    if (includeHabitItems) {
+      await _ensureHabitItemsHydrated(
+        userId: userId,
+        forceRefresh: forceRefresh,
+      );
+    }
     return hydrated;
   }
 
   Future<TodayInstanceSnapshot> refreshTodayForTasks({
     required String userId,
+    bool includeHabitItems = false,
   }) {
     return ensureHydratedForTasks(
       userId: userId,
       forceRefresh: true,
+      includeHabitItems: includeHabitItems,
     );
   }
 
@@ -154,6 +168,16 @@ class TodayInstanceRepository extends ChangeNotifier {
       return taskScoped;
     }
     return TodayInstanceSelectors.selectTaskItems(_currentSnapshotOrEmpty());
+  }
+
+  List<ActivityInstanceRecord> selectHabitItems() {
+    final habitScoped = _habitItemsIfValid();
+    if (habitScoped != null) {
+      return habitScoped;
+    }
+    return TodayInstanceSelectors.selectHabitItemsCurrentWindow(
+      _currentSnapshotOrEmpty(),
+    );
   }
 
   List<ActivityInstanceRecord> selectHabitItemsCurrentWindow() {
@@ -299,6 +323,8 @@ class TodayInstanceRepository extends ChangeNotifier {
     }
     if (instance.templateCategoryType == 'task') {
       _upsertTaskItemsSnapshot(instance);
+    } else if (instance.templateCategoryType == 'habit') {
+      _upsertHabitItemsSnapshot(instance);
     }
 
     if (_extractUserIdFromPath(instance.reference.path) != existing.userId) {
@@ -365,6 +391,9 @@ class TodayInstanceRepository extends ChangeNotifier {
     if (deletedInstance != null &&
         deletedInstance.templateCategoryType == 'task') {
       _removeFromTaskItemsSnapshot(deletedId);
+    } else if (deletedInstance != null &&
+        deletedInstance.templateCategoryType == 'habit') {
+      _removeFromHabitItemsSnapshot(deletedId);
     }
 
     if (deletedInstance != null &&
@@ -506,6 +535,36 @@ class TodayInstanceRepository extends ChangeNotifier {
     return _taskItemsUserId == userId && cachedDay.isAtSameMomentAs(dayStart);
   }
 
+  List<ActivityInstanceRecord>? _habitItemsIfValid() {
+    final items = _habitItemsSnapshot;
+    final dayStart = _habitItemsDayStart;
+    if (items == null || dayStart == null) {
+      return null;
+    }
+    if (!dayStart.isAtSameMomentAs(DateService.todayStart)) {
+      return null;
+    }
+    final snapshotUserId = _snapshot?.userId;
+    if (snapshotUserId != null &&
+        snapshotUserId.isNotEmpty &&
+        snapshotUserId != _habitItemsUserId) {
+      return null;
+    }
+    return List<ActivityInstanceRecord>.from(items);
+  }
+
+  bool _isHabitItemsSnapshotValidFor({
+    required String userId,
+    required DateTime dayStart,
+  }) {
+    final items = _habitItemsSnapshot;
+    final cachedDay = _habitItemsDayStart;
+    if (items == null || cachedDay == null) {
+      return false;
+    }
+    return _habitItemsUserId == userId && cachedDay.isAtSameMomentAs(dayStart);
+  }
+
   Future<List<ActivityInstanceRecord>> _ensureTaskItemsHydrated({
     required String userId,
     bool forceRefresh = false,
@@ -544,12 +603,52 @@ class TodayInstanceRepository extends ChangeNotifier {
     }
   }
 
+  Future<List<ActivityInstanceRecord>> _ensureHabitItemsHydrated({
+    required String userId,
+    bool forceRefresh = false,
+  }) async {
+    final dayStart = DateService.todayStart;
+    final cacheKey = _buildHydrationKey(userId: userId, dayStart: dayStart);
+
+    if (!forceRefresh &&
+        _isHabitItemsSnapshotValidFor(userId: userId, dayStart: dayStart)) {
+      return _habitItemsSnapshot!;
+    }
+
+    if (_inFlightHabitHydration != null &&
+        _inFlightHabitHydrationKey == cacheKey) {
+      return _inFlightHabitHydration!;
+    }
+
+    final hydrationFuture = queryAllHabitInstances(userId: userId);
+    _inFlightHabitHydration = hydrationFuture;
+    _inFlightHabitHydrationKey = cacheKey;
+
+    try {
+      final hydrated = await hydrationFuture;
+      _habitItemsSnapshot = hydrated;
+      _habitItemsUserId = userId;
+      _habitItemsDayStart = dayStart;
+      return hydrated;
+    } finally {
+      if (_inFlightHabitHydrationKey == cacheKey) {
+        _inFlightHabitHydration = null;
+        _inFlightHabitHydrationKey = null;
+      }
+    }
+  }
+
   void _clearTaskItemsSnapshot() {
     _taskItemsSnapshot = null;
     _inFlightTaskHydration = null;
     _inFlightTaskHydrationKey = null;
     _taskItemsUserId = null;
     _taskItemsDayStart = null;
+    _habitItemsSnapshot = null;
+    _inFlightHabitHydration = null;
+    _inFlightHabitHydrationKey = null;
+    _habitItemsUserId = null;
+    _habitItemsDayStart = null;
   }
 
   void _upsertTaskItemsSnapshot(ActivityInstanceRecord instance) {
@@ -566,5 +665,21 @@ class TodayInstanceRepository extends ChangeNotifier {
 
   void _removeFromTaskItemsSnapshot(String instanceId) {
     _taskItemsSnapshot?.removeWhere((i) => i.reference.id == instanceId);
+  }
+
+  void _upsertHabitItemsSnapshot(ActivityInstanceRecord instance) {
+    final items = _habitItemsSnapshot;
+    if (items == null) return;
+    final id = instance.reference.id;
+    final index = items.indexWhere((i) => i.reference.id == id);
+    if (index >= 0) {
+      items[index] = instance;
+    } else {
+      items.add(instance);
+    }
+  }
+
+  void _removeFromHabitItemsSnapshot(String instanceId) {
+    _habitItemsSnapshot?.removeWhere((i) => i.reference.id == instanceId);
   }
 }

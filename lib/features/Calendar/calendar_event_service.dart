@@ -252,11 +252,32 @@ class CalendarEventService {
     if (isTodaySelected && InstanceRepositoryFlags.useRepoCalendarToday) {
       try {
         final repo = TodayInstanceRepository.instance;
-        await repo.ensureHydratedForTasks(userId: userId);
+        await repo.ensureHydratedForTasks(
+          userId: userId,
+          includeHabitItems: true,
+        );
 
         final dayStart = DateService.todayStart;
         final dayEnd = dayStart.add(const Duration(days: 1));
         final taskItems = repo.selectTaskItems();
+        final habitItems = repo.selectHabitItems();
+        final taskHabitCandidatesById = <String, ActivityInstanceRecord>{};
+        for (final item in taskItems) {
+          if (!item.isActive) continue;
+          if (item.templateCategoryType != 'task' &&
+              item.templateCategoryType != 'habit') {
+            continue;
+          }
+          taskHabitCandidatesById[item.reference.id] = item;
+        }
+        for (final item in habitItems) {
+          if (!item.isActive) continue;
+          if (item.templateCategoryType != 'task' &&
+              item.templateCategoryType != 'habit') {
+            continue;
+          }
+          taskHabitCandidatesById[item.reference.id] = item;
+        }
 
         final completedById = <String, ActivityInstanceRecord>{};
         for (final item in repo.selectCalendarTodayCompleted()) {
@@ -270,8 +291,7 @@ class CalendarEventService {
         for (final item in completedFromCalendarQuery) {
           completedById[item.reference.id] = item;
         }
-        for (final item in taskItems) {
-          if (!item.isActive) continue;
+        for (final item in taskHabitCandidatesById.values) {
           final completedToday = item.status == 'completed' &&
               _isSameDay(item.completedAt, dayStart);
           final sessionToday = _hasSessionOnDay(item, dayStart, dayEnd);
@@ -282,6 +302,11 @@ class CalendarEventService {
         completedItems = completedById.values.toList();
 
         final timeLoggedById = <String, ActivityInstanceRecord>{};
+        for (final item in taskHabitCandidatesById.values) {
+          if (_hasSessionOnDay(item, dayStart, dayEnd)) {
+            timeLoggedById[item.reference.id] = item;
+          }
+        }
         for (final item in completedItems) {
           final isTaskOrHabit = item.templateCategoryType == 'task' ||
               item.templateCategoryType == 'habit';
@@ -302,8 +327,8 @@ class CalendarEventService {
             plannedById[item.reference.id] = item;
           }
           final now = DateTime.now();
-          for (final item in taskItems) {
-            if (!item.isActive || item.status != 'pending') continue;
+          for (final item in taskHabitCandidatesById.values) {
+            if (item.status != 'pending') continue;
             if (item.snoozedUntil != null && now.isBefore(item.snoozedUntil!)) {
               continue;
             }
