@@ -37,7 +37,7 @@ export function calculateEffectiveGain(previousScore: number, actualGain: number
 export const BASE_POINTS_PER_DAY = 10.0;
 export const CONSISTENCY_THRESHOLD = 80.0;
 export const DECAY_THRESHOLD = 50.0;
-export const PENALTY_BASE_MULTIPLIER = 0.04;
+export const PENALTY_BASE_MULTIPLIER = 0.06;
 export const CATEGORY_NEGLECT_PENALTY = 0.4;
 export const CONSISTENCY_BONUS_FULL = 5.0;
 export const CONSISTENCY_BONUS_PARTIAL = 2.0;

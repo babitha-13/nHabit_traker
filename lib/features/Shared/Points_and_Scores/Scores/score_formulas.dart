@@ -14,7 +14,7 @@ class ScoreFormulas {
   static const double monthlyWeight = 0.4;
   static const double consistencyThreshold = 80.0;
   static const double decayThreshold = 50.0;
-  static const double penaltyBaseMultiplier = 0.04;
+  static const double penaltyBaseMultiplier = 0.06;
   static const double categoryNeglectPenalty = 0.4;
   static const double consistencyBonusFull = 5.0;
   static const double consistencyBonusPartial = 2.0;
@@ -59,7 +59,7 @@ class ScoreFormulas {
     if (dailyCompletion >= decayThreshold) return 0.0;
 
     // Combined penalty with diminishing returns over time
-    // Formula: (50 - completion%) * 0.04 / log(consecutiveDays + 1)
+    // Formula: (50 - completion%) * 0.06 / log(consecutiveDays + 1)
     final pointsBelowThreshold = decayThreshold - dailyCompletion;
     final penalty = pointsBelowThreshold *
         penaltyBaseMultiplier /
