@@ -20,7 +20,8 @@ class ScorePersistenceService {
         // Document doesn't exist, create it with default values
         double initialScore = 0.0;
         try {
-          final historyData = await ScoreHistoryService.loadScoreHistoryFromSingleDoc(
+          final historyData =
+              await ScoreHistoryService.loadScoreHistoryFromSingleDoc(
             userId: userId,
             days: 1, // We only need the latest
           );
@@ -40,6 +41,7 @@ class ScorePersistenceService {
           longestStreak: 0,
           lastDailyGain: 0.0,
           consecutiveLowDays: 0,
+          cumulativeLowStreakPenalty: 0.0,
           achievedMilestones: 0,
           createdAt: now,
           lastUpdatedAt: now,
@@ -76,6 +78,7 @@ class ScorePersistenceService {
     int longestStreak,
     double lastDailyGain,
     int consecutiveLowDays,
+    double cumulativeLowStreakPenalty,
     int achievedMilestones, {
     Map<String, dynamic>? aggregateStats,
   }) async {
@@ -93,6 +96,7 @@ class ScorePersistenceService {
       longestStreak: longestStreak,
       lastDailyGain: lastDailyGain,
       consecutiveLowDays: consecutiveLowDays,
+      cumulativeLowStreakPenalty: cumulativeLowStreakPenalty,
       achievedMilestones: achievedMilestones,
       lastUpdatedAt: now,
       averageDailyScore7Day:
@@ -201,6 +205,7 @@ class ScorePersistenceService {
       int longestStreak = 0;
       int totalDays = 0;
       int consecutiveLowDays = 0;
+      double cumulativeLowStreakPenalty = 0.0;
       int achievedMilestones = 0;
 
       for (int i = 0; i < allProgress.length; i++) {
@@ -225,15 +230,25 @@ class ScorePersistenceService {
         if (completion < ScoreFormulas.decayThreshold) {
           // Completion < 50%: increment counter and apply penalty
           consecutiveLowDays++;
-          penalty = ScoreFormulas.calculateCombinedPenalty(
-              completion, consecutiveLowDays);
+          final decay = day.hasDecayPenalty()
+              ? day.decayPenalty
+              : ScoreFormulas.calculateCombinedPenalty(
+                  completion, consecutiveLowDays);
+          final neglect = day.hasCategoryNeglectPenalty()
+              ? day.categoryNeglectPenalty
+              : 0.0;
+          penalty = decay + neglect;
+          cumulativeLowStreakPenalty += penalty;
+          // Keep the penalty variable representing just decay for backwards math
+          penalty = decay;
         } else {
           // Completion >= 50%: calculate recovery bonus and reset counter
           if (consecutiveLowDays > 0) {
-            recoveryBonus =
-                ScoreFormulas.calculateRecoveryBonus(consecutiveLowDays);
+            recoveryBonus = ScoreFormulas.calculateRecoveryBonus(
+                cumulativeLowStreakPenalty);
           }
           consecutiveLowDays = 0;
+          cumulativeLowStreakPenalty = 0.0;
         }
 
         // Update cumulative score
@@ -304,6 +319,7 @@ class ScorePersistenceService {
                 )
               : 0.0,
           consecutiveLowDays, // Final consecutive low days count
+          cumulativeLowStreakPenalty, // Final accumulated penalty
           achievedMilestones, // Final achieved milestones
           aggregateStats: aggregateStats,
         );

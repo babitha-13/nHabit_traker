@@ -712,16 +712,9 @@ class TaskInstanceTimeLoggingService {
             'lastUpdated': DateTime.now(),
           };
 
-          if (markComplete) {
-            updateData['status'] = 'completed';
-            updateData['completedAt'] = endTime;
-            if (existingInstance.templateTrackingType == 'binary') {
-              updateData['currentValue'] = 1;
-            }
-          }
-          if (activityType == 'essential') {
+          if (activityType.toLowerCase() == 'essential') {
             updateData['templateCategoryType'] = 'essential';
-            updateData['templateCategoryName'] = 'essential';
+            updateData['templateCategoryName'] = 'Essentials';
           }
           try {
             await targetInstanceRef.update(updateData);
@@ -729,22 +722,30 @@ class TaskInstanceTimeLoggingService {
                 await _getInstanceServerFirst(targetInstanceRef);
             OptimisticOperationTracker.reconcileOperation(
                 operationId, updatedInstance);
-            if (existingInstance.status != 'completed' &&
+
+            // Handle completion after saving the time so the completion
+            // logic sees the updated totalTimeLogged
+            bool shouldComplete = markComplete;
+            if (!shouldComplete &&
+                existingInstance.status != 'completed' &&
                 existingInstance.templateTrackingType == 'time' &&
                 existingInstance.templateTarget != null) {
               final target = existingInstance.templateTarget;
               if (target is num && target > 0) {
-                final targetMs =
-                    (target.toInt()) * 60000; // Convert minutes to milliseconds
+                final targetMs = (target.toInt()) * 60000;
                 if (newTotalLogged >= targetMs) {
-                  await TaskInstanceTaskService.completeTaskInstance(
-                    instanceId: targetInstanceRef.id,
-                    finalValue: newTotalLogged,
-                    finalAccumulatedTime: newTotalLogged,
-                    userId: uid,
-                  );
+                  shouldComplete = true;
                 }
               }
+            }
+
+            if (shouldComplete) {
+              await TaskInstanceTaskService.completeTaskInstance(
+                instanceId: targetInstanceRef.id,
+                finalValue: newCurrentValue ?? newTotalLogged,
+                finalAccumulatedTime: newTotalLogged,
+                userId: uid,
+              );
             }
             return; // Done
           } catch (e) {
@@ -818,38 +819,37 @@ class TaskInstanceTimeLoggingService {
           if (newCurrentValue != null) {
             updateData['currentValue'] = newCurrentValue;
           }
-          if (markComplete) {
-            updateData['status'] = 'completed';
-            updateData['completedAt'] = endTime;
-            if (template.trackingType == 'binary') {
-              updateData['currentValue'] = 1;
-            }
-          }
 
           try {
             await instanceRef.update(updateData);
             final updatedInstance = await _getInstanceServerFirst(instanceRef);
             OptimisticOperationTracker.reconcileOperation(
                 operationId, updatedInstance);
+
+            bool shouldComplete = markComplete;
+            if (!shouldComplete &&
+                activityType == 'task' &&
+                template.trackingType == 'time' &&
+                template.target != null) {
+              final target = template.target;
+              if (target is num && target > 0) {
+                final targetMs = (target.toInt()) * 60000;
+                if (totalTime >= targetMs) {
+                  shouldComplete = true;
+                }
+              }
+            }
+
+            if (shouldComplete) {
+              await TaskInstanceTaskService.completeTaskInstance(
+                  instanceId: instanceRef.id,
+                  finalValue: newCurrentValue ?? totalTime,
+                  finalAccumulatedTime: totalTime,
+                  userId: uid);
+            }
           } catch (e) {
             OptimisticOperationTracker.rollbackOperation(operationId);
             rethrow;
-          }
-          if (activityType == 'task' &&
-              template.trackingType == 'time' &&
-              template.target != null) {
-            final target = template.target;
-            if (target is num && target > 0) {
-              final targetMs =
-                  (target.toInt()) * 60000; // Convert minutes to milliseconds
-              if (totalTime >= targetMs) {
-                await TaskInstanceTaskService.completeTaskInstance(
-                    instanceId: instanceRef.id,
-                    finalValue: totalTime,
-                    finalAccumulatedTime: totalTime,
-                    userId: uid);
-              }
-            }
           }
           return;
         }
@@ -863,7 +863,7 @@ class TaskInstanceTimeLoggingService {
       );
       final now = DateTime.now();
       final currentInstance = await _getInstanceServerFirst(taskInstanceRef);
-      final isessential = activityType == 'essential';
+      final isessential = activityType.toLowerCase() == 'essential';
       final timeLogSessions = [newSession];
       if (isessential) {
         final templates =
@@ -890,8 +890,7 @@ class TaskInstanceTimeLoggingService {
         final optimisticData =
             Map<String, dynamic>.from(currentInstance.snapshotData);
         optimisticData['status'] = markComplete ? 'completed' : 'pending';
-        optimisticData['completedAt'] =
-            markComplete ? endTime : FieldValue.delete();
+        optimisticData['completedAt'] = markComplete ? endTime : null;
         optimisticData['isTimerActive'] = false;
         optimisticData['timeLogSessions'] = timeLogSessions;
         optimisticData['totalTimeLogged'] = totalTime;
@@ -900,7 +899,7 @@ class TaskInstanceTimeLoggingService {
         optimisticData['templateId'] = templateRef.id;
         optimisticData['templateName'] = taskName;
         optimisticData['templateCategoryType'] = 'essential';
-        optimisticData['templateCategoryName'] = 'essential';
+        optimisticData['templateCategoryName'] = 'Essentials';
         optimisticData['templateTrackingType'] =
             matchingTemplate?.trackingType ?? 'binary';
         optimisticData['currentSessionStartTime'] = null;
@@ -931,7 +930,7 @@ class TaskInstanceTimeLoggingService {
           'templateId': templateRef.id,
           'templateName': taskName,
           'templateCategoryType': 'essential',
-          'templateCategoryName': 'essential',
+          'templateCategoryName': 'Essentials',
           'templateTrackingType': matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': now,
@@ -952,15 +951,12 @@ class TaskInstanceTimeLoggingService {
             .doc(currentInstance.templateId);
         final optimisticData =
             Map<String, dynamic>.from(currentInstance.snapshotData);
-        optimisticData['status'] = markComplete ? 'completed' : 'pending';
-        optimisticData['completedAt'] =
-            markComplete ? endTime : FieldValue.delete();
+        optimisticData['status'] = 'pending';
         optimisticData['isTimerActive'] = false;
         optimisticData['timeLogSessions'] = timeLogSessions;
         optimisticData['totalTimeLogged'] = totalTime;
         optimisticData['accumulatedTime'] = totalTime;
-        optimisticData['currentValue'] =
-            markComplete ? 1 : 0; // Binary one-offs: 1 if complete
+        optimisticData['currentValue'] = 0;
         // Keep target as binary completion target; ON/OFF time-aware scoring is
         // resolved at calculation time from logged duration + estimates.
         optimisticData['templateTarget'] = 1;
@@ -976,6 +972,8 @@ class TaskInstanceTimeLoggingService {
           optimisticData['templateCategoryName'] = categoryName;
         }
         optimisticData['_optimistic'] = true;
+
+        // Add pending optimism logic
         final optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
           optimisticData,
           currentInstance.reference,
@@ -990,15 +988,14 @@ class TaskInstanceTimeLoggingService {
         );
         InstanceEvents.broadcastInstanceUpdatedOptimistic(
             optimisticInstance, operationId);
+
         final updateData = <String, dynamic>{
-          'status': markComplete ? 'completed' : 'pending',
-          'completedAt': markComplete ? endTime : FieldValue.delete(),
+          'status': 'pending',
           'isTimerActive': false,
           'timeLogSessions': timeLogSessions,
           'totalTimeLogged': totalTime,
           'accumulatedTime': totalTime,
-          'currentValue':
-              markComplete ? 1 : 0, // Binary one-offs: 1 if complete
+          'currentValue': 0,
           // Keep target as binary completion target; ON/OFF time-aware scoring is
           // resolved at calculation time from logged duration + estimates.
           'templateTarget': 1,
@@ -1013,16 +1010,26 @@ class TaskInstanceTimeLoggingService {
         if (categoryName != null) {
           updateData['templateCategoryName'] = categoryName;
         }
+
         try {
           await taskInstanceRef.update(updateData);
           final updatedInstance =
               await _getInstanceServerFirst(taskInstanceRef);
           OptimisticOperationTracker.reconcileOperation(
               operationId, updatedInstance);
+
+          if (markComplete) {
+            await TaskInstanceTaskService.completeTaskInstance(
+                instanceId: taskInstanceRef.id,
+                finalValue: totalTime,
+                finalAccumulatedTime: totalTime,
+                userId: uid);
+          }
         } catch (e) {
           OptimisticOperationTracker.rollbackOperation(operationId);
           rethrow;
         }
+
         final templateUpdateData = <String, dynamic>{
           'name': taskName,
           'lastUpdated': now,

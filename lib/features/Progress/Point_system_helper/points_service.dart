@@ -45,11 +45,10 @@ class PointsService {
   /// Returns the expected daily frequency (e.g., 0.5 for every 2 days)
   static double _calculateDailyFrequency(ActivityInstanceRecord instance) {
     // Handle "every X days/weeks" pattern
-    if (instance.templateEveryXValue > 1 &&
+    if (instance.templateEveryXValue > 0 &&
         instance.templateEveryXPeriodType.isNotEmpty) {
       final periodDays = periodTypeToDays(instance.templateEveryXPeriodType);
-      final frequency = (1.0 / instance.templateEveryXValue) *
-          (periodDays / periodTypeToDays('daily'));
+      final frequency = 1.0 / (instance.templateEveryXValue * periodDays);
       return frequency;
     }
     // Handle "times per period" pattern
@@ -67,10 +66,9 @@ class PointsService {
   /// This method can be used when template data is available
   static double calculateDailyFrequencyFromTemplate(ActivityRecord template) {
     // Handle "every X days" pattern
-    if (template.everyXValue > 1 && template.everyXPeriodType.isNotEmpty) {
+    if (template.everyXValue > 0 && template.everyXPeriodType.isNotEmpty) {
       final periodDays = periodTypeToDays(template.everyXPeriodType);
-      final frequency = (1.0 / template.everyXValue) *
-          (periodDays / periodTypeToDays('daily'));
+      final frequency = 1.0 / (template.everyXValue * periodDays);
       return frequency;
     }
     // Handle "times per period" pattern
@@ -94,6 +92,10 @@ class PointsService {
     final priority = instance.templatePriority.toDouble();
     final isHabit = instance.templateCategoryType == 'habit';
     final dailyFrequency = isHabit ? _calculateDailyFrequency(instance) : 1.0;
+
+    // The mathematical target to hit proportionality.
+    final baseDailyTarget = priority * dailyFrequency;
+
     final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
     final trackingType = instance.templateTrackingType.toLowerCase();
 
@@ -101,35 +103,45 @@ class PointsService {
       case 'time':
         final targetMinutes = PointsValueHelper.targetValue(instance);
         if (targetMinutes <= 0) return 0.0;
-        final perInstanceTarget = timeBonusEnabled
-            ? BinaryTimeBonusHelper.scoreForTargetMinutes(
-                targetMinutes: targetMinutes,
-                priority: priority,
-                timeBonusEnabled: true,
-              )
-            : priority;
-        return dailyFrequency * perInstanceTarget;
+
+        double extraBonusPoints = 0.0;
+        if (timeBonusEnabled) {
+          final timeBonusTarget = BinaryTimeBonusHelper.scoreForTargetMinutes(
+            targetMinutes: targetMinutes,
+            priority: priority,
+            timeBonusEnabled: true,
+          );
+          // If the bonus gives us more than priority, that's extra straight bonus mapping.
+          if (timeBonusTarget > priority) {
+            extraBonusPoints = timeBonusTarget - priority;
+          }
+        }
+        return baseDailyTarget + extraBonusPoints;
 
       case 'binary':
         if (!timeBonusEnabled || _isLegacyBinaryTimeScoringDisabled(instance)) {
-          return dailyFrequency * priority;
+          return baseDailyTarget;
         }
-        double perInstanceTarget = priority;
+
+        double extraBonusPoints = 0.0;
         final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
         if (instance.status == 'completed' &&
             loggedMinutes != null &&
             loggedMinutes > 30.0) {
-          perInstanceTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
+          final timeBonusTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
             loggedMinutes: loggedMinutes,
             targetMinutes: 30.0,
             priority: priority,
             timeBonusEnabled: true,
           );
+          if (timeBonusTarget > priority) {
+            extraBonusPoints = timeBonusTarget - priority;
+          }
         }
-        return dailyFrequency * perInstanceTarget;
+        return baseDailyTarget + extraBonusPoints;
 
       default:
-        return dailyFrequency * priority;
+        return baseDailyTarget;
     }
   }
 
@@ -147,6 +159,9 @@ class PointsService {
     final isHabit = instance.templateCategoryType == 'habit';
     final dailyFrequency =
         isHabit ? calculateDailyFrequencyFromTemplate(template) : 1.0;
+
+    final baseDailyTarget = priority * dailyFrequency;
+
     final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
     final trackingType = instance.templateTrackingType.toLowerCase();
 
@@ -154,35 +169,44 @@ class PointsService {
       case 'time':
         final targetMinutes = template.target?.toDouble() ?? 0.0;
         if (targetMinutes <= 0) return 0.0;
-        final perInstanceTarget = timeBonusEnabled
-            ? BinaryTimeBonusHelper.scoreForTargetMinutes(
-                targetMinutes: targetMinutes,
-                priority: priority,
-                timeBonusEnabled: true,
-              )
-            : priority;
-        return dailyFrequency * perInstanceTarget;
+
+        double extraBonusPoints = 0.0;
+        if (timeBonusEnabled) {
+          final timeBonusTarget = BinaryTimeBonusHelper.scoreForTargetMinutes(
+            targetMinutes: targetMinutes,
+            priority: priority,
+            timeBonusEnabled: true,
+          );
+          if (timeBonusTarget > priority) {
+            extraBonusPoints = timeBonusTarget - priority;
+          }
+        }
+        return baseDailyTarget + extraBonusPoints;
 
       case 'binary':
         if (!timeBonusEnabled || _isLegacyBinaryTimeScoringDisabled(instance)) {
-          return dailyFrequency * priority;
+          return baseDailyTarget;
         }
-        double perInstanceTarget = priority;
+
+        double extraBonusPoints = 0.0;
         final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
         if (instance.status == 'completed' &&
             loggedMinutes != null &&
             loggedMinutes > 30.0) {
-          perInstanceTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
+          final timeBonusTarget = BinaryTimeBonusHelper.scoreForLoggedMinutes(
             loggedMinutes: loggedMinutes,
             targetMinutes: 30.0,
             priority: priority,
             timeBonusEnabled: true,
           );
+          if (timeBonusTarget > priority) {
+            extraBonusPoints = timeBonusTarget - priority;
+          }
         }
-        return dailyFrequency * perInstanceTarget;
+        return baseDailyTarget + extraBonusPoints;
 
       default:
-        return dailyFrequency * priority;
+        return baseDailyTarget;
     }
   }
 

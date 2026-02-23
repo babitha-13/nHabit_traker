@@ -85,6 +85,7 @@ async function recalculateDailyProgress(userId: string) {
 
     let cumulativeScore = 0.0;
     let consecutiveLowDays = 0;
+    let cumulativeLowStreakPenalty = 0.0;
     let batch = db.batch();
     let batchCount = 0;
     let updateCount = 0;
@@ -96,7 +97,7 @@ async function recalculateDailyProgress(userId: string) {
         // Extract necessary fields (completionPercentage is 0-100 in Firestore)
         const completionPercentage = record.completionPercentage || 0;
         const earnedPoints = record.earnedPoints || 0;
-        const categoryNeglectPenalty = 0; // Not stored in daily_progress, assume 0 for recalc
+        const categoryNeglectPenalty = Number(record.categoryNeglectPenalty || 0);
 
         // Calculate daily points using SHARED scoring formula
         const dailyPoints = calculateDailyScore(completionPercentage, earnedPoints);
@@ -111,14 +112,21 @@ async function recalculateDailyProgress(userId: string) {
         let recoveryBonus = 0.0;
         let newConsecutiveLowDays = consecutiveLowDays;
 
+        let newCumulativeLowStreakPenalty = cumulativeLowStreakPenalty;
+
         if (completionPercentage < DECAY_THRESHOLD) {
             newConsecutiveLowDays = consecutiveLowDays + 1;
-            penalty = calculateCombinedPenalty(completionPercentage, newConsecutiveLowDays);
+            const decay = record.decayPenalty !== undefined
+                ? Number(record.decayPenalty)
+                : calculateCombinedPenalty(completionPercentage, newConsecutiveLowDays);
+            penalty = decay;
+            newCumulativeLowStreakPenalty += (decay + categoryNeglectPenalty);
         } else {
             if (consecutiveLowDays > 0) {
-                recoveryBonus = calculateRecoveryBonus(consecutiveLowDays);
+                recoveryBonus = calculateRecoveryBonus(newCumulativeLowStreakPenalty);
             }
             newConsecutiveLowDays = 0;
+            newCumulativeLowStreakPenalty = 0.0;
         }
 
         // Calculate daily gain
@@ -168,6 +176,7 @@ async function recalculateDailyProgress(userId: string) {
         // Update state for next iteration
         cumulativeScore = newCumulativeScore;
         consecutiveLowDays = newConsecutiveLowDays;
+        cumulativeLowStreakPenalty = newCumulativeLowStreakPenalty;
     }
 
     // Commit any remaining updates

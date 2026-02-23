@@ -103,8 +103,10 @@ class TodayScoreCalculator {
     } else {
       // Completion >= 50%: calculate recovery bonus if there were low days
       if (consecutiveLowDays > 0) {
+        final currentCumulativePenalty =
+            userStats?.cumulativeLowStreakPenalty ?? 0.0;
         recoveryBonus =
-            ScoreFormulas.calculateRecoveryBonus(consecutiveLowDays);
+            ScoreFormulas.calculateRecoveryBonus(currentCumulativePenalty);
       }
     }
 

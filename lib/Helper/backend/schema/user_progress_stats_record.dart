@@ -57,6 +57,11 @@ class UserProgressStatsRecord extends FirestoreRecord {
   int get consecutiveLowDays => _consecutiveLowDays ?? 0;
   bool hasConsecutiveLowDays() => _consecutiveLowDays != null;
 
+  // "cumulativeLowStreakPenalty" field - tracks accumulated decay + neglect penalties during the low streak
+  double? _cumulativeLowStreakPenalty;
+  double get cumulativeLowStreakPenalty => _cumulativeLowStreakPenalty ?? 0.0;
+  bool hasCumulativeLowStreakPenalty() => _cumulativeLowStreakPenalty != null;
+
   // "achievedMilestones" field - bitmask tracking achieved milestones
   int? _achievedMilestones;
   int get achievedMilestones => _achievedMilestones ?? 0;
@@ -125,8 +130,10 @@ class UserProgressStatsRecord extends FirestoreRecord {
 
   // "lastAggregateStatsCalculationDate" field - when aggregate stats were last calculated
   DateTime? _lastAggregateStatsCalculationDate;
-  DateTime? get lastAggregateStatsCalculationDate => _lastAggregateStatsCalculationDate;
-  bool hasLastAggregateStatsCalculationDate() => _lastAggregateStatsCalculationDate != null;
+  DateTime? get lastAggregateStatsCalculationDate =>
+      _lastAggregateStatsCalculationDate;
+  bool hasLastAggregateStatsCalculationDate() =>
+      _lastAggregateStatsCalculationDate != null;
 
   // "lastProcessedDate" field - cloud day-transition marker (IST day)
   DateTime? _lastProcessedDate;
@@ -144,20 +151,31 @@ class UserProgressStatsRecord extends FirestoreRecord {
     _longestStreak = snapshotData['longestStreak'] as int?;
     _lastDailyGain = (snapshotData['lastDailyGain'] as num?)?.toDouble();
     _consecutiveLowDays = snapshotData['consecutiveLowDays'] as int?;
+    _cumulativeLowStreakPenalty =
+        (snapshotData['cumulativeLowStreakPenalty'] as num?)?.toDouble();
     _achievedMilestones = snapshotData['achievedMilestones'] as int?;
     _createdAt = snapshotData['createdAt'] as DateTime?;
     _lastUpdatedAt = snapshotData['lastUpdatedAt'] as DateTime?;
-    _averageDailyScore7Day = (snapshotData['averageDailyScore7Day'] as num?)?.toDouble();
-    _averageDailyScore30Day = (snapshotData['averageDailyScore30Day'] as num?)?.toDouble();
-    _bestDailyScoreGain = (snapshotData['bestDailyScoreGain'] as num?)?.toDouble();
-    _worstDailyScoreGain = (snapshotData['worstDailyScoreGain'] as num?)?.toDouble();
+    _averageDailyScore7Day =
+        (snapshotData['averageDailyScore7Day'] as num?)?.toDouble();
+    _averageDailyScore30Day =
+        (snapshotData['averageDailyScore30Day'] as num?)?.toDouble();
+    _bestDailyScoreGain =
+        (snapshotData['bestDailyScoreGain'] as num?)?.toDouble();
+    _worstDailyScoreGain =
+        (snapshotData['worstDailyScoreGain'] as num?)?.toDouble();
     _positiveDaysCount7Day = snapshotData['positiveDaysCount7Day'] as int?;
     _positiveDaysCount30Day = snapshotData['positiveDaysCount30Day'] as int?;
-    _scoreGrowthRate7Day = (snapshotData['scoreGrowthRate7Day'] as num?)?.toDouble();
-    _scoreGrowthRate30Day = (snapshotData['scoreGrowthRate30Day'] as num?)?.toDouble();
-    _averageCumulativeScore7Day = (snapshotData['averageCumulativeScore7Day'] as num?)?.toDouble();
-    _averageCumulativeScore30Day = (snapshotData['averageCumulativeScore30Day'] as num?)?.toDouble();
-    _lastAggregateStatsCalculationDate = snapshotData['lastAggregateStatsCalculationDate'] as DateTime?;
+    _scoreGrowthRate7Day =
+        (snapshotData['scoreGrowthRate7Day'] as num?)?.toDouble();
+    _scoreGrowthRate30Day =
+        (snapshotData['scoreGrowthRate30Day'] as num?)?.toDouble();
+    _averageCumulativeScore7Day =
+        (snapshotData['averageCumulativeScore7Day'] as num?)?.toDouble();
+    _averageCumulativeScore30Day =
+        (snapshotData['averageCumulativeScore30Day'] as num?)?.toDouble();
+    _lastAggregateStatsCalculationDate =
+        snapshotData['lastAggregateStatsCalculationDate'] as DateTime?;
     _lastProcessedDate = snapshotData['lastProcessedDate'] as DateTime?;
   }
 
@@ -174,7 +192,7 @@ class UserProgressStatsRecord extends FirestoreRecord {
       ref.snapshots().map((s) => UserProgressStatsRecord.fromSnapshot(s));
 
   static Future<UserProgressStatsRecord> getDocumentOnce(
-          DocumentReference ref) async {
+      DocumentReference ref) async {
     final snapshot = await ref.get();
     if (!snapshot.exists) {
       throw Exception('Document does not exist: ${ref.path}');
@@ -226,6 +244,7 @@ Map<String, dynamic> createUserProgressStatsRecordData({
   int? longestStreak,
   double? lastDailyGain,
   int? consecutiveLowDays,
+  double? cumulativeLowStreakPenalty,
   int? achievedMilestones,
   DateTime? createdAt,
   DateTime? lastUpdatedAt,
@@ -253,6 +272,7 @@ Map<String, dynamic> createUserProgressStatsRecordData({
       'longestStreak': longestStreak,
       'lastDailyGain': lastDailyGain,
       'consecutiveLowDays': consecutiveLowDays,
+      'cumulativeLowStreakPenalty': cumulativeLowStreakPenalty,
       'achievedMilestones': achievedMilestones,
       'createdAt': createdAt,
       'lastUpdatedAt': lastUpdatedAt,
@@ -291,6 +311,7 @@ class UserProgressStatsRecordDocumentEquality
         e1?.longestStreak == e2?.longestStreak &&
         e1?.lastDailyGain == e2?.lastDailyGain &&
         e1?.consecutiveLowDays == e2?.consecutiveLowDays &&
+        e1?.cumulativeLowStreakPenalty == e2?.cumulativeLowStreakPenalty &&
         e1?.achievedMilestones == e2?.achievedMilestones &&
         e1?.createdAt == e2?.createdAt &&
         e1?.lastUpdatedAt == e2?.lastUpdatedAt &&
@@ -320,6 +341,7 @@ class UserProgressStatsRecordDocumentEquality
         e?.longestStreak,
         e?.lastDailyGain,
         e?.consecutiveLowDays,
+        e?.cumulativeLowStreakPenalty,
         e?.achievedMilestones,
         e?.createdAt,
         e?.lastUpdatedAt,

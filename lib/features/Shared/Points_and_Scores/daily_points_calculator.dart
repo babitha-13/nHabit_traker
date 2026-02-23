@@ -22,13 +22,13 @@ class DailyProgressCalculator {
     // Build instances within window for the target date (status-agnostic)
     // This set is used for target calculations and counts
     // Exclude essential types
-    final inWindowHabits = allInstances
-        .where((inst) =>
-            inst.isActive &&
-            inst.templateCategoryType == 'habit' &&
-            inst.templateCategoryType != 'essential' &&
-            _isWithinWindow(inst, normalizedDate))
-        .toList();
+    final inWindowHabits = allInstances.where((inst) {
+      if (!inst.isActive) return false;
+      if (inst.templateCategoryType != 'habit') return false;
+      if (inst.templateCategoryType == 'essential') return false;
+      if (!_isWithinWindow(inst, normalizedDate)) return false;
+      return true;
+    }).toList();
     // For UI/display list: pending + completed-on-date (unchanged behavior)
     final pendingHabits =
         inWindowHabits.where((inst) => inst.status == 'pending').toList();
@@ -121,6 +121,18 @@ class DailyProgressCalculator {
     // Calculate detailed breakdown for habits
     final habitBreakdown = <Map<String, dynamic>>[];
     for (final habit in allForMath) {
+      // For UI breakdown, exclude habits completed strictly before the target date
+      if (habit.status == 'completed' && habit.completedAt != null) {
+        final completedDate = DateTime(
+          habit.completedAt!.year,
+          habit.completedAt!.month,
+          habit.completedAt!.day,
+        );
+        if (completedDate.isBefore(normalizedDate)) {
+          continue; // Skip adding to UI breakdown
+        }
+      }
+
       final target = PointsService.calculateDailyTarget(habit);
       final earned = await PointsService.calculatePointsEarned(habit, userId);
       final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
@@ -251,13 +263,13 @@ class DailyProgressCalculator {
 
     // Build instances within window for today (status-agnostic)
     // Exclude essential types
-    final inWindowHabits = allInstances
-        .where((inst) =>
-            inst.isActive &&
-            inst.templateCategoryType == 'habit' &&
-            inst.templateCategoryType != 'essential' &&
-            _isWithinWindow(inst, normalizedDate))
-        .toList();
+    final inWindowHabits = allInstances.where((inst) {
+      if (!inst.isActive) return false;
+      if (inst.templateCategoryType != 'habit') return false;
+      if (inst.templateCategoryType == 'essential') return false;
+      if (!_isWithinWindow(inst, normalizedDate)) return false;
+      return true;
+    }).toList();
 
     // For earned math: include
     // - completed instances only if completed today
@@ -316,6 +328,18 @@ class DailyProgressCalculator {
     // Build detailed breakdown synchronously from local instance data.
     final habitBreakdown = <Map<String, dynamic>>[];
     for (final habit in allForMath) {
+      // For UI breakdown, exclude habits completed strictly before the target date
+      if (habit.status == 'completed' && habit.completedAt != null) {
+        final completedDate = DateTime(
+          habit.completedAt!.year,
+          habit.completedAt!.month,
+          habit.completedAt!.day,
+        );
+        if (completedDate.isBefore(normalizedDate)) {
+          continue; // Skip adding to UI breakdown
+        }
+      }
+
       final target = PointsService.calculateDailyTarget(habit);
       final earned = PointsService.calculatePointsEarnedSync(habit);
       final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;

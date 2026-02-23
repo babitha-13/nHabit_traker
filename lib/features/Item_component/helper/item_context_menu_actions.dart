@@ -132,23 +132,33 @@ class ItemManagementHelper {
       final isRecurring = instance.templateIsRecurring;
 
       if (!isRecurring) {
+        print('ItemManagementHelper: DELETING ONE-TIME TASK');
+        print('ItemManagementHelper: instance.id: ${instance.reference.id}');
+        print('ItemManagementHelper: templateId: ${instance.templateId}');
         // One-time task: Immediate delete, no confirmation (per requirement)
         final deletedInstance = instance;
         onInstanceDeleted(deletedInstance);
         InstanceEvents.broadcastInstanceDeleted(deletedInstance);
         try {
           // Delete template and instance
+          print(
+              'ItemManagementHelper: Calling deleteHabit(templateRef) for ${templateRef.id}');
           await deleteHabit(templateRef);
           // Also delete the specific instance (though deleteHabit might do it if cascaded,
           // let's be explicit for the instance)
+          print(
+              'ItemManagementHelper: Calling ActivityInstanceService.deleteInstancesForTemplate');
           await ActivityInstanceService.deleteInstancesForTemplate(
               templateId: instance.templateId);
+          print(
+              'ItemManagementHelper: Deletion completed successfully for one-time task');
           if (isMounted()) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(content: Text('Activity deleted')),
             );
           }
         } catch (e) {
+          print('ItemManagementHelper: Error deleting one-time activity: $e');
           if (isMounted()) {
             ScaffoldMessenger.of(context).showSnackBar(
               SnackBar(content: Text('Error deleting activity: $e')),
@@ -183,6 +193,9 @@ class ItemManagementHelper {
         );
 
         if (shouldDelete == true) {
+          print('ItemManagementHelper: DELETING RECURRING TASK');
+          print('ItemManagementHelper: instance.id: ${instance.reference.id}');
+          print('ItemManagementHelper: templateId: ${instance.templateId}');
           final deletedInstance = instance;
           onInstanceDeleted(deletedInstance);
           InstanceEvents.broadcastInstanceDeleted(deletedInstance);
@@ -192,9 +205,12 @@ class ItemManagementHelper {
             // The requirement says: "All instance from the date of the instance on which the delete was clicked on should be deleted."
             // So we use instance.dueDate (or createdTime if null/habit logic specific)
             // For tasks/habits in lists, they usually have a dueDate or are associated with a date.
-            // If instance.dueDate is null, fall back to today? Or createdTime?
-            // Most listed items have a date context.
-            final deleteStartDate = instance.dueDate ?? DateTime.now();
+            // For tasks/habits in lists, they usually have a dueDate or are associated with a date.
+            // If instance.dueDate is null, fall back to createdTime so we don't accidentally skip deleting it if it was created in the past.
+            final deleteStartDate =
+                instance.dueDate ?? instance.createdTime ?? DateTime.now();
+            print(
+                'ItemManagementHelper: Calling deleteFutureInstances from date: $deleteStartDate');
 
             await ActivityInstanceService.deleteFutureInstances(
                 templateId: instance.templateId, fromDate: deleteStartDate);
@@ -203,6 +219,8 @@ class ItemManagementHelper {
             // End date should be the day BEFORE the deleteStartDate
             final newEndDate =
                 deleteStartDate.subtract(const Duration(days: 1));
+            print(
+                'ItemManagementHelper: Updating templateRef ${templateRef.id} to end on $newEndDate');
             await templateRef.update({
               'endDate': newEndDate,
               'lastUpdated': DateTime.now(),
@@ -211,6 +229,8 @@ class ItemManagementHelper {
                   false, // Effectively stops it showing up in "Active" lists
             });
 
+            print(
+                'ItemManagementHelper: Deletion completed successfully for recurring task');
             if (isMounted()) {
               ScaffoldMessenger.of(context).showSnackBar(
                 const SnackBar(
@@ -219,6 +239,8 @@ class ItemManagementHelper {
               );
             }
           } catch (e) {
+            print(
+                'ItemManagementHelper: Error deleting recurring activity: $e');
             if (isMounted()) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(content: Text('Error deleting activity: $e')),

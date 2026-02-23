@@ -23,12 +23,12 @@ class ActivityInstanceProgressService {
     return effectiveReferenceTime.subtract(Duration(milliseconds: offsetMs));
   }
 
-  /// Update instance progress (for quantitative tracking)
   static Future<void> updateInstanceProgress({
     required String instanceId,
     required dynamic currentValue,
     String? userId,
     DateTime? referenceTime,
+    bool skipOptimisticUpdate = false,
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
@@ -166,51 +166,54 @@ class ActivityInstanceProgressService {
       }
 
       // ==================== OPTIMISTIC BROADCAST ====================
-      // 1. Create optimistic instance
-      List<Map<String, dynamic>>? optimisticSessions;
-      final rawOptimisticSessions = updateData['timeLogSessions'];
-      if (rawOptimisticSessions is List) {
-        optimisticSessions = rawOptimisticSessions
-            .whereType<Map>()
-            .map((session) => Map<String, dynamic>.from(session))
-            .toList();
+      String? operationId;
+      if (!skipOptimisticUpdate) {
+        // 1. Create optimistic instance
+        List<Map<String, dynamic>>? optimisticSessions;
+        final rawOptimisticSessions = updateData['timeLogSessions'];
+        if (rawOptimisticSessions is List) {
+          optimisticSessions = rawOptimisticSessions
+              .whereType<Map>()
+              .map((session) => Map<String, dynamic>.from(session))
+              .toList();
+        }
+        final optimisticAccumulatedTime =
+            (updateData['accumulatedTime'] as num?)?.toInt();
+        final optimisticTotalTimeLogged =
+            (updateData['totalTimeLogged'] as num?)?.toInt();
+
+        final optimisticInstance =
+            InstanceEvents.createOptimisticProgressInstance(
+          optimisticBaseInstance,
+          currentValue: currentValue,
+          accumulatedTime: optimisticAccumulatedTime,
+          timeLogSessions: optimisticSessions,
+          totalTimeLogged: optimisticTotalTimeLogged,
+        );
+
+        // 2. Generate operation ID
+        operationId = OptimisticOperationTracker.generateOperationId();
+
+        // 3. Track operation
+        OptimisticOperationTracker.trackOperation(
+          operationId,
+          instanceId: instanceId,
+          operationType: 'progress',
+          optimisticInstance: optimisticInstance,
+          originalInstance: instance,
+        );
+
+        // 4. Broadcast optimistically (IMMEDIATE)
+        if (kDebugMode) {
+          debugPrint('[quant-debug][svc] OPTIMISTIC_BROADCAST opId=$operationId'
+              ' currentValue=$currentValue'
+              ' sessions=${optimisticInstance.timeLogSessions.length}'
+              ' lastUpdatedMs=${optimisticInstance.lastUpdated?.millisecondsSinceEpoch}'
+              ' id=$instanceId');
+        }
+        InstanceEvents.broadcastInstanceUpdatedOptimistic(
+            optimisticInstance, operationId);
       }
-      final optimisticAccumulatedTime =
-          (updateData['accumulatedTime'] as num?)?.toInt();
-      final optimisticTotalTimeLogged =
-          (updateData['totalTimeLogged'] as num?)?.toInt();
-
-      final optimisticInstance =
-          InstanceEvents.createOptimisticProgressInstance(
-        optimisticBaseInstance,
-        currentValue: currentValue,
-        accumulatedTime: optimisticAccumulatedTime,
-        timeLogSessions: optimisticSessions,
-        totalTimeLogged: optimisticTotalTimeLogged,
-      );
-
-      // 2. Generate operation ID
-      final operationId = OptimisticOperationTracker.generateOperationId();
-
-      // 3. Track operation
-      OptimisticOperationTracker.trackOperation(
-        operationId,
-        instanceId: instanceId,
-        operationType: 'progress',
-        optimisticInstance: optimisticInstance,
-        originalInstance: instance,
-      );
-
-      // 4. Broadcast optimistically (IMMEDIATE)
-      if (kDebugMode) {
-        debugPrint('[quant-debug][svc] OPTIMISTIC_BROADCAST opId=$operationId'
-            ' currentValue=$currentValue'
-            ' sessions=${optimisticInstance.timeLogSessions.length}'
-            ' lastUpdatedMs=${optimisticInstance.lastUpdated?.millisecondsSinceEpoch}'
-            ' id=$instanceId');
-      }
-      InstanceEvents.broadcastInstanceUpdatedOptimistic(
-          optimisticInstance, operationId);
 
       // Note: lastDayValue should be updated at day-end, not during progress updates
       // This allows differential progress calculation to work correctly
@@ -234,19 +237,24 @@ class ActivityInstanceProgressService {
                 finalValue: currentValue,
                 userId: uid,
                 completedAt: referenceTime,
+                skipOptimisticUpdate: skipOptimisticUpdate,
               );
-              // Reconcile this progress operation (completeInstance will reconcile its own)
-              OptimisticOperationTracker.reconcileOperation(
-                  operationId,
-                  await ActivityInstanceHelperService.getUpdatedInstance(
-                      instanceId: instanceId, userId: uid));
+              if (!skipOptimisticUpdate) {
+                // Reconcile this progress operation (completeInstance will reconcile its own)
+                OptimisticOperationTracker.reconcileOperation(
+                    operationId!,
+                    await ActivityInstanceHelperService.getUpdatedInstance(
+                        instanceId: instanceId, userId: uid));
+              }
             } else {
-              // Already completed, just reconcile the progress update
-              final updatedInstance =
-                  await ActivityInstanceHelperService.getUpdatedInstance(
-                      instanceId: instanceId, userId: uid);
-              OptimisticOperationTracker.reconcileOperation(
-                  operationId, updatedInstance);
+              if (!skipOptimisticUpdate) {
+                // Already completed, just reconcile the progress update
+                final updatedInstance =
+                    await ActivityInstanceHelperService.getUpdatedInstance(
+                        instanceId: instanceId, userId: uid);
+                OptimisticOperationTracker.reconcileOperation(
+                    operationId!, updatedInstance);
+              }
             }
           } else {
             // Auto-uncomplete if currently completed OR skipped and progress dropped below target
@@ -256,39 +264,49 @@ class ActivityInstanceProgressService {
               await ActivityInstanceCompletionService.uncompleteInstance(
                 instanceId: instanceId,
                 userId: uid,
+                skipOptimisticUpdate: skipOptimisticUpdate,
               );
-              // Reconcile this progress operation (uncompleteInstance will reconcile its own)
-              OptimisticOperationTracker.reconcileOperation(
-                  operationId,
-                  await ActivityInstanceHelperService.getUpdatedInstance(
-                      instanceId: instanceId, userId: uid));
-            } else {
-              // Not completed, just reconcile progress update
-              final updatedInstance =
-                  await ActivityInstanceHelperService.getUpdatedInstance(
-                      instanceId: instanceId, userId: uid);
-              if (kDebugMode) {
-                debugPrint('[quant-debug][svc] PRE_RECONCILE opId=$operationId'
-                    ' actualCurrentValue=${updatedInstance.currentValue}'
-                    ' actualSessions=${updatedInstance.timeLogSessions.length}'
-                    ' actualLastUpdatedMs=${updatedInstance.lastUpdated?.millisecondsSinceEpoch}'
-                    ' id=$instanceId');
+              if (!skipOptimisticUpdate) {
+                // Reconcile this progress operation (uncompleteInstance will reconcile its own)
+                OptimisticOperationTracker.reconcileOperation(
+                    operationId!,
+                    await ActivityInstanceHelperService.getUpdatedInstance(
+                        instanceId: instanceId, userId: uid));
               }
-              OptimisticOperationTracker.reconcileOperation(
-                  operationId, updatedInstance);
+            } else {
+              if (!skipOptimisticUpdate) {
+                // Not completed, just reconcile progress update
+                final updatedInstance =
+                    await ActivityInstanceHelperService.getUpdatedInstance(
+                        instanceId: instanceId, userId: uid);
+                if (kDebugMode) {
+                  debugPrint(
+                      '[quant-debug][svc] PRE_RECONCILE opId=$operationId'
+                      ' actualCurrentValue=${updatedInstance.currentValue}'
+                      ' actualSessions=${updatedInstance.timeLogSessions.length}'
+                      ' actualLastUpdatedMs=${updatedInstance.lastUpdated?.millisecondsSinceEpoch}'
+                      ' id=$instanceId');
+                }
+                OptimisticOperationTracker.reconcileOperation(
+                    operationId!, updatedInstance);
+              }
             }
           }
         } else {
-          // Reconcile the instance update event for progress changes
-          final updatedInstance =
-              await ActivityInstanceHelperService.getUpdatedInstance(
-                  instanceId: instanceId, userId: uid);
-          OptimisticOperationTracker.reconcileOperation(
-              operationId, updatedInstance);
+          if (!skipOptimisticUpdate) {
+            // Reconcile the instance update event for progress changes
+            final updatedInstance =
+                await ActivityInstanceHelperService.getUpdatedInstance(
+                    instanceId: instanceId, userId: uid);
+            OptimisticOperationTracker.reconcileOperation(
+                operationId!, updatedInstance);
+          }
         }
       } catch (e) {
         // 6. Rollback on error
-        OptimisticOperationTracker.rollbackOperation(operationId);
+        if (!skipOptimisticUpdate && operationId != null) {
+          OptimisticOperationTracker.rollbackOperation(operationId);
+        }
         rethrow;
       }
     } catch (e) {

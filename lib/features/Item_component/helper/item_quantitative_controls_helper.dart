@@ -315,9 +315,10 @@ class ItemQuantitativeControlsHelper {
         );
         onInstanceUpdated(optimisticInstance);
 
-        await ActivityInstanceService.completeInstance(
+        await ActivityInstanceService.updateInstanceProgress(
           instanceId: instance.reference.id,
-          finalValue: newValue,
+          currentValue: newValue,
+          referenceTime: progressReferenceTime,
           skipOptimisticUpdate: true,
         );
 

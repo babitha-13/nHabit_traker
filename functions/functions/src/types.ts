@@ -144,6 +144,7 @@ export interface UserProgressStats {
   longestStreak: number;
   lastDailyGain: number;
   consecutiveLowDays: number;
+  cumulativeLowStreakPenalty?: number;
   achievedMilestones: number;
   createdAt?: FirestoreTimestamp;
   lastUpdatedAt?: FirestoreTimestamp;

@@ -540,22 +540,7 @@ class _WeeklyViewState extends State<WeeklyView> {
                     ),
                   )
                 : null,
-            child: canQuickLog
-                ? itemCard
-                : Column(
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      itemCard,
-                      Padding(
-                        padding: const EdgeInsets.only(right: 12),
-                        child: TextButton.icon(
-                          onPressed: _switchToTodayTab,
-                          icon: const Icon(Icons.today, size: 16),
-                          label: const Text('Open Today'),
-                        ),
-                      ),
-                    ],
-                  ),
+            child: itemCard,
           );
         },
         childCount: tasks.length,
@@ -647,33 +632,11 @@ class _WeeklyViewState extends State<WeeklyView> {
             showSwipeTimerAction: false,
           );
 
-          if (canQuickLog) {
-            return itemCard;
-          }
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              itemCard,
-              Padding(
-                padding: const EdgeInsets.only(right: 12),
-                child: TextButton.icon(
-                  onPressed: _switchToTodayTab,
-                  icon: const Icon(Icons.today, size: 16),
-                  label: const Text('Open Today'),
-                ),
-              ),
-            ],
-          );
+          return itemCard;
         },
         childCount: habits.length,
       ),
     );
-  }
-
-  void _switchToTodayTab() {
-    final tabController = DefaultTabController.maybeOf(context);
-    tabController?.animateTo(0);
   }
 
   bool _supportsWeeklyQuickLog(ActivityInstanceRecord instance) {

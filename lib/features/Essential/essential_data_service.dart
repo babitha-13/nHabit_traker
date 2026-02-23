@@ -171,6 +171,7 @@ class essentialService {
       templatePriority: template.priority,
       templateTrackingType: template.trackingType,
       templateDescription: template.description,
+      templateIsRecurring: template.isRecurring,
       // Time logging fields
       timeLogSessions: [timeLogSession],
       totalTimeLogged: totalTimeLogged,

@@ -62,7 +62,7 @@ class AppBottomNavigationBar extends StatelessWidget {
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.monitor_heart),
-            label: 'Essential',
+            label: 'Essentials',
           ),
           BottomNavigationBarItem(
             icon: Icon(Icons.playlist_play),

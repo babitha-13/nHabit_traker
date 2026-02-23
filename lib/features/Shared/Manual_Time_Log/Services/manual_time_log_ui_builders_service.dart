@@ -69,7 +69,7 @@ class ManualTimeLogUIBuildersService {
                             buildTypeChip(state, 'Habit', 'habit', theme),
                             const SizedBox(width: 8),
                             buildTypeChip(
-                                state, 'essential', 'essential', theme),
+                                state, 'Essentials', 'Essentials', theme),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -204,13 +204,9 @@ class ManualTimeLogUIBuildersService {
                           ],
                         ),
 
-                        const SizedBox(height: 10),
-
-                        // Completion Controls (conditional based on tracking type)
-                        if (state.selectedTemplate != null) ...[
-                          buildCompletionControls(state, theme),
-                          const SizedBox(height: 12),
-                        ],
+                        // Completion Controls
+                        buildCompletionControls(state, theme),
+                        const SizedBox(height: 12),
 
                         const SizedBox(height: 6),
 
@@ -416,14 +412,15 @@ class ManualTimeLogUIBuildersService {
   /// Build completion controls widget
   static Widget buildCompletionControls(
       ManualTimeLogModalState state, FlutterFlowTheme theme) {
-    if (state.selectedTemplate == null) return const SizedBox.shrink();
+    if (state.selectedType == 'Essentials') return const SizedBox.shrink();
 
-    final trackingType = state.selectedTemplate!.trackingType;
+    final trackingType = state.selectedTemplate?.trackingType ?? 'binary';
 
     // Binary tasks: Show checkbox
     if (trackingType == 'binary') {
       return Container(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        margin: const EdgeInsets.only(top: 10),
         decoration: BoxDecoration(
           color: theme.tertiary.withOpacity(0.1),
           borderRadius: BorderRadius.circular(10),

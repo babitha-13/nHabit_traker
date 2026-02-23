@@ -289,12 +289,14 @@ class ActivityInstanceService {
     required dynamic currentValue,
     String? userId,
     DateTime? referenceTime,
+    bool skipOptimisticUpdate = false,
   }) async {
     return ActivityInstanceProgressService.updateInstanceProgress(
       instanceId: instanceId,
       currentValue: currentValue,
       userId: userId,
       referenceTime: referenceTime,
+      skipOptimisticUpdate: skipOptimisticUpdate,
     );
   }
 

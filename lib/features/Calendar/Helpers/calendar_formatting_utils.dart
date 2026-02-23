@@ -15,7 +15,7 @@ class CalendarFormattingUtils {
     try {
       return fromCssColor(colorString);
     } catch (e) {
-      return Colors.blue; // Default color
+      return Colors.transparent; // Default color
     }
   }
 

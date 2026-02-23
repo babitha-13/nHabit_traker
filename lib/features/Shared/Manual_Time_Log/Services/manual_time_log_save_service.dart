@@ -356,7 +356,7 @@ class ManualTimeLogSaveService {
       bool shouldUncomplete = false;
       if (instance.status == 'completed' &&
           instance.templateTrackingType != 'time' &&
-          instance.templateCategoryType != 'essential') {
+          instance.templateCategoryType.toLowerCase() != 'essential') {
         // Show dialog asking user what to do
         final userChoice = await showDialog<String>(
           context: state.context,

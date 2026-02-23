@@ -68,8 +68,7 @@ class ActivityInstanceUtilityService {
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
-      final query = ActivityInstanceRecord.collectionForUser(uid)
-          ;
+      final query = ActivityInstanceRecord.collectionForUser(uid);
       final result = await query.get();
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
@@ -98,15 +97,23 @@ class ActivityInstanceUtilityService {
     String? userId,
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
+    print(
+        'ActivityInstanceUtilityService: deleteInstancesForTemplate called with templateId: $templateId');
     try {
       final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('templateId', isEqualTo: templateId);
       final instances = await query.get();
+      print(
+          'ActivityInstanceUtilityService: Found ${instances.docs.length} instances to delete for templateId $templateId');
       for (final doc in instances.docs) {
         final deletedInstance = ActivityInstanceRecord.fromSnapshot(doc);
+        print(
+            'ActivityInstanceUtilityService: Deleting instance doc: ${doc.id}');
         await doc.reference.delete();
         InstanceEvents.broadcastInstanceDeleted(deletedInstance);
       }
+      print(
+          'ActivityInstanceUtilityService: Finished deleting instances for templateId $templateId');
     } catch (e, stackTrace) {
       logFirestoreQueryError(
         e,
@@ -139,12 +146,12 @@ class ActivityInstanceUtilityService {
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) {
-        if (instance.dueDate == null) return false;
-        // Compare just dates to be safe, or exact time?
-        // Request says "All instance from the date of the instance... should be deleted"
-        // So we should compare date parts.
-        final instanceDate = DateTime(instance.dueDate!.year,
-            instance.dueDate!.month, instance.dueDate!.day);
+        final dateToCompare = instance.dueDate ?? instance.createdTime;
+        if (dateToCompare == null) return false; // Should not happen, but safe
+
+        // Compare just dates to be safe
+        final instanceDate = DateTime(
+            dateToCompare.year, dateToCompare.month, dateToCompare.day);
         final targetDate =
             DateTime(fromDate.year, fromDate.month, fromDate.day);
         return instanceDate.isAtSameMomentAs(targetDate) ||

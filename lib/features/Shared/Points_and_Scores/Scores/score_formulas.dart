@@ -69,14 +69,12 @@ class ScoreFormulas {
   }
 
   /// Calculate recovery bonus when breaking low-completion streak
-  static double calculateRecoveryBonus(int consecutiveLowDays) {
-    if (consecutiveLowDays == 0) return 0.0;
+  /// Bonus is 40% of the accumulated penalties during the low streak, capped at 3.0 points.
+  static double calculateRecoveryBonus(double cumulativeLowStreakPenalty) {
+    if (cumulativeLowStreakPenalty <= 0) return 0.0;
 
-    // Recovery bonus when breaking low-completion streak
-    // Capped at 5 points to ensure < 50% of typical penalties
-    // Formula: min(5, sqrt(consecutiveLowDays) * 1.0)
-    final bonus = sqrt(consecutiveLowDays) * 1.0;
-    return min(5.0, bonus);
+    final bonus = cumulativeLowStreakPenalty * 0.4;
+    return min(3.0, bonus);
   }
 
   /// Calculate category neglect penalty for ignored habit categories

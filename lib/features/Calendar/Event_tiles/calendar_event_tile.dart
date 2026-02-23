@@ -270,13 +270,13 @@ class CalendarEventTileBuilder {
       bool isessential,
       {required bool isConflict}) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
-    final activityType = metadata?.activityType ?? 'task';
+    final activityType = (metadata?.activityType ?? 'task').toLowerCase();
     Color boxColor;
     Color borderColor = event.color;
     CustomPainter? patternPainter;
 
     if (activityType == 'essential') {
-      boxColor = event.color.withOpacity(isCompleted ? 0.25 : 0.12);
+      boxColor = event.color.withOpacity(isCompleted ? 0.08 : 0.04);
       borderColor = event.color.withOpacity(0.3);
       patternPainter = DoubleDiagonalPainter(
         stripeColor: event.color.withOpacity(0.2),
@@ -363,7 +363,7 @@ class CalendarEventTileBuilder {
     bool isessential,
   ) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
-    final activityType = metadata?.activityType ?? 'task';
+    final activityType = (metadata?.activityType ?? 'task').toLowerCase();
     final isEssentialActivity = activityType == 'essential';
 
     Color textColor;
@@ -421,7 +421,7 @@ class CalendarEventTileBuilder {
     bool isessential,
   ) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
-    final activityType = metadata?.activityType ?? 'task';
+    final activityType = (metadata?.activityType ?? 'task').toLowerCase();
     final isEssentialActivity = activityType == 'essential';
     final labelColor = isEssentialActivity
         ? event.color.withOpacity(0.5)

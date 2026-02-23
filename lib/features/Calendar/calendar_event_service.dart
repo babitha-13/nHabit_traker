@@ -615,7 +615,7 @@ class CalendarEventService {
           categoryColor =
               CalendarFormattingUtils.parseColor(item.templateCategoryColor);
         } catch (e) {
-          categoryColor = Colors.blue;
+          categoryColor = Colors.transparent;
         }
       } else {
         // Use map lookup instead of firstWhere (O(1) vs O(n))
@@ -624,7 +624,7 @@ class CalendarEventService {
         if (category != null) {
           categoryColor = CalendarFormattingUtils.parseColor(category.color);
         } else {
-          categoryColor = Colors.blue;
+          categoryColor = Colors.transparent;
         }
       }
 
@@ -709,9 +709,8 @@ class CalendarEventService {
             }
 
             final categoryType = item.templateCategoryType;
-            final sessionLoggedAtEpochMs =
-                _toEpochMs(session['loggedAt']) ??
-                    sessionEnd.millisecondsSinceEpoch;
+            final sessionLoggedAtEpochMs = _toEpochMs(session['loggedAt']) ??
+                sessionEnd.millisecondsSinceEpoch;
             final metadata = CalendarEventMetadata(
               instanceId: item.reference.id,
               sessionIndex: sessionIndex,
@@ -832,7 +831,7 @@ class CalendarEventService {
             categoryColor =
                 CalendarFormattingUtils.parseColor(item.templateCategoryColor);
           } catch (e) {
-            categoryColor = Colors.blue;
+            categoryColor = Colors.transparent;
           }
         } else {
           // Use map lookup instead of firstWhere (O(1) vs O(n))
@@ -841,7 +840,7 @@ class CalendarEventService {
           if (category != null) {
             categoryColor = CalendarFormattingUtils.parseColor(category.color);
           } else {
-            categoryColor = Colors.blue;
+            categoryColor = Colors.transparent;
           }
         }
         DateTime startTime =

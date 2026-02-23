@@ -49,6 +49,8 @@ class TaskInstanceTimerTaskService {
         templateTimeEstimateMinutes: template.timeEstimateMinutes,
         templateShowInFloatingTimer:
             showInFloatingTimer, // allow caller to suppress floating timer linkage
+        templateIsRecurring: template.isRecurring,
+        templateDueTime: template.dueTime,
         // Session tracking fields
         currentSessionStartTime: startTimer ? now : null,
         isTimeLogging: startTimer,

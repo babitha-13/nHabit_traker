@@ -104,6 +104,7 @@ class TaskInstanceTaskService {
       templateDescription: template.description,
       templateTimeEstimateMinutes: template.timeEstimateMinutes,
       templateShowInFloatingTimer: template.showInFloatingTimer,
+      templateIsRecurring: template.isRecurring,
       // Inherit order from previous instance
       queueOrder: queueOrder,
       habitsOrder: habitsOrder,

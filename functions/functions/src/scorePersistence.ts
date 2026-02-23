@@ -491,7 +491,18 @@ async function calculateDailyProgress(
     : 0;
 
   // Create breakdowns
-  const habitBreakdown = inWindowHabits.map((habit) => {
+  const habitBreakdown = inWindowHabits.reduce<Array<Record<string, unknown>>>((acc, habit) => {
+    // For UI breakdown, exclude habits completed strictly before the target date
+    if (habit.status === 'completed' && habit.completedAt) {
+      const completedDate = timestampToDate(habit.completedAt);
+      if (completedDate) {
+        const completedDateNormalized = normalizeToStartOfDay(completedDate);
+        if (completedDateNormalized.getTime() < normalizedDate.getTime()) {
+          return acc; // Skip adding to UI breakdown
+        }
+      }
+    }
+
     const target = calculateDailyTarget(habit);
     const earned = calculatePointsEarnedSimple(habit);
     const progress = target > 0 ? Math.min(1, earned / target) : 0;
@@ -516,8 +527,9 @@ async function calculateDailyProgress(
       entry.completedAt = habit.completedAt;
     }
 
-    return entry;
-  });
+    acc.push(entry);
+    return acc;
+  }, []);
 
   const taskBreakdown = allTasksForMath.map((task) => {
     const target = calculateTaskTarget([task]);
@@ -640,10 +652,10 @@ export function calculateCombinedPenalty(dailyCompletion: number, consecutiveLow
   return penalty;
 }
 
-export function calculateRecoveryBonus(consecutiveLowDays: number): number {
-  if (consecutiveLowDays === 0) return 0.0;
-  const bonus = Math.sqrt(consecutiveLowDays) * 1.0;
-  return Math.min(5.0, bonus);
+export function calculateRecoveryBonus(cumulativeLowStreakPenalty: number): number {
+  if (cumulativeLowStreakPenalty <= 0) return 0.0;
+  const bonus = cumulativeLowStreakPenalty * 0.4;
+  return Math.min(3.0, bonus);
 }
 
 function calculateCategoryNeglectPenalty(
@@ -724,9 +736,9 @@ function calculateDailyTarget(instance: ActivityInstance): number {
 
 function calculateDailyFrequency(instance: ActivityInstance): number {
   // Handle "every X days/weeks" pattern
-  if ((instance.templateEveryXValue || 0) > 1 && instance.templateEveryXPeriodType) {
+  if ((instance.templateEveryXValue || 0) > 0 && instance.templateEveryXPeriodType) {
     const periodDays = periodTypeToDays(instance.templateEveryXPeriodType);
-    const frequency = (1.0 / instance.templateEveryXValue!) * (periodDays / 1);
+    const frequency = 1.0 / (instance.templateEveryXValue! * periodDays);
     return frequency;
   }
 
@@ -1160,10 +1172,14 @@ async function updateUserProgressStats(
 
     // Update consecutive low days
     let consecutiveLowDays = existingStats?.consecutiveLowDays ?? 0;
+    let cumulativeLowStreakPenalty = existingStats?.cumulativeLowStreakPenalty ?? 0.0;
     if (completionPercentage < DECAY_THRESHOLD) {
       consecutiveLowDays++;
+      const decay = calculateCombinedPenalty(completionPercentage, consecutiveLowDays);
+      cumulativeLowStreakPenalty += (decay + categoryNeglectPenalty);
     } else {
       consecutiveLowDays = 0;
+      cumulativeLowStreakPenalty = 0.0;
     }
 
     const statsData: Partial<UserProgressStats> = {
@@ -1172,6 +1188,7 @@ async function updateUserProgressStats(
       lastCalculationDate: Timestamp.fromDate(calculationDate),
       lastDailyGain: dailyGain,
       consecutiveLowDays: consecutiveLowDays,
+      cumulativeLowStreakPenalty: cumulativeLowStreakPenalty,
       lastUpdatedAt: FieldValue.serverTimestamp(),
     };
 

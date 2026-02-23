@@ -55,8 +55,8 @@ class CumulativeScoreService {
         dailyCompletion, consecutiveLowDays);
   }
 
-  static double calculateRecoveryBonus(int consecutiveLowDays) {
-    return ScoreFormulas.calculateRecoveryBonus(consecutiveLowDays);
+  static double calculateRecoveryBonus(double cumulativeLowStreakPenalty) {
+    return ScoreFormulas.calculateRecoveryBonus(cumulativeLowStreakPenalty);
   }
 
   static double calculateCategoryNeglectPenalty(
@@ -130,19 +130,23 @@ class CumulativeScoreService {
       int newConsecutiveLowDays;
       double penalty = 0.0;
       double recoveryBonus = 0.0;
+      double newCumulativeLowStreakPenalty =
+          userStats.cumulativeLowStreakPenalty;
 
       if (todayCompletionPercentage < ScoreFormulas.decayThreshold) {
         // Completion < 50%: increment counter and apply penalty
         newConsecutiveLowDays = userStats.consecutiveLowDays + 1;
         penalty = ScoreFormulas.calculateCombinedPenalty(
             todayCompletionPercentage, newConsecutiveLowDays);
+        newCumulativeLowStreakPenalty += (penalty + categoryNeglectPenalty);
       } else {
         // Completion >= 50%: calculate recovery bonus and reset counter
         if (userStats.consecutiveLowDays > 0) {
           recoveryBonus = ScoreFormulas.calculateRecoveryBonus(
-              userStats.consecutiveLowDays);
+              newCumulativeLowStreakPenalty);
         }
         newConsecutiveLowDays = 0;
+        newCumulativeLowStreakPenalty = 0.0;
       }
 
       // Calculate new cumulative score
@@ -212,6 +216,7 @@ class CumulativeScoreService {
         newLongestStreak,
         dailyGain,
         newConsecutiveLowDays,
+        newCumulativeLowStreakPenalty,
         newAchievedMilestones,
         aggregateStats: aggregateStats,
       );
