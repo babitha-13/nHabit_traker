@@ -28,7 +28,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
   double dailyScoreGain = 0.0;
   int achievedMilestones = 0;
   List<Map<String, dynamic>> cumulativeScoreHistory = [];
-  bool show30Days = false;
+  int cumulativeScoreHistoryDays = 7;
   double projectedCumulativeScore = 0.0;
   double projectedDailyGain = 0.0;
   bool hasProjection = false;
@@ -403,7 +403,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
         currentTodayScore = projectedDailyGain;
       }
 
-      final daysToLoad = show30Days ? 30 : 7;
+      final daysToLoad = cumulativeScoreHistoryDays;
       final historyResult = await ScoreCoordinator.loadScoreHistoryWithToday(
         userId: userId,
         days: daysToLoad,
@@ -425,6 +425,21 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       // only contains finalized days up to yesterday.
       updateHistoryWithTodayScore();
     } catch (e) {}
+  }
+
+  int get nextCumulativeScoreHistoryDays {
+    const options = [7, 30, 90];
+    final currentIndex = options.indexOf(cumulativeScoreHistoryDays);
+    final safeIndex = currentIndex >= 0 ? currentIndex : 0;
+    return options[(safeIndex + 1) % options.length];
+  }
+
+  void toggleCumulativeScoreHistoryRange() {
+    if (!mounted) return;
+    setState(() {
+      cumulativeScoreHistoryDays = nextCumulativeScoreHistoryDays;
+    });
+    loadCumulativeScoreHistoryData();
   }
 
   void updateHistoryWithTodayScore() {

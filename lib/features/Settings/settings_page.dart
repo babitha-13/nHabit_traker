@@ -212,41 +212,96 @@ class _SettingsPageState extends State<SettingsPage> {
                 FFAppState.instance.timeBonusEnabled = value;
               },
             ),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: Colors.blue.shade50,
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: Colors.blue.shade200),
-              ),
-              child: Row(
-                children: [
-                  Icon(Icons.info_outline,
-                      color: Colors.blue.shade700, size: 20),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _timeBonusEnabled
-                          ? 'Effort Mode ON:\n'
-                              'Long duration activities get more points than short duration activities (less than one hour). Even binary activities get more points if time is recorded and it takes more than half an hour.\n'
-                              'Ex: A 30 mins task gets 1 point, and a 1 hr task gets 1.7 points. However additional points exhibit diminishing returns.\n\n'
-                              'Diminishing returns:\n'
-                              'If priority is one, the first half hour gets 1 full point. But the next half an hour gets 0.7 points and the next 0.5 points. Returns are not proportional to avoid over-focusing on the same activity the entire day.'
-                          : 'Effort Mode OFF:\n'
-                              'Points are defined by completion status and not dependent on duration.\n'
-                              'Ex: A 30 min task and a 2 hr task both get 1 point if priority is 1.',
-                      style: theme.bodySmall.override(
-                        color: Colors.blue.shade700,
-                      ),
-                    ),
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => _showEffortModeInfoDialog(context, theme),
+                icon: Icon(Icons.info_outline, color: theme.primary, size: 20),
+                label: Text(
+                  'How Effort Mode works (examples)',
+                  style: theme.bodySmall.override(
+                    color: theme.primary,
+                    fontWeight: FontWeight.w600,
                   ),
-                ],
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  void _showEffortModeInfoDialog(BuildContext context, FlutterFlowTheme theme) {
+    showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(
+            'Effort Mode Details',
+            style: theme.titleMedium.override(
+              fontWeight: FontWeight.w700,
+            ),
+          ),
+          content: SizedBox(
+            width: 460,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Effort Mode ON:',
+                    style: theme.bodyMedium.override(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Points increase with time spent for binary and time activities. '
+                    'The first 30 minutes gives full points, and each extra 30-minute block gives lower additional points (diminishing returns).',
+                    style: theme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Examples for a 1-star activity:\n'
+                    '- 30m logged -> 1.0 pt\n'
+                    '- 60m logged -> 1.7 pts\n'
+                    '- 90m logged -> ~2.2 pts\n'
+                    '- Quantity activities are still based on quantity vs target.',
+                    style: theme.bodySmall,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Effort Mode OFF:',
+                    style: theme.bodyMedium.override(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  Text(
+                    'Points are completion-based, not duration-based.',
+                    style: theme.bodySmall,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Examples for a 1-star activity:\n'
+                    '- 30m and 2h give the same points if completion status is the same\n'
+                    '- Quantity remains based on quantity progress.',
+                    style: theme.bodySmall,
+                  ),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 

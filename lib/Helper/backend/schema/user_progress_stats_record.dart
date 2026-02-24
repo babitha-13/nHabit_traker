@@ -52,12 +52,12 @@ class UserProgressStatsRecord extends FirestoreRecord {
   double get lastDailyGain => _lastDailyGain ?? 0.0;
   bool hasLastDailyGain() => _lastDailyGain != null;
 
-  // "consecutiveLowDays" field - consecutive days with completion < 50%
+  // "consecutiveLowDays" field - consecutive days where cumulative score declined
   int? _consecutiveLowDays;
   int get consecutiveLowDays => _consecutiveLowDays ?? 0;
   bool hasConsecutiveLowDays() => _consecutiveLowDays != null;
 
-  // "cumulativeLowStreakPenalty" field - tracks accumulated decay + neglect penalties during the low streak
+  // "cumulativeLowStreakPenalty" field - tracks accumulated visible score loss during slump streak
   double? _cumulativeLowStreakPenalty;
   double get cumulativeLowStreakPenalty => _cumulativeLowStreakPenalty ?? 0.0;
   bool hasCumulativeLowStreakPenalty() => _cumulativeLowStreakPenalty != null;

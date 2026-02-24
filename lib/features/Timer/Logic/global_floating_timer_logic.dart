@@ -10,6 +10,7 @@ import 'package:habit_tracker/services/Activtity/task_instance_service/task_inst
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Timer/Helpers/timer_stop_flow.dart';
+import 'package:habit_tracker/features/Item_component/helper/item_time_controls_helper.dart';
 import '../global_floating_timer.dart';
 
 mixin GlobalFloatingTimerLogic
@@ -361,6 +362,24 @@ mixin GlobalFloatingTimerLogic
           timerManager.updateInstance(updatedInstance);
         }
         InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+
+        // Match item-component stop behavior: auto-complete timer-type
+        // instances when target is reached after stopping from floating timer.
+        final isTaskOrHabit = updatedInstance.templateCategoryType == 'task' ||
+            updatedInstance.templateCategoryType == 'habit';
+        if (mounted &&
+            hadActiveSession &&
+            !isStillActive &&
+            isTaskOrHabit &&
+            updatedInstance.templateTrackingType == 'time') {
+          await ItemTimeControlsHelper.checkTimerCompletion(
+            context,
+            updatedInstance,
+            (completedInstance) {
+              timerManager.updateInstance(completedInstance);
+            },
+          );
+        }
       }
     } catch (e) {
       if (mounted) {

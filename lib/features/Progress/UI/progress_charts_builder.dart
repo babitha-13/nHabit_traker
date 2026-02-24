@@ -261,7 +261,7 @@ class ProgressChartsBuilder {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                logic.show30Days ? '30-Day Score Trend' : '7-Day Score Trend',
+                '${logic.cumulativeScoreHistoryDays}-Day Score Trend',
                 style: FlutterFlowTheme.of(context).bodyMedium.override(
                       fontFamily: 'Readex Pro',
                       fontWeight: FontWeight.w600,
@@ -278,7 +278,7 @@ class ProgressChartsBuilder {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    logic.show30Days ? '7D' : '30D',
+                    '${logic.nextCumulativeScoreHistoryDays}D',
                     style: FlutterFlowTheme.of(context).bodySmall.override(
                           fontFamily: 'Readex Pro',
                           color: FlutterFlowTheme.of(context).primary,

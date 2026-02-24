@@ -408,8 +408,7 @@ class ProgressStatsWidgets {
             context: context,
             logic: logic,
             onToggleRange: () {
-              logic.show30Days = !logic.show30Days;
-              logic.loadCumulativeScoreHistoryData();
+              logic.toggleCumulativeScoreHistoryRange();
             },
           ),
         ],

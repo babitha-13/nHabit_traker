@@ -78,7 +78,7 @@ class TodayScoreCalculator {
     // Consistency bonus based on last 7 days
     final consistencyBonus = ScoreFormulas.calculateConsistencyBonus(last7Days);
 
-    // Get user stats for consecutive low days and recovery bonus (cache for fast updates)
+    // Get user stats for slump streak state (cache for fast updates)
     UserProgressStatsRecord? userStats;
     if (_isCacheFresh(_userStatsCachedAt) && _cachedUserStats != null) {
       userStats = _cachedUserStats;
@@ -87,28 +87,8 @@ class TodayScoreCalculator {
       _cachedUserStats = userStats;
       _userStatsCachedAt = DateTime.now();
     }
-    final consecutiveLowDays = userStats?.consecutiveLowDays ?? 0;
-
-    // Calculate penalty/recovery bonus based on today's completion
-    double decayPenalty = 0.0;
-    double recoveryBonus = 0.0;
-
-    if (completionPercentage < ScoreFormulas.decayThreshold) {
-      // Completion < 50%: calculate penalty with incremented counter
-      final projectedConsecutiveDays = consecutiveLowDays + 1;
-      decayPenalty = ScoreFormulas.calculateCombinedPenalty(
-        completionPercentage,
-        projectedConsecutiveDays,
-      );
-    } else {
-      // Completion >= 50%: calculate recovery bonus if there were low days
-      if (consecutiveLowDays > 0) {
-        final currentCumulativePenalty =
-            userStats?.cumulativeLowStreakPenalty ?? 0.0;
-        recoveryBonus =
-            ScoreFormulas.calculateRecoveryBonus(currentCumulativePenalty);
-      }
-    }
+    final prevDropDays = userStats?.consecutiveLowDays ?? 0;
+    final prevLossPool = userStats?.cumulativeLowStreakPenalty ?? 0.0;
 
     // Category neglect penalty (if categories and instances provided)
     double categoryNeglectPenalty = 0.0;
@@ -120,12 +100,34 @@ class TodayScoreCalculator {
       );
     }
 
-    // Today's total score = base + bonuses - penalties
-    final todayScore = dailyScore +
-        consistencyBonus +
-        recoveryBonus -
-        decayPenalty -
-        categoryNeglectPenalty;
+    // Raw decay is always completion-based, but diminishing only applies
+    // if the day would otherwise be negative before recovery.
+    final rawDecayPenalty =
+        ScoreFormulas.calculateRawDecayPenalty(completionPercentage);
+    final preDiminishGain =
+        dailyScore + consistencyBonus - rawDecayPenalty - categoryNeglectPenalty;
+
+    final decayPenalty = preDiminishGain < 0
+        ? ScoreFormulas.calculateCombinedPenalty(
+            completionPercentage,
+            prevDropDays + 1,
+          )
+        : rawDecayPenalty;
+
+    final gainBeforeRecovery =
+        dailyScore + consistencyBonus - decayPenalty - categoryNeglectPenalty;
+
+    final startCumulative =
+        await getCumulativeScoreTillYesterday(userId: userId);
+    final endBeforeRecovery =
+        (startCumulative + gainBeforeRecovery).clamp(0.0, double.infinity);
+    final isSlumpDay = endBeforeRecovery < startCumulative;
+
+    final recoveryBonus = (!isSlumpDay && prevDropDays > 0 && prevLossPool > 0)
+        ? ScoreFormulas.calculateRecoveryBonus(prevLossPool)
+        : 0.0;
+
+    final todayScore = gainBeforeRecovery + recoveryBonus;
 
     return {
       'todayScore': todayScore,
@@ -134,6 +136,7 @@ class TodayScoreCalculator {
       'recoveryBonus': recoveryBonus,
       'decayPenalty': decayPenalty,
       'categoryNeglectPenalty': categoryNeglectPenalty,
+      'isSlumpDay': isSlumpDay,
     };
   }
 

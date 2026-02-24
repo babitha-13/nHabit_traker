@@ -126,35 +126,48 @@ class CumulativeScoreService {
         throw Exception('Failed to get user stats');
       }
 
-      // Track consecutive low days and calculate penalty/recovery bonus
-      int newConsecutiveLowDays;
-      double penalty = 0.0;
-      double recoveryBonus = 0.0;
-      double newCumulativeLowStreakPenalty =
-          userStats.cumulativeLowStreakPenalty;
+      // Slump streak is driven by visible cumulative decline.
+      final prevDropDays = userStats.consecutiveLowDays;
+      final prevLossPool = userStats.cumulativeLowStreakPenalty;
+      int newConsecutiveLowDays = prevDropDays;
+      double newCumulativeLowStreakPenalty = prevLossPool;
 
-      if (todayCompletionPercentage < ScoreFormulas.decayThreshold) {
-        // Completion < 50%: increment counter and apply penalty
-        newConsecutiveLowDays = userStats.consecutiveLowDays + 1;
-        penalty = ScoreFormulas.calculateCombinedPenalty(
-            todayCompletionPercentage, newConsecutiveLowDays);
-        newCumulativeLowStreakPenalty += (penalty + categoryNeglectPenalty);
+      // Apply diminishing only when the day would otherwise be negative.
+      final rawDecayPenalty =
+          ScoreFormulas.calculateRawDecayPenalty(todayCompletionPercentage);
+      final preDiminishGain =
+          dailyScore + consistencyBonus - rawDecayPenalty - categoryNeglectPenalty;
+
+      final penalty = preDiminishGain < 0
+          ? ScoreFormulas.calculateCombinedPenalty(
+              todayCompletionPercentage,
+              prevDropDays + 1,
+            )
+          : rawDecayPenalty;
+
+      final gainBeforeRecovery =
+          dailyScore + consistencyBonus - penalty - categoryNeglectPenalty;
+      final endBeforeRecovery =
+          (userStats.cumulativeScore + gainBeforeRecovery)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+      final isSlumpDay = endBeforeRecovery < userStats.cumulativeScore;
+
+      double recoveryBonus = 0.0;
+      if (isSlumpDay) {
+        final lossToday = userStats.cumulativeScore - endBeforeRecovery;
+        newConsecutiveLowDays = prevDropDays + 1;
+        newCumulativeLowStreakPenalty = prevLossPool + lossToday;
       } else {
-        // Completion >= 50%: calculate recovery bonus and reset counter
-        if (userStats.consecutiveLowDays > 0) {
-          recoveryBonus = ScoreFormulas.calculateRecoveryBonus(
-              newCumulativeLowStreakPenalty);
+        if (prevDropDays > 0 && prevLossPool > 0) {
+          recoveryBonus = ScoreFormulas.calculateRecoveryBonus(prevLossPool);
         }
         newConsecutiveLowDays = 0;
         newCumulativeLowStreakPenalty = 0.0;
       }
 
       // Calculate new cumulative score
-      final dailyGain = dailyScore +
-          consistencyBonus +
-          recoveryBonus -
-          penalty -
-          categoryNeglectPenalty;
+      final dailyGain = gainBeforeRecovery + recoveryBonus;
       final newCumulativeScore =
           (userStats.cumulativeScore + dailyGain).clamp(0.0, double.infinity);
 

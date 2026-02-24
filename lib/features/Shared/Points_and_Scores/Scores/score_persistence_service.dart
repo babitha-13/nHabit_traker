@@ -204,8 +204,8 @@ class ScorePersistenceService {
       int currentStreak = 0;
       int longestStreak = 0;
       int totalDays = 0;
-      int consecutiveLowDays = 0;
-      double cumulativeLowStreakPenalty = 0.0;
+      int consecutiveLowDays = 0; // Consecutive visible score-decline days
+      double cumulativeLowStreakPenalty = 0.0; // Accumulated visible losses
       int achievedMilestones = 0;
 
       for (int i = 0; i < allProgress.length; i++) {
@@ -223,37 +223,44 @@ class ScorePersistenceService {
         final consistencyBonus =
             ScoreFormulas.calculateConsistencyBonus(last7Days);
 
-        // Track consecutive low days and calculate penalty/recovery bonus
-        double penalty = 0.0;
-        double recoveryBonus = 0.0;
+        // Slump streak now tracks visible cumulative decline.
+        final prevDropDays = consecutiveLowDays;
+        final prevLossPool = cumulativeLowStreakPenalty;
+        final neglect = day.hasCategoryNeglectPenalty()
+            ? day.categoryNeglectPenalty
+            : 0.0;
 
-        if (completion < ScoreFormulas.decayThreshold) {
-          // Completion < 50%: increment counter and apply penalty
-          consecutiveLowDays++;
-          final decay = day.hasDecayPenalty()
-              ? day.decayPenalty
-              : ScoreFormulas.calculateCombinedPenalty(
-                  completion, consecutiveLowDays);
-          final neglect = day.hasCategoryNeglectPenalty()
-              ? day.categoryNeglectPenalty
-              : 0.0;
-          penalty = decay + neglect;
-          cumulativeLowStreakPenalty += penalty;
-          // Keep the penalty variable representing just decay for backwards math
-          penalty = decay;
+        final rawDecayPenalty = ScoreFormulas.calculateRawDecayPenalty(completion);
+        final preDiminishGain =
+            dailyScore + consistencyBonus - rawDecayPenalty - neglect;
+        final penalty = preDiminishGain < 0
+            ? ScoreFormulas.calculateCombinedPenalty(
+                completion,
+                prevDropDays + 1,
+              )
+            : rawDecayPenalty;
+
+        final gainBeforeRecovery =
+            dailyScore + consistencyBonus - penalty - neglect;
+        final endBeforeRecovery =
+            (cumulativeScore + gainBeforeRecovery).clamp(0.0, double.infinity);
+        final isSlumpDay = endBeforeRecovery < cumulativeScore;
+
+        double recoveryBonus = 0.0;
+        if (isSlumpDay) {
+          final lossToday = cumulativeScore - endBeforeRecovery;
+          consecutiveLowDays = prevDropDays + 1;
+          cumulativeLowStreakPenalty = prevLossPool + lossToday;
         } else {
-          // Completion >= 50%: calculate recovery bonus and reset counter
-          if (consecutiveLowDays > 0) {
-            recoveryBonus = ScoreFormulas.calculateRecoveryBonus(
-                cumulativeLowStreakPenalty);
+          if (prevDropDays > 0 && prevLossPool > 0) {
+            recoveryBonus = ScoreFormulas.calculateRecoveryBonus(prevLossPool);
           }
           consecutiveLowDays = 0;
           cumulativeLowStreakPenalty = 0.0;
         }
 
         // Update cumulative score
-        final dailyGain =
-            dailyScore + consistencyBonus + recoveryBonus - penalty;
+        final dailyGain = gainBeforeRecovery + recoveryBonus;
         final oldScore = cumulativeScore;
         cumulativeScore =
             (cumulativeScore + dailyGain).clamp(0.0, double.infinity);
@@ -318,8 +325,8 @@ class ScorePersistenceService {
                   allProgress.last.earnedPoints,
                 )
               : 0.0,
-          consecutiveLowDays, // Final consecutive low days count
-          cumulativeLowStreakPenalty, // Final accumulated penalty
+          consecutiveLowDays, // Final consecutive visible decline days
+          cumulativeLowStreakPenalty, // Final accumulated visible losses
           achievedMilestones, // Final achieved milestones
           aggregateStats: aggregateStats,
         );

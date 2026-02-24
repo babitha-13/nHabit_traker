@@ -9,6 +9,7 @@
  * 2. Recalculates scores using shared formulas
  * 3. Adds effectiveGain, previousDayCumulativeScore, and breakdown fields
  * 4. Updates cumulative score snapshots
+ * 5. Resyncs users/{uid}/progress_stats/main slump/cumulative fields
  *
  * Usage:
  *   cd functions/functions
@@ -35,14 +36,70 @@ if (admin.apps.length === 0) {
 import {
     calculateDailyScore,
     calculateConsistencyBonus,
+    calculateRawDecayPenalty,
     calculateCombinedPenalty,
     calculateRecoveryBonus,
     calculateEffectiveGain,
-    DECAY_THRESHOLD,
 } from '../scorePersistence.js';
 import { DailyProgressRecord } from '../types.js';
 
 const db = admin.firestore();
+
+interface RecalcStatsSyncInput {
+    userId: string;
+    finalCumulativeScore: number;
+    lastDailyGain: number;
+    consecutiveLowDays: number;
+    cumulativeLowStreakPenalty: number;
+    totalDaysTracked: number;
+    lastCalculationDate: Date;
+}
+
+async function syncProgressStatsAfterRecalc(input: RecalcStatsSyncInput): Promise<void> {
+    const {
+        userId,
+        finalCumulativeScore,
+        lastDailyGain,
+        consecutiveLowDays,
+        cumulativeLowStreakPenalty,
+        totalDaysTracked,
+        lastCalculationDate,
+    } = input;
+
+    const statsRef = db
+        .collection(`users/${userId}/progress_stats`)
+        .doc('main');
+
+    const existingSnap = await statsRef.get();
+    const existing = existingSnap.data() as Record<string, unknown> | undefined;
+    const existingHistoricalHigh = Number(existing?.historicalHighScore || 0);
+    const historicalHighScore = Math.max(existingHistoricalHigh, finalCumulativeScore);
+
+    const baseData = {
+        userId,
+        cumulativeScore: finalCumulativeScore,
+        lastDailyGain,
+        consecutiveLowDays,
+        cumulativeLowStreakPenalty,
+        lastCalculationDate: admin.firestore.Timestamp.fromDate(lastCalculationDate),
+        lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        historicalHighScore,
+    };
+
+    if (existingSnap.exists) {
+        await statsRef.update(baseData);
+        return;
+    }
+
+    await statsRef.set({
+        ...baseData,
+        totalDaysTracked,
+        currentStreak: 0,
+        longestStreak: 0,
+        achievedMilestones: 0,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    });
+}
 
 /**
  * Recalculate daily progress for a user
@@ -86,6 +143,7 @@ async function recalculateDailyProgress(userId: string) {
     let cumulativeScore = 0.0;
     let consecutiveLowDays = 0;
     let cumulativeLowStreakPenalty = 0.0;
+    let lastDailyGain = 0.0;
     let batch = db.batch();
     let batchCount = 0;
     let updateCount = 0;
@@ -107,30 +165,39 @@ async function recalculateDailyProgress(userId: string) {
         const last7Days = allRecords.slice(startIndex, i + 1) as unknown as DailyProgressRecord[];
         const consistencyBonus = calculateConsistencyBonus(last7Days);
 
-        // Calculate penalty/recovery bonus using SHARED formulas
-        let penalty = 0.0;
+        // Calculate decay/recovery using visible cumulative decline streak logic
+        const prevDropDays = consecutiveLowDays;
+        const prevLossPool = cumulativeLowStreakPenalty;
+        const rawDecayPenalty = calculateRawDecayPenalty(completionPercentage);
+        const preDiminishGain =
+            dailyPoints + consistencyBonus - rawDecayPenalty - categoryNeglectPenalty;
+        const penalty = preDiminishGain < 0
+            ? calculateCombinedPenalty(completionPercentage, prevDropDays + 1)
+            : rawDecayPenalty;
+
+        const gainBeforeRecovery =
+            dailyPoints + consistencyBonus - penalty - categoryNeglectPenalty;
+        const endBeforeRecovery = Math.max(0, previousCumulativeScore + gainBeforeRecovery);
+        const isSlumpDay = endBeforeRecovery < previousCumulativeScore;
+
         let recoveryBonus = 0.0;
-        let newConsecutiveLowDays = consecutiveLowDays;
+        let newConsecutiveLowDays = prevDropDays;
+        let newCumulativeLowStreakPenalty = prevLossPool;
 
-        let newCumulativeLowStreakPenalty = cumulativeLowStreakPenalty;
-
-        if (completionPercentage < DECAY_THRESHOLD) {
-            newConsecutiveLowDays = consecutiveLowDays + 1;
-            const decay = record.decayPenalty !== undefined
-                ? Number(record.decayPenalty)
-                : calculateCombinedPenalty(completionPercentage, newConsecutiveLowDays);
-            penalty = decay;
-            newCumulativeLowStreakPenalty += (decay + categoryNeglectPenalty);
+        if (isSlumpDay) {
+            const lossToday = previousCumulativeScore - endBeforeRecovery;
+            newConsecutiveLowDays = prevDropDays + 1;
+            newCumulativeLowStreakPenalty = prevLossPool + lossToday;
         } else {
-            if (consecutiveLowDays > 0) {
-                recoveryBonus = calculateRecoveryBonus(newCumulativeLowStreakPenalty);
+            if (prevDropDays > 0 && prevLossPool > 0) {
+                recoveryBonus = calculateRecoveryBonus(prevLossPool);
             }
             newConsecutiveLowDays = 0;
             newCumulativeLowStreakPenalty = 0.0;
         }
 
         // Calculate daily gain
-        const dailyGain = dailyPoints + consistencyBonus + recoveryBonus - penalty - categoryNeglectPenalty;
+        const dailyGain = gainBeforeRecovery + recoveryBonus;
 
         // Calculate new cumulative score (floor at 0)
         const newCumulativeScore = Math.max(0, previousCumulativeScore + dailyGain);
@@ -177,6 +244,7 @@ async function recalculateDailyProgress(userId: string) {
         cumulativeScore = newCumulativeScore;
         consecutiveLowDays = newConsecutiveLowDays;
         cumulativeLowStreakPenalty = newCumulativeLowStreakPenalty;
+        lastDailyGain = dailyGain;
     }
 
     // Commit any remaining updates
@@ -187,6 +255,18 @@ async function recalculateDailyProgress(userId: string) {
 
     console.log(`\n✅ Recalculation complete! Updated ${updateCount} records.\n`);
     console.log(`Final cumulative score: ${cumulativeScore.toFixed(2)}`);
+
+    const lastCalculationDate = allRecords[allRecords.length - 1].date?.toDate?.() || new Date();
+    await syncProgressStatsAfterRecalc({
+        userId,
+        finalCumulativeScore: cumulativeScore,
+        lastDailyGain,
+        consecutiveLowDays,
+        cumulativeLowStreakPenalty,
+        totalDaysTracked: allRecords.length,
+        lastCalculationDate,
+    });
+    console.log('Resynced users/{uid}/progress_stats/main from recalculated history.');
 
     return { updateCount, finalCumulativeScore: cumulativeScore };
 }

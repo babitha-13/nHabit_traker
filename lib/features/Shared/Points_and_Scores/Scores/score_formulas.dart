@@ -51,25 +51,32 @@ class ScoreFormulas {
     return 0.0;
   }
 
-  /// Calculate combined penalty for poor performance with diminishing returns over time
+  /// Calculate raw decay penalty without any streak-based diminishing.
+  /// Formula: max(0, 50 - completion%) * 0.06
+  static double calculateRawDecayPenalty(double dailyCompletion) {
+    final pointsBelowThreshold = max(0.0, decayThreshold - dailyCompletion);
+    return pointsBelowThreshold * penaltyBaseMultiplier;
+  }
+
+  /// Calculate diminished decay penalty for slump streak days.
+  /// Formula: rawDecayPenalty / log(streakDay + 1)
   static double calculateCombinedPenalty(
     double dailyCompletion,
     int consecutiveLowDays,
   ) {
     if (dailyCompletion >= decayThreshold) return 0.0;
+    if (consecutiveLowDays <= 0) {
+      return calculateRawDecayPenalty(dailyCompletion);
+    }
 
-    // Combined penalty with diminishing returns over time
-    // Formula: (50 - completion%) * 0.06 / log(consecutiveDays + 1)
-    final pointsBelowThreshold = decayThreshold - dailyCompletion;
-    final penalty = pointsBelowThreshold *
-        penaltyBaseMultiplier /
-        log(consecutiveLowDays + 1);
+    final rawPenalty = calculateRawDecayPenalty(dailyCompletion);
+    final penalty = rawPenalty / log(consecutiveLowDays + 1);
 
     return penalty;
   }
 
-  /// Calculate recovery bonus when breaking low-completion streak
-  /// Bonus is 40% of the accumulated penalties during the low streak, capped at 3.0 points.
+  /// Calculate recovery bonus when breaking a visible score-decline slump streak.
+  /// Bonus is 40% of accumulated visible losses during the slump, capped at 3.0 points.
   static double calculateRecoveryBonus(double cumulativeLowStreakPenalty) {
     if (cumulativeLowStreakPenalty <= 0) return 0.0;
 

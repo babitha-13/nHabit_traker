@@ -309,6 +309,9 @@ async function createDailyProgressRecordForDate(
       categories
     );
 
+    // Get cumulative score at start of target day
+    const cumulativeAtStart = await getCumulativeScoreAtStartOfDay(userId, targetDate);
+
     // Calculate score
     const scoreData = await calculateScore(
       userId,
@@ -316,11 +319,10 @@ async function createDailyProgressRecordForDate(
       calculationResult.earnedPoints,
       categories,
       calculationResult.allForMath,
-      targetDate
+      targetDate,
+      cumulativeAtStart
     );
 
-    // Get cumulative score at start of target day
-    const cumulativeAtStart = await getCumulativeScoreAtStartOfDay(userId, targetDate);
     const actualGain = scoreData.todayScore;
     const cumulativeAtEnd = Math.max(0, cumulativeAtStart + actualGain);
 
@@ -391,7 +393,8 @@ async function createDailyProgressRecordForDate(
       targetDate,
       scoreData.todayScore,
       calculationResult.completionPercentage,
-      scoreData.categoryNeglectPenalty,
+      scoreData.newConsecutiveLowDays,
+      scoreData.newCumulativeLowStreakPenalty,
       setLastProcessedDate
     );
 
@@ -568,7 +571,8 @@ async function calculateScore(
   pointsEarned: number,
   categories: Array<CategoryRecord & { id: string }>,
   habitInstances: ActivityInstance[],
-  targetDate: Date
+  targetDate: Date,
+  startCumulativeScore: number
 ): Promise<{
   todayScore: number;
   dailyPoints: number;
@@ -576,6 +580,8 @@ async function calculateScore(
   recoveryBonus: number;
   decayPenalty: number;
   categoryNeglectPenalty: number;
+  newConsecutiveLowDays: number;
+  newCumulativeLowStreakPenalty: number;
 }> {
   const last7Days = await getLastNDays(userId, 7);
 
@@ -585,20 +591,10 @@ async function calculateScore(
   // Consistency bonus
   const consistencyBonus = calculateConsistencyBonus(last7Days);
 
-  // Get user stats for consecutive low days
+  // Get user stats for visible-decline slump streak tracking
   const userStats = await getUserStats(userId);
-  const consecutiveLowDays = userStats?.consecutiveLowDays ?? 0;
-
-  // Calculate penalty/recovery bonus
-  let decayPenalty = 0.0;
-  let recoveryBonus = 0.0;
-
-  if (completionPercentage < DECAY_THRESHOLD) {
-    const projectedConsecutiveDays = consecutiveLowDays + 1;
-    decayPenalty = calculateCombinedPenalty(completionPercentage, projectedConsecutiveDays);
-  } else if (consecutiveLowDays > 0) {
-    recoveryBonus = calculateRecoveryBonus(consecutiveLowDays);
-  }
+  const prevDropDays = userStats?.consecutiveLowDays ?? 0;
+  const prevLossPool = userStats?.cumulativeLowStreakPenalty ?? 0.0;
 
   // Category neglect penalty
   const categoryNeglectPenalty = calculateCategoryNeglectPenalty(
@@ -607,8 +603,36 @@ async function calculateScore(
     targetDate
   );
 
-  // Today's total score
-  const todayScore = dailyPoints + consistencyBonus + recoveryBonus - decayPenalty - categoryNeglectPenalty;
+  // Apply diminishing only if the day would otherwise be negative.
+  const rawDecayPenalty = calculateRawDecayPenalty(completionPercentage);
+  const preDiminishGain =
+    dailyPoints + consistencyBonus - rawDecayPenalty - categoryNeglectPenalty;
+  const decayPenalty = preDiminishGain < 0
+    ? calculateCombinedPenalty(completionPercentage, prevDropDays + 1)
+    : rawDecayPenalty;
+
+  const gainBeforeRecovery =
+    dailyPoints + consistencyBonus - decayPenalty - categoryNeglectPenalty;
+  const endBeforeRecovery = Math.max(0, startCumulativeScore + gainBeforeRecovery);
+  const isSlumpDay = endBeforeRecovery < startCumulativeScore;
+
+  let recoveryBonus = 0.0;
+  let newConsecutiveLowDays = prevDropDays;
+  let newCumulativeLowStreakPenalty = prevLossPool;
+
+  if (isSlumpDay) {
+    const lossToday = startCumulativeScore - endBeforeRecovery;
+    newConsecutiveLowDays = prevDropDays + 1;
+    newCumulativeLowStreakPenalty = prevLossPool + lossToday;
+  } else {
+    if (prevDropDays > 0 && prevLossPool > 0) {
+      recoveryBonus = calculateRecoveryBonus(prevLossPool);
+    }
+    newConsecutiveLowDays = 0;
+    newCumulativeLowStreakPenalty = 0.0;
+  }
+
+  const todayScore = gainBeforeRecovery + recoveryBonus;
 
   return {
     todayScore,
@@ -617,6 +641,8 @@ async function calculateScore(
     recoveryBonus,
     decayPenalty,
     categoryNeglectPenalty,
+    newConsecutiveLowDays,
+    newCumulativeLowStreakPenalty,
   };
 }
 
@@ -644,11 +670,17 @@ export function calculateConsistencyBonus(last7Days: DailyProgressRecord[]): num
   return 0.0;
 }
 
+export function calculateRawDecayPenalty(dailyCompletion: number): number {
+  const pointsBelowThreshold = Math.max(0, DECAY_THRESHOLD - dailyCompletion);
+  return pointsBelowThreshold * PENALTY_BASE_MULTIPLIER;
+}
+
 export function calculateCombinedPenalty(dailyCompletion: number, consecutiveLowDays: number): number {
   if (dailyCompletion >= DECAY_THRESHOLD) return 0.0;
+  if (consecutiveLowDays <= 0) return calculateRawDecayPenalty(dailyCompletion);
 
-  const pointsBelowThreshold = DECAY_THRESHOLD - dailyCompletion;
-  const penalty = pointsBelowThreshold * PENALTY_BASE_MULTIPLIER / Math.log(consecutiveLowDays + 1);
+  const rawPenalty = calculateRawDecayPenalty(dailyCompletion);
+  const penalty = rawPenalty / Math.log(consecutiveLowDays + 1);
   return penalty;
 }
 
@@ -1157,7 +1189,8 @@ async function updateUserProgressStats(
   calculationDate: Date,
   dailyGain: number,
   completionPercentage: number,
-  categoryNeglectPenalty: number,
+  newConsecutiveLowDays: number,
+  newCumulativeLowStreakPenalty: number,
   setLastProcessedDate = false
 ): Promise<void> {
   try {
@@ -1170,25 +1203,13 @@ async function updateUserProgressStats(
 
     const existingStats = await getUserStats(userId);
 
-    // Update consecutive low days
-    let consecutiveLowDays = existingStats?.consecutiveLowDays ?? 0;
-    let cumulativeLowStreakPenalty = existingStats?.cumulativeLowStreakPenalty ?? 0.0;
-    if (completionPercentage < DECAY_THRESHOLD) {
-      consecutiveLowDays++;
-      const decay = calculateCombinedPenalty(completionPercentage, consecutiveLowDays);
-      cumulativeLowStreakPenalty += (decay + categoryNeglectPenalty);
-    } else {
-      consecutiveLowDays = 0;
-      cumulativeLowStreakPenalty = 0.0;
-    }
-
     const statsData: Partial<UserProgressStats> = {
       userId: userId,
       cumulativeScore: cumulativeScore,
       lastCalculationDate: Timestamp.fromDate(calculationDate),
       lastDailyGain: dailyGain,
-      consecutiveLowDays: consecutiveLowDays,
-      cumulativeLowStreakPenalty: cumulativeLowStreakPenalty,
+      consecutiveLowDays: newConsecutiveLowDays,
+      cumulativeLowStreakPenalty: newCumulativeLowStreakPenalty,
       lastUpdatedAt: FieldValue.serverTimestamp(),
     };
 

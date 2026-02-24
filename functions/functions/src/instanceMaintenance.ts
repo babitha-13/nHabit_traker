@@ -210,7 +210,7 @@ async function ensurePendingInstancesExist(
       };
       mostRecentInstancesByTemplate.set(templateId, result);
       return result;
-    }
+    };
     
     // Process each template with pre-fetched instance data
     for (const { id: templateId, data: template } of templates) {

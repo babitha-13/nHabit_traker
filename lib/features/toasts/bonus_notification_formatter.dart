@@ -45,7 +45,7 @@ class BonusNotificationFormatter {
       final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
       notifications.add({
         'message':
-            'Recovery Bonus! You\'re back on track after ${consecutiveDays} day${consecutiveDays == 1 ? '' : 's'} of low completion, so you get ${recoveryBonus.toStringAsFixed(1)} extra points',
+            'Recovery Bonus! You\'re back on track after $consecutiveDays day${consecutiveDays == 1 ? '' : 's'} of score decline, so you get ${recoveryBonus.toStringAsFixed(1)} extra points',
         'points': recoveryBonus,
         'type': 'bonus',
       });
@@ -55,15 +55,10 @@ class BonusNotificationFormatter {
     final penalty = scoreData['decayPenalty'] ?? 0.0;
     if (penalty > 0) {
       final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
-      // Already says "Yesterday's completion..." which is generally correct for penalties calculated at day start/catch-up
-      // But if we want to be precise, "Yesterday" assumes this runs today.
-      // If dateLabel is "yesterday", it implies the penalty is FOR yesterday (calculated today).
-      // If dateLabel is "today", it implies calculated today for today.
-      // The message "Yesterday's completion..." assumes we are looking back.
-      // Let's leave this one as is for now unless specifically asked, as it explicitly says "Yesterday's completion".
+      // Message is phrased from morning catch-up perspective where we look back.
       notifications.add({
         'message':
-            'Low Completion Penalty: Yesterday\'s completion was below 50% (day ${consecutiveDays} of low completion), so you lose ${penalty.toStringAsFixed(1)} points',
+            'Slump Penalty: Yesterday caused a score decline (day $consecutiveDays of slump), so you lose ${penalty.toStringAsFixed(1)} points',
         'points': -penalty,
         'type': 'penalty',
       });
@@ -77,7 +72,7 @@ class BonusNotificationFormatter {
           (categoryPenalty / categoryNeglectPenalty).round();
       notifications.add({
         'message':
-            'Category Neglect Penalty: You ignored ${ignoredCategories} habit categor${ignoredCategories == 1 ? 'y' : 'ies'} $dateLabel, so you lose ${categoryPenalty.toStringAsFixed(1)} points',
+            'Category Neglect Penalty: You ignored $ignoredCategories habit categor${ignoredCategories == 1 ? 'y' : 'ies'} $dateLabel, so you lose ${categoryPenalty.toStringAsFixed(1)} points',
         'points': -categoryPenalty,
         'type': 'penalty',
       });

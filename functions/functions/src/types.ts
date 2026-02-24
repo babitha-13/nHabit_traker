@@ -143,7 +143,9 @@ export interface UserProgressStats {
   currentStreak: number;
   longestStreak: number;
   lastDailyGain: number;
+  // Consecutive days where cumulative score visibly declined.
   consecutiveLowDays: number;
+  // Accumulated visible score loss during the active slump streak.
   cumulativeLowStreakPenalty?: number;
   achievedMilestones: number;
   createdAt?: FirestoreTimestamp;
