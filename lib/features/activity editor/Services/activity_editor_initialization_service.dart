@@ -11,6 +11,19 @@ import 'activity_editor_helper_service.dart';
 
 /// Service for activity editor initialization and loading
 class ActivityEditorInitializationService {
+  static int _parseTargetToInt(dynamic value, {int fallback = 0}) {
+    if (value is num) {
+      return value.toInt();
+    }
+    if (value is String) {
+      final asInt = int.tryParse(value);
+      if (asInt != null) return asInt;
+      final asDouble = double.tryParse(value);
+      if (asDouble != null) return asDouble.toInt();
+    }
+    return fallback;
+  }
+
   /// Initialize the state
   static void initializeState(ActivityEditorDialogState state) {
     final t = state.widget.activity;
@@ -44,10 +57,12 @@ class ActivityEditorInitializationService {
 
     state.priority = t?.priority ?? 1;
     state.selectedTrackingType = t?.trackingType ?? 'binary';
-    state.targetNumber = (t?.target is int) ? t!.target as int : 1;
-    state.targetDuration = (t?.trackingType == 'time' && t?.target is int)
-        ? Duration(minutes: t!.target as int)
-        : const Duration(hours: 1);
+    state.targetNumber = _parseTargetToInt(t?.target, fallback: 1);
+    final parsedTargetMinutes = _parseTargetToInt(t?.target, fallback: 0);
+    state.targetDuration =
+        (t?.trackingType == 'time' && parsedTargetMinutes > 0)
+            ? Duration(minutes: parsedTargetMinutes)
+            : const Duration(hours: 1);
     state.unit = t?.unit ?? '';
     state.dueDate = t?.dueDate;
     // When editing a one-time task from an instance card, the instance date is

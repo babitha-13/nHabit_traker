@@ -259,7 +259,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   const SizedBox(height: 4),
                   Text(
                     'Points increase with time spent for binary and time activities. '
-                    'The first 30 minutes gives full points, and each extra 30-minute block gives lower additional points (diminishing returns).',
+                    'After the first 30 minutes, each extra 30-minute block earns additional points. However, additional points, exhibit diminishing returns.',
                     style: theme.bodySmall,
                   ),
                   const SizedBox(height: 8),

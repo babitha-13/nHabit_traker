@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/features/Progress/Point_system_helper/points_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
@@ -7,6 +8,9 @@ import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 /// Used by both Queue page (for today) and DayEndProcessor (for historical dates)
 /// This ensures 100% consistency between live and saved progress values
 class DailyProgressCalculator {
+  // Temporary diagnostics to debug "missing habit in today's breakdown".
+  static const bool _debugTodayBreakdown = true;
+
   /// Calculate daily progress for a specific date
   /// Returns: {target, earned, percentage, instances, taskInstances}
   static Future<Map<String, dynamic>> calculateDailyProgress({
@@ -47,6 +51,16 @@ class DailyProgressCalculator {
       }
       return true; // include non-completed for differential contribution
     }).toList();
+
+    if (_shouldDebugForDate(normalizedDate)) {
+      _logHabitDiagnostics(
+        mode: 'async',
+        normalizedDate: normalizedDate,
+        allHabits: allInstances,
+        inWindowHabits: inWindowHabits,
+        earnedSet: earnedSet,
+      );
+    }
     // Instances used for target/percentage math
     final allForMath = inWindowHabits;
     // ==================== TASK FILTERING ====================
@@ -121,21 +135,21 @@ class DailyProgressCalculator {
     // Calculate detailed breakdown for habits
     final habitBreakdown = <Map<String, dynamic>>[];
     for (final habit in allForMath) {
-      // For UI breakdown, exclude habits completed strictly before the target date
-      if (habit.status == 'completed' && habit.completedAt != null) {
-        final completedDate = DateTime(
-          habit.completedAt!.year,
-          habit.completedAt!.month,
-          habit.completedAt!.day,
-        );
-        if (completedDate.isBefore(normalizedDate)) {
-          continue; // Skip adding to UI breakdown
-        }
-      }
-
       final target = PointsService.calculateDailyTarget(habit);
-      final earned = await PointsService.calculatePointsEarned(habit, userId);
+      final earned = await _calculateHabitEarnedForDateAsync(
+        habit: habit,
+        userId: userId,
+        targetDate: normalizedDate,
+      );
       final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+
+      if (_shouldDebugForDate(normalizedDate)) {
+        debugPrint('[today-breakdown-debug][async] UI_ITEM '
+            'id=${habit.reference.id} name="${habit.templateName}" '
+            'status=${habit.status} tracking=${habit.templateTrackingType} '
+            'target=${_formatNumber(target)} earned=${_formatNumber(earned)} '
+            'progress=${_formatNumber(progress)}');
+      }
 
       dynamic quantity;
       if (habit.hasCurrentValue() && habit.currentValue is num) {
@@ -175,6 +189,17 @@ class DailyProgressCalculator {
         'progress': progress,
       });
     }
+
+    if (_shouldDebugForDate(normalizedDate)) {
+      debugPrint('[today-breakdown-debug][async] SUMMARY '
+          'habitBreakdown=${habitBreakdown.length} '
+          'taskBreakdown=${taskBreakdown.length} '
+          'habitTarget=${_formatNumber(habitTargetPoints)} '
+          'habitEarned=${_formatNumber(habitEarnedPoints)} '
+          'taskTarget=${_formatNumber(taskTargetPoints)} '
+          'taskEarned=${_formatNumber(taskEarnedPoints)}');
+    }
+
     return {
       'target': totalTargetPoints,
       'earned': totalEarnedPoints,
@@ -281,6 +306,16 @@ class DailyProgressCalculator {
       return true; // include non-completed for differential contribution
     }).toList();
 
+    if (_shouldDebugForDate(normalizedDate)) {
+      _logHabitDiagnostics(
+        mode: 'optimistic',
+        normalizedDate: normalizedDate,
+        allHabits: allInstances,
+        inWindowHabits: inWindowHabits,
+        earnedSet: earnedSet,
+      );
+    }
+
     // Instances used for target/percentage math
     final allForMath = inWindowHabits;
 
@@ -328,21 +363,20 @@ class DailyProgressCalculator {
     // Build detailed breakdown synchronously from local instance data.
     final habitBreakdown = <Map<String, dynamic>>[];
     for (final habit in allForMath) {
-      // For UI breakdown, exclude habits completed strictly before the target date
-      if (habit.status == 'completed' && habit.completedAt != null) {
-        final completedDate = DateTime(
-          habit.completedAt!.year,
-          habit.completedAt!.month,
-          habit.completedAt!.day,
-        );
-        if (completedDate.isBefore(normalizedDate)) {
-          continue; // Skip adding to UI breakdown
-        }
-      }
-
       final target = PointsService.calculateDailyTarget(habit);
-      final earned = PointsService.calculatePointsEarnedSync(habit);
+      final earned = _calculateHabitEarnedForDateSync(
+        habit: habit,
+        targetDate: normalizedDate,
+      );
       final progress = target > 0 ? (earned / target).clamp(0.0, 1.0) : 0.0;
+
+      if (_shouldDebugForDate(normalizedDate)) {
+        debugPrint('[today-breakdown-debug][optimistic] UI_ITEM '
+            'id=${habit.reference.id} name="${habit.templateName}" '
+            'status=${habit.status} tracking=${habit.templateTrackingType} '
+            'target=${_formatNumber(target)} earned=${_formatNumber(earned)} '
+            'progress=${_formatNumber(progress)}');
+      }
 
       dynamic quantity;
       if (habit.hasCurrentValue() && habit.currentValue is num) {
@@ -383,6 +417,16 @@ class DailyProgressCalculator {
       });
     }
 
+    if (_shouldDebugForDate(normalizedDate)) {
+      debugPrint('[today-breakdown-debug][optimistic] SUMMARY '
+          'habitBreakdown=${habitBreakdown.length} '
+          'taskBreakdown=${taskBreakdown.length} '
+          'habitTarget=${_formatNumber(habitTargetPoints)} '
+          'habitEarned=${_formatNumber(habitEarnedPoints)} '
+          'taskTarget=${_formatNumber(taskTargetPoints)} '
+          'taskEarned=${_formatNumber(taskEarnedPoints)}');
+    }
+
     return {
       'target': totalTargetPoints,
       'earned': totalEarnedPoints,
@@ -407,5 +451,94 @@ class DailyProgressCalculator {
       totalTarget += PointsService.calculateInstanceTargetPoints(task);
     }
     return totalTarget;
+  }
+
+  static bool _shouldDebugForDate(DateTime normalizedDate) {
+    if (!kDebugMode || !_debugTodayBreakdown) return false;
+    final today = DateService.todayStart;
+    return normalizedDate.year == today.year &&
+        normalizedDate.month == today.month &&
+        normalizedDate.day == today.day;
+  }
+
+  static void _logHabitDiagnostics({
+    required String mode,
+    required DateTime normalizedDate,
+    required List<ActivityInstanceRecord> allHabits,
+    required List<ActivityInstanceRecord> inWindowHabits,
+    required List<ActivityInstanceRecord> earnedSet,
+  }) {
+    final inWindowIds = inWindowHabits.map((e) => e.reference.id).toSet();
+    final earnedIds = earnedSet.map((e) => e.reference.id).toSet();
+
+    debugPrint('[today-breakdown-debug][$mode] INPUT '
+        'date=${_formatDate(normalizedDate)} '
+        'allHabits=${allHabits.where((h) => h.templateCategoryType == 'habit').length} '
+        'inWindowHabits=${inWindowHabits.length} earnedSet=${earnedSet.length}');
+
+    final habitCandidates = allHabits
+        .where((h) => h.templateCategoryType == 'habit')
+        .toList()
+      ..sort((a, b) => a.templateName.compareTo(b.templateName));
+
+    for (final habit in habitCandidates) {
+      String reason = 'included';
+      if (!habit.isActive) {
+        reason = 'inactive';
+      } else if (habit.templateCategoryType == 'essential') {
+        reason = 'essential';
+      } else if (!inWindowIds.contains(habit.reference.id)) {
+        reason = 'outside_window';
+      } else if (habit.status == 'completed' &&
+          !_wasCompletedOnDate(habit, normalizedDate)) {
+        reason = 'completed_before_date(excluded_from_earned)';
+      }
+
+      debugPrint('[today-breakdown-debug][$mode] HABIT '
+          'id=${habit.reference.id} name="${habit.templateName}" '
+          'status=${habit.status} tracking=${habit.templateTrackingType} '
+          'windowDuration=${habit.windowDuration} '
+          'due=${_formatDate(habit.dueDate)} '
+          'windowEnd=${_formatDate(habit.windowEndDate)} '
+          'completedAt=${_formatDate(habit.completedAt)} '
+          'currentValue=${habit.currentValue} lastDayValue=${habit.lastDayValue} '
+          'target=${habit.templateTarget} '
+          'inWindow=${inWindowIds.contains(habit.reference.id)} '
+          'inEarned=${earnedIds.contains(habit.reference.id)} '
+          'reason=$reason');
+    }
+  }
+
+  static String _formatDate(DateTime? value) {
+    if (value == null) return '-';
+    final dt = DateTime(value.year, value.month, value.day);
+    final mm = dt.month.toString().padLeft(2, '0');
+    final dd = dt.day.toString().padLeft(2, '0');
+    return '${dt.year}-$mm-$dd';
+  }
+
+  static String _formatNumber(num value) {
+    return value.toStringAsFixed(4);
+  }
+
+  static Future<double> _calculateHabitEarnedForDateAsync({
+    required ActivityInstanceRecord habit,
+    required String userId,
+    required DateTime targetDate,
+  }) async {
+    if (habit.status == 'completed' && !_wasCompletedOnDate(habit, targetDate)) {
+      return 0.0;
+    }
+    return PointsService.calculatePointsEarned(habit, userId);
+  }
+
+  static double _calculateHabitEarnedForDateSync({
+    required ActivityInstanceRecord habit,
+    required DateTime targetDate,
+  }) {
+    if (habit.status == 'completed' && !_wasCompletedOnDate(habit, targetDate)) {
+      return 0.0;
+    }
+    return PointsService.calculatePointsEarnedSync(habit);
   }
 }

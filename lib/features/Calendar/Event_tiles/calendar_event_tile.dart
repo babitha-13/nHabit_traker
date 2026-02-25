@@ -18,6 +18,7 @@ class CalendarEventTileBuilder {
   Map<String, double> _labelOffsetCache = {};
   String? _lastCompletedEventsHash;
   String? _lastPlannedEventsHash;
+  static const double _floatingLabelMinVisibleTop = 4.0;
 
   CalendarEventTileBuilder({
     required this.calculateHeightPerMinute,
@@ -166,6 +167,16 @@ class CalendarEventTileBuilder {
         : timeBoxHeight.clamp(1.0, double.infinity);
 
     final labelFitsInside = actualTimeBoxHeight >= 24.0;
+    final eventStartMinutes = event.startTime!.hour * 60 +
+        event.startTime!.minute +
+        (event.startTime!.second / 60.0);
+    final eventStartY = eventStartMinutes * calculateHeightPerMinute();
+
+    double clampFloatingLabelTop(double preferredTop) {
+      final minLocalTop = _floatingLabelMinVisibleTop - eventStartY;
+      return math.max(preferredTop, minLocalTop);
+    }
+
     final metadata = CalendarEventMetadata.fromMap(event.event);
     final eventId = CalendarOverlapCalculator.stableEventId(event);
     final isConflict = !isCompleted &&
@@ -230,7 +241,7 @@ class CalendarEventTileBuilder {
               Positioned.fill(child: timeBoxWithGesture),
               Positioned(
                 left: labelOffset,
-                top: -24.0,
+                top: clampFloatingLabelTop(-24.0),
                 child: label,
               ),
             ],
@@ -256,7 +267,7 @@ class CalendarEventTileBuilder {
             Positioned.fill(child: timeBoxWithGesture),
             Positioned(
               left: labelFitsInside ? 4.0 : labelOffset,
-              top: labelFitsInside ? 4.0 : -28.0,
+              top: labelFitsInside ? 4.0 : clampFloatingLabelTop(-28.0),
               child: label,
             ),
           ],

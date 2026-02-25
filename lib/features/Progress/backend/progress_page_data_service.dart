@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
@@ -10,6 +11,8 @@ import 'package:habit_tracker/features/Shared/Points_and_Scores/daily_points_cal
 /// Service to fetch data needed by Progress page UI
 /// Encapsulates Firestore access for progress page to maintain separation of concerns
 class ProgressPageDataService {
+  static const bool _debugTodayBreakdown = true;
+
   /// Fetch all instances needed for breakdown/score calculation.
   /// Uses cache first to avoid redundant reads.
   static Future<Map<String, dynamic>> fetchInstancesForBreakdown({
@@ -135,6 +138,10 @@ class ProgressPageDataService {
           normalizedDate.month == today.month &&
           normalizedDate.day == today.day;
       if (!isToday) {
+        _debugLog(
+          '[today-breakdown-debug][source] NO_RECORD_NON_TODAY '
+          'date=${normalizedDate.toIso8601String().split('T').first}',
+        );
         throw Exception(
           'No daily progress record found for ${normalizedDate.toIso8601String().split('T').first}.',
         );
@@ -147,6 +154,11 @@ class ProgressPageDataService {
       final sharedTasks =
           sharedBreakdown['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
       if (sharedHabits.isNotEmpty || sharedTasks.isNotEmpty) {
+        _debugLog(
+          '[today-breakdown-debug][source] SHARED_STATE '
+          'date=${normalizedDate.toIso8601String().split('T').first} '
+          'habits=${sharedHabits.length} tasks=${sharedTasks.length}',
+        );
         return {
           'habitBreakdown': sharedHabits,
           'taskBreakdown': sharedTasks,
@@ -167,6 +179,10 @@ class ProgressPageDataService {
           cachedData['categories'] as List<CategoryRecord>? ?? const [];
 
       if (cachedHabits.isEmpty && cachedTasks.isEmpty) {
+        _debugLog(
+          '[today-breakdown-debug][source] CACHE_MISS_NO_DATA '
+          'date=${normalizedDate.toIso8601String().split('T').first}',
+        );
         throw Exception(
           'Today breakdown is unavailable. Open Queue once to hydrate local cache.',
         );
@@ -178,6 +194,14 @@ class ProgressPageDataService {
         allInstances: cachedHabits,
         categories: cachedCategories,
         taskInstances: cachedTasks,
+      );
+
+      _debugLog(
+        '[today-breakdown-debug][source] OPTIMISTIC_CACHE_RECOMPUTE '
+        'date=${normalizedDate.toIso8601String().split('T').first} '
+        'cachedHabits=${cachedHabits.length} cachedTasks=${cachedTasks.length} '
+        'resultHabits=${(optimistic['habitBreakdown'] as List?)?.length ?? 0} '
+        'resultTasks=${(optimistic['taskBreakdown'] as List?)?.length ?? 0}',
       );
 
       return {
@@ -193,6 +217,11 @@ class ProgressPageDataService {
     }
 
     final record = records.first;
+    _debugLog(
+      '[today-breakdown-debug][source] DAILY_PROGRESS_RECORD '
+      'date=${normalizedDate.toIso8601String().split('T').first} '
+      'habits=${record.habitBreakdown.length} tasks=${record.taskBreakdown.length}',
+    );
     return {
       'habitBreakdown': List<Map<String, dynamic>>.from(record.habitBreakdown),
       'taskBreakdown': List<Map<String, dynamic>>.from(record.taskBreakdown),
@@ -226,4 +255,9 @@ class ProgressPageDataService {
   ///
   /// NOTE: Moved to `lib/Screens/Shared/cumulative_score_calculator.dart`
   /// to avoid duplication with Queue.
+
+  static void _debugLog(String message) {
+    if (!kDebugMode || !_debugTodayBreakdown) return;
+    debugPrint(message);
+  }
 }

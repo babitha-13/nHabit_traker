@@ -127,21 +127,7 @@ class _QueuePageState extends State<QueuePage>
     Future.wait([
       _loadFilterAndSortState(),
       _loadData(isInitialLoad: true),
-    ]).then((_) async {
-      // Wait for progress calculation and score update to complete
-      // This ensures shared state is updated before loading history
-      // Fixes race condition where _loadCumulativeScoreHistory() was called
-      // before _updateTodayScore() completed
-      if (mounted) {
-        // Wait for non-optimistic calculation to complete (reconciles with backend)
-        await _calculateProgress(optimistic: false);
-        // _updateTodayScore() is called from _calculateProgress(optimistic: false)
-        // and awaited, so it's already complete at this point
-        // Now safe to load history with updated shared state
-        if (mounted) {
-          await _loadCumulativeScoreHistory(isInitialLoad: true);
-        }
-      }
+    ]).then((_) {
       if (widget.expandCompleted) {
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted) {
@@ -554,12 +540,19 @@ class _QueuePageState extends State<QueuePage>
           });
           // Fast UI update using local instances
           _calculateProgress(optimistic: true);
-          // Reconcile with backend in background
-          Future.microtask(() async {
+          if (isInitialLoad) {
+            // Load history in parallel with reconcile so the chart appears
+            // faster; live score overlay is applied when reconcile completes.
+            unawaited(_loadCumulativeScoreHistory(isInitialLoad: true));
             await _calculateProgress(optimistic: false);
-            // Mark initial load as complete - use incremental updates from now on
             _isInitialLoadComplete = true;
-          });
+          } else {
+            // Reconcile with backend in background for subsequent refreshes.
+            Future.microtask(() async {
+              await _calculateProgress(optimistic: false);
+              _isInitialLoadComplete = true;
+            });
+          }
           _ignoreInstanceEvents = false;
           try {
             await InstanceOrderService.initializeOrderValues(

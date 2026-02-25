@@ -37,9 +37,11 @@ class ManualTimeLogHelperService {
   /// Determine if should mark complete on save
   static bool shouldMarkCompleteOnSave(ManualTimeLogModalState state) {
     bool shouldComplete = state.widget.markCompleteOnSave;
-    if (state.selectedTemplate != null &&
-        state.selectedTemplate?.trackingType == 'binary' &&
-        state.markAsComplete) {
+    final trackingType = state.selectedTemplate?.trackingType ?? 'binary';
+
+    // For binary entries (including newly typed tasks with no selected
+    // template yet), always honor the explicit checkbox.
+    if (trackingType == 'binary' && state.markAsComplete) {
       shouldComplete = true;
     }
     return shouldComplete;

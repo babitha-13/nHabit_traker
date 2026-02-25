@@ -69,7 +69,7 @@ class ManualTimeLogUIBuildersService {
                             buildTypeChip(state, 'Habit', 'habit', theme),
                             const SizedBox(width: 8),
                             buildTypeChip(
-                                state, 'Essentials', 'Essentials', theme),
+                                state, 'Essentials', 'essential', theme),
                           ],
                         ),
                         const SizedBox(height: 12),
@@ -412,7 +412,7 @@ class ManualTimeLogUIBuildersService {
   /// Build completion controls widget
   static Widget buildCompletionControls(
       ManualTimeLogModalState state, FlutterFlowTheme theme) {
-    if (state.selectedType == 'Essentials') return const SizedBox.shrink();
+    if (state.selectedType == 'essential') return const SizedBox.shrink();
 
     final trackingType = state.selectedTemplate?.trackingType ?? 'binary';
 

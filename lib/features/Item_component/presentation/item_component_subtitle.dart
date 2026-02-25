@@ -28,7 +28,11 @@ class ItemSubtitleReminderHelper {
     if (targetValue == null) return 0;
     if (targetValue is num) return targetValue.toInt();
     if (targetValue is String) {
-      return int.tryParse(targetValue) ?? 0;
+      final asInt = int.tryParse(targetValue);
+      if (asInt != null) return asInt;
+      final asDouble = double.tryParse(targetValue);
+      if (asDouble != null) return asDouble.toInt();
+      return 0;
     }
     return 0;
   }

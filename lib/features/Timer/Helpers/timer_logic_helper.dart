@@ -1,5 +1,17 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+
 class TimerLogicHelper {
+  static int _resolveTargetMinutes(dynamic target) {
+    if (target is num) return target.toInt();
+    if (target is String) {
+      final asInt = int.tryParse(target);
+      if (asInt != null) return asInt;
+      final asDouble = double.tryParse(target);
+      if (asDouble != null) return asDouble.toInt();
+    }
+    return 0;
+  }
+
   /// Calculate real-time progress including elapsed time
   static int getRealTimeAccumulated(ActivityInstanceRecord instance) {
     // For session-based tasks, use totalTimeLogged as base
@@ -21,10 +33,11 @@ class TimerLogicHelper {
     }
     return totalMilliseconds;
   }
+
   /// Calculate progress percentage including real-time elapsed
   static double getProgressPercent(ActivityInstanceRecord instance) {
     if (instance.templateTrackingType != 'time') return 0.0;
-    final target = instance.templateTarget ?? 0;
+    final target = _resolveTargetMinutes(instance.templateTarget);
     if (target == 0) return 0.0;
     final realTimeAccumulated = getRealTimeAccumulated(instance);
     // Convert target from minutes to milliseconds for comparison
@@ -34,16 +47,18 @@ class TimerLogicHelper {
     // Don't clamp - allow > 100% to show overtime
     return pct;
   }
+
   /// Check if target is met or exceeded
   static bool hasMetTarget(ActivityInstanceRecord instance) {
     if (instance.templateTrackingType != 'time') return false;
-    final target = instance.templateTarget ?? 0;
+    final target = _resolveTargetMinutes(instance.templateTarget);
     if (target == 0) return false;
     final realTimeAccumulated = getRealTimeAccumulated(instance);
     // Convert target from minutes to milliseconds for comparison
     final targetMs = target * 60000;
     return realTimeAccumulated >= targetMs;
   }
+
   /// Format time display with context-dependent format
   static String formatTimeDisplay(ActivityInstanceRecord instance) {
     final totalMilliseconds = getRealTimeAccumulated(instance);
@@ -58,6 +73,7 @@ class TimerLogicHelper {
       return '${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
     }
   }
+
   /// Format target time
   static String formatTargetTime(int targetMinutes) {
     final hours = targetMinutes ~/ 60;

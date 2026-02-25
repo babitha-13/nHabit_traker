@@ -28,6 +28,7 @@ class ActivityInstanceQueryService {
     bool includeRecentCompleted = false,
     bool includeRecentSkipped = false,
     bool includeLiveWindowSkippedHabits = false,
+    bool includeLiveWindowCompletedHabits = false,
     String? templateCategoryType,
   }) async {
     final List<ActivityInstanceRecord> allInstances = [];
@@ -280,7 +281,91 @@ class ActivityInstanceQueryService {
       }
     }
 
-    return allInstances.cast<ActivityInstanceRecord>();
+    if (includeLiveWindowCompletedHabits &&
+        (templateCategoryType == null || templateCategoryType == 'habit')) {
+      try {
+        final today = DateService.todayStart;
+        final liveWindowQuery = ActivityInstanceRecord.collectionForUser(uid)
+            .where('templateCategoryType', isEqualTo: 'habit')
+            .where('status', isEqualTo: 'completed')
+            .where('windowEndDate', isGreaterThanOrEqualTo: today)
+            .limit(500);
+
+        final liveWindowResult = await liveWindowQuery.get().timeout(
+          const Duration(seconds: 10),
+          onTimeout: () {
+            throw TimeoutException('Live completed habits query timed out');
+          },
+        );
+
+        final liveCompletedHabits = liveWindowResult.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((inst) {
+          final startSource = inst.belongsToDate ?? inst.dueDate;
+          final endSource = inst.windowEndDate;
+          if (startSource == null || endSource == null) return false;
+
+          final startDateOnly =
+              DateTime(startSource.year, startSource.month, startSource.day);
+          final endDateOnly =
+              DateTime(endSource.year, endSource.month, endSource.day);
+          return !today.isBefore(startDateOnly) && !today.isAfter(endDateOnly);
+        }).toList();
+
+        allInstances.addAll(liveCompletedHabits);
+      } catch (e, stackTrace) {
+        _logQueryIssue(
+          e,
+          queryDescription:
+              'querySafeInstances live window completed habits scoped (habit+completed+windowEndDate>=today)',
+          stackTrace: stackTrace,
+        );
+        try {
+          final today = DateService.todayStart;
+          final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
+              .where('windowEndDate', isGreaterThanOrEqualTo: today)
+              .limit(500);
+          final fallbackResult = await fallbackQuery.get().timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException(
+                  'Live completed habits fallback query timed out');
+            },
+          );
+          final fallbackCompleted = fallbackResult.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((inst) {
+            if (inst.templateCategoryType != 'habit') return false;
+            if (inst.status != 'completed') return false;
+
+            final startSource = inst.belongsToDate ?? inst.dueDate;
+            final endSource = inst.windowEndDate;
+            if (startSource == null || endSource == null) return false;
+
+            final startDateOnly =
+                DateTime(startSource.year, startSource.month, startSource.day);
+            final endDateOnly =
+                DateTime(endSource.year, endSource.month, endSource.day);
+            return !today.isBefore(startDateOnly) &&
+                !today.isAfter(endDateOnly);
+          }).toList();
+          allInstances.addAll(fallbackCompleted);
+        } catch (fallbackError, fallbackStackTrace) {
+          _logQueryIssue(
+            fallbackError,
+            queryDescription:
+                'querySafeInstances live window completed habits fallback (windowEndDate>=today, in-memory filters)',
+            stackTrace: fallbackStackTrace,
+          );
+        }
+      }
+    }
+
+    final dedupedById = <String, ActivityInstanceRecord>{};
+    for (final instance in allInstances) {
+      dedupedById[instance.reference.id] = instance;
+    }
+    return dedupedById.values.toList();
   }
 
   /// Get recent completed instances (for Weekly View)
@@ -774,6 +859,7 @@ class ActivityInstanceQueryService {
         includeRecentCompleted: true,
         includeRecentSkipped: true,
         includeLiveWindowSkippedHabits: true,
+        includeLiveWindowCompletedHabits: true,
       );
 
       // Separate tasks and habits for different filtering logic

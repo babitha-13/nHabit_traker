@@ -302,7 +302,10 @@ class _ItemComponentState extends State<ItemComponent>
       } else if (widget.instance.templateTrackingType == 'time') {
         final realTimeAccumulated =
             TimerLogicHelper.getRealTimeAccumulated(widget.instance);
-        final target = widget.instance.templateTarget ?? 0;
+        final rawTarget = widget.instance.templateTarget;
+        final target = rawTarget is num
+            ? rawTarget.toDouble()
+            : (rawTarget is String ? double.tryParse(rawTarget) ?? 0.0 : 0.0);
         if (target == 0) return 0.0;
         final targetMs = target * 60000;
         final pct = (realTimeAccumulated / targetMs);

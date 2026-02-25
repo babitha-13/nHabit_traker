@@ -77,13 +77,22 @@ class _ManualTimeLogModalState extends State<ManualTimeLogModal> {
   // Cached default duration for time logging (in minutes)
   int _defaultDurationMinutes = 10;
 
+  String _normalizeSelectedType(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'essentials') return 'essential';
+    if (normalized == 'tasks') return 'task';
+    if (normalized == 'habits') return 'habit';
+    return normalized;
+  }
+
   // ==================== PUBLIC ACCESSORS FOR SERVICES ====================
   // These methods allow services in separate files to access private state members
   TextEditingController get activityController => _activityController;
   FocusNode get activityFocusNode => _activityFocusNode;
   GlobalKey get textFieldKey => _textFieldKey;
   String get selectedType => _selectedType;
-  set selectedType(String value) => _selectedType = value;
+  set selectedType(String value) =>
+      _selectedType = _normalizeSelectedType(value);
   List<CategoryRecord> get allCategories => _allCategories;
   set allCategories(List<CategoryRecord> value) => _allCategories = value;
   CategoryRecord? get selectedCategory => _selectedCategory;

@@ -59,8 +59,9 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
 
-    // Show loading indicator while data is loading
-    if (widget.isLoading) {
+    // Show loading only when no history is available yet.
+    // During background refresh keep rendering the existing chart.
+    if (widget.isLoading && widget.history.isEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: theme.alternate.withOpacity(0.1),

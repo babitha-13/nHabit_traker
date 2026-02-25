@@ -443,6 +443,24 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   Future<void> _submitQuickAdd() async {
+    // Sync target values from text fields before submit.
+    // The quick add form uses controllers, so derive the latest values here.
+    if (_selectedQuickTrackingType == 'quantitative') {
+      final parsedTarget =
+          int.tryParse(_quickTargetNumberController.text.trim()) ?? 1;
+      _quickTargetNumber = parsedTarget > 0 ? parsedTarget : 1;
+    } else if (_selectedQuickTrackingType == 'time') {
+      final parsedHours = int.tryParse(_quickHoursController.text.trim()) ?? 0;
+      final parsedMinutes =
+          int.tryParse(_quickMinutesController.text.trim()) ?? 0;
+      final normalizedHours = parsedHours < 0 ? 0 : parsedHours;
+      final normalizedMinutes = parsedMinutes < 0 ? 0 : parsedMinutes;
+      _quickTargetDuration = Duration(
+        hours: normalizedHours,
+        minutes: normalizedMinutes,
+      );
+    }
+
     await TaskQuickAddHelper.submitQuickAdd(
       context,
       _quickAddController.text.trim(),

@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/flutter_flow/flutter_flow_util.dart';
 import 'package:habit_tracker/services/app_state.dart';
 import 'package:habit_tracker/core/constants.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/engagement_reminder_scheduler.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/Engagement%20Notifications/engagement_tracker.dart';
 import 'package:habit_tracker/services/global_route_observer.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
@@ -235,12 +236,25 @@ class _MyAppState extends State<MyApp> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    final userId = currentUserUid;
+    if (userId.isEmpty) {
+      return;
+    }
+
     if (state == AppLifecycleState.resumed) {
-      // Record app opened when app resumes
-      final userId = currentUserUid;
-      if (userId.isNotEmpty) {
-        EngagementTracker.recordAppOpened(userId);
-      }
+      // App is in foreground: refresh last-open and cancel engagement nudges.
+      unawaited(EngagementTracker.recordAppOpened(userId));
+      unawaited(EngagementReminderScheduler.cancelEngagementReminders(userId));
+      return;
+    }
+
+    if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden ||
+        state == AppLifecycleState.detached) {
+      // App is leaving foreground: schedule next inactivity-based reminder.
+      unawaited(
+          EngagementReminderScheduler.scheduleNextEngagementReminder(userId));
     }
   }
 

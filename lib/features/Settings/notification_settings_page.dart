@@ -119,9 +119,8 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
 
       // Reschedule notifications with new preferences
       await DailyNotificationScheduler.rescheduleAllDailyNotifications(userId);
+      // Keep engagement reminder disabled while app is in foreground.
       await EngagementReminderScheduler.cancelEngagementReminders(userId);
-      await EngagementReminderScheduler.checkAndScheduleEngagementReminder(
-          userId);
 
       // Recalculate notification times for display
       if (mounted) {

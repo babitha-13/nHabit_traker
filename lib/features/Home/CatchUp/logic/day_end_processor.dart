@@ -37,12 +37,14 @@ class DayEndProcessor {
         await ensurePendingInstancesExist(userId);
       }
 
-      // Step 1: Update lastDayValue for active windowed habits
-      await _updateLastDayValues(userId, processDate);
-      // Step 2: Create daily progress record BEFORE closing instances
-      // This preserves the exact values shown in Queue page
+      // Step 1: Create daily progress record BEFORE any day-end roll-forward.
+      // This preserves the exact values shown in Queue page for the target day.
       await _createDailyProgressRecord(userId, processDate);
-      // Step 3: Close all open habit instances for the target date (only if explicitly requested)
+      // Step 2: Roll forward lastDayValue for active windowed habits.
+      // This prepares next-day differential scoring after the snapshot is saved.
+      await _updateLastDayValues(userId, processDate);
+      // Step 3: Close all open habit instances for the target date
+      // (only if explicitly requested).
       // NOTE: Automatic status changes disabled - instances are now only marked as skipped
       // when user manually confirms via the Queue page "Needs Processing" section
       if (closeInstances) {

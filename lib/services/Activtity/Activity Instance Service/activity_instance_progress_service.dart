@@ -43,7 +43,6 @@ class ActivityInstanceProgressService {
       final effectiveReferenceTime = referenceTime ?? now;
       ActivityInstanceRecord optimisticBaseInstance = instance;
 
-      // For windowed habits, update lastDayValue to current value for next day's calculation
       final updateData = <String, dynamic>{
         'currentValue': currentValue,
         'lastUpdated': now,
@@ -588,11 +587,6 @@ class ActivityInstanceProgressService {
           'currentValue':
               newCurrentValue, // Only update for time tracking, preserve for quantitative/binary
         };
-        // For windowed habits, update lastDayValue to track differential progress
-        if (instance.templateCategoryType == 'habit' &&
-            instance.windowDuration > 1) {
-          updateData['lastDayValue'] = totalTime;
-        }
         optimisticInstance =
             InstanceEvents.createOptimisticPropertyUpdateInstance(
           instance,

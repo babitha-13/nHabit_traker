@@ -267,15 +267,52 @@ class PointsService {
         if (targetMinutes <= 0) return 0.0;
         final loggedMinutes =
             BinaryTimeBonusHelper.loggedTimeMinutes(instance) ?? 0.0;
+        final isWindowedHabit = instance.templateCategoryType == 'habit' &&
+            instance.windowDuration > 1;
         final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+
+        if (isWindowedHabit) {
+          final lastDayValue = PointsValueHelper.lastDayValue(instance);
+          final normalizedLastDayValue =
+              PointsValueHelper.normalizeValue(instance, lastDayValue)
+                  .clamp(0.0, double.infinity)
+                  .toDouble();
+
+          if (!timeBonusEnabled) {
+            final todayContribution = (loggedMinutes - normalizedLastDayValue)
+                .clamp(
+                  0.0,
+                  double.infinity,
+                )
+                .toDouble();
+            final progressFraction = todayContribution / targetMinutes;
+            return progressFraction * priority;
+          }
+
+          final previousScore = BinaryTimeBonusHelper.scoreForLoggedMinutes(
+            loggedMinutes: normalizedLastDayValue,
+            targetMinutes: targetMinutes,
+            priority: priority,
+            timeBonusEnabled: true,
+          );
+          final currentScore = BinaryTimeBonusHelper.scoreForLoggedMinutes(
+            loggedMinutes: loggedMinutes,
+            targetMinutes: targetMinutes,
+            priority: priority,
+            timeBonusEnabled: true,
+          );
+          return (currentScore - previousScore)
+              .clamp(0.0, double.infinity)
+              .toDouble();
+        }
+
         if (!timeBonusEnabled) {
-          final isCompleted = instance.status == 'completed' ||
-              (targetMinutes > 0 && loggedMinutes >= targetMinutes);
-          return isCompleted ? priority : 0.0;
+          final completionFraction = loggedMinutes / targetMinutes;
+          return completionFraction * priority;
         }
         return BinaryTimeBonusHelper.scoreForLoggedMinutes(
           loggedMinutes: loggedMinutes,
-          targetMinutes: 30.0,
+          targetMinutes: targetMinutes,
           priority: priority,
           timeBonusEnabled: true,
         );
@@ -290,10 +327,13 @@ class PointsService {
     double priority,
   ) {
     final countValue = PointsValueHelper.currentValue(instance);
+    final lastDayValue = PointsValueHelper.lastDayValue(instance);
     final rawTarget = PointsValueHelper.targetValue(instance);
     final counterTarget = rawTarget > 0 ? rawTarget : 1.0;
     final isTimeLikeUnit =
         BinaryTimeBonusHelper.isTimeLikeUnit(instance.templateUnit);
+    final isWindowedHabit =
+        instance.templateCategoryType == 'habit' && instance.windowDuration > 1;
 
     // Some "binary" items (e.g., timer tasks) store time (milliseconds) in currentValue.
     final isTimerTaskValue = countValue > 0 &&
@@ -305,6 +345,48 @@ class PointsService {
       countValue: countValue,
       targetValue: counterTarget,
     );
+
+    // Windowed habits must use differential day contribution (current - lastDayValue)
+    // so points are awarded only on the day new progress actually happened.
+    if (isWindowedHabit) {
+      final normalizedCurrent = PointsValueHelper.normalizeValue(
+        instance,
+        countValue,
+      );
+      final normalizedLast = PointsValueHelper.normalizeValue(
+        instance,
+        lastDayValue,
+      );
+      final todayContribution = (normalizedCurrent - normalizedLast)
+          .clamp(0.0, double.infinity)
+          .toDouble();
+      if (todayContribution <= 0) {
+        return 0.0;
+      }
+
+      // Preserve binary semantics for windowed counters:
+      // award points on threshold crossing, not continuously once reached.
+      final crossedTarget =
+          normalizedLast < counterTarget && normalizedCurrent >= counterTarget;
+      final earnedBase = crossedTarget ? priority : 0.0;
+      final timeBonusEnabled = FFAppState.instance.timeBonusEnabled;
+
+      if (!timeBonusEnabled || isLegacyFrozen || earnedBase <= 0) {
+        return earnedBase;
+      }
+
+      final loggedMinutes = BinaryTimeBonusHelper.loggedTimeMinutes(instance);
+      if (loggedMinutes != null && loggedMinutes > 30.0) {
+        return BinaryTimeBonusHelper.scoreForLoggedMinutes(
+          loggedMinutes: loggedMinutes,
+          targetMinutes: 30.0,
+          priority: priority,
+          timeBonusEnabled: true,
+        );
+      }
+
+      return priority;
+    }
 
     final isCompleted = instance.status == 'completed' ||
         (!isTimeLikeUnit &&

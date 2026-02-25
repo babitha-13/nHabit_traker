@@ -938,12 +938,11 @@ function calculatePointsEarnedSimple(instance: ActivityInstance): number {
       return earnedPoints;
     }
     case 'time': {
-      const accTime = instance.accumulatedTime || 0;
+      const loggedMinutes = loggedTimeMinutes(instance) || 0.0;
 
       // Goal/progress mode (default for cloud function)
       const targetMinutes = getInstanceTargetValue(instance);
-      const targetMs = targetMinutes * 60000;
-      if (targetMs <= 0) {
+      if (targetMinutes <= 0) {
         return 0.0;
       }
 
@@ -951,11 +950,12 @@ function calculatePointsEarnedSimple(instance: ActivityInstance): number {
       const windowDuration = (instance as any).windowDuration || 0;
       if (instance.templateCategoryType === 'habit' && windowDuration > 1) {
         const lastDayValue = getInstanceLastDayValue(instance);
-        const todayContribution = accTime - lastDayValue;
-        const progressFraction = todayContribution / targetMs;
+        const normalizedLastDayVal = normalizeValue(instance, lastDayValue);
+        const todayContribution = Math.max(0, loggedMinutes - normalizedLastDayVal);
+        const progressFraction = todayContribution / targetMinutes;
         earnedPoints = progressFraction * priority;
       } else {
-        const completionFraction = accTime / targetMs;
+        const completionFraction = loggedMinutes / targetMinutes;
         earnedPoints = completionFraction * priority;
       }
       return earnedPoints;
