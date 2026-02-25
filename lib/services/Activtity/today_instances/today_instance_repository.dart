@@ -1,8 +1,8 @@
 import 'package:flutter/foundation.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
+import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_time_logging_service.dart';
@@ -269,7 +269,7 @@ class TodayInstanceRepository extends ChangeNotifier {
     final dayEnd = dayStart.add(const Duration(days: 1));
 
     final results = await Future.wait<dynamic>([
-      queryAllInstances(userId: userId),
+      ActivityInstanceService.getAllActiveInstances(userId: userId),
       TaskInstanceTimeLoggingService.getTodayEssentialInstances(
         userId: userId,
         dayStart: dayStart,
@@ -582,9 +582,8 @@ class TodayInstanceRepository extends ChangeNotifier {
       return _inFlightTaskHydration!;
     }
 
-    final hydrationFuture = queryAllTaskInstances(
+    final hydrationFuture = ActivityInstanceService.getAllTaskInstances(
       userId: userId,
-      useCache: !forceRefresh,
     );
     _inFlightTaskHydration = hydrationFuture;
     _inFlightTaskHydrationKey = cacheKey;
@@ -620,7 +619,9 @@ class TodayInstanceRepository extends ChangeNotifier {
       return _inFlightHabitHydration!;
     }
 
-    final hydrationFuture = queryAllHabitInstances(userId: userId);
+    final hydrationFuture = ActivityInstanceService.getAllHabitInstances(
+      userId: userId,
+    );
     _inFlightHabitHydration = hydrationFuture;
     _inFlightHabitHydrationKey = cacheKey;
 

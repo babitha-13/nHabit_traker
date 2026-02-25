@@ -4,7 +4,6 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
@@ -20,7 +19,6 @@ import 'package:habit_tracker/features/Task/Logic/task_event_handlers_helper.dar
 import 'package:habit_tracker/features/Task/Logic/task_reorder_helper.dart';
 import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_model.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
-import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 
 class TaskPage extends StatefulWidget {
   final String? categoryName;
@@ -237,21 +235,12 @@ class _TaskPageState extends State<TaskPage> {
         }
         return;
       }
-      final useRepo = InstanceRepositoryFlags.useRepoTasks;
-      if (!useRepo) {
-        InstanceRepositoryFlags.onLegacyPathUsed('TaskPage._loadData');
-      }
       final results = await Future.wait<dynamic>([
-        if (useRepo)
-          TodayInstanceRepository.instance.ensureHydratedForTasks(userId: uid)
-        else
-          queryAllTaskInstances(userId: uid),
+        TodayInstanceRepository.instance.ensureHydratedForTasks(userId: uid),
         queryTaskCategoriesOnce(
           userId: uid,
           callerTag: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
         ),
-        if (useRepo && InstanceRepositoryFlags.enableParityChecks)
-          queryAllTaskInstances(userId: uid),
       ]).timeout(const Duration(seconds: 15), onTimeout: () {
         throw TimeoutException('Data loading timed out');
       });
@@ -259,18 +248,8 @@ class _TaskPageState extends State<TaskPage> {
         return;
       }
 
-      final instances = useRepo
-          ? TodayInstanceRepository.instance.selectTaskItems()
-          : results[0] as List<ActivityInstanceRecord>;
+      final instances = TodayInstanceRepository.instance.selectTaskItems();
       final categories = results[1] as List<CategoryRecord>;
-
-      if (useRepo && InstanceRepositoryFlags.enableParityChecks) {
-        final legacy = results[2] as List<ActivityInstanceRecord>;
-        InstanceParityLogger.logTaskParity(
-          legacy: legacy,
-          repo: instances,
-        );
-      }
 
       final categoryFiltered = instances.where((inst) {
         final matches = (widget.categoryName == null ||
@@ -688,34 +667,15 @@ class _TaskPageState extends State<TaskPage> {
     try {
       final uid = await waitForCurrentUserUid();
       if (uid.isEmpty) return;
-      final useRepo = InstanceRepositoryFlags.useRepoTasks;
-      if (!useRepo) {
-        InstanceRepositoryFlags.onLegacyPathUsed('TaskPage._loadDataSilently');
-      }
       final results = await Future.wait<dynamic>([
-        if (useRepo)
-          TodayInstanceRepository.instance.refreshTodayForTasks(userId: uid)
-        else
-          queryAllTaskInstances(userId: uid),
+        TodayInstanceRepository.instance.refreshTodayForTasks(userId: uid),
         queryTaskCategoriesOnce(
           userId: uid,
           callerTag: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
         ),
-        if (useRepo && InstanceRepositoryFlags.enableParityChecks)
-          queryAllTaskInstances(userId: uid),
       ]);
-      final instances = useRepo
-          ? TodayInstanceRepository.instance.selectTaskItems()
-          : results[0] as List<ActivityInstanceRecord>;
+      final instances = TodayInstanceRepository.instance.selectTaskItems();
       final categories = results[1] as List<CategoryRecord>;
-
-      if (useRepo && InstanceRepositoryFlags.enableParityChecks) {
-        final legacy = results[2] as List<ActivityInstanceRecord>;
-        InstanceParityLogger.logTaskParity(
-          legacy: legacy,
-          repo: instances,
-        );
-      }
       final categoryFiltered = instances.where((inst) {
         final matches = (widget.categoryName == null ||
             inst.templateCategoryName == widget.categoryName);

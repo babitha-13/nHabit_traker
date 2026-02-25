@@ -3,7 +3,6 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
@@ -15,7 +14,6 @@ import 'package:intl/intl.dart';
 
 // FirestoreCacheService handles its own cache updates via NotificationCenter.
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
-import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 
 mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
   List<ActivityInstanceRecord> habitInstances = [];
@@ -146,38 +144,18 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
-        final useRepo = InstanceRepositoryFlags.useRepoHabits;
-        if (!useRepo) {
-          InstanceRepositoryFlags.onLegacyPathUsed('HabitsPage.loadHabits');
-        }
         final results = await Future.wait<dynamic>([
-          if (useRepo)
-            TodayInstanceRepository.instance.ensureHydrated(userId: userId)
-          else
-            queryLatestHabitInstances(userId: userId),
+          TodayInstanceRepository.instance.ensureHydrated(userId: userId),
           queryHabitCategoriesOnce(
             userId: userId,
             callerTag: 'HabitsPage._loadHabits',
           ),
-          if (useRepo && InstanceRepositoryFlags.enableParityChecks)
-            queryLatestHabitInstances(userId: userId),
         ]);
         if (!mounted) return;
 
-        final instances = useRepo
-            ? TodayInstanceRepository.instance
-                .selectHabitItemsLatestPerTemplate()
-            : results[0] as List<ActivityInstanceRecord>;
+        final instances = TodayInstanceRepository.instance
+            .selectHabitItemsLatestPerTemplate();
         final categoriesResult = results[1] as List<CategoryRecord>;
-
-        if (useRepo && InstanceRepositoryFlags.enableParityChecks) {
-          final legacy = results[2] as List<ActivityInstanceRecord>;
-          InstanceParityLogger.logHabitParity(
-            scope: 'habits_latest',
-            legacy: legacy,
-            repo: instances,
-          );
-        }
         try {
           await InstanceOrderService.initializeOrderValues(instances, 'habits');
         } catch (_) {}
@@ -273,29 +251,9 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
-        final useRepo = InstanceRepositoryFlags.useRepoHabits;
-        if (!useRepo) {
-          InstanceRepositoryFlags.onLegacyPathUsed(
-            'HabitsPage.loadHabitsSilently',
-          );
-        }
-        List<ActivityInstanceRecord> instances;
-
-        if (useRepo) {
-          await TodayInstanceRepository.instance.refreshToday(userId: userId);
-          instances =
-              TodayInstanceRepository.instance.selectHabitItemsCurrentWindow();
-          if (InstanceRepositoryFlags.enableParityChecks) {
-            final legacy = await queryCurrentHabitInstances(userId: userId);
-            InstanceParityLogger.logHabitParity(
-              scope: 'habits_current_window',
-              legacy: legacy,
-              repo: instances,
-            );
-          }
-        } else {
-          instances = await queryCurrentHabitInstances(userId: userId);
-        }
+        await TodayInstanceRepository.instance.refreshToday(userId: userId);
+        final instances =
+            TodayInstanceRepository.instance.selectHabitItemsCurrentWindow();
 
         if (mounted) {
           final newHash = instances.length.hashCode ^

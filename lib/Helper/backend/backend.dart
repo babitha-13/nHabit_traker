@@ -528,6 +528,10 @@ Future<List<ActivityInstanceRecord>> queryTaskInstances({
 
 /// Query to get all task instances (active and completed) for Recent Completions
 /// Uses cache to reduce redundant Firestore reads unless explicitly bypassed
+@Deprecated(
+  'Migration-only wrapper. Use ActivityInstanceService.getAllTaskInstances '
+  'or TodayInstanceRepository selectors instead.',
+)
 Future<List<ActivityInstanceRecord>> queryAllTaskInstances({
   required String userId,
   bool useCache = true,
@@ -589,6 +593,10 @@ Future<List<ActivityInstanceRecord>> queryTodaysHabitInstances({
 
 /// Query to get current habit instances for Habits page (no future instances)
 /// Only shows instances whose window includes today
+@Deprecated(
+  'Migration-only wrapper. Use ActivityInstanceService.getCurrentHabitInstances '
+  'or TodayInstanceRepository selectors instead.',
+)
 Future<List<ActivityInstanceRecord>> queryCurrentHabitInstances({
   required String userId,
 }) async {
@@ -649,6 +657,11 @@ Future<List<ActivityInstanceRecord>> queryAllHabitInstances({
 /// Query to get latest habit instance per template for Habits page
 /// Returns one instance per habit template - the next upcoming/actionable instance
 /// Uses cache to reduce redundant Firestore reads
+@Deprecated(
+  'Migration-only wrapper. Use '
+  'ActivityInstanceService.getLatestHabitInstancePerTemplate '
+  'or TodayInstanceRepository selectors instead.',
+)
 Future<List<ActivityInstanceRecord>> queryLatestHabitInstances({
   required String userId,
 }) async {
@@ -764,6 +777,10 @@ List<ActivityInstanceRecord> _computeLatestHabitInstancePerTemplate(
 
 /// Query to get all today's instances (current and overdue tasks and habits)
 /// Uses cache to reduce redundant Firestore reads
+@Deprecated(
+  'Migration-only wrapper. Use ActivityInstanceService.getAllActiveInstances '
+  'or TodayInstanceRepository hydration directly.',
+)
 Future<List<ActivityInstanceRecord>> queryAllInstances({
   required String userId,
 }) async {

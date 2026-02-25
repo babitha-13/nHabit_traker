@@ -10,6 +10,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/features/toasts/bonus_notification_formatter.dart';
 import 'package:habit_tracker/features/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/day_end_processor.dart';
+import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -224,20 +226,18 @@ class MorningCatchUpService {
       if (_filterYesterdayHabitItems(candidates, yesterday).isNotEmpty) {
         return true;
       }
-
-      // Fallback to legacy broad query if needed.
-      final fallbackSnapshot =
-          await ActivityInstanceRecord.collectionForUser(userId)
-              .where('templateCategoryType', isEqualTo: 'habit')
-              .where('status', isEqualTo: 'pending')
-              .where('windowEndDate', isLessThanOrEqualTo: yesterday)
-              .limit(50)
-              .get();
-      return _filterYesterdayHabitItems(
-        fallbackSnapshot.docs.map(ActivityInstanceRecord.fromSnapshot),
-        yesterday,
-      ).isNotEmpty;
+      return false;
     } catch (e) {
+      FallbackReadTelemetry.logQueryFallback(
+        const FallbackReadEvent(
+          scope: 'morning_catchup_service.hasIncompleteItemsFromYesterday',
+          reason: 'scoped_yesterday_habit_existence_queries_failed',
+          queryShape:
+              'templateCategoryType=habit,status=pending,belongsToDate|windowEndDate=yesterday',
+          userCountSampled: 1,
+          fallbackDocsReadEstimate: 0,
+        ),
+      );
       return false;
     }
   }
@@ -318,7 +318,7 @@ class MorningCatchUpService {
 
       // Run habit and task queries in parallel for better performance
       final results = await Future.wait([
-        _getHabitItemsFromYesterday(userId, yesterday, today),
+        _getHabitItemsFromYesterday(userId, yesterday),
         _getTaskItemsFromYesterday(userId, yesterday, today),
       ]);
 
@@ -333,7 +333,7 @@ class MorningCatchUpService {
 
   /// Get habit instances from yesterday (helper method for parallel execution)
   static Future<List<ActivityInstanceRecord>> _getHabitItemsFromYesterday(
-      String userId, DateTime yesterday, DateTime today) async {
+      String userId, DateTime yesterday) async {
     try {
       // Narrow candidate fetch: belongs-to-yesterday OR ended-yesterday.
       final results = await Future.wait([
@@ -361,27 +361,22 @@ class MorningCatchUpService {
 
       return _filterYesterdayHabitItems(merged.values, yesterday);
     } catch (e) {
-      // Fallback to previous broader query if optimized index is missing.
-      try {
-        final habitQuery = ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateCategoryType', isEqualTo: 'habit')
-            .where('status', isEqualTo: 'pending')
-            .where('windowEndDate', isLessThanOrEqualTo: yesterday)
-            .orderBy('windowEndDate', descending: false);
-        final habitSnapshot = await habitQuery.get();
-        return _filterYesterdayHabitItems(
-          habitSnapshot.docs.map(ActivityInstanceRecord.fromSnapshot),
-          yesterday,
-        );
-      } catch (fallbackError) {
-        print(
-            'MISSING INDEX: getIncompleteItemsFromYesterday habitQuery needs Index 2');
-        print(
-            'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
-        print('Collection: activity_instances');
-        print('Full error: ');
-        return [];
-      }
+      logFirestoreIndexError(
+        e,
+        'getIncompleteItemsFromYesterday habit candidates (belongsToDate|windowEndDate = yesterday)',
+        'activity_instances',
+      );
+      FallbackReadTelemetry.logQueryFallback(
+        const FallbackReadEvent(
+          scope: 'morning_catchup_service.getIncompleteItemsFromYesterday',
+          reason: 'scoped_habit_yesterday_query_failed_no_broad_fallback',
+          queryShape:
+              'templateCategoryType=habit,status=pending,belongsToDate|windowEndDate=yesterday',
+          userCountSampled: 1,
+          fallbackDocsReadEstimate: 0,
+        ),
+      );
+      return [];
     }
   }
 
@@ -416,13 +411,21 @@ class MorningCatchUpService {
       }).toList();
       return taskItems;
     } catch (e) {
-      print(
-          'MISSING INDEX: getIncompleteItemsFromYesterday taskQuery needs Index 2');
-      print(
-          'Required Index: templateCategoryType (ASC) + status (ASC) + windowEndDate (ASC) + dueDate (ASC)');
-      print('Collection: activity_instances');
-      print('Full error: ');
-      // Return empty list on error
+      logFirestoreIndexError(
+        e,
+        'getIncompleteItemsFromYesterday taskQuery (templateCategoryType=task,status=pending,dueDate in [yesterday,today))',
+        'activity_instances',
+      );
+      FallbackReadTelemetry.logQueryFallback(
+        const FallbackReadEvent(
+          scope: 'morning_catchup_service.getIncompleteItemsFromYesterday',
+          reason: 'scoped_task_yesterday_query_failed_no_broad_fallback',
+          queryShape:
+              'templateCategoryType=task,status=pending,dueDate in [yesterday,today)',
+          userCountSampled: 1,
+          fallbackDocsReadEstimate: 0,
+        ),
+      );
       return [];
     }
   }

@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 
 class InstanceRepositoryFlags {
   const InstanceRepositoryFlags._();
@@ -27,27 +28,34 @@ class InstanceRepositoryFlags {
     'WARN_ON_LEGACY_INSTANCE_PATH_USE',
     defaultValue: true,
   );
-  static const bool failOnLegacyPathUse = bool.fromEnvironment(
+  static const bool _failOnLegacyPathUseFromEnv = bool.fromEnvironment(
     'FAIL_ON_LEGACY_INSTANCE_PATH_USE',
     defaultValue: false,
   );
+  static const bool _allowLegacyInDebug = bool.fromEnvironment(
+    'ALLOW_LEGACY_INSTANCE_PATH_USE_IN_DEBUG',
+    defaultValue: false,
+  );
+
+  static bool get failOnLegacyPathUse {
+    if (_failOnLegacyPathUseFromEnv) return true;
+    if (kDebugMode && !_allowLegacyInDebug) return true;
+    return false;
+  }
 
   static void onLegacyPathUsed(String scope) {
-    if (!kDebugMode) return;
+    FallbackReadTelemetry.logLegacyPathInvocation(scope: scope);
     if (warnOnLegacyPathUse) {
       debugPrint(
         '[instance-repo][legacy-path] $scope is using legacy fallback. '
         'Avoid adding new behavior here.',
       );
     }
-    assert(() {
-      if (failOnLegacyPathUse) {
-        throw StateError(
-          'Legacy instance path used in $scope while '
-          'FAIL_ON_LEGACY_INSTANCE_PATH_USE=true',
-        );
-      }
-      return true;
-    }());
+    if (failOnLegacyPathUse) {
+      throw StateError(
+        'Legacy instance path used in $scope while fail-fast is enabled '
+        '(FAIL_ON_LEGACY_INSTANCE_PATH_USE or default debug enforcement).',
+      );
+    }
   }
 }

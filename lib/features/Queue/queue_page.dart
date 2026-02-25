@@ -702,8 +702,8 @@ class _QueuePageState extends State<QueuePage>
         });
         // #endregion
         // Recalculate from local queue state to avoid broad refetch loops.
-        // Queue data is already loaded via queryAllInstances and kept updated by
-        // NotificationCenter + optimistic state handling.
+        // Queue data is already loaded via TodayInstanceRepository and kept
+        // updated by NotificationCenter + optimistic state handling.
         final allHabits = _getHabitInstancesForScoring();
         final allTasks = _getTaskInstancesForProgress();
         final allCategories = _getHabitCategoriesForScoring();

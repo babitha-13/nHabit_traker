@@ -5,10 +5,10 @@ import 'package:habit_tracker/features/Notifications%20and%20alarms/alarm_servic
 import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 
 /// Service for managing reminder scheduling for tasks and habits
 class ReminderScheduler {
@@ -621,9 +621,10 @@ class ReminderScheduler {
       ActivityInstanceRecord? instance = await _resolveInstanceForReminderId(
           userId: userId, reminderId: reminderId);
 
-      // Fallback to broader scan for legacy reminder IDs if direct resolution fails.
+      // Fallback to repository candidates for legacy reminder IDs.
       if (instance == null) {
-        final fallbackInstances = await queryAllInstances(userId: userId);
+        final fallbackInstances =
+            await _loadReminderFallbackCandidatesFromRepo(userId: userId);
         if (fallbackInstances.isEmpty) {
           return;
         }
@@ -645,6 +646,16 @@ class ReminderScheduler {
             }
             instance ??= candidate;
           }
+        }
+
+        if (instance == null && parts.isNotEmpty) {
+          final fallbackTemplateId = parts[0];
+          final scopedCandidates = await _queryTemplateCandidates(
+            userId: userId,
+            templateId: fallbackTemplateId,
+            pendingOnly: true,
+          );
+          instance = _pickBestPendingCandidate(scopedCandidates);
         }
       }
 
@@ -743,19 +754,24 @@ class ReminderScheduler {
     required String userId,
   }) async {
     try {
-      final result = await ActivityInstanceRecord.collectionForUser(userId)
-          .where('status', isEqualTo: 'pending')
-          .where('isActive', isEqualTo: true)
-          .limit(500)
-          .get();
-      return result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((instance) => instance.dueDate != null)
-          .toList();
+      final repoCandidates =
+          await _loadReminderFallbackCandidatesFromRepo(userId: userId);
+      return repoCandidates.where(_shouldScheduleReminder).toList();
     } catch (_) {
-      // Fallback to existing query path when indexes/permissions are constrained.
-      final instances = await queryAllInstances(userId: userId);
-      return instances.where(_shouldScheduleReminder).toList();
+      try {
+        // Scoped Firestore fallback when repository hydration fails.
+        final result = await ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('isActive', isEqualTo: true)
+            .limit(500)
+            .get();
+        return result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) => instance.dueDate != null)
+            .toList();
+      } catch (_) {
+        return [];
+      }
     }
   }
 
@@ -764,24 +780,105 @@ class ReminderScheduler {
     required DateTime now,
   }) async {
     try {
-      final result = await ActivityInstanceRecord.collectionForUser(userId)
-          .where('status', isEqualTo: 'pending')
-          .where('isActive', isEqualTo: true)
-          .where('snoozedUntil', isLessThanOrEqualTo: now)
-          .limit(300)
-          .get();
-      return result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .where((instance) => instance.snoozedUntil != null)
-          .toList();
-    } catch (_) {
-      final instances = await _queryPendingReminderCandidates(userId: userId);
+      final instances =
+          await _loadReminderFallbackCandidatesFromRepo(userId: userId);
       return instances
           .where((instance) =>
+              instance.status == 'pending' &&
+              instance.isActive &&
               instance.snoozedUntil != null &&
               now.isAfter(instance.snoozedUntil!))
           .toList();
+    } catch (_) {
+      try {
+        // Scoped Firestore fallback when repository hydration fails.
+        final result = await ActivityInstanceRecord.collectionForUser(userId)
+            .where('status', isEqualTo: 'pending')
+            .where('isActive', isEqualTo: true)
+            .where('snoozedUntil', isLessThanOrEqualTo: now)
+            .limit(300)
+            .get();
+        return result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .where((instance) => instance.snoozedUntil != null)
+            .toList();
+      } catch (_) {
+        return [];
+      }
     }
+  }
+
+  static Future<List<ActivityInstanceRecord>>
+      _loadReminderFallbackCandidatesFromRepo({
+    required String userId,
+  }) async {
+    final repo = TodayInstanceRepository.instance;
+    await repo.ensureHydratedForTasks(
+      userId: userId,
+      includeHabitItems: true,
+    );
+
+    final merged = <String, ActivityInstanceRecord>{};
+    void merge(List<ActivityInstanceRecord> items) {
+      for (final item in items) {
+        if (!item.isActive) continue;
+        merged[item.reference.id] = item;
+      }
+    }
+
+    merge(repo.selectTaskItems());
+    merge(repo.selectHabitItems());
+    merge(
+      repo.selectEssentialTodayInstances(
+        includePending: true,
+        includeLogged: true,
+      ),
+    );
+
+    return merged.values.toList(growable: false);
+  }
+
+  static Future<List<ActivityInstanceRecord>> _queryTemplateCandidates({
+    required String userId,
+    required String templateId,
+    required bool pendingOnly,
+  }) async {
+    try {
+      var query = ActivityInstanceRecord.collectionForUser(userId)
+          .where('templateId', isEqualTo: templateId)
+          .where('isActive', isEqualTo: true);
+      if (pendingOnly) {
+        query = query.where('status', isEqualTo: 'pending');
+      }
+
+      final result = await query.limit(25).get();
+      return result.docs
+          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+          .toList();
+    } catch (_) {
+      return [];
+    }
+  }
+
+  static ActivityInstanceRecord? _pickBestPendingCandidate(
+    List<ActivityInstanceRecord> instances,
+  ) {
+    if (instances.isEmpty) {
+      return null;
+    }
+
+    instances.sort((a, b) {
+      final aDate = a.dueDate ?? a.belongsToDate ?? DateTime(2100);
+      final bDate = b.dueDate ?? b.belongsToDate ?? DateTime(2100);
+      return aDate.compareTo(bDate);
+    });
+
+    for (final instance in instances) {
+      if (instance.status == 'pending' && instance.isActive) {
+        return instance;
+      }
+    }
+    return instances.first;
   }
 
   static Future<Map<String, ActivityRecord>> _fetchTemplatesByIds({
@@ -853,26 +950,33 @@ class ReminderScheduler {
 
     // Template-based recurring reminder IDs start with template ID.
     try {
-      final result = await ActivityInstanceRecord.collectionForUser(userId)
-          .where('templateId', isEqualTo: firstToken)
-          .where('status', isEqualTo: 'pending')
-          .where('isActive', isEqualTo: true)
-          .limit(25)
-          .get();
-
-      final instances = result.docs
-          .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-          .toList();
-      if (instances.isEmpty) {
-        return null;
+      final pendingCandidates = await _queryTemplateCandidates(
+        userId: userId,
+        templateId: firstToken,
+        pendingOnly: true,
+      );
+      final pendingMatch = _pickBestPendingCandidate(pendingCandidates);
+      if (pendingMatch != null) {
+        return pendingMatch;
       }
 
-      instances.sort((a, b) {
-        final aDate = a.dueDate ?? a.belongsToDate ?? DateTime(2100);
-        final bDate = b.dueDate ?? b.belongsToDate ?? DateTime(2100);
-        return aDate.compareTo(bDate);
-      });
-      return instances.first;
+      final repoCandidates =
+          await _loadReminderFallbackCandidatesFromRepo(userId: userId);
+      final repoMatch = _pickBestPendingCandidate(
+        repoCandidates
+            .where((instance) => instance.templateId == firstToken)
+            .toList(),
+      );
+      if (repoMatch != null) {
+        return repoMatch;
+      }
+
+      final scopedCandidates = await _queryTemplateCandidates(
+        userId: userId,
+        templateId: firstToken,
+        pendingOnly: false,
+      );
+      return _pickBestPendingCandidate(scopedCandidates);
     } catch (_) {
       return null;
     }

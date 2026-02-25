@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
-import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
@@ -40,7 +39,6 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
 
   void _handleInstanceRollback(Object? param) {
     if (!mounted) return;
-    if (!InstanceRepositoryFlags.useRepoEssentialTab) return;
     loadTodayStats();
   }
 

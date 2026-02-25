@@ -2,7 +2,6 @@ import 'dart:async';
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_activity_data_service.dart';
-import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/services/Activtity/task_instance_service/task_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
@@ -18,7 +17,6 @@ import 'package:habit_tracker/features/Calendar/Helpers/completed_event_sort.dar
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_formatting_utils.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
-import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 import 'package:habit_tracker/services/diagnostics/calendar_optimistic_trace_logger.dart';
 
 /// Service class for loading and processing calendar events
@@ -109,11 +107,6 @@ class CalendarEventService {
     }
     return normalizedDue.isAtSameMomentAs(dayStart) ||
         normalizedDue.isBefore(dayStart);
-  }
-
-  static bool _hasDueTime(ActivityInstanceRecord instance) {
-    final dueTime = instance.dueTime;
-    return dueTime != null && dueTime.isNotEmpty;
   }
 
   static int? _toEpochMs(dynamic value) {
@@ -235,11 +228,6 @@ class CalendarEventService {
     );
     final isTodaySelected =
         normalizedSelectedDate.isAtSameMomentAs(DateService.todayStart);
-    if (isTodaySelected && !InstanceRepositoryFlags.useRepoCalendarToday) {
-      InstanceRepositoryFlags.onLegacyPathUsed(
-        'CalendarEventService.loadEvents(today)',
-      );
-    }
 
     List<ActivityInstanceRecord> completedItems = <ActivityInstanceRecord>[];
     List<ActivityInstanceRecord> timeLoggedTasks = <ActivityInstanceRecord>[];
@@ -249,7 +237,7 @@ class CalendarEventService {
         <ActivityInstanceRecord>[];
     List<RoutineRecord> routines = <RoutineRecord>[];
 
-    if (isTodaySelected && InstanceRepositoryFlags.useRepoCalendarToday) {
+    if (isTodaySelected) {
       try {
         final repo = TodayInstanceRepository.instance;
         await repo.ensureHydratedForTasks(
@@ -353,76 +341,6 @@ class CalendarEventService {
             return a.dueDate!.compareTo(b.dueDate!);
           });
           routines = await queryRoutineRecordOnce(userId: userId);
-        }
-
-        if (InstanceRepositoryFlags.enableParityChecks) {
-          final parityResults = await Future.wait<dynamic>([
-            CalendarQueueService.getPlannedItems(
-              userId: userId,
-              date: selectedDate,
-            ),
-            CalendarQueueService.getCompletedItems(
-              userId: userId,
-              date: selectedDate,
-            ),
-            TaskInstanceService.getTimeLoggedTasks(
-              userId: userId,
-              startDate: selectedDateStart,
-              endDate: selectedDateEnd,
-            ),
-            TaskInstanceService.getessentialInstances(
-              userId: userId,
-              startDate: selectedDateStart,
-              endDate: selectedDateEnd,
-            ),
-          ]);
-          final legacyPlanned =
-              List<ActivityInstanceRecord>.from(parityResults[0] ?? []);
-          final legacyCompleted = <String, ActivityInstanceRecord>{};
-          for (final item
-              in List<ActivityInstanceRecord>.from(parityResults[1] ?? [])) {
-            legacyCompleted[item.reference.id] = item;
-          }
-          for (final item
-              in List<ActivityInstanceRecord>.from(parityResults[2] ?? [])) {
-            legacyCompleted[item.reference.id] = item;
-          }
-          for (final item
-              in List<ActivityInstanceRecord>.from(parityResults[3] ?? [])) {
-            legacyCompleted[item.reference.id] = item;
-          }
-
-          final legacyPlannedForParity =
-              legacyPlanned.where(_hasDueTime).toList(growable: false);
-          final legacyCompletedForParity = legacyCompleted.values
-              .where((item) =>
-                  item.status == 'completed' &&
-                  _hasSessionOnDay(item, selectedDateStart, selectedDateEnd))
-              .toList(growable: false);
-
-          final repoPlannedForParity = plannedItemsFromBackend
-              .where(_hasDueTime)
-              .toList(growable: false);
-          final repoCompletedForParity = <String, ActivityInstanceRecord>{};
-          for (final item in completedItems) {
-            if (item.status == 'completed' &&
-                _hasSessionOnDay(item, selectedDateStart, selectedDateEnd)) {
-              repoCompletedForParity[item.reference.id] = item;
-            }
-          }
-          for (final item in essentialInstances) {
-            if (item.status == 'completed' &&
-                _hasSessionOnDay(item, selectedDateStart, selectedDateEnd)) {
-              repoCompletedForParity[item.reference.id] = item;
-            }
-          }
-
-          InstanceParityLogger.logCalendarParity(
-            legacyPlanned: legacyPlannedForParity,
-            repoPlanned: repoPlannedForParity,
-            legacyCompleted: legacyCompletedForParity,
-            repoCompleted: repoCompletedForParity.values.toList(),
-          );
         }
       } catch (e) {
         logFirestoreIndexError(

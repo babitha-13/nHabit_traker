@@ -1,6 +1,6 @@
 # Firestore Read Optimization Tracker
 
-Last updated: 2026-02-14
+Last updated: 2026-02-25
 
 ## Goal
 Reduce unnecessary Firestore reads before adding deeper query instrumentation.
@@ -61,6 +61,10 @@ Refs: `functions/functions/src/scorePersistence.ts`, `functions/functions/src/in
 - [x] QF-10: Replace cloud day-end full dataset reads with date-scoped input fetches and avoid unconditional most-recent instance prefetch in maintenance.
 - [x] QF-11: Add backend query in-flight dedupe and cache-based cross-page habit derivation to prevent duplicate parallel reads.
 - [x] QF-12: Migration hardening: default instance repository flags to repo-on and add debug guardrails for legacy fallback path usage.
+- [x] QF-13: Remove app-level legacy `useRepo*` branching from Queue/Task/Habits/Routine/Calendar(today)/Essential stats runtime paths.
+- [x] QF-14: Add structured fallback telemetry (`FallbackReadEvent`) and wire query-level fallback logging in calendar/time-log/catch-up/query services.
+- [x] QF-15: Remove broad query fallbacks in habit query and catch-up flows; keep only scoped or capped fallback paths with observability.
+- [x] QF-16: Decouple `TodayInstanceRepository` hydration from migration wrappers (`queryAll*`) and call scoped `ActivityInstanceService` methods directly.
 
 ## Change Log
 
@@ -87,6 +91,10 @@ Refs: `functions/functions/src/scorePersistence.ts`, `functions/functions/src/in
 - 2026-02-14: QF-11 fixed in `lib/Helper/backend/backend.dart` by adding in-flight query dedupe for shared backend fetches (`queryCategoriesRecordOnce`, `queryAllInstances`, `queryAllTaskInstances`, `queryCurrentHabitInstances`, `queryAllHabitInstances`, `queryLatestHabitInstances`) and deriving pending habit snapshots from cached all-instances to avoid redundant habit reads after Queue loads.
 - 2026-02-14: QF-12 fixed in `lib/core/config/instance_repository_flags.dart` by defaulting repo flags to enabled and adding debug guardrails (`onLegacyPathUsed`, optional fail-fast env toggles) for legacy path use.
 - 2026-02-14: QF-12 guardrail wiring added in `lib/features/Queue/Helpers/queue_page_refresh.dart`, `lib/features/Task/task_page.dart`, `lib/features/Habits/Logic/habits_page_logic.dart`, `lib/features/Routine/Backend_data/routine_service.dart`, `lib/features/Calendar/calendar_event_service.dart`, and `lib/features/Essential/Logic/essential_templates_page_logic.dart`.
+- 2026-02-25: QF-13 fixed by removing runtime `!useRepo...` branches and parity dual-fetches from queue/task/habits/routine/calendar(today)/essential stats loaders.
+- 2026-02-25: QF-14 fixed by adding `lib/services/diagnostics/fallback_read_logger.dart` (`FallbackReadEvent`) and wiring legacy/fallback counters and structured logs from `instance_repository_flags.dart`, `calendar_activity_data_service.dart`, `task_instance_time_logging_service.dart`, `activity_instance_query_service.dart`, and `morning_catchup_service.dart`.
+- 2026-02-25: QF-15 fixed by deleting broad habit/query catch-up fallbacks (`templateCategoryType=habit` scans and in-memory category filters) and moving to fail-observable scoped-query behavior.
+- 2026-02-25: QF-16 fixed by switching `TodayInstanceRepository` hydration/task/habit loaders to `ActivityInstanceService` scoped methods and marking `queryAllInstances`, `queryAllTaskInstances`, `queryCurrentHabitInstances`, and `queryLatestHabitInstances` as migration-only deprecated wrappers.
 
 ## Firestore Index Deployment
 

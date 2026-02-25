@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 import 'activity_instance_helper_service.dart';
 
 /// Service for querying and retrieving activity instances
@@ -101,37 +102,16 @@ class ActivityInstanceQueryService {
               'querySafeInstances recent completed scoped (status=completed, category=$templateCategoryType)',
           stackTrace: stackTrace,
         );
-        if (templateCategoryType != null) {
-          // Fallback keeps old behavior if category+date index is missing.
-          try {
-            final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-            final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
-                .where('status', isEqualTo: 'completed')
-                .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-                .orderBy('completedAt', descending: true)
-                .limit(200);
-            final fallbackResult = await fallbackQuery.get().timeout(
-              const Duration(seconds: 10),
-              onTimeout: () {
-                throw TimeoutException('Completed fallback query timed out');
-              },
-            );
-            allInstances.addAll(
-              fallbackResult.docs
-                  .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-                  .where((inst) =>
-                      inst.templateCategoryType == templateCategoryType)
-                  .toList(),
-            );
-          } catch (fallbackError, fallbackStackTrace) {
-            _logQueryIssue(
-              fallbackError,
-              queryDescription:
-                  'querySafeInstances recent completed fallback (status=completed, category filter in-memory=$templateCategoryType)',
-              stackTrace: fallbackStackTrace,
-            );
-          }
-        }
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'scoped_recent_completed_query_failed_no_broad_fallback',
+            queryShape:
+                'status=completed,completedAt>=twoDaysAgo,category=$templateCategoryType',
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
+        );
       }
     }
 
@@ -168,36 +148,16 @@ class ActivityInstanceQueryService {
               'querySafeInstances recent skipped scoped (status=skipped, category=$templateCategoryType)',
           stackTrace: stackTrace,
         );
-        if (templateCategoryType != null) {
-          try {
-            final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
-            final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
-                .where('status', isEqualTo: 'skipped')
-                .where('skippedAt', isGreaterThanOrEqualTo: twoDaysAgo)
-                .orderBy('skippedAt', descending: true)
-                .limit(200);
-            final fallbackResult = await fallbackQuery.get().timeout(
-              const Duration(seconds: 10),
-              onTimeout: () {
-                throw TimeoutException('Skipped fallback query timed out');
-              },
-            );
-            allInstances.addAll(
-              fallbackResult.docs
-                  .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-                  .where((inst) =>
-                      inst.templateCategoryType == templateCategoryType)
-                  .toList(),
-            );
-          } catch (fallbackError, fallbackStackTrace) {
-            _logQueryIssue(
-              fallbackError,
-              queryDescription:
-                  'querySafeInstances recent skipped fallback (status=skipped, category filter in-memory=$templateCategoryType)',
-              stackTrace: fallbackStackTrace,
-            );
-          }
-        }
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'scoped_recent_skipped_query_failed_no_broad_fallback',
+            queryShape:
+                'status=skipped,skippedAt>=twoDaysAgo,category=$templateCategoryType',
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
+        );
       }
     }
 
@@ -240,44 +200,16 @@ class ActivityInstanceQueryService {
               'querySafeInstances live window skipped habits scoped (habit+skipped+windowEndDate>=today)',
           stackTrace: stackTrace,
         );
-        try {
-          final today = DateService.todayStart;
-          final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
-              .where('windowEndDate', isGreaterThanOrEqualTo: today)
-              .limit(500);
-          final fallbackResult = await fallbackQuery.get().timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {
-              throw TimeoutException(
-                  'Live skipped habits fallback query timed out');
-            },
-          );
-          final fallbackSkipped = fallbackResult.docs
-              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-              .where((inst) {
-            if (inst.templateCategoryType != 'habit') return false;
-            if (inst.status != 'skipped') return false;
-
-            final startSource = inst.belongsToDate ?? inst.dueDate;
-            final endSource = inst.windowEndDate;
-            if (startSource == null || endSource == null) return false;
-
-            final startDateOnly =
-                DateTime(startSource.year, startSource.month, startSource.day);
-            final endDateOnly =
-                DateTime(endSource.year, endSource.month, endSource.day);
-            return !today.isBefore(startDateOnly) &&
-                !today.isAfter(endDateOnly);
-          }).toList();
-          allInstances.addAll(fallbackSkipped);
-        } catch (fallbackError, fallbackStackTrace) {
-          _logQueryIssue(
-            fallbackError,
-            queryDescription:
-                'querySafeInstances live window skipped habits fallback (windowEndDate>=today, in-memory filters)',
-            stackTrace: fallbackStackTrace,
-          );
-        }
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'live_window_skipped_habits_query_failed_no_broad_fallback',
+            queryShape:
+                'templateCategoryType=habit,status=skipped,windowEndDate>=today',
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
+        );
       }
     }
 
@@ -320,44 +252,17 @@ class ActivityInstanceQueryService {
               'querySafeInstances live window completed habits scoped (habit+completed+windowEndDate>=today)',
           stackTrace: stackTrace,
         );
-        try {
-          final today = DateService.todayStart;
-          final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
-              .where('windowEndDate', isGreaterThanOrEqualTo: today)
-              .limit(500);
-          final fallbackResult = await fallbackQuery.get().timeout(
-            const Duration(seconds: 10),
-            onTimeout: () {
-              throw TimeoutException(
-                  'Live completed habits fallback query timed out');
-            },
-          );
-          final fallbackCompleted = fallbackResult.docs
-              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-              .where((inst) {
-            if (inst.templateCategoryType != 'habit') return false;
-            if (inst.status != 'completed') return false;
-
-            final startSource = inst.belongsToDate ?? inst.dueDate;
-            final endSource = inst.windowEndDate;
-            if (startSource == null || endSource == null) return false;
-
-            final startDateOnly =
-                DateTime(startSource.year, startSource.month, startSource.day);
-            final endDateOnly =
-                DateTime(endSource.year, endSource.month, endSource.day);
-            return !today.isBefore(startDateOnly) &&
-                !today.isAfter(endDateOnly);
-          }).toList();
-          allInstances.addAll(fallbackCompleted);
-        } catch (fallbackError, fallbackStackTrace) {
-          _logQueryIssue(
-            fallbackError,
-            queryDescription:
-                'querySafeInstances live window completed habits fallback (windowEndDate>=today, in-memory filters)',
-            stackTrace: fallbackStackTrace,
-          );
-        }
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason:
+                'live_window_completed_habits_query_failed_no_broad_fallback',
+            queryShape:
+                'templateCategoryType=habit,status=completed,windowEndDate>=today',
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
+        );
       }
     }
 
@@ -546,13 +451,16 @@ class ActivityInstanceQueryService {
               'getCurrentHabitInstances scoped (category=habit, windowEndDate>=today)',
           stackTrace: stackTrace,
         );
-        // Fallback keeps behavior if index for habit+windowEndDate is unavailable.
-        final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
-            .where('templateCategoryType', isEqualTo: 'habit');
-        final fallbackResult = await fallbackQuery.get();
-        allHabitInstances = fallbackResult.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .toList();
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'activity_instance_query_service.getCurrentHabitInstances',
+            reason: 'scoped_habit_window_query_failed_no_broad_fallback',
+            queryShape: 'templateCategoryType=habit,windowEndDate>=today',
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
+        );
+        return [];
       }
 
       // Group instances by templateId and apply window-based filtering
@@ -781,12 +689,16 @@ class ActivityInstanceQueryService {
               'getActiveHabitInstances scoped (category=habit, windowEndDate>=today)',
           stackTrace: stackTrace,
         );
-        final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
-            .where('templateCategoryType', isEqualTo: 'habit');
-        final fallbackResult = await fallbackQuery.get();
-        allHabitInstances = fallbackResult.docs
-            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
-            .toList();
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'activity_instance_query_service.getActiveHabitInstances',
+            reason: 'scoped_habit_window_query_failed_no_broad_fallback',
+            queryShape: 'templateCategoryType=habit,windowEndDate>=today',
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
+        );
+        return [];
       }
 
       // Group instances by templateId and apply window-based filtering

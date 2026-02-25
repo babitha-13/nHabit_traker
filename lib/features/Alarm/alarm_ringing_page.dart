@@ -2,13 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:vibration/vibration.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
-import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/snooze_dialog.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/reminder_scheduler.dart';
 import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_service.dart';
 import 'package:habit_tracker/core/constants.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 
 class AlarmRingingPage extends StatefulWidget {
   final String title;
@@ -71,9 +71,27 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
         return;
       }
 
-      final instances = await queryAllInstances(userId: userId);
-      final instance = _resolveInstance(instances, instanceId);
+      final directInstance = await _fetchInstanceByDocumentId(
+        userId: userId,
+        instanceId: instanceId,
+      );
+      if (directInstance != null) {
+        if (!mounted) return;
+        setState(() {
+          _instance = directInstance;
+          _isLoadingInstance = false;
+        });
+        return;
+      }
 
+      final repoInstances = await _loadAlarmCandidatesFromRepo(userId: userId);
+      var instance = _resolveInstance(repoInstances, instanceId);
+      instance ??= await _queryBestTemplateMatch(
+        userId: userId,
+        templateId: instanceId,
+      );
+
+      if (!mounted) return;
       setState(() {
         _instance = instance;
         _isLoadingInstance = false;
@@ -106,6 +124,91 @@ class _AlarmRingingPageState extends State<AlarmRingingPage>
     }
 
     return templateMatch;
+  }
+
+  Future<ActivityInstanceRecord?> _fetchInstanceByDocumentId({
+    required String userId,
+    required String instanceId,
+  }) async {
+    try {
+      final doc = await ActivityInstanceRecord.collectionForUser(userId)
+          .doc(instanceId)
+          .get();
+      if (!doc.exists) {
+        return null;
+      }
+      return ActivityInstanceRecord.fromSnapshot(doc);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<List<ActivityInstanceRecord>> _loadAlarmCandidatesFromRepo({
+    required String userId,
+  }) async {
+    final repo = TodayInstanceRepository.instance;
+    await repo.ensureHydratedForTasks(
+      userId: userId,
+      includeHabitItems: true,
+    );
+
+    final merged = <String, ActivityInstanceRecord>{};
+    void merge(List<ActivityInstanceRecord> items) {
+      for (final item in items) {
+        if (!item.isActive) continue;
+        merged[item.reference.id] = item;
+      }
+    }
+
+    merge(repo.selectTaskItems());
+    merge(repo.selectHabitItems());
+    merge(
+      repo.selectEssentialTodayInstances(
+        includePending: true,
+        includeLogged: true,
+      ),
+    );
+
+    return merged.values.toList(growable: false);
+  }
+
+  Future<ActivityInstanceRecord?> _queryBestTemplateMatch({
+    required String userId,
+    required String templateId,
+  }) async {
+    Future<ActivityInstanceRecord?> run({required bool pendingOnly}) async {
+      try {
+        var query = ActivityInstanceRecord.collectionForUser(userId)
+            .where('templateId', isEqualTo: templateId)
+            .where('isActive', isEqualTo: true);
+        if (pendingOnly) {
+          query = query.where('status', isEqualTo: 'pending');
+        }
+
+        final result = await query.limit(25).get();
+        final instances = result.docs
+            .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+            .toList();
+        if (instances.isEmpty) {
+          return null;
+        }
+
+        instances.sort((a, b) {
+          final aDate = a.dueDate ?? a.belongsToDate ?? DateTime(2100);
+          final bDate = b.dueDate ?? b.belongsToDate ?? DateTime(2100);
+          return aDate.compareTo(bDate);
+        });
+        return instances.first;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    final pendingMatch = await run(pendingOnly: true);
+    if (pendingMatch != null) {
+      return pendingMatch;
+    }
+    return run(pendingOnly: false);
   }
 
   Future<void> _initializeAlarm() async {

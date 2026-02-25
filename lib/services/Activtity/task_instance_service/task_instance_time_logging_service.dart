@@ -10,6 +10,7 @@ import 'package:habit_tracker/core/utils/Date_time/time_validation_helper.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/services/Activtity/timer_activities_util.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 import 'task_instance_helper_service.dart';
 import 'task_instance_task_service.dart';
 import 'task_instance_timer_task_service.dart';
@@ -386,10 +387,14 @@ class TaskInstanceTimeLoggingService {
       required Future<dynamic> Function() runQuery,
       required String queryDescription,
       bool filterByDay = false,
+      bool countAsFallback = false,
+      String? fallbackReason,
+      String? queryShape,
     }) async {
       try {
         final result = await runQuery();
-        final instances = result.docs
+        final docs = result.docs;
+        final instances = docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((instance) {
           if (!instance.isActive) return false;
@@ -401,12 +406,36 @@ class TaskInstanceTimeLoggingService {
           return belongsToday || completedToday || sessionToday;
         });
         mergeInstances(instances);
+        if (countAsFallback) {
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope:
+                  'task_instance_time_logging_service.getTodayEssentialInstances',
+              reason: fallbackReason ?? 'fallback_query_executed',
+              queryShape: queryShape ?? queryDescription,
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: docs.length,
+            ),
+          );
+        }
       } catch (e) {
         logFirestoreIndexError(
           e,
           queryDescription,
           'activity_instances',
         );
+        if (countAsFallback) {
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope:
+                  'task_instance_time_logging_service.getTodayEssentialInstances',
+              reason: '${fallbackReason ?? 'fallback_query'}_failed',
+              queryShape: queryShape ?? queryDescription,
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: 0,
+            ),
+          );
+        }
       }
     }
 
@@ -441,6 +470,10 @@ class TaskInstanceTimeLoggingService {
         queryDescription:
             'Get today essential logged fallback by completedAt range (essential + totalTimeLogged + completedAt)',
         filterByDay: true,
+        countAsFallback: true,
+        fallbackReason: 'completed_at_range_fallback',
+        queryShape:
+            'templateCategoryType=essential,totalTimeLogged>0,completedAt in [dayStart,dayEnd),limit=300',
       );
     }
 
@@ -487,22 +520,50 @@ class TaskInstanceTimeLoggingService {
       Future<void> collectFromQuery({
         required Future<dynamic> Function() runQuery,
         required String queryDescription,
+        bool countAsFallback = false,
+        String? fallbackReason,
+        String? queryShape,
       }) async {
         try {
           final result = await runQuery();
-          final instances = result.docs
+          final docs = result.docs;
+          final instances = docs
               .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
               .where(
                 (instance) =>
                     instance.isActive && instance.timeLogSessions.isNotEmpty,
               );
           mergeInstances(instances);
+          if (countAsFallback) {
+            FallbackReadTelemetry.logQueryFallback(
+              FallbackReadEvent(
+                scope:
+                    'task_instance_time_logging_service.getTimeLoggedTasksForDate',
+                reason: fallbackReason ?? 'fallback_query_executed',
+                queryShape: queryShape ?? queryDescription,
+                userCountSampled: 1,
+                fallbackDocsReadEstimate: docs.length,
+              ),
+            );
+          }
         } catch (e) {
           logFirestoreIndexError(
             e,
             queryDescription,
             'activity_instances',
           );
+          if (countAsFallback) {
+            FallbackReadTelemetry.logQueryFallback(
+              FallbackReadEvent(
+                scope:
+                    'task_instance_time_logging_service.getTimeLoggedTasksForDate',
+                reason: '${fallbackReason ?? 'fallback_query'}_failed',
+                queryShape: queryShape ?? queryDescription,
+                userCountSampled: 1,
+                fallbackDocsReadEstimate: 0,
+              ),
+            );
+          }
         }
       }
 
@@ -529,6 +590,10 @@ class TaskInstanceTimeLoggingService {
               .get(),
           queryDescription:
               'Get time logged tasks fallback by completedAt range',
+          countAsFallback: true,
+          fallbackReason: 'completed_at_range_fallback',
+          queryShape:
+              'totalTimeLogged>0,completedAt in [date,nextDate),limit=300',
         );
 
         await collectFromQuery(
@@ -539,6 +604,9 @@ class TaskInstanceTimeLoggingService {
               .get(),
           queryDescription:
               'Get time logged tasks fallback by dueDate equality',
+          countAsFallback: true,
+          fallbackReason: 'due_date_equality_fallback',
+          queryShape: 'totalTimeLogged>0,dueDate=date,limit=300',
         );
       }
 
@@ -551,6 +619,9 @@ class TaskInstanceTimeLoggingService {
               .get(),
           queryDescription:
               'Get time logged tasks final fallback (bounded totalTimeLogged scan)',
+          countAsFallback: true,
+          fallbackReason: 'bounded_total_time_logged_scan_fallback',
+          queryShape: 'totalTimeLogged>0,limit=250',
         );
       }
 

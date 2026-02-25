@@ -1,10 +1,8 @@
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/core/config/instance_repository_flags.dart';
 import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_state_manager.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
-import 'package:habit_tracker/services/diagnostics/instance_parity_logger.dart';
 
 /// Service class for loading queue data
 class QueueDataService {
@@ -34,17 +32,9 @@ class QueueDataService {
     }
 
     try {
-      final useRepo = InstanceRepositoryFlags.useRepoQueue;
-      if (!useRepo) {
-        InstanceRepositoryFlags.onLegacyPathUsed(
-          'QueueDataService.loadQueueData',
-        );
-      }
       // Batch Firestore queries in parallel for faster loading
       final results = await Future.wait<dynamic>([
-        useRepo
-            ? _loadQueueInstancesFromRepo(userId: userId)
-            : queryAllInstances(userId: userId),
+        _loadQueueInstancesFromRepo(userId: userId),
         queryHabitCategoriesOnce(
           userId: userId,
           callerTag: 'QueuePage._loadData.habits',
@@ -53,8 +43,6 @@ class QueueDataService {
           userId: userId,
           callerTag: 'QueuePage._loadData.tasks',
         ),
-        if (useRepo && InstanceRepositoryFlags.enableParityChecks)
-          queryAllInstances(userId: userId),
       ]);
 
       final allInstances = results[0] as List<ActivityInstanceRecord>;
@@ -68,14 +56,6 @@ class QueueDataService {
         uniqueInstances[instance.reference.id] = instance;
       }
       final deduplicatedInstances = uniqueInstances.values.toList();
-
-      if (useRepo && InstanceRepositoryFlags.enableParityChecks) {
-        final legacy = results[3] as List<ActivityInstanceRecord>;
-        InstanceParityLogger.logQueueParity(
-          legacy: legacy,
-          repo: deduplicatedInstances,
-        );
-      }
 
       // Initialize default filter state (all categories selected) if filter is empty
       final allHabitNames = habitCategories.map((cat) => cat.name).toSet();
@@ -110,20 +90,12 @@ class QueueDataService {
       );
     }
 
-    final useRepo = InstanceRepositoryFlags.useRepoQueue;
-    if (!useRepo) {
-      InstanceRepositoryFlags.onLegacyPathUsed(
-        'QueueDataService.silentRefreshInstances',
-      );
-    }
     // Batch queries in parallel for faster loading
     final results = await Future.wait<dynamic>([
-      useRepo
-          ? _loadQueueInstancesFromRepo(
-              userId: userId,
-              forceRefresh: true,
-            )
-          : queryAllInstances(userId: userId),
+      _loadQueueInstancesFromRepo(
+        userId: userId,
+        forceRefresh: true,
+      ),
       queryHabitCategoriesOnce(
         userId: userId,
         callerTag: 'QueuePage._silentRefreshInstances.habits',
@@ -132,8 +104,6 @@ class QueueDataService {
         userId: userId,
         callerTag: 'QueuePage._silentRefreshInstances.tasks',
       ),
-      if (useRepo && InstanceRepositoryFlags.enableParityChecks)
-        queryAllInstances(userId: userId),
     ]);
 
     final allInstances = results[0] as List<ActivityInstanceRecord>;
@@ -147,14 +117,6 @@ class QueueDataService {
       uniqueInstances[instance.reference.id] = instance;
     }
     final deduplicatedInstances = uniqueInstances.values.toList();
-
-    if (useRepo && InstanceRepositoryFlags.enableParityChecks) {
-      final legacy = results[3] as List<ActivityInstanceRecord>;
-      InstanceParityLogger.logQueueParity(
-        legacy: legacy,
-        repo: deduplicatedInstances,
-      );
-    }
 
     return QueueDataResult(
       instances: deduplicatedInstances,

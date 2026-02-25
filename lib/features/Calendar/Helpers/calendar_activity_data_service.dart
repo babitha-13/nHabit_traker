@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 
 /// Service to fetch tasks and habits from the queue that are due today
 /// for display in the calendar
@@ -99,18 +100,38 @@ class CalendarQueueService {
     Future<void> collectCandidates({
       required Future<dynamic> Function() runQuery,
       required String queryDescription,
+      required String queryShape,
     }) async {
       try {
         final result = await runQuery();
-        final items = result.docs
+        final docs = result.docs;
+        final items = docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((instance) => instance.isActive);
         _mergeInstancesById(merged, items);
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'calendar_activity_data_service.getPlannedItems',
+            reason: 'date_scoped_candidate_fallback_query_executed',
+            queryShape: queryShape,
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: docs.length,
+          ),
+        );
       } catch (e) {
         logFirestoreIndexError(
           e,
           queryDescription,
           'activity_instances',
+        );
+        FallbackReadTelemetry.logQueryFallback(
+          FallbackReadEvent(
+            scope: 'calendar_activity_data_service.getPlannedItems',
+            reason: 'date_scoped_candidate_fallback_query_failed',
+            queryShape: queryShape,
+            userCountSampled: 1,
+            fallbackDocsReadEstimate: 0,
+          ),
         );
       }
     }
@@ -124,6 +145,7 @@ class CalendarQueueService {
             .get(),
         queryDescription:
             'Planned fallback candidates (today pending dueDate<=target)',
+        queryShape: 'status=pending,dueDate<=targetDate,limit=500',
       );
       await collectCandidates(
         runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
@@ -134,6 +156,8 @@ class CalendarQueueService {
             .get(),
         queryDescription:
             'Planned fallback candidates (today pending habits windowEndDate>=target)',
+        queryShape:
+            'status=pending,templateCategoryType=habit,windowEndDate>=targetDate,limit=500',
       );
       await collectCandidates(
         runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
@@ -143,6 +167,7 @@ class CalendarQueueService {
             .get(),
         queryDescription:
             'Planned fallback candidates (today pending dueDate=null)',
+        queryShape: 'status=pending,dueDate=null,limit=200',
       );
     } else {
       await collectCandidates(
@@ -153,6 +178,7 @@ class CalendarQueueService {
             .get(),
         queryDescription:
             'Planned fallback candidates (date pending dueDate==target)',
+        queryShape: 'status=pending,dueDate=targetDate,limit=500',
       );
       await collectCandidates(
         runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
@@ -163,6 +189,8 @@ class CalendarQueueService {
             .get(),
         queryDescription:
             'Planned fallback candidates (date pending habits belongsToDate==target)',
+        queryShape:
+            'status=pending,templateCategoryType=habit,belongsToDate=targetDate,limit=500',
       );
       await collectCandidates(
         runQuery: () => ActivityInstanceRecord.collectionForUser(userId)
@@ -173,6 +201,8 @@ class CalendarQueueService {
             .get(),
         queryDescription:
             'Planned fallback candidates (date pending habits windowEndDate>=target)',
+        queryShape:
+            'status=pending,templateCategoryType=habit,windowEndDate>=targetDate,limit=500',
       );
     }
 
@@ -196,9 +226,8 @@ class CalendarQueueService {
     try {
       List<ActivityInstanceRecord> instances;
 
-      // Optimize: Use Firestore query by dueDate when possible
-      // For tasks on a specific date, we can query by dueDate
-      // For habits, we need to check window logic, so fallback to loading all
+      // Optimize: Use Firestore query by dueDate when possible.
+      // For habits and index failures, use scoped candidate queries only.
       if (!isTargetToday) {
         // For non-today dates, try querying by dueDate (exact match)
         try {
@@ -216,6 +245,15 @@ class CalendarQueueService {
             e,
             'Get planned items for specific date (status=pending, dueDate=date)',
             'activity_instances',
+          );
+          FallbackReadTelemetry.logQueryFallback(
+            const FallbackReadEvent(
+              scope: 'calendar_activity_data_service.getPlannedItems',
+              reason: 'primary_specific_date_query_failed',
+              queryShape: 'status=pending,dueDate=targetDate',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: 0,
+            ),
           );
           instances = await _queryPlannedFallbackCandidates(
             userId: uid,
@@ -242,6 +280,15 @@ class CalendarQueueService {
             e,
             'Get planned items for today (status=pending, dueDate<=today)',
             'activity_instances',
+          );
+          FallbackReadTelemetry.logQueryFallback(
+            const FallbackReadEvent(
+              scope: 'calendar_activity_data_service.getPlannedItems',
+              reason: 'primary_today_query_failed',
+              queryShape: 'status=pending,dueDate<=targetDate',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: 0,
+            ),
           );
           instances = await _queryPlannedFallbackCandidates(
             userId: uid,

@@ -12,6 +12,7 @@ import 'package:habit_tracker/features/Item_component/presentation/item_componen
 import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:collection/collection.dart';
 import 'dart:async';
 import 'package:intl/intl.dart';
@@ -150,8 +151,12 @@ class _WeeklyViewState extends State<WeeklyView> {
     try {
       final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
+        final repo = TodayInstanceRepository.instance;
         final results = await Future.wait([
-          queryAllInstances(userId: userId),
+          repo.ensureHydratedForTasks(
+            userId: userId,
+            includeHabitItems: true,
+          ),
           ActivityInstanceService.getRecentCompletedInstances(userId: userId),
           queryHabitCategoriesOnce(
             userId: userId,
@@ -162,7 +167,10 @@ class _WeeklyViewState extends State<WeeklyView> {
             callerTag: 'WeeklyView._loadData.tasks',
           ),
         ]);
-        final baseInstances = results[0] as List<ActivityInstanceRecord>;
+        final baseInstances = <ActivityInstanceRecord>[
+          ...repo.selectTaskItems(),
+          ...repo.selectHabitItems(),
+        ];
         final recentCompleted = results[1] as List<ActivityInstanceRecord>;
         final habitCategories = results[2] as List<CategoryRecord>;
         final taskCategories = results[3] as List<CategoryRecord>;
