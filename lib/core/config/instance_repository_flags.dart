@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 
 class InstanceRepositoryFlags {
   const InstanceRepositoryFlags._();
@@ -34,6 +35,12 @@ class InstanceRepositoryFlags {
 
   static void onLegacyPathUsed(String scope) {
     if (!kDebugMode) return;
+    FallbackReadLogger.logQuery(
+      scope: scope,
+      reason: 'legacy_instance_path_used',
+      queryShape: 'app_level_legacy_branch',
+      fallbackDocsReadEstimate: 0,
+    );
     if (warnOnLegacyPathUse) {
       debugPrint(
         '[instance-repo][legacy-path] $scope is using legacy fallback. '

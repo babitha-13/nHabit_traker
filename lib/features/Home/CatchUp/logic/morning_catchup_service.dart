@@ -10,6 +10,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/features/toasts/bonus_notification_formatter.dart';
 import 'package:habit_tracker/features/toasts/milestone_toast_service.dart';
 import 'package:habit_tracker/features/Home/CatchUp/logic/day_end_processor.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 
 /// Service for managing morning catch-up dialog
 /// Shows dialog on first app open after midnight for incomplete items from yesterday
@@ -233,6 +234,13 @@ class MorningCatchUpService {
               .where('windowEndDate', isLessThanOrEqualTo: yesterday)
               .limit(50)
               .get();
+      FallbackReadLogger.logQuery(
+        scope: 'morning_catchup_service.hasIncompleteItemsFromYesterday',
+        reason: 'yesterday_habit_window_fallback',
+        queryShape:
+            'templateCategoryType=habit,status=pending,windowEndDate<=yesterday,limit=50',
+        fallbackDocsReadEstimate: fallbackSnapshot.docs.length,
+      );
       return _filterYesterdayHabitItems(
         fallbackSnapshot.docs.map(ActivityInstanceRecord.fromSnapshot),
         yesterday,
@@ -369,6 +377,13 @@ class MorningCatchUpService {
             .where('windowEndDate', isLessThanOrEqualTo: yesterday)
             .orderBy('windowEndDate', descending: false);
         final habitSnapshot = await habitQuery.get();
+        FallbackReadLogger.logQuery(
+          scope: 'morning_catchup_service.getHabitItemsFromYesterday',
+          reason: 'habit_window_index_fallback',
+          queryShape:
+              'templateCategoryType=habit,status=pending,windowEndDate<=yesterday,orderBy=windowEndDate',
+          fallbackDocsReadEstimate: habitSnapshot.docs.length,
+        );
         return _filterYesterdayHabitItems(
           habitSnapshot.docs.map(ActivityInstanceRecord.fromSnapshot),
           yesterday,

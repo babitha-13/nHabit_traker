@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 
 /// Service to fetch tasks and habits from the queue that are due today
 /// for display in the calendar
@@ -102,11 +103,23 @@ class CalendarQueueService {
     }) async {
       try {
         final result = await runQuery();
+        FallbackReadLogger.logQuery(
+          scope: 'calendar_queue_service.getPlannedItems',
+          reason: 'planned_candidates_fallback_query',
+          queryShape: queryDescription,
+          fallbackDocsReadEstimate: result.docs.length,
+        );
         final items = result.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((instance) => instance.isActive);
         _mergeInstancesById(merged, items);
       } catch (e) {
+        FallbackReadLogger.logQuery(
+          scope: 'calendar_queue_service.getPlannedItems',
+          reason: 'planned_candidates_fallback_query_failed',
+          queryShape: queryDescription,
+          fallbackDocsReadEstimate: 0,
+        );
         logFirestoreIndexError(
           e,
           queryDescription,

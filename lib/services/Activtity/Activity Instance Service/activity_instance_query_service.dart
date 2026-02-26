@@ -3,6 +3,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
+import 'package:habit_tracker/services/diagnostics/fallback_read_logger.dart';
 import 'activity_instance_helper_service.dart';
 
 /// Service for querying and retrieving activity instances
@@ -116,6 +117,13 @@ class ActivityInstanceQueryService {
                 throw TimeoutException('Completed fallback query timed out');
               },
             );
+            FallbackReadLogger.logQuery(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'recent_completed_category_filter_fallback',
+              queryShape:
+                  'status=completed,completedAt>=twoDaysAgo,orderBy=completedAt desc,limit=200',
+              fallbackDocsReadEstimate: fallbackResult.docs.length,
+            );
             allInstances.addAll(
               fallbackResult.docs
                   .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
@@ -124,6 +132,13 @@ class ActivityInstanceQueryService {
                   .toList(),
             );
           } catch (fallbackError, fallbackStackTrace) {
+            FallbackReadLogger.logQuery(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'recent_completed_category_filter_fallback_failed',
+              queryShape:
+                  'status=completed,completedAt>=twoDaysAgo,orderBy=completedAt desc,limit=200',
+              fallbackDocsReadEstimate: 0,
+            );
             _logQueryIssue(
               fallbackError,
               queryDescription:
@@ -182,6 +197,13 @@ class ActivityInstanceQueryService {
                 throw TimeoutException('Skipped fallback query timed out');
               },
             );
+            FallbackReadLogger.logQuery(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'recent_skipped_category_filter_fallback',
+              queryShape:
+                  'status=skipped,skippedAt>=twoDaysAgo,orderBy=skippedAt desc,limit=200',
+              fallbackDocsReadEstimate: fallbackResult.docs.length,
+            );
             allInstances.addAll(
               fallbackResult.docs
                   .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
@@ -190,6 +212,13 @@ class ActivityInstanceQueryService {
                   .toList(),
             );
           } catch (fallbackError, fallbackStackTrace) {
+            FallbackReadLogger.logQuery(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'recent_skipped_category_filter_fallback_failed',
+              queryShape:
+                  'status=skipped,skippedAt>=twoDaysAgo,orderBy=skippedAt desc,limit=200',
+              fallbackDocsReadEstimate: 0,
+            );
             _logQueryIssue(
               fallbackError,
               queryDescription:
@@ -252,6 +281,13 @@ class ActivityInstanceQueryService {
                   'Live skipped habits fallback query timed out');
             },
           );
+          FallbackReadLogger.logQuery(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'live_window_skipped_habits_fallback',
+            queryShape:
+                'windowEndDate>=today,limit=500,in_memory=habit+skipped',
+            fallbackDocsReadEstimate: fallbackResult.docs.length,
+          );
           final fallbackSkipped = fallbackResult.docs
               .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
               .where((inst) {
@@ -271,6 +307,13 @@ class ActivityInstanceQueryService {
           }).toList();
           allInstances.addAll(fallbackSkipped);
         } catch (fallbackError, fallbackStackTrace) {
+          FallbackReadLogger.logQuery(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'live_window_skipped_habits_fallback_failed',
+            queryShape:
+                'windowEndDate>=today,limit=500,in_memory=habit+skipped',
+            fallbackDocsReadEstimate: 0,
+          );
           _logQueryIssue(
             fallbackError,
             queryDescription:
@@ -332,6 +375,13 @@ class ActivityInstanceQueryService {
                   'Live completed habits fallback query timed out');
             },
           );
+          FallbackReadLogger.logQuery(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'live_window_completed_habits_fallback',
+            queryShape:
+                'windowEndDate>=today,limit=500,in_memory=habit+completed',
+            fallbackDocsReadEstimate: fallbackResult.docs.length,
+          );
           final fallbackCompleted = fallbackResult.docs
               .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
               .where((inst) {
@@ -351,6 +401,13 @@ class ActivityInstanceQueryService {
           }).toList();
           allInstances.addAll(fallbackCompleted);
         } catch (fallbackError, fallbackStackTrace) {
+          FallbackReadLogger.logQuery(
+            scope: 'activity_instance_query_service.querySafeInstances',
+            reason: 'live_window_completed_habits_fallback_failed',
+            queryShape:
+                'windowEndDate>=today,limit=500,in_memory=habit+completed',
+            fallbackDocsReadEstimate: 0,
+          );
           _logQueryIssue(
             fallbackError,
             queryDescription:
@@ -550,6 +607,12 @@ class ActivityInstanceQueryService {
         final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
             .where('templateCategoryType', isEqualTo: 'habit');
         final fallbackResult = await fallbackQuery.get();
+        FallbackReadLogger.logQuery(
+          scope: 'activity_instance_query_service.getCurrentHabitInstances',
+          reason: 'habit_window_scope_fallback',
+          queryShape: 'templateCategoryType=habit,broad_category_scan',
+          fallbackDocsReadEstimate: fallbackResult.docs.length,
+        );
         allHabitInstances = fallbackResult.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .toList();
@@ -784,6 +847,12 @@ class ActivityInstanceQueryService {
         final fallbackQuery = ActivityInstanceRecord.collectionForUser(uid)
             .where('templateCategoryType', isEqualTo: 'habit');
         final fallbackResult = await fallbackQuery.get();
+        FallbackReadLogger.logQuery(
+          scope: 'activity_instance_query_service.getActiveHabitInstances',
+          reason: 'habit_window_scope_fallback',
+          queryShape: 'templateCategoryType=habit,broad_category_scan',
+          fallbackDocsReadEstimate: fallbackResult.docs.length,
+        );
         allHabitInstances = fallbackResult.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .toList();

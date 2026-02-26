@@ -47,7 +47,8 @@ class QueueUIBuilders {
               // Use key to force rebuild when values change
               DailyProgressChart(
                 key: ValueKey(
-                    '${dailyPercentage}_${pointsEarned}_${dailyTarget}'),
+                  [dailyPercentage, pointsEarned, dailyTarget].join('_'),
+                ),
                 dailyPercentage: dailyPercentage,
                 dailyTarget: dailyTarget,
                 pointsEarned: pointsEarned,
@@ -57,7 +58,7 @@ class QueueUIBuilders {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
                   SizedBox(
-                    width: 120,
+                    width: 136,
                     height: 80,
                     child: CumulativeScoreGraph(
                       // Use key based on last score to force rebuild when history changes
