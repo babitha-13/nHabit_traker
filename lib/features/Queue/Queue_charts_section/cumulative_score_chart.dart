@@ -24,6 +24,7 @@ class CumulativeScoreGraph extends StatefulWidget {
 
 class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
   final ScrollController _scrollController = ScrollController();
+  static const int _minimumChartPoints = 7;
 
   @override
   void initState() {
@@ -58,10 +59,11 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
   @override
   Widget build(BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
+    final chartHistory = _buildChartHistory(widget.history);
 
     // Show loading only when no history is available yet.
     // During background refresh keep rendering the existing chart.
-    if (widget.isLoading && widget.history.isEmpty) {
+    if (widget.isLoading && chartHistory.isEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: theme.alternate.withOpacity(0.1),
@@ -81,7 +83,7 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
     }
 
     // Show "No data" only if not loading and history is empty
-    if (widget.history.isEmpty) {
+    if (chartHistory.isEmpty) {
       return Container(
         decoration: BoxDecoration(
           color: theme.alternate.withOpacity(0.1),
@@ -100,23 +102,35 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
     }
     return LayoutBuilder(
       builder: (context, constraints) =>
-          _buildScrollableGraph(context, constraints),
+          _buildScrollableGraph(context, constraints, chartHistory),
     );
   }
 
   Widget _buildScrollableGraph(
-      BuildContext context, BoxConstraints constraints) {
+    BuildContext context,
+    BoxConstraints constraints,
+    List<Map<String, dynamic>> chartHistory,
+  ) {
     final theme = FlutterFlowTheme.of(context);
-    final scores = widget.history.map((d) => d['score'] as double).toList();
+    final scores = chartHistory
+        .map((d) => (d['score'] as num?)?.toDouble() ?? 0.0)
+        .toList();
     final minScore = scores.reduce(math.min);
     final maxScore = scores.reduce(math.max);
     final adjustedMax = maxScore == minScore ? minScore + 10.0 : maxScore;
     final adjustedRange = adjustedMax - minScore;
     final scaleLabels = _buildScaleLabels(minScore, adjustedRange);
+    const yAxisWidth = 24.0;
+    const axisGap = 6.0;
+    const containerHorizontalPadding = 8.0; // 4 left + 4 right
     const visibleDays = 7.0;
-    final dayWidth = constraints.maxWidth / visibleDays;
+    final chartViewportWidth = math.max(
+      constraints.maxWidth - containerHorizontalPadding - yAxisWidth - axisGap,
+      1.0,
+    );
+    final dayWidth = chartViewportWidth / visibleDays;
     // Ensure width is enough for 7 data points even if history has fewer
-    final totalWidth = dayWidth * math.max(widget.history.length, visibleDays);
+    final totalWidth = dayWidth * math.max(chartHistory.length, visibleDays);
     const verticalPadding = 8.0; // top + bottom padding
     const labelAreaHeight = 18.0;
     final graphHeight = math.max(
@@ -131,8 +145,8 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          _buildYAxis(theme, scaleLabels),
-          const SizedBox(width: 6),
+          _buildYAxis(theme, scaleLabels, yAxisWidth),
+          const SizedBox(width: axisGap),
           Expanded(
             child: SingleChildScrollView(
               controller: _scrollController,
@@ -145,6 +159,7 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                     SizedBox(
                       height: graphHeight,
                       child: _buildOptimizedChart(
+                        history: chartHistory,
                         minScore: minScore,
                         maxScore: adjustedMax,
                         scoreRange: adjustedRange,
@@ -153,8 +168,7 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
                     ),
                     SizedBox(
                       height: 18,
-                      child:
-                          _buildDateLabels(theme, totalWidth, widget.history),
+                      child: _buildDateLabels(theme, totalWidth, chartHistory),
                     ),
                   ],
                 ),
@@ -166,22 +180,26 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
     );
   }
 
-  Widget _buildYAxis(FlutterFlowTheme theme, List<double> labels) {
-    return Column(
-      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-      crossAxisAlignment: CrossAxisAlignment.end,
-      children: labels.reversed
-          .map(
-            (value) => Text(
-              value.toStringAsFixed(0),
-              style: theme.bodySmall.override(
-                fontFamily: 'Readex Pro',
-                fontSize: 9,
-                color: theme.secondaryText,
+  Widget _buildYAxis(
+      FlutterFlowTheme theme, List<double> labels, double width) {
+    return SizedBox(
+      width: width,
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: labels.reversed
+            .map(
+              (value) => Text(
+                value.toStringAsFixed(0),
+                style: theme.bodySmall.override(
+                  fontFamily: 'Readex Pro',
+                  fontSize: 9,
+                  color: theme.secondaryText,
+                ),
               ),
-            ),
-          )
-          .toList(),
+            )
+            .toList(),
+      ),
     );
   }
 
@@ -220,71 +238,130 @@ class _CumulativeScoreGraphState extends State<CumulativeScoreGraph> {
 
   List<_DateLabel> _generateDateLabels(List<Map<String, dynamic>> history) {
     if (history.isEmpty) return [];
-    // Only show today's label (last point)
+    final labels = <_DateLabel>[];
     final lastIndex = history.length - 1;
-    final dateTime = safeDateTime(history[lastIndex]['date']);
-    if (dateTime == null) return [];
-    return [_DateLabel(lastIndex, dateTime)];
+
+    final firstDate = safeDateTime(history.first['date']);
+    if (firstDate != null) {
+      labels.add(_DateLabel(0, firstDate));
+    }
+
+    if (history.length > 2) {
+      final middleIndex = history.length ~/ 2;
+      final middleDate = safeDateTime(history[middleIndex]['date']);
+      if (middleDate != null &&
+          labels.every((label) => label.index != middleIndex)) {
+        labels.add(_DateLabel(middleIndex, middleDate));
+      }
+    }
+
+    final lastDate = safeDateTime(history[lastIndex]['date']);
+    if (lastDate != null && labels.every((label) => label.index != lastIndex)) {
+      labels.add(_DateLabel(lastIndex, lastDate));
+    }
+
+    return labels;
   }
 
   /// Build optimized chart with split painters for better performance
   /// Historical data (static) and current day (dynamic) are painted separately
   Widget _buildOptimizedChart({
+    required List<Map<String, dynamic>> history,
     required double minScore,
     required double maxScore,
     required double scoreRange,
     required double graphHeight,
   }) {
-    if (widget.history.isEmpty) {
+    if (history.isEmpty) {
       return const SizedBox.shrink();
     }
 
     // Split data: historical (all but last) and current day (last)
-    final historicalData = widget.history.length > 1
-        ? widget.history.sublist(0, widget.history.length - 1)
+    final historicalData = history.length > 1
+        ? history.sublist(0, history.length - 1)
         : <Map<String, dynamic>>[];
-    final currentDayData = widget.history.last;
-    final previousDayData = widget.history.length > 1
-        ? widget.history[widget.history.length - 2]
-        : null;
+    final currentDayData = history.last;
+    final previousDayData =
+        history.length > 1 ? history[history.length - 2] : null;
 
     return Stack(
       children: [
         // Historical data painter (static - rarely repaints)
         // Wrap in RepaintBoundary for extra isolation
         if (historicalData.isNotEmpty)
-          RepaintBoundary(
-            child: CustomPaint(
-              size: Size(double.infinity, graphHeight),
-              painter: CumulativeScoreHistoricalPainter(
-                historicalData: historicalData,
-                minScore: minScore,
-                maxScore: maxScore,
-                scoreRange: scoreRange,
-                color: widget.color,
-                totalDataPoints: widget.history.length,
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: CumulativeScoreHistoricalPainter(
+                  historicalData: historicalData,
+                  minScore: minScore,
+                  maxScore: maxScore,
+                  scoreRange: scoreRange,
+                  color: widget.color,
+                  totalDataPoints: history.length,
+                ),
               ),
             ),
           ),
         // Current day painter (dynamic - repaints frequently)
         // Only this repaints when score updates, not the entire chart
-        CustomPaint(
-          key: ValueKey(
-            'current_${currentDayData['score'] as double}',
-          ),
-          size: Size(double.infinity, graphHeight),
-          painter: CumulativeScoreCurrentDayPainter(
-            previousDayData: previousDayData,
-            currentDayData: currentDayData,
-            minScore: minScore,
-            maxScore: maxScore,
-            scoreRange: scoreRange,
-            color: widget.color,
-            totalDataPoints: widget.history.length,
+        Positioned.fill(
+          child: CustomPaint(
+            key: ValueKey(
+              'current_${currentDayData['score'] as double}',
+            ),
+            painter: CumulativeScoreCurrentDayPainter(
+              previousDayData: previousDayData,
+              currentDayData: currentDayData,
+              minScore: minScore,
+              maxScore: maxScore,
+              scoreRange: scoreRange,
+              color: widget.color,
+              totalDataPoints: history.length,
+            ),
           ),
         ),
       ],
     );
+  }
+
+  List<Map<String, dynamic>> _buildChartHistory(
+      List<Map<String, dynamic>> source) {
+    final parsed = source
+        .map((entry) {
+          final date = safeDateTime(entry['date']);
+          if (date == null) return null;
+          return <String, dynamic>{
+            'date': DateTime(date.year, date.month, date.day),
+            'score': (entry['score'] as num?)?.toDouble() ?? 0.0,
+            'gain': (entry['gain'] as num?)?.toDouble() ?? 0.0,
+          };
+        })
+        .whereType<Map<String, dynamic>>()
+        .toList()
+      ..sort(
+        (a, b) => (a['date'] as DateTime).compareTo(b['date'] as DateTime),
+      );
+
+    if (parsed.isEmpty || parsed.length >= _minimumChartPoints) {
+      return parsed;
+    }
+
+    final first = parsed.first;
+    final firstDate = first['date'] as DateTime;
+    final firstScore = first['score'] as double;
+    final missing = _minimumChartPoints - parsed.length;
+
+    final padded = <Map<String, dynamic>>[];
+    for (int i = missing; i >= 1; i--) {
+      padded.add({
+        'date': firstDate.subtract(Duration(days: i)),
+        'score': firstScore,
+        'gain': 0.0,
+      });
+    }
+    padded.addAll(parsed);
+    return padded;
   }
 }
 

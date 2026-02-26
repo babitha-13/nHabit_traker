@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 class FallbackReadEvent {
   const FallbackReadEvent({
     required this.scope,
@@ -21,6 +23,32 @@ class FallbackReadEvent {
       'user_count_sampled': userCountSampled,
       'fallback_docs_read_estimate': fallbackDocsReadEstimate,
     };
+  }
+}
+
+class FallbackReadLogger {
+  const FallbackReadLogger._();
+
+  static const bool _envEnabled =
+      bool.fromEnvironment('LOG_FALLBACK_READS', defaultValue: true);
+
+  static bool get enabled => kDebugMode && _envEnabled;
+
+  static void logQuery({
+    required String scope,
+    required String reason,
+    required String queryShape,
+    int userCountSampled = 1,
+    int fallbackDocsReadEstimate = 0,
+  }) {
+    if (!enabled) return;
+    debugPrint(
+      '[fallback-read][query] scope=$scope, '
+      'reason=$reason, '
+      'query_shape=$queryShape, '
+      'user_count_sampled=$userCountSampled, '
+      'fallback_docs_read_estimate=$fallbackDocsReadEstimate',
+    );
   }
 }
 
@@ -54,6 +82,12 @@ class FallbackReadTelemetry {
     _legacyPathInvocationCount += 1;
     _legacyInvocationsByScope[scope] =
         (_legacyInvocationsByScope[scope] ?? 0) + 1;
+    FallbackReadLogger.logQuery(
+      scope: scope,
+      reason: reason,
+      queryShape: 'app_level_legacy_branch',
+      fallbackDocsReadEstimate: 0,
+    );
   }
 
   static void logQueryFallback(FallbackReadEvent event) {
@@ -61,6 +95,13 @@ class FallbackReadTelemetry {
     _queryFallbackInvocationCount += 1;
     _queryFallbackInvocationsByScope[event.scope] =
         (_queryFallbackInvocationsByScope[event.scope] ?? 0) + 1;
+    FallbackReadLogger.logQuery(
+      scope: event.scope,
+      reason: event.reason,
+      queryShape: event.queryShape,
+      userCountSampled: event.userCountSampled,
+      fallbackDocsReadEstimate: event.fallbackDocsReadEstimate,
+    );
   }
 
   static Map<String, Object?> snapshotCounters() {
