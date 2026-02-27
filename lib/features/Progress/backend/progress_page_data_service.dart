@@ -20,7 +20,8 @@ class ProgressPageDataService {
 
     List<ActivityInstanceRecord>? habits = cache.getCachedHabitInstances();
     List<ActivityInstanceRecord>? tasks = cache.getCachedTaskInstances();
-    List<CategoryRecord>? categories = cache.getCachedHabitCategories();
+    List<CategoryRecord>? categories =
+        cache.getCachedHabitCategories(userId: userId);
 
     final cachedAll = cache.getCachedAllInstances();
     habits ??= cachedAll
@@ -85,7 +86,7 @@ class ProgressPageDataService {
           categories = result.docs
               .map<CategoryRecord>((doc) => CategoryRecord.fromSnapshot(doc))
               .toList();
-          cache.cacheHabitCategories(categories!);
+          cache.cacheHabitCategories(categories!, userId: userId);
         }());
       }
 

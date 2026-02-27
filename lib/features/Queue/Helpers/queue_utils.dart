@@ -173,9 +173,28 @@ class QueueUtils {
   /// Get category color for an instance
   static String getCategoryColor(
       ActivityInstanceRecord instance, List<CategoryRecord> categories) {
-    final category = categories
-        .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
-    return category?.color ?? '#000000';
+    CategoryRecord? category;
+
+    if (instance.templateCategoryId.isNotEmpty) {
+      category = categories.firstWhereOrNull(
+          (c) => c.reference.id == instance.templateCategoryId);
+    }
+
+    category ??= categories.firstWhereOrNull((c) =>
+        c.name.trim().toLowerCase() ==
+        instance.templateCategoryName.trim().toLowerCase());
+
+    final resolvedColor = (category?.color ?? '').trim();
+    if (resolvedColor.isNotEmpty) {
+      return resolvedColor;
+    }
+
+    final instanceColor = instance.templateCategoryColor.trim();
+    if (instanceColor.isNotEmpty) {
+      return instanceColor;
+    }
+
+    return '';
   }
 
   /// Get sort points for an instance

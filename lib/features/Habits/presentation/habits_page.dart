@@ -27,15 +27,82 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   final ScrollController _scrollController = ScrollController();
   final Map<String, GlobalKey> _categoryKeys = {};
-  @override
-  void initState() {
-    super.initState();
-    showCompleted = widget.showCompleted;
-    Future.wait([
-      loadExpansionState(),
-      loadHabits(),
-    ]);
-    searchManager.addListener(onSearchChanged);
+
+  bool _isValidHexColor(String? color) {
+    if (color == null) return false;
+    final trimmed = color.trim();
+    if (trimmed.isEmpty) return false;
+    final normalized = trimmed.startsWith('#') ? trimmed.substring(1) : trimmed;
+    return RegExp(r'^[0-9a-fA-F]{6}$').hasMatch(normalized);
+  }
+
+  String _resolveCategoryColorFromInstances(
+    List<ActivityInstanceRecord> habits,
+  ) {
+    for (final habit in habits) {
+      final color = habit.templateCategoryColor.trim();
+      if (_isValidHexColor(color)) {
+        return color.startsWith('#') ? color : '#$color';
+      }
+    }
+    return '#2196F3';
+  }
+
+  CategoryRecord _resolveCategoryForDisplay(
+    String categoryName,
+    List<ActivityInstanceRecord> habits,
+  ) {
+    CategoryRecord? category;
+
+    for (final c in categories) {
+      if (c.name == categoryName) {
+        category = c;
+        break;
+      }
+    }
+
+    if (category == null) {
+      for (final c in categories) {
+        if (c.name.trim().toLowerCase() == categoryName.trim().toLowerCase()) {
+          category = c;
+          break;
+        }
+      }
+    }
+
+    if (category == null && habits.isNotEmpty) {
+      final categoryId = habits.first.templateCategoryId;
+      if (categoryId.isNotEmpty) {
+        for (final c in categories) {
+          if (c.reference.id == categoryId) {
+            category = c;
+            break;
+          }
+        }
+      }
+    }
+
+    if (category != null) {
+      return category;
+    }
+
+    final categoryData = createCategoryRecordData(
+      name: categoryName,
+      color: _resolveCategoryColorFromInstances(habits),
+      userId: currentUserUid,
+      isActive: true,
+      weight: 1.0,
+      createdTime: DateTime.now(),
+      lastUpdated: DateTime.now(),
+      categoryType: 'habit',
+    );
+    return CategoryRecord.getDocumentFromData(
+      categoryData,
+      FirebaseFirestore.instance.collection('categories').doc(),
+    );
+  }
+
+  void _registerObservers() {
     NotificationCenter.addObserver(this, 'showCompleted', (param) {
       if (param is bool && mounted) {
         // Only update if value actually changed
@@ -59,9 +126,7 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
         (param) {
-      if (param is ActivityInstanceRecord &&
-          mounted &&
-          param.templateCategoryType == 'habit') {
+      if (mounted) {
         handleInstanceCreated(param);
       }
     });
@@ -86,18 +151,29 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
         (param) {
-      if (param is ActivityInstanceRecord &&
-          mounted &&
-          param.templateCategoryType == 'habit') {
+      if (mounted) {
         handleInstanceDeleted(param);
       }
     });
   }
 
   @override
+  void initState() {
+    super.initState();
+    showCompleted = widget.showCompleted;
+    Future.wait([
+      loadExpansionState(),
+      loadHabits(),
+    ]);
+    searchManager.addListener(onSearchChanged);
+    _registerObservers();
+  }
+
+  @override
   void reassemble() {
     super.reassemble();
     NotificationCenter.removeObserver(this);
+    _registerObservers();
   }
 
   @override
@@ -196,25 +272,7 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
     final slivers = <Widget>[];
     for (final categoryName in groupedHabits.keys) {
       final habits = groupedHabits[categoryName]!;
-      CategoryRecord? category;
-      try {
-        category = categories.firstWhere((c) => c.name == categoryName);
-      } catch (e) {
-        final categoryData = createCategoryRecordData(
-          name: categoryName,
-          color: '#2196F3',
-          userId: currentUserUid,
-          isActive: true,
-          weight: 1.0,
-          createdTime: DateTime.now(),
-          lastUpdated: DateTime.now(),
-          categoryType: 'habit',
-        );
-        category = CategoryRecord.getDocumentFromData(
-          categoryData,
-          FirebaseFirestore.instance.collection('categories').doc(),
-        );
-      }
+      final category = _resolveCategoryForDisplay(categoryName, habits);
       final expanded = expandedCategories.contains(categoryName);
       // Get or create GlobalKey for this category
       if (!_categoryKeys.containsKey(categoryName)) {
@@ -240,7 +298,7 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
                   subtitle: getDueDateSubtitle(instance),
                   showCompleted: showCompleted,
                   instance: instance,
-                  categoryColorHex: category!.color,
+                  categoryColorHex: category.color,
                   onRefresh: loadHabits,
                   onInstanceUpdated: updateInstanceInLocalState,
                   onInstanceDeleted: removeInstanceFromLocalState,

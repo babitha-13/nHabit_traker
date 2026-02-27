@@ -730,9 +730,28 @@ class _WeeklyViewState extends State<WeeklyView> {
   }
 
   String _getCategoryColor(ActivityInstanceRecord instance) {
-    final category = _categories
-        .firstWhereOrNull((c) => c.name == instance.templateCategoryName);
-    return category?.color ?? '#000000';
+    CategoryRecord? category;
+
+    if (instance.templateCategoryId.isNotEmpty) {
+      category = _categories.firstWhereOrNull(
+          (c) => c.reference.id == instance.templateCategoryId);
+    }
+
+    category ??= _categories.firstWhereOrNull((c) =>
+        c.name.trim().toLowerCase() ==
+        instance.templateCategoryName.trim().toLowerCase());
+
+    final resolvedColor = (category?.color ?? '').trim();
+    if (resolvedColor.isNotEmpty) {
+      return resolvedColor;
+    }
+
+    final instanceColor = instance.templateCategoryColor.trim();
+    if (instanceColor.isNotEmpty) {
+      return instanceColor;
+    }
+
+    return '';
   }
 
   /// Create a display instance with converted tracking type for weekly view

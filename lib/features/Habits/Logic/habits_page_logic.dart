@@ -3,10 +3,10 @@ import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
-import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/features/Shared/section_expansion_state_manager.dart';
 import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
+import 'package:habit_tracker/features/Habits/Logic/habits_event_handlers_helper.dart';
 import 'package:habit_tracker/features/Habits/presentation/window_display_helper.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'dart:async';
@@ -35,6 +35,11 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
       {}; // Track instances being reordered to prevent stale updates
   final Map<String, String> optimisticOperations =
       {}; // operationId -> instanceId
+
+  int _calculateInstancesHash(List<ActivityInstanceRecord> instances) {
+    return instances.length.hashCode ^
+        instances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+  }
 
   Future<void> loadExpansionState() async {
     final expandedSections =
@@ -252,13 +257,11 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
       final userId = await waitForCurrentUserUid();
       if (userId.isNotEmpty) {
         await TodayInstanceRepository.instance.refreshToday(userId: userId);
-        final instances =
-            TodayInstanceRepository.instance.selectHabitItemsCurrentWindow();
+        final instances = TodayInstanceRepository.instance
+            .selectHabitItemsLatestPerTemplate();
 
         if (mounted) {
-          final newHash = instances.length.hashCode ^
-              instances.fold(
-                  0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+          final newHash = _calculateInstancesHash(instances);
           setState(() {
             habitInstances = instances;
             cachedGroupedByCategory = null;
@@ -271,141 +274,148 @@ mixin HabitsPageLogic<T extends StatefulWidget> on State<T> {
     }
   }
 
-  void handleInstanceCreated(ActivityInstanceRecord instance) {
-    habitInstances.add(instance);
-    final newHash = habitInstances.length.hashCode ^
-        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+  void handleInstanceCreated(dynamic param) {
+    List<ActivityInstanceRecord>? updatedInstances;
+    Map<String, String>? updatedOperations;
+
+    HabitsEventHandlersHelper.handleInstanceCreated(
+      param: param,
+      showCompleted: showCompleted,
+      habitInstances: habitInstances,
+      optimisticOperations: optimisticOperations,
+      onHabitInstancesUpdate: (updated) {
+        updatedInstances = updated;
+      },
+      onOptimisticOperationsUpdate: (updated) {
+        updatedOperations = updated;
+      },
+    );
+
+    if (updatedInstances == null || updatedOperations == null) {
+      return;
+    }
 
     setState(() {
+      habitInstances = updatedInstances!;
+      optimisticOperations
+        ..clear()
+        ..addAll(updatedOperations!);
       cachedGroupedByCategory = null;
-      habitInstancesHashCode = newHash;
+      habitInstancesHashCode = _calculateInstancesHash(updatedInstances!);
     });
   }
 
   void handleInstanceUpdated(dynamic param) {
-    ActivityInstanceRecord instance;
-    bool isOptimistic = false;
-    String? operationId;
+    List<ActivityInstanceRecord>? updatedInstances;
+    Map<String, String>? updatedOperations;
 
-    if (param is Map) {
-      instance = param['instance'] as ActivityInstanceRecord;
-      isOptimistic = param['isOptimistic'] as bool? ?? false;
-      operationId = param['operationId'] as String?;
-    } else if (param is ActivityInstanceRecord) {
-      instance = param;
-    } else {
+    HabitsEventHandlersHelper.handleInstanceUpdated(
+      param: param,
+      showCompleted: showCompleted,
+      habitInstances: habitInstances,
+      reorderingInstanceIds: reorderingInstanceIds,
+      optimisticOperations: optimisticOperations,
+      onHabitInstancesUpdate: (updated) {
+        updatedInstances = updated;
+      },
+      onOptimisticOperationsUpdate: (updated) {
+        updatedOperations = updated;
+      },
+    );
+
+    if (updatedInstances == null || updatedOperations == null) {
       return;
     }
-    // FirestoreCacheService handles surgical cache updates via its own
-    // NotificationCenter listeners (_applyInstanceCacheUpdate).
-    // Manual invalidation here was causing full Firestore re-fetches on every tap.
-    if (reorderingInstanceIds.contains(instance.reference.id)) {
-      return;
-    }
-    final index = habitInstances
-        .indexWhere((inst) => inst.reference.id == instance.reference.id);
-
-    if (index != -1) {
-      if (isOptimistic) {
-        habitInstances[index] = instance;
-        if (operationId != null) {
-          optimisticOperations[operationId] = instance.reference.id;
-        }
-      } else {
-        final existing = habitInstances[index];
-        final incomingLastUpdated = instance.lastUpdated;
-        final existingLastUpdated = existing.lastUpdated;
-        if (incomingLastUpdated != null &&
-            existingLastUpdated != null &&
-            incomingLastUpdated.isBefore(existingLastUpdated)) {
-          return;
-        }
-        habitInstances[index] = instance;
-        if (operationId != null) {
-          optimisticOperations.remove(operationId);
-        }
-      }
-      if (!showCompleted && instance.status == 'completed') {
-        habitInstances
-            .removeWhere((inst) => inst.reference.id == instance.reference.id);
-      }
-    } else if (!isOptimistic) {
-      habitInstances.add(instance);
-    }
-
-    final newHash = habitInstances.length.hashCode ^
-        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
 
     setState(() {
+      habitInstances = updatedInstances!;
+      optimisticOperations
+        ..clear()
+        ..addAll(updatedOperations!);
       cachedGroupedByCategory = null;
-      habitInstancesHashCode = newHash;
+      habitInstancesHashCode = _calculateInstancesHash(updatedInstances!);
     });
   }
 
   void handleRollback(dynamic param) {
-    if (param is Map) {
-      final operationId = param['operationId'] as String?;
-      final instanceId = param['instanceId'] as String?;
-      final originalInstance =
-          param['originalInstance'] as ActivityInstanceRecord?;
+    List<ActivityInstanceRecord>? updatedInstances;
+    Map<String, String>? updatedOperations;
 
-      if (operationId != null &&
-          optimisticOperations.containsKey(operationId)) {
-        optimisticOperations.remove(operationId);
-        if (originalInstance != null) {
-          final index = habitInstances
-              .indexWhere((inst) => inst.reference.id == instanceId);
-          if (index != -1) {
-            habitInstances[index] = originalInstance;
-          }
-        } else if (instanceId != null) {
-          revertOptimisticUpdate(instanceId);
-          return; // revertOptimisticUpdate will handle setState
-        }
-        final newHash = habitInstances.length.hashCode ^
-            habitInstances.fold(
-                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    HabitsEventHandlersHelper.handleRollback(
+      param: param,
+      habitInstances: habitInstances,
+      optimisticOperations: optimisticOperations,
+      onHabitInstancesUpdate: (updated) {
+        updatedInstances = updated;
+      },
+      onOptimisticOperationsUpdate: (updated) {
+        updatedOperations = updated;
+      },
+      revertOptimisticUpdate: (instanceId) {
+        revertOptimisticUpdate(instanceId);
+      },
+    );
 
-        setState(() {
-          cachedGroupedByCategory = null;
-          habitInstancesHashCode = newHash;
-        });
-      }
+    if (updatedOperations != null) {
+      optimisticOperations
+        ..clear()
+        ..addAll(updatedOperations!);
+    }
+    if (updatedInstances != null) {
+      setState(() {
+        habitInstances = updatedInstances!;
+        cachedGroupedByCategory = null;
+        habitInstancesHashCode = _calculateInstancesHash(updatedInstances!);
+      });
     }
   }
 
   Future<void> revertOptimisticUpdate(String instanceId) async {
-    try {
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: instanceId,
-      );
-      final index =
-          habitInstances.indexWhere((inst) => inst.reference.id == instanceId);
-      if (index != -1) {
-        habitInstances[index] = updatedInstance;
-        final newHash = habitInstances.length.hashCode ^
-            habitInstances.fold(
-                0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+    List<ActivityInstanceRecord>? updatedInstances;
+    await HabitsEventHandlersHelper.revertOptimisticUpdate(
+      instanceId: instanceId,
+      habitInstances: habitInstances,
+      onHabitInstancesUpdate: (updated) {
+        updatedInstances = updated;
+      },
+    );
 
-        setState(() {
-          cachedGroupedByCategory = null;
-          habitInstancesHashCode = newHash;
-        });
-      }
-    } catch (e) {
-      // Error reverting - non-critical, will be fixed on next data load
+    if (updatedInstances != null && mounted) {
+      setState(() {
+        habitInstances = updatedInstances!;
+        cachedGroupedByCategory = null;
+        habitInstancesHashCode = _calculateInstancesHash(updatedInstances!);
+      });
     }
   }
 
-  void handleInstanceDeleted(ActivityInstanceRecord instance) {
-    habitInstances
-        .removeWhere((inst) => inst.reference.id == instance.reference.id);
-    final newHash = habitInstances.length.hashCode ^
-        habitInstances.fold(0, (sum, inst) => sum ^ inst.reference.id.hashCode);
+  void handleInstanceDeleted(dynamic param) {
+    List<ActivityInstanceRecord>? updatedInstances;
+    Map<String, String>? updatedOperations;
+
+    HabitsEventHandlersHelper.handleInstanceDeleted(
+      param: param,
+      habitInstances: habitInstances,
+      optimisticOperations: optimisticOperations,
+      onHabitInstancesUpdate: (updated) {
+        updatedInstances = updated;
+      },
+      onOptimisticOperationsUpdate: (updated) {
+        updatedOperations = updated;
+      },
+    );
+
+    if (updatedInstances == null || updatedOperations == null) {
+      return;
+    }
 
     setState(() {
+      habitInstances = updatedInstances!;
+      optimisticOperations
+        ..clear()
+        ..addAll(updatedOperations!);
       cachedGroupedByCategory = null;
-      habitInstancesHashCode = newHash;
+      habitInstancesHashCode = _calculateInstancesHash(updatedInstances!);
     });
   }
 

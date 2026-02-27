@@ -141,8 +141,8 @@ class BatchReadService {
     // Check cache first
     if (useCache) {
       final cachedCategories = categoryType == 'habit'
-          ? cache.getCachedHabitCategories()
-          : cache.getCachedTaskCategories();
+          ? cache.getCachedHabitCategories(userId: userId)
+          : cache.getCachedTaskCategories(userId: userId);
 
       if (cachedCategories != null) {
         final cachedMap = {

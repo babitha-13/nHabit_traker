@@ -414,7 +414,7 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
   try {
     final cache = FirestoreCacheService();
     // Check cache first
-    final cached = cache.getCachedHabitCategories();
+    final cached = cache.getCachedHabitCategories(userId: userId);
     if (cached != null) {
       return cached;
     }
@@ -429,7 +429,7 @@ Future<List<CategoryRecord>> queryHabitCategoriesOnce({
     // Sort in memory
     habitCategories.sort((a, b) => a.name.compareTo(b.name));
     // Update cache
-    cache.cacheHabitCategories(habitCategories);
+    cache.cacheHabitCategories(habitCategories, userId: userId);
     return habitCategories;
   } catch (e, stackTrace) {
     logFirestoreQueryError(
@@ -451,7 +451,7 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
   try {
     final cache = FirestoreCacheService();
     // Check cache first
-    final cached = cache.getCachedTaskCategories();
+    final cached = cache.getCachedTaskCategories(userId: userId);
     if (cached != null) {
       return cached;
     }
@@ -466,7 +466,7 @@ Future<List<CategoryRecord>> queryTaskCategoriesOnce({
     // Sort in memory
     taskCategories.sort((a, b) => a.name.compareTo(b.name));
     // Update cache
-    cache.cacheTaskCategories(taskCategories);
+    cache.cacheTaskCategories(taskCategories, userId: userId);
     return taskCategories;
   } catch (e, stackTrace) {
     logFirestoreQueryError(

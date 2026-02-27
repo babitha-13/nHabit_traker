@@ -22,6 +22,8 @@ class FirestoreCacheService {
   List<ActivityInstanceRecord>? _cachedHabitInstances;
   List<CategoryRecord>? _cachedHabitCategories;
   List<CategoryRecord>? _cachedTaskCategories;
+  String? _habitCategoriesUserId;
+  String? _taskCategoriesUserId;
   Map<String, ActivityRecord> _cachedTemplates = {};
   Map<String, ActivityInstanceRecord> _cachedInstancesById = {};
   Map<String, CalendarEventsResult> _calendarDateCache = {};
@@ -249,6 +251,29 @@ class FirestoreCacheService {
     return age < ttlSeconds;
   }
 
+  String _extractUserIdFromPath(String path) {
+    final parts = path.split('/');
+    final usersIndex = parts.indexOf('users');
+    if (usersIndex >= 0 && usersIndex + 1 < parts.length) {
+      return parts[usersIndex + 1];
+    }
+    return '';
+  }
+
+  String? _inferCategoryUserId(
+    List<CategoryRecord> categories, {
+    String? userId,
+  }) {
+    if (userId != null && userId.isNotEmpty) {
+      return userId;
+    }
+    if (categories.isEmpty) {
+      return null;
+    }
+    final inferred = _extractUserIdFromPath(categories.first.reference.path);
+    return inferred.isEmpty ? null : inferred;
+  }
+
   // ==================== INSTANCES CACHE ====================
 
   /// Get cached all instances if available and fresh
@@ -333,31 +358,61 @@ class FirestoreCacheService {
   // ==================== CATEGORIES CACHE ====================
 
   /// Get cached habit categories if available and fresh
-  List<CategoryRecord>? getCachedHabitCategories() {
+  List<CategoryRecord>? getCachedHabitCategories({String? userId}) {
     if (_isCacheValid(_habitCategoriesTimestamp, _categoriesCacheTTL)) {
+      if ((_habitCategoriesUserId == null || _habitCategoriesUserId!.isEmpty) &&
+          _cachedHabitCategories != null &&
+          _cachedHabitCategories!.isNotEmpty) {
+        _habitCategoriesUserId = _inferCategoryUserId(_cachedHabitCategories!);
+      }
+      if (userId != null &&
+          userId.isNotEmpty &&
+          _habitCategoriesUserId != null &&
+          _habitCategoriesUserId != userId) {
+        return null;
+      }
       return _cachedHabitCategories;
     }
     return null;
   }
 
   /// Cache habit categories
-  void cacheHabitCategories(List<CategoryRecord> categories) {
+  void cacheHabitCategories(
+    List<CategoryRecord> categories, {
+    String? userId,
+  }) {
     _cachedHabitCategories = categories;
     _habitCategoriesTimestamp = DateTime.now();
+    _habitCategoriesUserId = _inferCategoryUserId(categories, userId: userId);
   }
 
   /// Get cached task categories if available and fresh
-  List<CategoryRecord>? getCachedTaskCategories() {
+  List<CategoryRecord>? getCachedTaskCategories({String? userId}) {
     if (_isCacheValid(_taskCategoriesTimestamp, _categoriesCacheTTL)) {
+      if ((_taskCategoriesUserId == null || _taskCategoriesUserId!.isEmpty) &&
+          _cachedTaskCategories != null &&
+          _cachedTaskCategories!.isNotEmpty) {
+        _taskCategoriesUserId = _inferCategoryUserId(_cachedTaskCategories!);
+      }
+      if (userId != null &&
+          userId.isNotEmpty &&
+          _taskCategoriesUserId != null &&
+          _taskCategoriesUserId != userId) {
+        return null;
+      }
       return _cachedTaskCategories;
     }
     return null;
   }
 
   /// Cache task categories
-  void cacheTaskCategories(List<CategoryRecord> categories) {
+  void cacheTaskCategories(
+    List<CategoryRecord> categories, {
+    String? userId,
+  }) {
     _cachedTaskCategories = categories;
     _taskCategoriesTimestamp = DateTime.now();
+    _taskCategoriesUserId = _inferCategoryUserId(categories, userId: userId);
   }
 
   // ==================== TEMPLATES CACHE ====================
@@ -420,6 +475,8 @@ class FirestoreCacheService {
     _cachedTaskCategories = null;
     _habitCategoriesTimestamp = null;
     _taskCategoriesTimestamp = null;
+    _habitCategoriesUserId = null;
+    _taskCategoriesUserId = null;
   }
 
   /// Invalidate template cache for a specific template
