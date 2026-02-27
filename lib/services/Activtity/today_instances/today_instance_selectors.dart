@@ -95,15 +95,107 @@ class TodayInstanceSelectors {
     return bTs.compareTo(aTs);
   }
 
+  static String _queuePendingDedupKey(ActivityInstanceRecord instance) {
+    return [
+      instance.templateId,
+      instance.templateCategoryType,
+      instance.status,
+      _normalizedDateKey(instance.dueDate),
+      _normalizedDateKey(instance.belongsToDate),
+      _normalizedDateKey(instance.windowEndDate),
+    ].join('|');
+  }
+
+  static String _normalizedDateKey(DateTime? value) {
+    if (value == null) return 'null';
+    final normalized = normalizeDate(value);
+    final year = normalized.year.toString().padLeft(4, '0');
+    final month = normalized.month.toString().padLeft(2, '0');
+    final day = normalized.day.toString().padLeft(2, '0');
+    return '$year-$month-$day';
+  }
+
+  static int _compareNullableDateDesc(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return -1;
+    if (b == null) return 1;
+    return a.compareTo(b);
+  }
+
+  static num _asNumber(dynamic value) {
+    if (value is num) return value;
+    if (value is String) {
+      return num.tryParse(value) ?? 0;
+    }
+    return 0;
+  }
+
+  static bool _shouldReplaceQueuePendingDuplicate({
+    required ActivityInstanceRecord existing,
+    required ActivityInstanceRecord candidate,
+  }) {
+    final candidateProgress = _asNumber(candidate.currentValue);
+    final existingProgress = _asNumber(existing.currentValue);
+    if (candidateProgress != existingProgress) {
+      return candidateProgress > existingProgress;
+    }
+
+    if (candidate.totalTimeLogged != existing.totalTimeLogged) {
+      return candidate.totalTimeLogged > existing.totalTimeLogged;
+    }
+
+    final lastUpdatedCompare = _compareNullableDateDesc(
+      candidate.lastUpdated,
+      existing.lastUpdated,
+    );
+    if (lastUpdatedCompare != 0) {
+      return lastUpdatedCompare > 0;
+    }
+
+    final createdCompare = _compareNullableDateDesc(
+      candidate.createdTime,
+      existing.createdTime,
+    );
+    if (createdCompare != 0) {
+      return createdCompare > 0;
+    }
+
+    return candidate.reference.id.compareTo(existing.reference.id) > 0;
+  }
+
   static List<ActivityInstanceRecord> selectQueueItems(
     TodayInstanceSnapshot snapshot,
   ) {
-    final items = snapshot.instances
-        .where((i) =>
-            i.isActive &&
-            (i.templateCategoryType == 'task' ||
-                i.templateCategoryType == 'habit'))
-        .toList();
+    final nonPendingItems = <ActivityInstanceRecord>[];
+    final pendingByKey = <String, ActivityInstanceRecord>{};
+
+    for (final instance in snapshot.instances) {
+      final isQueueType = instance.templateCategoryType == 'task' ||
+          instance.templateCategoryType == 'habit';
+      if (!instance.isActive || !isQueueType) {
+        continue;
+      }
+
+      if (instance.status != 'pending') {
+        nonPendingItems.add(instance);
+        continue;
+      }
+
+      final key = _queuePendingDedupKey(instance);
+      final existing = pendingByKey[key];
+      if (existing == null ||
+          _shouldReplaceQueuePendingDuplicate(
+            existing: existing,
+            candidate: instance,
+          )) {
+        pendingByKey[key] = instance;
+      }
+    }
+
+    final items = <ActivityInstanceRecord>[
+      ...nonPendingItems,
+      ...pendingByKey.values,
+    ];
     return InstanceOrderService.sortInstancesByOrder(items, 'queue');
   }
 

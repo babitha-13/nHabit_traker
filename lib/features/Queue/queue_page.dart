@@ -84,6 +84,7 @@ class _QueuePageState extends State<QueuePage>
   double? _pendingHistoryScore;
   double? _pendingHistoryGain;
   bool _isCalculatingProgress = false;
+  bool _pendingProgressRecalculate = false;
   int _progressCalculationVersion =
       0; // Track calculation order to prevent overwriting newer values
   bool _isInitialLoadComplete =
@@ -680,6 +681,7 @@ class _QueuePageState extends State<QueuePage>
     } else {
       // Prevent concurrent non-optimistic calculations
       if (_isCalculatingProgress) {
+        _pendingProgressRecalculate = true;
         return; // Skip if already calculating
       }
 
@@ -763,8 +765,19 @@ class _QueuePageState extends State<QueuePage>
         rethrow;
       } finally {
         _isCalculatingProgress = false;
+        _drainPendingProgressRecalculation();
       }
     }
+  }
+
+  void _drainPendingProgressRecalculation() {
+    if (!_pendingProgressRecalculate || !mounted) return;
+    _pendingProgressRecalculate = false;
+    Future.microtask(() {
+      if (!mounted) return;
+      _calculateProgress(optimistic: true);
+      _scheduleFullSync();
+    });
   }
 
   Future<void> _updateTodayScore({
@@ -898,6 +911,7 @@ class _QueuePageState extends State<QueuePage>
   }) async {
     // Prevent concurrent calculations
     if (_isCalculatingProgress) {
+      _pendingProgressRecalculate = true;
       return;
     }
 
@@ -1036,6 +1050,7 @@ class _QueuePageState extends State<QueuePage>
       }
     } finally {
       _isCalculatingProgress = false;
+      _drainPendingProgressRecalculation();
     }
   }
 

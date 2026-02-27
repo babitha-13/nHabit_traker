@@ -141,6 +141,84 @@
           "order": "ASCENDING"
         }
       ]
+    },
+    {
+      "collectionGroup": "activity_instances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "templateCategoryType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalTimeLogged",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "belongsToDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "activity_instances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "totalTimeLogged",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "belongsToDate",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "activity_instances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "templateCategoryType",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "totalTimeLogged",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "completedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "activity_instances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "totalTimeLogged",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "completedAt",
+          "order": "ASCENDING"
+        }
+      ]
+    },
+    {
+      "collectionGroup": "activity_instances",
+      "queryScope": "COLLECTION",
+      "fields": [
+        {
+          "fieldPath": "totalTimeLogged",
+          "order": "ASCENDING"
+        },
+        {
+          "fieldPath": "dueDate",
+          "order": "ASCENDING"
+        }
+      ]
     }
   ],
   "fieldOverrides": []

@@ -14,6 +14,18 @@ import 'activity_instance_helper_service.dart';
 
 /// Service for creating activity instances
 class ActivityInstanceCreationService {
+  static String _buildHabitPendingDocId({
+    required String templateId,
+    required DateTime belongsToDate,
+  }) {
+    final normalized =
+        DateTime(belongsToDate.year, belongsToDate.month, belongsToDate.day);
+    final year = normalized.year.toString().padLeft(4, '0');
+    final month = normalized.month.toString().padLeft(2, '0');
+    final day = normalized.day.toString().padLeft(2, '0');
+    return 'habit_${templateId}_$year$month$day';
+  }
+
   /// Create a new activity instance from a template
   /// This is the core method for Phase 1 - instance creation
   static Future<DocumentReference> createActivityInstance({
@@ -165,8 +177,26 @@ class ActivityInstanceCreationService {
 
     // 5. Perform backend creation
     try {
-      final result =
-          await ActivityInstanceRecord.collectionForUser(uid).add(instanceData);
+      DocumentReference result;
+      if (template.categoryType == 'habit') {
+        final habitDocId = _buildHabitPendingDocId(
+          templateId: templateId,
+          belongsToDate: normalizedDate,
+        );
+        final habitRef =
+            ActivityInstanceRecord.collectionForUser(uid).doc(habitDocId);
+
+        await FirebaseFirestore.instance.runTransaction((tx) async {
+          final existing = await tx.get(habitRef);
+          if (!existing.exists) {
+            tx.set(habitRef, instanceData);
+          }
+        });
+        result = habitRef;
+      } else {
+        result = await ActivityInstanceRecord.collectionForUser(uid)
+            .add(instanceData);
+      }
 
       // 6. Reconcile with actual instance
       final actualInstance = ActivityInstanceRecord.fromSnapshot(

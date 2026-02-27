@@ -136,13 +136,19 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
 
     calculateTodayBreakdown().then((breakdown) {
       Navigator.of(context).pop();
+      final dialogEarned =
+          (breakdown['earned'] as num?)?.toDouble() ?? todayEarned;
+      final dialogTarget =
+          (breakdown['target'] as num?)?.toDouble() ?? todayTarget;
+      final dialogPercentage =
+          (breakdown['percentage'] as num?)?.toDouble() ?? todayPercentage;
       showDialog(
         context: context,
         builder: (context) => ProgressBreakdownDialog(
           date: DateService.currentDate,
-          totalEarned: todayEarned,
-          totalTarget: todayTarget,
-          percentage: todayPercentage,
+          totalEarned: dialogEarned,
+          totalTarget: dialogTarget,
+          percentage: dialogPercentage,
           habitBreakdown: breakdown['habitBreakdown'] ?? [],
           taskBreakdown: breakdown['taskBreakdown'] ?? [],
         ),
@@ -209,8 +215,7 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
         breakdown['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
     final totalHabits = breakdown['totalHabits'] as int? ?? 0;
     final totalTasks = breakdown['totalTasks'] as int? ?? 0;
-    final hasBreakdown =
-        habitBreakdown.isNotEmpty || taskBreakdown.isNotEmpty;
+    final hasBreakdown = habitBreakdown.isNotEmpty || taskBreakdown.isNotEmpty;
 
     if (!hasBreakdown && (totalHabits > 0 || totalTasks > 0)) {
       throw Exception(

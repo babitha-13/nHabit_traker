@@ -141,19 +141,12 @@ class ProgressPageDataService {
         );
       }
 
-      final sharedBreakdown = TodayProgressState().getTodayActivityBreakdown();
-      final sharedHabits =
-          sharedBreakdown['habitBreakdown'] as List<Map<String, dynamic>>? ??
-              [];
-      final sharedTasks =
-          sharedBreakdown['taskBreakdown'] as List<Map<String, dynamic>>? ?? [];
-      if (sharedHabits.isNotEmpty || sharedTasks.isNotEmpty) {
-        return {
-          'habitBreakdown': sharedHabits,
-          'taskBreakdown': sharedTasks,
-          'totalHabits': sharedHabits.length,
-          'totalTasks': sharedTasks.length,
-        };
+      // Prefer recalculating from the latest instance snapshot for today.
+      // Shared breakdown can be stale when queue/live progress updates are lagging.
+      final optimisticBreakdown =
+          await _calculateTodayBreakdownFromInstances(userId: userId);
+      if (optimisticBreakdown != null) {
+        return optimisticBreakdown;
       }
 
       final cachedData = await fetchInstancesForBreakdown(
@@ -168,6 +161,26 @@ class ProgressPageDataService {
           cachedData['categories'] as List<CategoryRecord>? ?? const [];
 
       if (cachedHabits.isEmpty && cachedTasks.isEmpty) {
+        final sharedBreakdown =
+            TodayProgressState().getTodayActivityBreakdown();
+        final sharedHabits =
+            sharedBreakdown['habitBreakdown'] as List<Map<String, dynamic>>? ??
+                [];
+        final sharedTasks =
+            sharedBreakdown['taskBreakdown'] as List<Map<String, dynamic>>? ??
+                [];
+        if (sharedHabits.isNotEmpty || sharedTasks.isNotEmpty) {
+          final sharedProgress = TodayProgressState().getProgressData();
+          return {
+            'habitBreakdown': sharedHabits,
+            'taskBreakdown': sharedTasks,
+            'totalHabits': sharedHabits.length,
+            'totalTasks': sharedTasks.length,
+            'target': sharedProgress['target'] ?? 0.0,
+            'earned': sharedProgress['earned'] ?? 0.0,
+            'percentage': sharedProgress['percentage'] ?? 0.0,
+          };
+        }
         throw Exception(
           'Today breakdown is unavailable. Open Queue once to hydrate local cache.',
         );
@@ -190,6 +203,9 @@ class ProgressPageDataService {
                 <Map<String, dynamic>>[],
         'totalHabits': optimistic['totalHabits'] as int? ?? cachedHabits.length,
         'totalTasks': optimistic['totalTasks'] as int? ?? cachedTasks.length,
+        'target': (optimistic['target'] as num?)?.toDouble() ?? 0.0,
+        'earned': (optimistic['earned'] as num?)?.toDouble() ?? 0.0,
+        'percentage': (optimistic['percentage'] as num?)?.toDouble() ?? 0.0,
       };
     }
 
@@ -199,6 +215,56 @@ class ProgressPageDataService {
       'taskBreakdown': List<Map<String, dynamic>>.from(record.taskBreakdown),
       'totalHabits': record.totalHabits,
       'totalTasks': record.totalTasks,
+      'target': record.targetPoints,
+      'earned': record.earnedPoints,
+      'percentage': record.completionPercentage,
+    };
+  }
+
+  static Future<Map<String, dynamic>?> _calculateTodayBreakdownFromInstances({
+    required String userId,
+  }) async {
+    final cached = await fetchInstancesForBreakdown(
+      userId: userId,
+      useCacheOnly: true,
+    );
+    var habits = cached['habits'] as List<ActivityInstanceRecord>? ?? const [];
+    var tasks = cached['tasks'] as List<ActivityInstanceRecord>? ?? const [];
+    var categories = cached['categories'] as List<CategoryRecord>? ?? const [];
+
+    if (habits.isEmpty && tasks.isEmpty) {
+      final fresh = await fetchInstancesForBreakdown(
+        userId: userId,
+        useCacheOnly: false,
+      );
+      habits = fresh['habits'] as List<ActivityInstanceRecord>? ?? const [];
+      tasks = fresh['tasks'] as List<ActivityInstanceRecord>? ?? const [];
+      categories = fresh['categories'] as List<CategoryRecord>? ?? const [];
+    }
+
+    if (habits.isEmpty && tasks.isEmpty) {
+      return null;
+    }
+
+    final optimistic = DailyProgressCalculator.calculateTodayProgressOptimistic(
+      userId: userId,
+      allInstances: habits,
+      categories: categories,
+      taskInstances: tasks,
+    );
+
+    return {
+      'habitBreakdown':
+          (optimistic['habitBreakdown'] as List<Map<String, dynamic>>?) ??
+              <Map<String, dynamic>>[],
+      'taskBreakdown':
+          (optimistic['taskBreakdown'] as List<Map<String, dynamic>>?) ??
+              <Map<String, dynamic>>[],
+      'totalHabits': optimistic['totalHabits'] as int? ?? habits.length,
+      'totalTasks': optimistic['totalTasks'] as int? ?? tasks.length,
+      'target': (optimistic['target'] as num?)?.toDouble() ?? 0.0,
+      'earned': (optimistic['earned'] as num?)?.toDouble() ?? 0.0,
+      'percentage': (optimistic['percentage'] as num?)?.toDouble() ?? 0.0,
     };
   }
 

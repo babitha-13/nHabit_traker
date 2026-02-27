@@ -201,33 +201,31 @@ class ItemManagementHelper {
           InstanceEvents.broadcastInstanceDeleted(deletedInstance);
 
           try {
-            // 1. Delete future instances (including today's if that's the one selected)
-            // The requirement says: "All instance from the date of the instance on which the delete was clicked on should be deleted."
-            // So we use instance.dueDate (or createdTime if null/habit logic specific)
-            // For tasks/habits in lists, they usually have a dueDate or are associated with a date.
-            // For tasks/habits in lists, they usually have a dueDate or are associated with a date.
-            // If instance.dueDate is null, fall back to createdTime so we don't accidentally skip deleting it if it was created in the past.
+            // IMPORTANT: Mark the template inactive FIRST before deleting instances.
+            // The Cloud Function `ensurePendingInstancesExist` queries templates where
+            // isActive==true. If we delete instances first but the template is still active,
+            // the Cloud Function can race in and regenerate the very instances we just deleted.
+
+            // 1. Stop the template first (set isActive=false and endDate)
+            // End date should be the day BEFORE the deleteStartDate
             final deleteStartDate =
                 instance.dueDate ?? instance.createdTime ?? DateTime.now();
-            print(
-                'ItemManagementHelper: Calling deleteFutureInstances from date: $deleteStartDate');
-
-            await ActivityInstanceService.deleteFutureInstances(
-                templateId: instance.templateId, fromDate: deleteStartDate);
-
-            // 2. Stop the template (set endDate)
-            // End date should be the day BEFORE the deleteStartDate
             final newEndDate =
                 deleteStartDate.subtract(const Duration(days: 1));
             print(
-                'ItemManagementHelper: Updating templateRef ${templateRef.id} to end on $newEndDate');
+                'ItemManagementHelper: Marking template inactive first: ${templateRef.id}, endDate: $newEndDate');
             await templateRef.update({
               'endDate': newEndDate,
+              'isActive': false,
               'lastUpdated': DateTime.now(),
-              // Optionally set isActive to false if newEndDate is in past
-              'isActive':
-                  false, // Effectively stops it showing up in "Active" lists
             });
+
+            // 2. Now delete future instances (template is already inactive so Cloud
+            //    Functions won't recreate them during the deletion window).
+            print(
+                'ItemManagementHelper: Calling deleteFutureInstances from date: $deleteStartDate');
+            await ActivityInstanceService.deleteFutureInstances(
+                templateId: instance.templateId, fromDate: deleteStartDate);
 
             print(
                 'ItemManagementHelper: Deletion completed successfully for recurring task');

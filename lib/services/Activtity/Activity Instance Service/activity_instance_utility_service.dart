@@ -146,7 +146,10 @@ class ActivityInstanceUtilityService {
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) {
-        final dateToCompare = instance.dueDate ?? instance.createdTime;
+        // For habits, belongsToDate is the authoritative scheduling date.
+        // Fall back to dueDate then createdTime for task instances.
+        final dateToCompare =
+            instance.belongsToDate ?? instance.dueDate ?? instance.createdTime;
         if (dateToCompare == null) return false; // Should not happen, but safe
 
         // Compare just dates to be safe

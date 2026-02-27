@@ -48,7 +48,16 @@ class ItemComponent extends StatefulWidget {
   final bool enableExpandedEdit;
   final bool showSwipeTimerAction;
   final bool
-      treatAsBinary; // NEW: Forces checklist behavior regardless of tracking type
+      treatAsBinary; // Forces checklist behavior regardless of tracking type
+  // When true (Routine page only): a tap on a quantitative item increments
+  // progress by 1 instead of immediately completing it. Completion fires
+  // automatically only when the new value meets the target.
+  final bool quantitativeTreatAsIncrement;
+  // When true, the item always appears visually completed (struck-off)
+  // regardless of its backend status or internal override state.
+  // Used by the Routine page to persist the struck-off look for items
+  // the user ticked this session, even after broadcasts reset the status.
+  final bool forceVisuallyCompleted;
   const ItemComponent(
       {super.key,
       required this.instance,
@@ -75,7 +84,9 @@ class ItemComponent extends StatefulWidget {
       this.showManagementActions = true,
       this.enableExpandedEdit = true,
       this.showSwipeTimerAction = true,
-      this.treatAsBinary = false});
+      this.treatAsBinary = false,
+      this.quantitativeTreatAsIncrement = false,
+      this.forceVisuallyCompleted = false});
   @override
   State<ItemComponent> createState() => _ItemComponentState();
 }
@@ -249,6 +260,9 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isCompleted {
+    // forceVisuallyCompleted wins over everything — it's set externally (e.g.
+    // by RoutineDetailPage's session-ticked set) and is immune to broadcasts.
+    if (widget.forceVisuallyCompleted) return true;
     return _binaryCompletionOverride ?? _isBackendCompleted;
   }
 
@@ -888,6 +902,7 @@ class _ItemComponentState extends State<ItemComponent>
       categoryColorHex: widget.categoryColorHex,
       isMounted: () => mounted,
       setState: (callback) => setState(callback),
+      quantitativeTreatAsIncrement: widget.quantitativeTreatAsIncrement,
     );
   }
 

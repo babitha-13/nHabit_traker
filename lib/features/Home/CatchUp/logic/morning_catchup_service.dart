@@ -127,6 +127,15 @@ class MorningCatchUpService {
         return false;
       }
 
+      // Guard: if there were no items to track that day, all penalties/bonuses
+      // are meaningless. Suppress toasts entirely.
+      // This prevents "Slump Penalty" toasts on brand-new accounts and days
+      // where the user had not yet created any habits or tasks.
+      if ((dailyRecord.targetPoints) <= 0) {
+        _pendingToastData = null;
+        return false;
+      }
+
       var consecutiveLowDays = 0;
       try {
         final statsRef =

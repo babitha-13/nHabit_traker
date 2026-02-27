@@ -22,6 +22,11 @@ class ItemBinaryControlsHelper {
     String? categoryColorHex,
     required bool Function() isMounted,
     required void Function(VoidCallback) setState,
+    // When true: for quantitative items a tap increments by 1 only;
+    // completion fires automatically only when the new value meets the target.
+    // The item appears visually struck-off in the caller's UI via the binary
+    // override, but the backend instance stays 'pending' until target is met.
+    bool quantitativeTreatAsIncrement = false,
   }) async {
     if (isUpdating) return;
     bool deleteLogs = false;
@@ -68,12 +73,24 @@ class ItemBinaryControlsHelper {
     // Create optimistic instance IMMEDIATELY for instant UI update
     ActivityInstanceRecord optimisticInstance;
     if (completed) {
-      optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
-        instance,
-        finalValue: targetValue,
-        finalAccumulatedTime: targetAccumulatedTime,
-        templateCategoryColorHex: categoryColorHex,
-      );
+      if (instance.templateTrackingType == 'quantitative' &&
+          quantitativeTreatAsIncrement) {
+        // In increment-only mode the optimistic instance stays 'pending' with
+        // the updated value. Queue/Habits pages see a progress update, not a
+        // completion. The visual strike-off in the Routine is driven solely
+        // by _binaryCompletionOverride (set above), not by instance.status.
+        optimisticInstance = InstanceEvents.createOptimisticProgressInstance(
+          instance,
+          currentValue: targetValue,
+        );
+      } else {
+        optimisticInstance = InstanceEvents.createOptimisticCompletedInstance(
+          instance,
+          finalValue: targetValue,
+          finalAccumulatedTime: targetAccumulatedTime,
+          templateCategoryColorHex: categoryColorHex,
+        );
+      }
     } else {
       optimisticInstance = InstanceEvents.createOptimisticUncompletedInstance(
         instance,
@@ -111,9 +128,30 @@ class ItemBinaryControlsHelper {
 
       // Perform backend operations (non-blocking for UI)
       if (completed) {
-        // For non-quantitative tasks, we can combine update and complete into a single call
-        // to prevent status flicker (pending -> completed) caused by the intermediate updateInstanceProgress
-        if (instance.templateTrackingType != 'quantitative') {
+        if (instance.templateTrackingType == 'quantitative' &&
+            quantitativeTreatAsIncrement) {
+          // ── Routine increment-only mode ──────────────────────────────────
+          // Tap = +1 act. The item looks struck-off in the Routine via the
+          // binary override, but the backend status stays 'pending' unless
+          // the new value meets the target (in which case it completes normally).
+          await ActivityInstanceService.updateInstanceProgress(
+            instanceId: instance.reference.id,
+            currentValue: targetValue, // already = currentProgressLocal + 1
+            referenceTime: progressReferenceTime,
+          );
+          final templateTarget = instance.templateTarget;
+          final targetMet = templateTarget != null &&
+              (targetValue as num) >= (templateTarget as num);
+          if (targetMet) {
+            await ActivityInstanceService.completeInstance(
+              instanceId: instance.reference.id,
+              skipOptimisticUpdate: true,
+            );
+          }
+          // ────────────────────────────────────────────────────────────────
+        } else if (instance.templateTrackingType != 'quantitative') {
+          // For non-quantitative tasks, we can combine update and complete into a single call
+          // to prevent status flicker (pending -> completed) caused by the intermediate updateInstanceProgress
           await ActivityInstanceService.completeInstance(
             instanceId: instance.reference.id,
             finalValue: targetValue,

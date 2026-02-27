@@ -17,6 +17,150 @@ import { logFirestoreIndexHint } from './firestoreIndexLogger.js';
 
 const db = admin.firestore();
 
+type PendingInstanceEntry = {
+  instance: ActivityInstance;
+  ref: admin.firestore.DocumentReference;
+};
+
+function dateKey(date: Date | null | undefined): string {
+  if (!date) return 'null';
+  const normalized = normalizeToStartOfDay(date);
+  const year = normalized.getUTCFullYear().toString().padStart(4, '0');
+  const month = (normalized.getUTCMonth() + 1).toString().padStart(2, '0');
+  const day = normalized.getUTCDate().toString().padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function buildHabitPendingDocId(templateId: string, belongsToDate: Date): string {
+  const normalized = normalizeToStartOfDay(belongsToDate);
+  const year = normalized.getUTCFullYear().toString().padStart(4, '0');
+  const month = (normalized.getUTCMonth() + 1).toString().padStart(2, '0');
+  const day = normalized.getUTCDate().toString().padStart(2, '0');
+  return `habit_${templateId}_${year}${month}${day}`;
+}
+
+function pendingDedupKey(instance: ActivityInstance): string {
+  return [
+    instance.templateId,
+    instance.status ?? 'pending',
+    dateKey(timestampToDate(instance.dueDate)),
+    dateKey(timestampToDate(instance.belongsToDate)),
+    dateKey(timestampToDate(instance.windowEndDate)),
+  ].join('|');
+}
+
+function asNumber(value: unknown): number {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : 0;
+  }
+  return 0;
+}
+
+function compareDateNullable(
+  a: Date | null | undefined,
+  b: Date | null | undefined
+): number {
+  if (!a && !b) return 0;
+  if (!a) return -1;
+  if (!b) return 1;
+  return a.getTime() - b.getTime();
+}
+
+function shouldPreferPendingCandidate(
+  candidate: PendingInstanceEntry,
+  existing: PendingInstanceEntry
+): boolean {
+  const candidateProgress = asNumber(candidate.instance.currentValue);
+  const existingProgress = asNumber(existing.instance.currentValue);
+  if (candidateProgress !== existingProgress) {
+    return candidateProgress > existingProgress;
+  }
+
+  const candidateTime = candidate.instance.totalTimeLogged ?? 0;
+  const existingTime = existing.instance.totalTimeLogged ?? 0;
+  if (candidateTime !== existingTime) {
+    return candidateTime > existingTime;
+  }
+
+  const candidateUpdated = timestampToDate(candidate.instance.lastUpdated);
+  const existingUpdated = timestampToDate(existing.instance.lastUpdated);
+  const updatedCompare = compareDateNullable(candidateUpdated, existingUpdated);
+  if (updatedCompare !== 0) {
+    return updatedCompare > 0;
+  }
+
+  const candidateCreated = timestampToDate(candidate.instance.createdTime);
+  const existingCreated = timestampToDate(existing.instance.createdTime);
+  const createdCompare = compareDateNullable(candidateCreated, existingCreated);
+  if (createdCompare !== 0) {
+    return createdCompare > 0;
+  }
+
+  return candidate.ref.id > existing.ref.id;
+}
+
+async function cleanupDuplicatePendingEntries(
+  entries: PendingInstanceEntry[]
+): Promise<PendingInstanceEntry[]> {
+  if (entries.length < 2) {
+    return entries;
+  }
+
+  const grouped = new Map<string, PendingInstanceEntry[]>();
+  for (const entry of entries) {
+    const key = pendingDedupKey(entry.instance);
+    const list = grouped.get(key) ?? [];
+    list.push(entry);
+    grouped.set(key, list);
+  }
+
+  const deduped: PendingInstanceEntry[] = [];
+  const refsToDelete: admin.firestore.DocumentReference[] = [];
+
+  for (const group of grouped.values()) {
+    if (group.length === 1) {
+      deduped.push(group[0]);
+      continue;
+    }
+
+    let keep = group[0];
+    for (let i = 1; i < group.length; i++) {
+      const candidate = group[i];
+      if (shouldPreferPendingCandidate(candidate, keep)) {
+        keep = candidate;
+      }
+    }
+
+    deduped.push(keep);
+    for (const entry of group) {
+      if (entry.ref.path !== keep.ref.path) {
+        refsToDelete.push(entry.ref);
+      }
+    }
+  }
+
+  if (refsToDelete.length > 0) {
+    let batch = db.batch();
+    let opCount = 0;
+    for (const ref of refsToDelete) {
+      batch.delete(ref);
+      opCount++;
+      if (opCount >= 450) {
+        await batch.commit();
+        batch = db.batch();
+        opCount = 0;
+      }
+    }
+    if (opCount > 0) {
+      await batch.commit();
+    }
+  }
+
+  return deduped;
+}
+
 /**
  * Run instance maintenance for day transition
  * This matches the logic from MorningCatchUpService.runInstanceMaintenanceForDayTransition
@@ -157,7 +301,7 @@ async function ensurePendingInstancesExist(
     
     // Batch fetch pending instances for all templates using whereIn
     // Firestore whereIn limit is 10, so batch in groups of 10
-    const pendingInstancesByTemplate = new Map<string, ActivityInstance[]>();
+    const pendingInstancesByTemplate = new Map<string, PendingInstanceEntry[]>();
     const mostRecentInstancesByTemplate = new Map<
       string,
       { instance: ActivityInstance; ref: admin.firestore.DocumentReference } | null
@@ -181,7 +325,10 @@ async function ensurePendingInstancesExist(
         if (!pendingInstancesByTemplate.has(templateId)) {
           pendingInstancesByTemplate.set(templateId, []);
         }
-        pendingInstancesByTemplate.get(templateId)!.push(instance);
+        pendingInstancesByTemplate.get(templateId)!.push({
+          instance,
+          ref: doc.ref,
+        });
       });
     }
 
@@ -214,7 +361,11 @@ async function ensurePendingInstancesExist(
     
     // Process each template with pre-fetched instance data
     for (const { id: templateId, data: template } of templates) {
-      const pendingInstances = pendingInstancesByTemplate.get(templateId) || [];
+      const pendingEntries =
+        await cleanupDuplicatePendingEntries(
+          pendingInstancesByTemplate.get(templateId) || []
+        );
+      const pendingInstances = pendingEntries.map((entry) => entry.instance);
       
       // Filter to check if any belong to yesterday
       let hasYesterdayPending = false;
@@ -426,8 +577,10 @@ async function generateNextInstance(
       lastDayValue: 0,
     };
     
-    // Add to batch
-    const nextInstanceRef = instancesRef.doc();
+    // Add to batch using deterministic doc id to prevent duplicate pending docs
+    const nextInstanceRef = instancesRef.doc(
+      buildHabitPendingDocId(instance.templateId, nextBelongsToDateNormalized)
+    );
     batch.set(nextInstanceRef, nextInstanceData);
   } catch (error) {
     logFirestoreIndexHint('instanceMaintenance.generateNextInstance', error);
@@ -512,7 +665,13 @@ async function createInitialInstance(
       lastDayValue: 0,
     };
     
-    await instancesRef.add(instanceData);
+    const initialRef = instancesRef.doc(buildHabitPendingDocId(templateId, today));
+    await db.runTransaction(async (tx) => {
+      const existing = await tx.get(initialRef);
+      if (!existing.exists) {
+        tx.set(initialRef, instanceData);
+      }
+    });
   } catch (error) {
     console.error(`Error creating initial instance for template ${templateId}:`, error);
   }

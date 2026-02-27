@@ -299,6 +299,7 @@ class TaskInstanceTimeLoggingService {
               'Get essential instances by belongsToDate (templateCategoryType + totalTimeLogged + belongsToDate)',
               'activity_instances',
             );
+            return [];
           }
         }
       }
@@ -387,14 +388,10 @@ class TaskInstanceTimeLoggingService {
       required Future<dynamic> Function() runQuery,
       required String queryDescription,
       bool filterByDay = false,
-      bool countAsFallback = false,
-      String? fallbackReason,
-      String? queryShape,
     }) async {
       try {
         final result = await runQuery();
-        final docs = result.docs;
-        final instances = docs
+        final instances = result.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((instance) {
           if (!instance.isActive) return false;
@@ -406,36 +403,12 @@ class TaskInstanceTimeLoggingService {
           return belongsToday || completedToday || sessionToday;
         });
         mergeInstances(instances);
-        if (countAsFallback) {
-          FallbackReadTelemetry.logQueryFallback(
-            FallbackReadEvent(
-              scope:
-                  'task_instance_time_logging_service.getTodayEssentialInstances',
-              reason: fallbackReason ?? 'fallback_query_executed',
-              queryShape: queryShape ?? queryDescription,
-              userCountSampled: 1,
-              fallbackDocsReadEstimate: docs.length,
-            ),
-          );
-        }
       } catch (e) {
         logFirestoreIndexError(
           e,
           queryDescription,
           'activity_instances',
         );
-        if (countAsFallback) {
-          FallbackReadTelemetry.logQueryFallback(
-            FallbackReadEvent(
-              scope:
-                  'task_instance_time_logging_service.getTodayEssentialInstances',
-              reason: '${fallbackReason ?? 'fallback_query'}_failed',
-              queryShape: queryShape ?? queryDescription,
-              userCountSampled: 1,
-              fallbackDocsReadEstimate: 0,
-            ),
-          );
-        }
       }
     }
 
@@ -468,12 +441,8 @@ class TaskInstanceTimeLoggingService {
             .limit(300)
             .get(),
         queryDescription:
-            'Get today essential logged fallback by completedAt range (essential + totalTimeLogged + completedAt)',
+            'Get today essential logged by completedAt range (essential + totalTimeLogged + completedAt)',
         filterByDay: true,
-        countAsFallback: true,
-        fallbackReason: 'completed_at_range_fallback',
-        queryShape:
-            'templateCategoryType=essential,totalTimeLogged>0,completedAt in [dayStart,dayEnd),limit=300',
       );
     }
 

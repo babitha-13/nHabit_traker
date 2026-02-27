@@ -18,6 +18,18 @@ import 'activity_instance_completion_service.dart';
 
 /// Helper service for activity instance calculations and utilities
 class ActivityInstanceHelperService {
+  static String buildHabitPendingDocId({
+    required String templateId,
+    required DateTime belongsToDate,
+  }) {
+    final normalized =
+        DateTime(belongsToDate.year, belongsToDate.month, belongsToDate.day);
+    final year = normalized.year.toString().padLeft(4, '0');
+    final month = normalized.month.toString().padLeft(2, '0');
+    final day = normalized.day.toString().padLeft(2, '0');
+    return 'habit_${templateId}_$year$month$day';
+  }
+
   /// Get current user ID
   static String getCurrentUserId() {
     final user = FirebaseAuth.instance.currentUser;
@@ -226,6 +238,11 @@ class ActivityInstanceHelperService {
           nextBelongsToDate =
               DateService.currentDate.add(const Duration(days: 1));
         }
+        nextBelongsToDate = DateTime(
+          nextBelongsToDate.year,
+          nextBelongsToDate.month,
+          nextBelongsToDate.day,
+        );
         nextWindowDuration = await calculateAdaptiveWindowDuration(
           template: template,
           userId: userId,
@@ -237,6 +254,11 @@ class ActivityInstanceHelperService {
       } else {
         nextBelongsToDate =
             instance.windowEndDate!.add(const Duration(days: 1));
+        nextBelongsToDate = DateTime(
+          nextBelongsToDate.year,
+          nextBelongsToDate.month,
+          nextBelongsToDate.day,
+        );
         nextWindowDuration = await calculateAdaptiveWindowDuration(
           template: template,
           userId: userId,
@@ -247,14 +269,18 @@ class ActivityInstanceHelperService {
         }
       }
 
-      final nextWindowEndDate =
-          nextBelongsToDate.add(Duration(days: nextWindowDuration - 1));
+      final nextWindowEndDate = DateTime(
+          nextBelongsToDate.year,
+          nextBelongsToDate.month,
+          nextBelongsToDate.day + nextWindowDuration - 1);
+      final nextInstanceRef = ActivityInstanceRecord.collectionForUser(userId)
+          .doc(buildHabitPendingDocId(
+        templateId: instance.templateId,
+        belongsToDate: nextBelongsToDate,
+      ));
       try {
-        final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
-            .where('templateId', isEqualTo: instance.templateId)
-            .where('belongsToDate', isEqualTo: nextBelongsToDate);
-        final existingInstances = await existingQuery.get();
-        if (existingInstances.docs.isNotEmpty) {
+        final existingDoc = await nextInstanceRef.get();
+        if (existingDoc.exists) {
           return; // Instance already exists (any status), don't create duplicate
         }
         final today = DateService.todayStart;
@@ -356,15 +382,30 @@ class ActivityInstanceHelperService {
       InstanceEvents.broadcastInstanceCreatedOptimistic(
           optimisticInstance, operationId);
       try {
-        final newInstanceRef =
-            await ActivityInstanceRecord.collectionForUser(userId)
-                .add(nextInstanceData);
-        final newInstance = await getUpdatedInstance(
-          instanceId: newInstanceRef.id,
-          userId: userId,
+        final created = await FirebaseFirestore.instance.runTransaction<bool>(
+          (tx) async {
+            final existing = await tx.get(nextInstanceRef);
+            if (existing.exists) {
+              return false;
+            }
+            tx.set(nextInstanceRef, nextInstanceData);
+            return true;
+          },
         );
-        OptimisticOperationTracker.reconcileInstanceCreation(
-            operationId, newInstance);
+
+        final reconciledDoc = await nextInstanceRef.get();
+        if (reconciledDoc.exists) {
+          final reconciledInstance =
+              ActivityInstanceRecord.fromSnapshot(reconciledDoc);
+          OptimisticOperationTracker.reconcileInstanceCreation(
+            operationId,
+            reconciledInstance,
+          );
+        } else if (created) {
+          OptimisticOperationTracker.rollbackOperation(operationId);
+        } else {
+          OptimisticOperationTracker.rollbackOperation(operationId);
+        }
       } catch (e) {
         OptimisticOperationTracker.rollbackOperation(operationId);
       }

@@ -30,6 +30,10 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _isReordering = false;
+  // Tracks itemIds ticked this Routine session (for qty increment-only items).
+  // The struck-off visual is driven by this set rather than by _binaryCompletionOverride
+  // (which can be cleared by reconciliation broadcasts).
+  final Set<String> _sessionTickedItemIds = {};
   @override
   void initState() {
     super.initState();
@@ -119,9 +123,24 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         );
       }
       if (mounted) {
+        // Rebuild session-ticked set from loaded instances:
+        // any qty item with existing progress (currentValue > 0) should remain
+        // visually struck-off in the Routine when navigating back to the page.
+        final rebuiltTicked = <String>{};
+        updatedRoutineWithInstances?.instances.forEach((itemId, inst) {
+          if (inst.templateTrackingType == 'quantitative') {
+            final val = inst.currentValue;
+            if (val is num && val > 0) {
+              rebuiltTicked.add(itemId);
+            }
+          }
+        });
         setState(() {
           _routineWithInstances = updatedRoutineWithInstances;
           _categories = allCategories;
+          _sessionTickedItemIds
+            ..clear()
+            ..addAll(rebuiltTicked);
           _isLoading = false;
         });
       }
@@ -153,6 +172,16 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     if (updatedInstance == null || _routineWithInstances == null) {
       return;
     }
+
+    // Skip optimistic broadcasts — they are already applied via the direct
+    // onInstanceUpdated callback inside ItemBinaryControlsHelper. Letting them
+    // also flow through here would cause a double setState, and in the
+    // quantitative path it creates an intermediate pending-state flash between
+    // updateInstanceProgress and completeInstance that clears the binary
+    // completion override and makes the item flicker back to incomplete.
+    final isOptimistic = updatedInstance.snapshotData['_optimistic'] == true;
+    if (isOptimistic) return;
+
     final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
       (mapEntry) => mapEntry.value.reference.id == updatedInstance.reference.id,
     );
@@ -554,14 +583,20 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         : _getCategoryColor(instance);
 
     return ItemComponent(
-      key: ValueKey('${instance.reference.id}_${instance.status}'),
+      key: ValueKey(instance.reference.id),
       instance: instance,
       categoryColorHex: categoryColor,
-      onRefresh: _refreshRoutine,
+      onRefresh:
+          () async {}, // No-op — updates handled via onInstanceUpdated and NotificationCenter
       onInstanceUpdated: (updatedInstance) {
         setState(() {
           if (_routineWithInstances != null) {
             _routineWithInstances!.instances[itemId] = updatedInstance;
+          }
+          // For qty increment-only mode: mark the item as session-ticked so it
+          // stays visually struck-off regardless of subsequent status broadcasts.
+          if (instance.templateTrackingType == 'quantitative') {
+            _sessionTickedItemIds.add(itemId);
           }
         });
       },
@@ -579,6 +614,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showRecurringIcon: true,
       showCompleted: true,
       treatAsBinary: true,
+      quantitativeTreatAsIncrement: true,
+      // forceVisuallyCompleted: session-ticked qty items always look struck-off,
+      // even if the backend status is still 'pending' (target not yet met).
+      forceVisuallyCompleted: instance.templateTrackingType == 'quantitative' &&
+          _sessionTickedItemIds.contains(itemId),
     );
   }
 

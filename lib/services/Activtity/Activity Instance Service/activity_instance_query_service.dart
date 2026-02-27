@@ -790,39 +790,51 @@ class ActivityInstanceQueryService {
               inst.isActive) // Filter inactive instances
           .toList();
       final List<ActivityInstanceRecord> finalInstanceList = [];
-      // For tasks: use earliest-only logic with status priority
-      final Map<String, ActivityInstanceRecord> earliestTasks = {};
+      // For tasks: keep the earliest pending instance per template AND any
+      // recently completed/skipped instances. Using two separate passes ensures
+      // that completing a recurring task does not cause it to vanish from the
+      // snapshot when the next pending sibling already exists in Firestore.
+      final Map<String, ActivityInstanceRecord> earliestPendingTasks = {};
+      final Map<String, List<ActivityInstanceRecord>> recentFinishedTasks = {};
+
       for (final instance in taskInstances) {
-        // Skip inactive instances (should already be filtered, but double-check)
         if (!instance.isActive) continue;
         final templateId = instance.templateId;
-        if (!earliestTasks.containsKey(templateId)) {
-          earliestTasks[templateId] = instance;
-        } else {
-          final existing = earliestTasks[templateId]!;
-          // Prioritize pending instances
-          if (existing.status != 'pending' && instance.status == 'pending') {
-            earliestTasks[templateId] = instance;
-          } else if (existing.status == 'pending' &&
-              instance.status != 'pending') {
-            continue;
-          } else if (existing.status == instance.status) {
-            // Same status: compare by due date
-            if (existing.dueDate == null) {
-              if (instance.dueDate != null) {
-                earliestTasks[templateId] = instance;
-              }
-            } else if (instance.dueDate == null) {
-              continue;
-            } else {
-              if (instance.dueDate!.isBefore(existing.dueDate!)) {
-                earliestTasks[templateId] = instance;
-              }
+
+        if (instance.status == 'pending') {
+          // Keep the earliest (by due date) pending instance per template.
+          if (!earliestPendingTasks.containsKey(templateId)) {
+            earliestPendingTasks[templateId] = instance;
+          } else {
+            final existing = earliestPendingTasks[templateId]!;
+            final existingDue = existing.dueDate;
+            final instanceDue = instance.dueDate;
+            if (existingDue == null && instanceDue != null) {
+              earliestPendingTasks[templateId] = instance;
+            } else if (instanceDue != null &&
+                existingDue != null &&
+                instanceDue.isBefore(existingDue)) {
+              earliestPendingTasks[templateId] = instance;
             }
+          }
+        } else {
+          // Collect completed/skipped instances separately so they are always
+          // included even when a pending sibling exists for the same template.
+          (recentFinishedTasks[templateId] ??= []).add(instance);
+        }
+      }
+
+      finalInstanceList.addAll(earliestPendingTasks.values);
+      // Add completed/skipped instances, deduplicating against already-added
+      // pending instances by document ID to avoid exact duplicates.
+      final addedIds = finalInstanceList.map((i) => i.reference.id).toSet();
+      for (final instances in recentFinishedTasks.values) {
+        for (final instance in instances) {
+          if (addedIds.add(instance.reference.id)) {
+            finalInstanceList.add(instance);
           }
         }
       }
-      finalInstanceList.addAll(earliestTasks.values);
       // For habits: use window-based filtering (new behavior)
       final Map<String, List<ActivityInstanceRecord>> habitInstancesByTemplate =
           {};

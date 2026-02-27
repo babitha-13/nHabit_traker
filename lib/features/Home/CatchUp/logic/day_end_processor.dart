@@ -166,9 +166,9 @@ class DayEndProcessor {
     try {
       // Calculate next window start = current windowEndDate + 1
       final nextBelongsToDate =
-          instance.windowEndDate!.add(const Duration(days: 1));
-      final nextWindowEndDate =
-          nextBelongsToDate.add(Duration(days: instance.windowDuration - 1));
+          _normalizeDate(instance.windowEndDate!.add(const Duration(days: 1)));
+      final nextWindowEndDate = _normalizeDate(
+          nextBelongsToDate.add(Duration(days: instance.windowDuration - 1)));
       // Check if instance already exists for this template and date
       try {
         final existingQuery = ActivityInstanceRecord.collectionForUser(userId)
@@ -243,8 +243,12 @@ class DayEndProcessor {
         tasksOrder: tasksOrder,
       );
       // Add to batch
+      final nextInstanceId = _buildHabitPendingDocId(
+        templateId: instance.templateId,
+        belongsToDate: nextBelongsToDate,
+      );
       final nextInstanceRef =
-          ActivityInstanceRecord.collectionForUser(userId).doc();
+          ActivityInstanceRecord.collectionForUser(userId).doc(nextInstanceId);
       batch.set(nextInstanceRef, nextInstanceData);
     } catch (e) {
       // Don't rethrow - we don't want to fail the entire batch
@@ -652,13 +656,15 @@ class DayEndProcessor {
         // Check if there's at least one pending instance for this habit
         final pendingQuery = ActivityInstanceRecord.collectionForUser(userId)
             .where('templateId', isEqualTo: habit.reference.id)
-            .where('status', isEqualTo: 'pending')
-            .orderBy('belongsToDate', descending: true)
-            .limit(50); // Get more to filter client-side
+            .where('status', isEqualTo: 'pending');
         final pendingSnapshot = await pendingQuery.get();
-        final pendingInstances = pendingSnapshot.docs
+        var pendingInstances = pendingSnapshot.docs
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .toList();
+
+        pendingInstances = await _cleanupDuplicatePendingInstances(
+          pendingInstances: pendingInstances,
+        );
 
         // CRITICAL: Check if there's a pending instance for yesterday
         // If yes, do NOT auto-skip it or generate today's instance
@@ -897,5 +903,138 @@ class DayEndProcessor {
     } catch (e) {
       // Error ensuring pending instances exist
     }
+  }
+
+  static DateTime _normalizeDate(DateTime date) =>
+      DateTime(date.year, date.month, date.day);
+
+  static String _buildHabitPendingDocId({
+    required String templateId,
+    required DateTime belongsToDate,
+  }) {
+    final normalized = _normalizeDate(belongsToDate);
+    final y = normalized.year.toString().padLeft(4, '0');
+    final m = normalized.month.toString().padLeft(2, '0');
+    final d = normalized.day.toString().padLeft(2, '0');
+    return 'habit_${templateId}_$y$m$d';
+  }
+
+  static String _pendingDedupKey(ActivityInstanceRecord instance) {
+    String dateKey(DateTime? value) {
+      if (value == null) return 'null';
+      final normalized = _normalizeDate(value);
+      final y = normalized.year.toString().padLeft(4, '0');
+      final m = normalized.month.toString().padLeft(2, '0');
+      final d = normalized.day.toString().padLeft(2, '0');
+      return '$y-$m-$d';
+    }
+
+    return [
+      instance.templateId,
+      instance.status,
+      dateKey(instance.dueDate),
+      dateKey(instance.belongsToDate),
+      dateKey(instance.windowEndDate),
+    ].join('|');
+  }
+
+  static num _asNumber(dynamic value) {
+    if (value is num) return value;
+    if (value is String) return num.tryParse(value) ?? 0;
+    return 0;
+  }
+
+  static int _compareNullableDate(DateTime? a, DateTime? b) {
+    if (a == null && b == null) return 0;
+    if (a == null) return -1;
+    if (b == null) return 1;
+    return a.compareTo(b);
+  }
+
+  static bool _shouldPreferPendingDuplicate(
+    ActivityInstanceRecord candidate,
+    ActivityInstanceRecord existing,
+  ) {
+    final candidateProgress = _asNumber(candidate.currentValue);
+    final existingProgress = _asNumber(existing.currentValue);
+    if (candidateProgress != existingProgress) {
+      return candidateProgress > existingProgress;
+    }
+    if (candidate.totalTimeLogged != existing.totalTimeLogged) {
+      return candidate.totalTimeLogged > existing.totalTimeLogged;
+    }
+
+    final updatedCompare =
+        _compareNullableDate(candidate.lastUpdated, existing.lastUpdated);
+    if (updatedCompare != 0) {
+      return updatedCompare > 0;
+    }
+
+    final createdCompare =
+        _compareNullableDate(candidate.createdTime, existing.createdTime);
+    if (createdCompare != 0) {
+      return createdCompare > 0;
+    }
+
+    return candidate.reference.id.compareTo(existing.reference.id) > 0;
+  }
+
+  static Future<List<ActivityInstanceRecord>>
+      _cleanupDuplicatePendingInstances({
+    required List<ActivityInstanceRecord> pendingInstances,
+  }) async {
+    if (pendingInstances.length < 2) {
+      return pendingInstances;
+    }
+
+    final grouped = <String, List<ActivityInstanceRecord>>{};
+    for (final instance in pendingInstances) {
+      final key = _pendingDedupKey(instance);
+      (grouped[key] ??= <ActivityInstanceRecord>[]).add(instance);
+    }
+
+    final deduped = <ActivityInstanceRecord>[];
+    final duplicatesToDelete = <ActivityInstanceRecord>[];
+
+    for (final group in grouped.values) {
+      if (group.length == 1) {
+        deduped.add(group.first);
+        continue;
+      }
+
+      var keep = group.first;
+      for (int i = 1; i < group.length; i++) {
+        final candidate = group[i];
+        if (_shouldPreferPendingDuplicate(candidate, keep)) {
+          keep = candidate;
+        }
+      }
+      deduped.add(keep);
+      for (final instance in group) {
+        if (instance.reference.id != keep.reference.id) {
+          duplicatesToDelete.add(instance);
+        }
+      }
+    }
+
+    if (duplicatesToDelete.isNotEmpty) {
+      final firestore = FirebaseFirestore.instance;
+      var batch = firestore.batch();
+      var opCount = 0;
+      for (final duplicate in duplicatesToDelete) {
+        batch.delete(duplicate.reference);
+        opCount++;
+        if (opCount >= 450) {
+          await batch.commit();
+          batch = firestore.batch();
+          opCount = 0;
+        }
+      }
+      if (opCount > 0) {
+        await batch.commit();
+      }
+    }
+
+    return deduped;
   }
 }

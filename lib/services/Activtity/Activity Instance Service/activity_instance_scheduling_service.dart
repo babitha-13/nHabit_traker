@@ -162,8 +162,13 @@ class ActivityInstanceSchedulingService {
         final template = templateMap[instance.templateId];
         if (template == null || !template.isActive) return null;
 
-        final nextBelongsToDate =
+        final nextBelongsToDateRaw =
             instance.windowEndDate!.add(const Duration(days: 1));
+        final nextBelongsToDate = DateTime(
+          nextBelongsToDateRaw.year,
+          nextBelongsToDateRaw.month,
+          nextBelongsToDateRaw.day,
+        );
         final nextWindowDuration =
             await ActivityInstanceHelperService.calculateAdaptiveWindowDuration(
           template: template,
@@ -220,8 +225,11 @@ class ActivityInstanceSchedulingService {
           tasksOrder: tasksOrder,
         );
 
-        final nextInstanceRef =
-            ActivityInstanceRecord.collectionForUser(userId).doc();
+        final nextInstanceRef = ActivityInstanceRecord.collectionForUser(userId)
+            .doc(ActivityInstanceHelperService.buildHabitPendingDocId(
+          templateId: instance.templateId,
+          belongsToDate: nextBelongsToDate,
+        ));
         return MapEntry(nextInstanceRef, nextInstanceData);
       } catch (e) {
         print('Error generating next instance for ${instance.templateId}: $e');
@@ -230,11 +238,16 @@ class ActivityInstanceSchedulingService {
     });
 
     final nextInstanceResults = await Future.wait(nextInstanceFutures);
+    final uniqueNextInstances =
+        <String, MapEntry<DocumentReference, Map<String, dynamic>>>{};
     for (final result in nextInstanceResults) {
       if (result != null) {
-        nextInstanceRefs.add(result.key);
-        nextInstanceDataList.add(result.value);
+        uniqueNextInstances[result.key.path] = result;
       }
+    }
+    for (final result in uniqueNextInstances.values) {
+      nextInstanceRefs.add(result.key);
+      nextInstanceDataList.add(result.value);
     }
 
     int nextInstanceIndex = 0;

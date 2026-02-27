@@ -583,6 +583,24 @@ async function calculateScore(
   newConsecutiveLowDays: number;
   newCumulativeLowStreakPenalty: number;
 }> {
+  // Guard: if there are no habit instances and completion is 0%, there is
+  // nothing to track. Skip all scoring logic — no penalty, no bonus.
+  // This prevents spurious "Slump Penalty" toasts on brand-new accounts.
+  if (habitInstances.length === 0 && completionPercentage === 0) {
+    const userStats = await getUserStats(userId);
+    return {
+      todayScore: 0,
+      dailyPoints: 0,
+      consistencyBonus: 0,
+      recoveryBonus: 0,
+      decayPenalty: 0,
+      categoryNeglectPenalty: 0,
+      // Preserve existing streak state — don't reset it for empty days
+      newConsecutiveLowDays: userStats?.consecutiveLowDays ?? 0,
+      newCumulativeLowStreakPenalty: userStats?.cumulativeLowStreakPenalty ?? 0,
+    };
+  }
+
   const last7Days = await getLastNDays(userId, 7);
 
   // Base daily points
