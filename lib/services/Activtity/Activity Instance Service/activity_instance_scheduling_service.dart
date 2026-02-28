@@ -80,6 +80,7 @@ class ActivityInstanceSchedulingService {
                     dueTime: template.dueTime,
                     template: template,
                     userId: uid,
+                    sourceTag: 'skipInstance',
                   );
                   try {
                     final newInstance =
@@ -427,6 +428,7 @@ class ActivityInstanceSchedulingService {
           dueDate: yesterdayDueDate,
           template: template,
           userId: userId,
+          sourceTag: 'bulkSkipExpiredInstancesWithBatches',
         );
       } else if (nextValidInstanceIndex >= 0) {
         final nextDueDate = allDueDates[nextValidInstanceIndex];
@@ -436,6 +438,7 @@ class ActivityInstanceSchedulingService {
           dueDate: nextDueDate,
           template: template,
           userId: userId,
+          sourceTag: 'bulkSkipExpiredInstancesWithBatches',
         );
       } else {
         pendingInstanceRef =
@@ -443,6 +446,7 @@ class ActivityInstanceSchedulingService {
           templateId: template.reference.id,
           template: template,
           userId: userId,
+          sourceTag: 'bulkSkipExpiredInstancesWithBatches',
         );
       }
       return pendingInstanceRef;
@@ -645,6 +649,7 @@ class ActivityInstanceSchedulingService {
               dueTime: template.dueTime,
               template: template,
               userId: uid,
+              sourceTag: 'skipInstancesUntil',
             );
             final newInstanceQuery =
                 ActivityInstanceRecord.collectionForUser(uid)
@@ -691,6 +696,7 @@ class ActivityInstanceSchedulingService {
               dueTime: template.dueTime,
               template: template,
               userId: uid,
+              sourceTag: 'skipInstancesUntil',
             );
           } else {
             final nextProperDate = RecurrenceCalculator.calculateNextDueDate(
@@ -704,6 +710,7 @@ class ActivityInstanceSchedulingService {
                 dueTime: template.dueTime,
                 template: template,
                 userId: uid,
+                sourceTag: 'skipInstancesUntil',
               );
             }
           }

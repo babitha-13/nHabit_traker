@@ -347,8 +347,13 @@ class _ReminderItemState extends State<_ReminderItem> {
               onPressed: () {
                 final callback = widget.onRequestDueTime;
                 Navigator.pop(alertContext);
-                Navigator.pop(reminderContext, null);
-                callback?.call();
+                if (callback != null &&
+                    Navigator.of(reminderContext).canPop()) {
+                  Navigator.of(reminderContext).pop(null);
+                  WidgetsBinding.instance.addPostFrameCallback((_) {
+                    callback();
+                  });
+                }
               },
               child: const Text('Set due time'),
             ),

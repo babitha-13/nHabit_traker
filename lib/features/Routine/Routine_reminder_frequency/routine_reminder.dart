@@ -70,6 +70,9 @@ class _RoutineReminderSettingsDialogState
   }
 
   String _formatReminderTime(ReminderConfig reminder) {
+    if (widget.dueTime == null && reminder.fixedTimeMinutes == null) {
+      return 'Set time';
+    }
     if (reminder.fixedTimeMinutes != null) {
       final hour = reminder.fixedTimeMinutes! ~/ 60;
       final minute = reminder.fixedTimeMinutes! % 60;

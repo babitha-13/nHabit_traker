@@ -3,6 +3,15 @@ import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/a
 
 /// Helper class for handling instance events in queue page
 class QueueInstanceHandlers {
+  static bool _isQueueType(String? type) {
+    final normalized = (type ?? '').trim().toLowerCase();
+    return normalized == 'task' || normalized == 'habit';
+  }
+
+  static bool _shouldTrackQueueInstance(ActivityInstanceRecord instance) {
+    return instance.isActive && _isQueueType(instance.templateCategoryType);
+  }
+
   /// Update instance in local state
   static void updateInstanceInLocalState(
     List<ActivityInstanceRecord> instances,
@@ -10,6 +19,12 @@ class QueueInstanceHandlers {
   ) {
     final index = instances.indexWhere(
         (inst) => inst.reference.id == updatedInstance.reference.id);
+    if (!_shouldTrackQueueInstance(updatedInstance)) {
+      if (index != -1) {
+        instances.removeAt(index);
+      }
+      return;
+    }
     if (index != -1) {
       instances[index] = updatedInstance;
     }
@@ -32,6 +47,8 @@ class QueueInstanceHandlers {
     String? operationId,
     bool isOptimistic = false,
   }) {
+    if (!_shouldTrackQueueInstance(instance)) return;
+
     // Check if instance already exists to prevent duplicates
     final exists =
         instances.any((inst) => inst.reference.id == instance.reference.id);
@@ -97,6 +114,17 @@ class QueueInstanceHandlers {
     final index = instances
         .indexWhere((inst) => inst.reference.id == instance.reference.id);
 
+    // Never allow non-queue types (or inactive items) to remain in queue state.
+    if (!_shouldTrackQueueInstance(instance)) {
+      if (index != -1) {
+        instances.removeAt(index);
+      }
+      if (operationId != null) {
+        optimisticOperations.remove(operationId);
+      }
+      return;
+    }
+
     if (index != -1) {
       if (isOptimistic) {
         // Store optimistic state with operation ID for later reconciliation
@@ -144,6 +172,10 @@ class QueueInstanceHandlers {
           optimisticOperations.containsKey(operationId)) {
         optimisticOperations.remove(operationId);
         if (originalInstance != null) {
+          if (!_shouldTrackQueueInstance(originalInstance)) {
+            instances.removeWhere((inst) => inst.reference.id == instanceId);
+            return;
+          }
           // Restore from original state
           final index =
               instances.indexWhere((inst) => inst.reference.id == instanceId);

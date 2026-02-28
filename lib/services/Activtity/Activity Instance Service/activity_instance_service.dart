@@ -19,6 +19,7 @@ class ActivityInstanceService {
     required ActivityRecord template,
     String? userId,
     bool skipOrderLookup = false,
+    String? sourceTag,
   }) async {
     return ActivityInstanceCreationService.createActivityInstance(
       templateId: templateId,
@@ -27,6 +28,7 @@ class ActivityInstanceService {
       template: template,
       userId: userId,
       skipOrderLookup: skipOrderLookup,
+      sourceTag: sourceTag,
     );
   }
 

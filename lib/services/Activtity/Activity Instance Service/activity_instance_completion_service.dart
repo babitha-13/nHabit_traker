@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
@@ -23,6 +24,65 @@ class StackedSessionTimes {
 
 /// Service for completing and uncompleting activity instances
 class ActivityInstanceCompletionService {
+  static DateTime _normalizeDate(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  static Future<void> _cleanupDuplicatePendingTaskInstancesForSameDueDate({
+    required String userId,
+    required ActivityInstanceRecord completedInstance,
+  }) async {
+    if (completedInstance.templateCategoryType != 'task' ||
+        !completedInstance.templateIsRecurring ||
+        completedInstance.dueDate == null) {
+      return;
+    }
+
+    final targetDueDate = _normalizeDate(completedInstance.dueDate!);
+    final query = ActivityInstanceRecord.collectionForUser(userId)
+        .where('templateId', isEqualTo: completedInstance.templateId)
+        .where('status', isEqualTo: 'pending');
+
+    final snapshot = await query.get();
+    final duplicatesToDelete = <ActivityInstanceRecord>[];
+    for (final doc in snapshot.docs) {
+      final candidate = ActivityInstanceRecord.fromSnapshot(doc);
+      if (candidate.reference.id == completedInstance.reference.id) {
+        continue;
+      }
+      final candidateDueDate = candidate.dueDate;
+      if (candidateDueDate == null) {
+        continue;
+      }
+      if (_normalizeDate(candidateDueDate).isAtSameMomentAs(targetDueDate)) {
+        duplicatesToDelete.add(candidate);
+      }
+    }
+
+    if (duplicatesToDelete.isEmpty) {
+      return;
+    }
+
+    final firestore = FirebaseFirestore.instance;
+    var batch = firestore.batch();
+    var opCount = 0;
+    for (final duplicate in duplicatesToDelete) {
+      batch.delete(duplicate.reference);
+      opCount++;
+      if (opCount >= 450) {
+        await batch.commit();
+        batch = firestore.batch();
+        opCount = 0;
+      }
+    }
+    if (opCount > 0) {
+      await batch.commit();
+    }
+
+    for (final duplicate in duplicatesToDelete) {
+      InstanceEvents.broadcastInstanceDeleted(duplicate);
+    }
+  }
+
   static int calculateCompletionDuration(
     ActivityInstanceRecord instance,
     DateTime completedAt, {
@@ -324,6 +384,16 @@ class ActivityInstanceCompletionService {
       }
       try {
         await instanceRef.update(updateData);
+        try {
+          await _cleanupDuplicatePendingTaskInstancesForSameDueDate(
+            userId: uid,
+            completedInstance: instance,
+          );
+        } catch (cleanupError) {
+          // Non-fatal: completion already succeeded, cleanup is best effort.
+          debugPrint(
+              'Error cleaning duplicate pending task instances: $cleanupError');
+        }
         final updatedInstance =
             await ActivityInstanceHelperService.getUpdatedInstance(
                 instanceId: instanceId, userId: uid);
@@ -358,6 +428,7 @@ class ActivityInstanceCompletionService {
                     dueTime: template.dueTime,
                     template: template,
                     userId: uid,
+                    sourceTag: 'completeInstance',
                   );
                   try {
                     final newInstance =
@@ -461,10 +532,13 @@ class ActivityInstanceCompletionService {
           final futureTasksQuery = ActivityInstanceRecord.collectionForUser(uid)
               .where('templateId', isEqualTo: instance.templateId)
               .where('status', isEqualTo: 'pending')
-              .where('dueDate', isGreaterThan: instance.dueDate);
+              .where('dueDate', isGreaterThanOrEqualTo: instance.dueDate);
           final futureTasks = await futureTasksQuery.get();
           for (final doc in futureTasks.docs) {
             final deletedInstance = ActivityInstanceRecord.fromSnapshot(doc);
+            if (deletedInstance.reference.id == instance.reference.id) {
+              continue;
+            }
             await doc.reference.delete();
             InstanceEvents.broadcastInstanceDeleted(deletedInstance);
           }
@@ -480,7 +554,9 @@ class ActivityInstanceCompletionService {
               final task = ActivityInstanceRecord.fromSnapshot(doc);
               if (task.dueDate != null &&
                   instance.dueDate != null &&
-                  task.dueDate!.isAfter(instance.dueDate!)) {
+                  (task.dueDate!.isAfter(instance.dueDate!) ||
+                      task.dueDate!.isAtSameMomentAs(instance.dueDate!)) &&
+                  task.reference.id != instance.reference.id) {
                 await doc.reference.delete();
                 InstanceEvents.broadcastInstanceDeleted(task);
               }

@@ -1,10 +1,12 @@
 import 'dart:async';
 
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:timezone/timezone.dart' as tz;
 import 'package:timezone/data/latest.dart' as tz;
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:habit_tracker/Helper/Firebase/firebase_setup.dart';
 import 'package:habit_tracker/main.dart';
 import 'package:habit_tracker/features/Goals/goal_dialog.dart';
 import 'package:habit_tracker/features/Goals/goal_data_service.dart';
@@ -162,7 +164,23 @@ class NotificationService {
   /// Handle notification tap or action
   @pragma('vm:entry-point')
   static void _onNotificationTapped(NotificationResponse response) {
-    unawaited(_processNotificationResponse(response, allowQueue: true));
+    unawaited(() async {
+      await _ensureFirebaseInitializedForCallback();
+      await _processNotificationResponse(response, allowQueue: true);
+    }());
+  }
+
+  static Future<void> _ensureFirebaseInitializedForCallback() async {
+    try {
+      if (Firebase.apps.isNotEmpty) {
+        return;
+      }
+      await Firebase.initializeApp(
+        options: DefaultFirebaseOptions.currentPlatform,
+      );
+    } catch (_) {
+      // Ignore: callback may run in an isolate where Firebase is already ready.
+    }
   }
 
   /// Handle notification action button clicks

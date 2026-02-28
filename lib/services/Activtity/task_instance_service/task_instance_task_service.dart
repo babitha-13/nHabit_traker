@@ -2,7 +2,6 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
-import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.dart';
 import 'package:habit_tracker/services/Activtity/recurrence_calculator.dart';
@@ -70,48 +69,19 @@ class TaskInstanceTaskService {
     DateTime? dueDate,
     required ActivityRecord template,
     String? userId,
+    String? sourceTag,
   }) async {
     final uid = userId ?? TaskInstanceHelperService.getCurrentUserId();
-    // Inherit order from previous instance of the same template
-    int? queueOrder;
-    int? habitsOrder;
-    int? tasksOrder;
-    try {
-      queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-          templateId, 'queue', uid);
-      habitsOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-          templateId, 'habits', uid);
-      tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
-          templateId, 'tasks', uid);
-    } catch (e) {
-      // If order lookup fails, continue with null values (will use default sorting)
-    }
-    final instanceData = createActivityInstanceRecordData(
+    // Delegate to the unified activity-instance creation path so recurring
+    // task creation is idempotent and duplicate-safe.
+    return ActivityInstanceService.createActivityInstance(
       templateId: templateId,
       dueDate: dueDate,
-      status: 'pending',
-      createdTime: DateTime.now(),
-      lastUpdated: DateTime.now(),
-      isActive: true,
-      // Cache template data for quick access
-      templateName: template.name,
-      templateCategoryId: template.categoryId,
-      templateCategoryName: template.categoryName,
-      templatePriority: template.priority,
-      templateTrackingType: template.trackingType,
-      templateTarget: template.target,
-      templateUnit: template.unit,
-      templateDescription: template.description,
-      templateTimeEstimateMinutes: template.timeEstimateMinutes,
-      templateShowInFloatingTimer: template.showInFloatingTimer,
-      templateIsRecurring: template.isRecurring,
-      // Inherit order from previous instance
-      queueOrder: queueOrder,
-      habitsOrder: habitsOrder,
-      tasksOrder: tasksOrder,
+      dueTime: template.dueTime,
+      template: template,
+      userId: uid,
+      sourceTag: sourceTag ?? 'TaskInstanceTaskService.createTaskInstance',
     );
-    return await ActivityInstanceRecord.collectionForUser(uid)
-        .add(instanceData);
   }
 
   /// Complete a task instance and generate next occurrence if recurring
@@ -238,6 +208,7 @@ class TaskInstanceTaskService {
                 dueDate: nextDueDate,
                 template: template,
                 userId: uid,
+                sourceTag: 'TaskInstanceTaskService.completeTaskInstance',
               );
               // Also update the template with the next due date
               await TemplateSyncHelper.updateTemplateDueDate(
@@ -321,6 +292,7 @@ class TaskInstanceTaskService {
               dueDate: nextDueDate,
               template: template,
               userId: uid,
+              sourceTag: 'TaskInstanceTaskService.skipTaskInstance',
             );
             // Also update the template with the next due date
             await TemplateSyncHelper.updateTemplateDueDate(

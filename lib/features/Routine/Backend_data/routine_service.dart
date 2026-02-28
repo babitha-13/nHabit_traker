@@ -199,6 +199,7 @@ class RoutineService {
     String? userId,
     int? listOrder,
     String? dueTime,
+    bool clearDueTime = false,
     List<Map<String, dynamic>>? reminders,
     String? reminderFrequencyType,
     int? everyXValue,
@@ -248,7 +249,11 @@ class RoutineService {
     }
     if (itemOrder != null) updateData['itemOrder'] = itemOrder;
     if (listOrder != null) updateData['listOrder'] = listOrder;
-    if (dueTime != null) updateData['dueTime'] = dueTime;
+    if (clearDueTime) {
+      updateData['dueTime'] = null;
+    } else if (dueTime != null) {
+      updateData['dueTime'] = dueTime;
+    }
     if (reminders != null) updateData['reminders'] = reminders;
     if (reminderFrequencyType != null) {
       updateData['reminderFrequencyType'] = reminderFrequencyType;

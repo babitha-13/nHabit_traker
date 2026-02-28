@@ -28,6 +28,30 @@ class ItemMenuLogicHelper {
     return v;
   }
 
+  static DateTime _computeRecurringTaskRescheduleLastDate({
+    required DateTime today,
+    required ActivityInstanceRecord instance,
+    required ActivityRecord template,
+  }) {
+    // Default permissive range for unexpected/unknown recurrence shape.
+    var lastDate = today.add(const Duration(days: 365 * 5));
+    final anchorDate = instance.originalDueDate ?? instance.dueDate ?? today;
+    final nextDate = RecurrenceCalculator.calculateNextDueDate(
+      currentDueDate: anchorDate,
+      template: template,
+    );
+    if (nextDate == null) return lastDate;
+
+    final calculatedMax = _dateOnly(nextDate.subtract(const Duration(days: 1)));
+    if (calculatedMax.isAfter(today)) {
+      lastDate = calculatedMax;
+    } else {
+      // If next occurrence is tomorrow (e.g., daily), only today is valid.
+      lastDate = today;
+    }
+    return lastDate;
+  }
+
   static Future<void> updateTemplatePriority({
     required int newPriority,
     required ActivityInstanceRecord instance,
@@ -155,8 +179,8 @@ class ItemMenuLogicHelper {
                   Text('Skip this occurrence', style: TextStyle(fontSize: 12))),
         ];
 
-        // Fetch template to check recurrence constraints
-        bool canReschedule = false;
+        // Fetch template to derive valid reschedule window.
+        DateTime? recurringRescheduleLastDate;
         ActivityRecord? template;
         try {
           final uid = FirebaseAuth.instance.currentUser?.uid;
@@ -166,37 +190,39 @@ class ItemMenuLogicHelper {
                 .get();
             if (templateDoc.exists) {
               template = ActivityRecord.fromSnapshot(templateDoc);
-              // Check if frequency is not daily (approximate check for "less than or equal to once in 2 days")
-              // We treat "Daily" as everyXPeriod 'days' with value 1, OR specificDays with all days selected.
-              bool isDaily = false;
-              if (template.frequencyType == 'everyXPeriod' &&
-                  template.periodType == 'days' &&
-                  template.everyXValue == 1) {
-                isDaily = true;
-              } else if (template.frequencyType == 'specificDays' &&
-                  template.specificDays.length >= 7) {
-                isDaily = true;
-              }
-              canReschedule = !isDaily;
+              recurringRescheduleLastDate =
+                  _computeRecurringTaskRescheduleLastDate(
+                today: today,
+                instance: instance,
+                template: template,
+              );
             }
           }
         } catch (e) {
-          // If fetch fails, default to strict (false) or loose? Default to false for safety.
+          // If fetch fails, keep strict behavior and hide reschedule entries.
         }
 
-        if (canReschedule) {
+        if (recurringRescheduleLastDate != null) {
           final currentDueDate = instance.dueDate;
           // Reuse the logic from non-recurring block, but we need to duplicate the menu items creation
           // because the list order matters (Standard options first)
 
           final tomorrow = today.add(const Duration(days: 1));
+          final safeLastDate = recurringRescheduleLastDate.isBefore(today)
+              ? today
+              : recurringRescheduleLastDate;
           final isDueToday =
               currentDueDate != null && isSameDay(currentDueDate, today);
           final isDueTomorrow =
               currentDueDate != null && isSameDay(currentDueDate, tomorrow);
+          final canScheduleToday = !isDueToday && !today.isAfter(safeLastDate);
+          final canScheduleTomorrow =
+              !isDueTomorrow && !tomorrow.isAfter(safeLastDate);
+          final canPickDate =
+              safeLastDate.isAfter(today) || canScheduleToday;
 
           // Insert at beginning
-          if (!isDueToday) {
+          if (canScheduleToday) {
             recurringTaskOptions.insert(
                 0,
                 const PopupMenuItem<String>(
@@ -205,8 +231,8 @@ class ItemMenuLogicHelper {
                     child: Text('Schedule for today',
                         style: TextStyle(fontSize: 12))));
           }
-          if (!isDueTomorrow) {
-            int index = (!isDueToday) ? 1 : 0;
+          if (canScheduleTomorrow) {
+            int index = canScheduleToday ? 1 : 0;
             recurringTaskOptions.insert(
                 index,
                 const PopupMenuItem<String>(
@@ -215,17 +241,20 @@ class ItemMenuLogicHelper {
                     child: Text('Schedule for tomorrow',
                         style: TextStyle(fontSize: 12))));
           }
-          // Add pick date option
-          int index = (!isDueToday ? 1 : 0) + (!isDueTomorrow ? 1 : 0);
-          recurringTaskOptions.insert(
-              index,
-              const PopupMenuItem<String>(
-                  value: 'pick_date',
-                  height: 32,
-                  child: Text('Pick due date...',
-                      style: TextStyle(fontSize: 12))));
-          recurringTaskOptions.insert(
-              index + 1, const PopupMenuDivider(height: 6));
+          if (canPickDate) {
+            // Add pick date option
+            int index = (canScheduleToday ? 1 : 0) +
+                (canScheduleTomorrow ? 1 : 0);
+            recurringTaskOptions.insert(
+                index,
+                const PopupMenuItem<String>(
+                    value: 'pick_date',
+                    height: 32,
+                    child: Text('Pick due date...',
+                        style: TextStyle(fontSize: 12))));
+            recurringTaskOptions.insert(
+                index + 1, const PopupMenuDivider(height: 6));
+          }
         }
 
         if (missingInstancesCount >= 2) {
@@ -391,27 +420,11 @@ class ItemMenuLogicHelper {
                     .get();
                 if (templateDoc.exists) {
                   final template = ActivityRecord.fromSnapshot(templateDoc);
-                  // Calculate next due date from ORIGINAL due date (or current if original not set)
-                  final anchorDate =
-                      instance.originalDueDate ?? instance.dueDate ?? today;
-                  final nextDate = RecurrenceCalculator.calculateNextDueDate(
-                    currentDueDate: anchorDate,
+                  lastDate = _computeRecurringTaskRescheduleLastDate(
+                    today: today,
+                    instance: instance,
                     template: template,
                   );
-                  if (nextDate != null) {
-                    // Max date is the day before the next occurrence
-                    final calculatedMax =
-                        nextDate.subtract(const Duration(days: 1));
-                    // Ensure it's not in the past relative to today
-                    if (calculatedMax.isAfter(today)) {
-                      lastDate = calculatedMax;
-                    } else {
-                      // If next valid date is tomorrow, and max is today, we can only pick today.
-                      // If next valid is today (overlap), max is yesterday (invalid).
-                      // Fallback to today or strict handling.
-                      lastDate = today;
-                    }
-                  }
                 }
               }
             } catch (e) {
@@ -465,6 +478,11 @@ class ItemMenuLogicHelper {
           instanceId: instance.reference.id);
       onInstanceUpdated(updatedInstance);
       InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      // Task page can temporarily render stale grouped recurring items until
+      // the next fetch cycle; force a refresh when available.
+      if (instance.templateCategoryType == 'task' && onRefresh != null) {
+        await onRefresh();
+      }
     } catch (e) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

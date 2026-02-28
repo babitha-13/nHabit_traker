@@ -535,6 +535,7 @@ class _CreateRoutinePageState extends State<CreateRoutinePage>
                                             260, // Max height for selected items
                                         child: ReorderableListView.builder(
                                           shrinkWrap: true,
+                                          buildDefaultDragHandles: false,
                                           physics:
                                               const AlwaysScrollableScrollPhysics(),
                                           itemCount: selectedItems.length,
@@ -682,18 +683,39 @@ class _CreateRoutinePageState extends State<CreateRoutinePage>
                                                         ],
                                                       ),
                                                     ),
-                                                    Column(
+                                                    Row(
                                                       mainAxisSize:
                                                           MainAxisSize.min,
-                                                      mainAxisAlignment:
-                                                          MainAxisAlignment
-                                                              .center,
                                                       children: [
-                                                        Icon(
-                                                          Icons.drag_handle,
-                                                          color: theme
-                                                              .secondaryText,
-                                                          size: 20,
+                                                        IconButton(
+                                                          tooltip:
+                                                              'Remove from routine',
+                                                          onPressed: () =>
+                                                              removeItem(
+                                                                  activity),
+                                                          icon: Icon(
+                                                            Icons
+                                                                .delete_outline,
+                                                            color: theme.error,
+                                                            size: 20,
+                                                          ),
+                                                          visualDensity:
+                                                              VisualDensity
+                                                                  .compact,
+                                                          constraints:
+                                                              const BoxConstraints(
+                                                            minWidth: 36,
+                                                            minHeight: 36,
+                                                          ),
+                                                        ),
+                                                        ReorderableDragStartListener(
+                                                          index: index,
+                                                          child: Icon(
+                                                            Icons.drag_handle,
+                                                            color: theme
+                                                                .secondaryText,
+                                                            size: 20,
+                                                          ),
                                                         ),
                                                       ],
                                                     ),

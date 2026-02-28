@@ -44,7 +44,11 @@ class _RoutineRepeatEditorState extends State<RoutineRepeatEditor> {
       everyXPeriodType: widget.everyXPeriodType,
       specificDays: widget.specificDays,
     );
-    _notify();
+    // Defer initial sync to avoid parent setState during build.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _notify();
+    });
   }
 
   PeriodType _periodFromRoutine(String? value) {

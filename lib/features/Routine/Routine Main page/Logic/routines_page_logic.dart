@@ -31,6 +31,28 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
   int routinesHashCode = 0; // Current hash of routines
   String lastSearchQuery = '';
 
+  static const TimeOfDay _defaultReminderTime = TimeOfDay(hour: 9, minute: 0);
+
+  List<ReminderConfig> _normalizeRemindersForMissingDueTime(
+    List<ReminderConfig> reminders, {
+    required TimeOfDay fallbackTime,
+  }) {
+    return reminders.map((reminder) {
+      if (reminder.fixedTimeMinutes != null) {
+        return reminder;
+      }
+      final minutes = fallbackTime.hour * 60 + fallbackTime.minute;
+      return ReminderConfig(
+        id: reminder.id,
+        type: reminder.type,
+        offsetMinutes: 0,
+        enabled: reminder.enabled,
+        fixedTimeMinutes: minutes,
+        specificDays: reminder.specificDays,
+      );
+    }).toList();
+  }
+
   void onSearchChanged(String query) {
     if (mounted) {
       setState(() {
@@ -374,11 +396,71 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
     }
   }
 
+  Future<void> clearDueTime(RoutineRecord routine) async {
+    final routineId = routine.reference.id;
+    final previousDueTime = TimeUtils.stringToTimeOfDay(routine.dueTime);
+    final rawReminders = ReminderConfigList.fromMapList(routine.reminders);
+    final normalizedReminders = _normalizeRemindersForMissingDueTime(
+      rawReminders,
+      fallbackTime: previousDueTime ?? _defaultReminderTime,
+    );
+    final normalizedReminderMaps =
+        ReminderConfigList.toMapList(normalizedReminders);
+
+    // OPTIMISTIC UPDATE: Patch routine's dueTime immediately
+    final routineIndex =
+        routines.indexWhere((r) => r.reference.id == routineId);
+    if (routineIndex != -1) {
+      final updatedRoutine = RoutineRecord.getDocumentFromData(
+        {
+          ...routines[routineIndex].snapshotData,
+          'dueTime': null,
+          'reminders': normalizedReminderMaps,
+          'lastUpdated': DateTime.now(),
+        },
+        routines[routineIndex].reference,
+      );
+      setState(() {
+        routines[routineIndex] = updatedRoutine;
+      });
+    }
+
+    try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      await RoutineService.updateRoutine(
+        routineId: routineId,
+        clearDueTime: true,
+        reminders: normalizedReminderMaps,
+        userId: userId,
+      );
+      // Background reconciliation: reload to ensure sync
+      loadData();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error clearing due time: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      // Background refresh to restore correct state
+      loadData();
+    }
+  }
+
   Future<void> selectReminders(RoutineRecord routine) async {
-    final reminders = ReminderConfigList.fromMapList(routine.reminders);
+    final dueTime = TimeUtils.stringToTimeOfDay(routine.dueTime);
+    final existingReminders = ReminderConfigList.fromMapList(routine.reminders);
+    final reminders = dueTime == null
+        ? _normalizeRemindersForMissingDueTime(
+            existingReminders,
+            fallbackTime: _defaultReminderTime,
+          )
+        : existingReminders;
     final result = await RoutineReminderSettingsDialog.show(
       context: context,
-      dueTime: TimeUtils.stringToTimeOfDay(routine.dueTime),
+      dueTime: dueTime,
       initialReminders: reminders,
       initialFrequencyType: routine.reminderFrequencyType.isEmpty
           ? null
@@ -455,6 +537,10 @@ mixin RoutinesPageLogic<T extends StatefulWidget> on State<T> {
   String getReminderChipLabel(RoutineRecord routine) {
     final reminders = ReminderConfigList.fromMapList(routine.reminders);
     if (!routine.remindersEnabled || reminders.isEmpty) {
+      return 'Set reminders';
+    }
+    if (!routine.hasDueTime() &&
+        reminders.any((reminder) => reminder.fixedTimeMinutes == null)) {
       return 'Set reminders';
     }
     if (reminders.length == 1) {

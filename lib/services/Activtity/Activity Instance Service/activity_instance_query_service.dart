@@ -64,12 +64,61 @@ class ActivityInstanceQueryService {
               'querySafeInstances pending (status=pending, category=$templateCategoryType)',
           stackTrace: stackTrace,
         );
+        try {
+          final fallbackPendingQuery = ActivityInstanceRecord.collectionForUser(
+            uid,
+          ).where('status', isEqualTo: 'pending').limit(1000);
+
+          final fallbackPendingResult =
+              await fallbackPendingQuery.get().timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException('Pending fallback query timed out');
+            },
+          );
+
+          final fallbackPendingInstances = fallbackPendingResult.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((inst) =>
+                  templateCategoryType == null ||
+                  inst.templateCategoryType == templateCategoryType)
+              .toList();
+
+          allInstances.addAll(fallbackPendingInstances);
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'pending_scoped_query_failed_used_status_only_fallback',
+              queryShape:
+                  'status=pending (in-memory category filter: $templateCategoryType)',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: fallbackPendingResult.docs.length,
+            ),
+          );
+        } catch (fallbackError, fallbackStackTrace) {
+          _logQueryIssue(
+            fallbackError,
+            queryDescription:
+                'querySafeInstances pending fallback (status=pending, in-memory category)',
+            stackTrace: fallbackStackTrace,
+          );
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'pending_scoped_query_failed_and_fallback_failed',
+              queryShape:
+                  'status=pending (in-memory category filter: $templateCategoryType)',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: 0,
+            ),
+          );
+        }
       }
     }
 
     if (includeRecentCompleted) {
+      final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
       try {
-        final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
         var completedQuery = ActivityInstanceRecord.collectionForUser(uid)
             .where('status', isEqualTo: 'completed')
             .where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo)
@@ -102,22 +151,75 @@ class ActivityInstanceQueryService {
               'querySafeInstances recent completed scoped (status=completed, category=$templateCategoryType)',
           stackTrace: stackTrace,
         );
-        FallbackReadTelemetry.logQueryFallback(
-          FallbackReadEvent(
-            scope: 'activity_instance_query_service.querySafeInstances',
-            reason: 'scoped_recent_completed_query_failed_no_broad_fallback',
-            queryShape:
-                'status=completed,completedAt>=twoDaysAgo,category=$templateCategoryType',
-            userCountSampled: 1,
-            fallbackDocsReadEstimate: 0,
-          ),
-        );
+        try {
+          final broadCompletedQuery = ActivityInstanceRecord.collectionForUser(
+            uid,
+          ).where('completedAt', isGreaterThanOrEqualTo: twoDaysAgo).limit(500);
+
+          final broadCompletedResult = await broadCompletedQuery.get().timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException(
+                'Recent completed broad fallback query timed out',
+              );
+            },
+          );
+
+          final broadCompletedInstances = broadCompletedResult.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((inst) {
+            if (inst.status != 'completed') {
+              return false;
+            }
+            if (templateCategoryType != null &&
+                inst.templateCategoryType != templateCategoryType) {
+              return false;
+            }
+            return true;
+          }).toList()
+            ..sort((a, b) {
+              final aCompletedAt = a.completedAt ?? DateTime(0);
+              final bCompletedAt = b.completedAt ?? DateTime(0);
+              return bCompletedAt.compareTo(aCompletedAt);
+            });
+
+          allInstances.addAll(broadCompletedInstances);
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason:
+                  'scoped_recent_completed_query_failed_used_completedAt_fallback',
+              queryShape:
+                  'completedAt>=twoDaysAgo (in-memory status/category filter: $templateCategoryType)',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: broadCompletedResult.docs.length,
+            ),
+          );
+        } catch (fallbackError, fallbackStackTrace) {
+          _logQueryIssue(
+            fallbackError,
+            queryDescription:
+                'querySafeInstances recent completed fallback (completedAt>=twoDaysAgo, in-memory filter)',
+            stackTrace: fallbackStackTrace,
+          );
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason:
+                  'scoped_recent_completed_query_failed_and_fallback_failed',
+              queryShape:
+                  'completedAt>=twoDaysAgo (in-memory status/category filter: $templateCategoryType)',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: 0,
+            ),
+          );
+        }
       }
     }
 
     if (includeRecentSkipped) {
+      final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
       try {
-        final twoDaysAgo = DateTime.now().subtract(const Duration(days: 2));
         var skippedQuery = ActivityInstanceRecord.collectionForUser(uid)
             .where('status', isEqualTo: 'skipped')
             .where('skippedAt', isGreaterThanOrEqualTo: twoDaysAgo)
@@ -148,16 +250,68 @@ class ActivityInstanceQueryService {
               'querySafeInstances recent skipped scoped (status=skipped, category=$templateCategoryType)',
           stackTrace: stackTrace,
         );
-        FallbackReadTelemetry.logQueryFallback(
-          FallbackReadEvent(
-            scope: 'activity_instance_query_service.querySafeInstances',
-            reason: 'scoped_recent_skipped_query_failed_no_broad_fallback',
-            queryShape:
-                'status=skipped,skippedAt>=twoDaysAgo,category=$templateCategoryType',
-            userCountSampled: 1,
-            fallbackDocsReadEstimate: 0,
-          ),
-        );
+        try {
+          final broadSkippedQuery = ActivityInstanceRecord.collectionForUser(
+            uid,
+          ).where('skippedAt', isGreaterThanOrEqualTo: twoDaysAgo).limit(500);
+
+          final broadSkippedResult = await broadSkippedQuery.get().timeout(
+            const Duration(seconds: 10),
+            onTimeout: () {
+              throw TimeoutException(
+                'Recent skipped broad fallback query timed out',
+              );
+            },
+          );
+
+          final broadSkippedInstances = broadSkippedResult.docs
+              .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
+              .where((inst) {
+            if (inst.status != 'skipped') {
+              return false;
+            }
+            if (templateCategoryType != null &&
+                inst.templateCategoryType != templateCategoryType) {
+              return false;
+            }
+            return true;
+          }).toList()
+            ..sort((a, b) {
+              final aSkippedAt = a.skippedAt ?? DateTime(0);
+              final bSkippedAt = b.skippedAt ?? DateTime(0);
+              return bSkippedAt.compareTo(aSkippedAt);
+            });
+
+          allInstances.addAll(broadSkippedInstances);
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason:
+                  'scoped_recent_skipped_query_failed_used_skippedAt_fallback',
+              queryShape:
+                  'skippedAt>=twoDaysAgo (in-memory status/category filter: $templateCategoryType)',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: broadSkippedResult.docs.length,
+            ),
+          );
+        } catch (fallbackError, fallbackStackTrace) {
+          _logQueryIssue(
+            fallbackError,
+            queryDescription:
+                'querySafeInstances recent skipped fallback (skippedAt>=twoDaysAgo, in-memory filter)',
+            stackTrace: fallbackStackTrace,
+          );
+          FallbackReadTelemetry.logQueryFallback(
+            FallbackReadEvent(
+              scope: 'activity_instance_query_service.querySafeInstances',
+              reason: 'scoped_recent_skipped_query_failed_and_fallback_failed',
+              queryShape:
+                  'skippedAt>=twoDaysAgo (in-memory status/category filter: $templateCategoryType)',
+              userCountSampled: 1,
+              fallbackDocsReadEstimate: 0,
+            ),
+          );
+        }
       }
     }
 

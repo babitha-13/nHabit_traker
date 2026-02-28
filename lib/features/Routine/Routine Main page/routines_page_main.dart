@@ -239,6 +239,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
 
   List<Widget> _buildRoutineInfoChips(RoutineRecord routine) {
     final theme = FlutterFlowTheme.of(context);
+    final hasDueTime = routine.hasDueTime();
     final dueTimeLabel = routine.hasDueTime()
         ? TimeUtils.formatTimeForDisplay(routine.dueTime)
         : 'Set due time';
@@ -249,6 +250,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
         icon: Icons.access_time,
         label: dueTimeLabel,
         onPressed: () => selectDueTime(routine),
+        onDeleted: hasDueTime ? () => clearDueTime(routine) : null,
         theme: theme,
       ),
       _buildRoutineInfoChip(
@@ -264,10 +266,15 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
     required IconData icon,
     required String label,
     required VoidCallback onPressed,
+    VoidCallback? onDeleted,
     required FlutterFlowTheme theme,
   }) {
-    return ActionChip(
+    return InputChip(
       onPressed: onPressed,
+      onDeleted: onDeleted,
+      deleteIcon: onDeleted == null
+          ? null
+          : Icon(Icons.close, size: 16, color: theme.secondaryText),
       visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       avatar: Icon(icon, size: 16, color: theme.secondaryText),

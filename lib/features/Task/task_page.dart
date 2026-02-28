@@ -19,6 +19,7 @@ import 'package:habit_tracker/features/Task/Logic/task_event_handlers_helper.dar
 import 'package:habit_tracker/features/Task/Logic/task_reorder_helper.dart';
 import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_model.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
+import 'package:habit_tracker/services/diagnostics/task_duplicate_trace_logger.dart';
 
 class TaskPage extends StatefulWidget {
   final String? categoryName;
@@ -258,6 +259,10 @@ class _TaskPageState extends State<TaskPage> {
       }).toList();
       final sortedInstances =
           InstanceOrderService.sortInstancesByOrder(categoryFiltered, 'tasks');
+      TaskDuplicateTraceLogger.logTaskDuplicateGroups(
+        instances: sortedInstances,
+        scope: 'TaskPage._loadData.${widget.categoryName ?? 'all'}',
+      );
       if (!mounted) return;
 
       if (mounted) {
@@ -683,6 +688,10 @@ class _TaskPageState extends State<TaskPage> {
       }).toList();
       final sortedInstances =
           InstanceOrderService.sortInstancesByOrder(categoryFiltered, 'tasks');
+      TaskDuplicateTraceLogger.logTaskDuplicateGroups(
+        instances: sortedInstances,
+        scope: 'TaskPage._loadDataSilently.${widget.categoryName ?? 'all'}',
+      );
       if (mounted) {
         // Calculate hash code when data changes
         final newHash = _calculateInstancesHash(sortedInstances);

@@ -491,8 +491,10 @@ Future<List<CategoryRecord>> queryEssentialCategoriesOnce({
       callerTag: callerTag,
     );
     // Filter in memory (no Firestore index needed)
-    final essentialCategories =
-        allCategories.where((c) => c.categoryType == 'essential').toList();
+    final essentialCategories = allCategories.where((c) {
+      final normalizedType = c.categoryType.trim().toLowerCase();
+      return normalizedType == 'essential' || normalizedType == 'essentials';
+    }).toList();
     // Sort in memory
     essentialCategories.sort((a, b) => a.name.compareTo(b.name));
     return essentialCategories;
@@ -1006,6 +1008,12 @@ Future<DocumentReference> createCategory({
   // Invalidate categories cache
   final cache = FirestoreCacheService();
   cache.invalidateCategoriesCache();
+  NotificationCenter.post('categoryUpdated', {
+    'action': 'created',
+    'categoryId': categoryRef.id,
+    'categoryType': categoryType,
+    'name': name,
+  });
   return categoryRef;
 }
 
@@ -1318,6 +1326,12 @@ Future<void> updateCategory({
   // Invalidate categories cache
   final cache = FirestoreCacheService();
   cache.invalidateCategoriesCache();
+  NotificationCenter.post('categoryUpdated', {
+    'action': 'updated',
+    'categoryId': categoryId,
+    if (categoryType != null) 'categoryType': categoryType,
+    if (name != null) 'name': name,
+  });
 }
 
 /// Delete a category (soft delete by setting isActive to false)
@@ -1332,6 +1346,10 @@ Future<void> deleteCategory(String categoryId, {String? userId}) async {
   // Invalidate categories cache
   final cache = FirestoreCacheService();
   cache.invalidateCategoriesCache();
+  NotificationCenter.post('categoryUpdated', {
+    'action': 'deleted',
+    'categoryId': categoryId,
+  });
 }
 
 /// Update a routine

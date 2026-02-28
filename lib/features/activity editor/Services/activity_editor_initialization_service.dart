@@ -81,6 +81,9 @@ class ActivityEditorInitializationService {
     } else {
       state.loadedCategories = state.widget.categories;
       initializeCategory(state, t);
+      // Refresh from backend so newly created/edited categories appear even
+      // when the parent page passed a stale in-memory list.
+      loadCategories(state);
     }
 
     // Load due time

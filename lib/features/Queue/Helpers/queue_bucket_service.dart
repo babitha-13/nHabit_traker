@@ -53,6 +53,11 @@ class QueueBucketService {
 
     // Filter instances by search query if active
     final instancesToProcess = filteredInstances.where((instance) {
+      final normalizedType = instance.templateCategoryType.trim().toLowerCase();
+      final isQueueType = normalizedType == 'task' || normalizedType == 'habit';
+      if (!isQueueType || !instance.isActive) {
+        return false;
+      }
       if (searchQuery.isEmpty) return true;
       return instance.templateName
           .toLowerCase()

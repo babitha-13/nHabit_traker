@@ -374,6 +374,7 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           dueTime: startTime != null
               ? TimeUtils.timeOfDayToString(startTime!)
               : null,
+          clearDueTime: startTime == null,
           reminders: reminders.isNotEmpty
               ? ReminderConfigList.toMapList(reminders)
               : null,

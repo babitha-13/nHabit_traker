@@ -634,6 +634,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showRecurringIcon: true,
       showCompleted: true,
       page: 'queue',
+      showManagementActions: false,
     );
   }
 
