@@ -247,8 +247,107 @@ class _QueuePageState extends State<QueuePage>
   @override
   void reassemble() {
     super.reassemble();
-    // Clean up observers on hot reload to prevent accumulation
-    NotificationCenter.removeObserver(this);
+    // Re-register observers and force refresh to avoid stale in-memory
+    // instances reappearing after hot reload.
+    NotificationCenter.addObserver(this, 'loadData', (param) {
+      if (mounted) {
+        _loadCumulativeScoreHistory(forceReload: true);
+        _loadData();
+      }
+    });
+    NotificationCenter.addObserver(this, 'cumulativeScoreUpdated', (param) {
+      if (!mounted) return;
+      final data = TodayProgressState().getCumulativeScoreData();
+      final updatedScore =
+          (data['cumulativeScore'] as double?) ?? _cumulativeScore;
+      final updatedTodayScore =
+          (data['todayScore'] as double?) ?? _dailyScoreGain;
+      if (updatedScore != _cumulativeScore ||
+          updatedTodayScore != _dailyScoreGain) {
+        setState(() {
+          _cumulativeScore = updatedScore;
+          _dailyScoreGain = updatedTodayScore;
+        });
+        _queueHistoryOverlay(updatedScore, updatedTodayScore);
+      }
+    });
+    NotificationCenter.addObserver(this, 'todayProgressUpdated', (param) {
+      if (!mounted) return;
+      if (_isCalculatingProgress || _isUpdatingLiveScore) {
+        return;
+      }
+      _updateTodayScore();
+    });
+    NotificationCenter.addObserver(this, 'queueFocusRequest', (param) {
+      _handleQueueFocusRequest(param);
+    });
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) {
+        _silentRefreshInstances();
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
+        (param) {
+      ActivityInstanceRecord? instance;
+      String? operationId;
+      bool isOptimistic = false;
+
+      if (param is ActivityInstanceRecord) {
+        instance = param;
+      } else if (param is Map && param.containsKey('instance')) {
+        instance = param['instance'] as ActivityInstanceRecord?;
+        if (param.containsKey('operationId')) {
+          operationId = param['operationId'] as String?;
+        }
+        if (param.containsKey('isOptimistic')) {
+          isOptimistic = param['isOptimistic'] as bool? ?? false;
+        }
+      }
+
+      if (instance != null && mounted && !_ignoreInstanceEvents) {
+        _handleInstanceCreated(instance,
+            operationId: operationId, isOptimistic: isOptimistic);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
+        (param) {
+      if (mounted && !_ignoreInstanceEvents) {
+        _handleInstanceUpdated(param);
+      }
+    });
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRollback(param);
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceDeleted,
+        (param) {
+      if (param is ActivityInstanceRecord &&
+          mounted &&
+          !_ignoreInstanceEvents) {
+        _handleInstanceDeleted(param);
+      }
+    });
+    NotificationCenter.addObserver(this, 'expandQueueSection', (param) {
+      if (mounted && param is String) {
+        setState(() {
+          _expandedSections.add(param);
+          ExpansionStateManager().setQueueExpandedSections(_expandedSections);
+        });
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (_sectionKeys[param]?.currentContext != null) {
+            Scrollable.ensureVisible(
+              _sectionKeys[param]!.currentContext!,
+              duration: const Duration(milliseconds: 300),
+              alignment: 0.0,
+              alignmentPolicy: ScrollPositionAlignmentPolicy.keepVisibleAtEnd,
+            );
+          }
+        });
+      }
+    });
+
+    unawaited(_silentRefreshInstances());
   }
 
   @override

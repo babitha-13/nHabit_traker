@@ -1,5 +1,4 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/firestore_error_logger.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
@@ -8,6 +7,30 @@ import 'activity_instance_creation_service.dart';
 
 /// Service for utility methods and helper operations
 class ActivityInstanceUtilityService {
+  /// Tries hard delete first; falls back to soft deactivate if delete is denied.
+  /// Returns true when fallback update was used.
+  static Future<bool> _deleteOrDeactivateInstance(
+    ActivityInstanceRecord instance,
+  ) async {
+    try {
+      await instance.reference.delete();
+      return false;
+    } catch (deleteError) {
+      try {
+        await instance.reference.update({
+          'isActive': false,
+          'lastUpdated': DateTime.now(),
+        });
+        return true;
+      } catch (updateError) {
+        throw Exception(
+          'Failed to delete or deactivate instance ${instance.reference.id}. '
+          'deleteError=$deleteError, updateError=$updateError',
+        );
+      }
+    }
+  }
+
   /// Test method to manually create an instance (for debugging)
   static Future<void> testCreateInstance({
     required String templateId,
@@ -103,17 +126,21 @@ class ActivityInstanceUtilityService {
       final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('templateId', isEqualTo: templateId);
       final instances = await query.get();
+      var fallbackCount = 0;
       print(
           'ActivityInstanceUtilityService: Found ${instances.docs.length} instances to delete for templateId $templateId');
       for (final doc in instances.docs) {
         final deletedInstance = ActivityInstanceRecord.fromSnapshot(doc);
         print(
             'ActivityInstanceUtilityService: Deleting instance doc: ${doc.id}');
-        await doc.reference.delete();
+        final usedFallback = await _deleteOrDeactivateInstance(deletedInstance);
+        if (usedFallback) {
+          fallbackCount += 1;
+        }
         InstanceEvents.broadcastInstanceDeleted(deletedInstance);
       }
       print(
-          'ActivityInstanceUtilityService: Finished deleting instances for templateId $templateId');
+          'ActivityInstanceUtilityService: Finished deleting instances for templateId $templateId (fallbacks=$fallbackCount)');
     } catch (e, stackTrace) {
       logFirestoreQueryError(
         e,
@@ -133,16 +160,12 @@ class ActivityInstanceUtilityService {
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     try {
-      // Query instances for this template with dueDate >= fromDate
-      // Note: This requires a composite index on templateId + dueDate
-      // If index is missing, we might need to fetch all and filter in memory,
-      // but let's try assuming index or simple filtering.
-      // Actually, safest to fetch by templateId and filter in memory to avoid index issues if possible
-      // since we don't know the index state. All instances for a template shouldn't be huge.
+      // Fetch by templateId and filter in memory to avoid extra index requirements.
       final query = ActivityInstanceRecord.collectionForUser(uid)
           .where('templateId', isEqualTo: templateId);
 
       final result = await query.get();
+      final targetDate = DateTime(fromDate.year, fromDate.month, fromDate.day);
       final instances = result.docs
           .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
           .where((instance) {
@@ -150,34 +173,32 @@ class ActivityInstanceUtilityService {
         // Fall back to dueDate then createdTime for task instances.
         final dateToCompare =
             instance.belongsToDate ?? instance.dueDate ?? instance.createdTime;
-        if (dateToCompare == null) return false; // Should not happen, but safe
+        final isPending = instance.status == 'pending';
+        if (dateToCompare == null) {
+          // Pending items without a date should still be removed when stopping.
+          return isPending;
+        }
 
         // Compare just dates to be safe
         final instanceDate = DateTime(
             dateToCompare.year, dateToCompare.month, dateToCompare.day);
-        final targetDate =
-            DateTime(fromDate.year, fromDate.month, fromDate.day);
+        // Remove all pending items (including older overdue ones) and all
+        // dated items on/after the cut-off date.
         return instanceDate.isAtSameMomentAs(targetDate) ||
-            instanceDate.isAfter(targetDate);
+            instanceDate.isAfter(targetDate) ||
+            isPending;
       }).toList();
 
-      // Batch delete
-      // Firestore batch limit is 500.
-      const batchSize = 500;
-      for (var i = 0; i < instances.length; i += batchSize) {
-        final batch = FirebaseFirestore.instance.batch();
-        final end = (i + batchSize < instances.length)
-            ? i + batchSize
-            : instances.length;
-        final sublist = instances.sublist(i, end);
-        for (var instance in sublist) {
-          batch.delete(instance.reference);
+      var fallbackCount = 0;
+      for (final instance in instances) {
+        final usedFallback = await _deleteOrDeactivateInstance(instance);
+        if (usedFallback) {
+          fallbackCount += 1;
         }
-        await batch.commit();
-        for (final deletedInstance in sublist) {
-          InstanceEvents.broadcastInstanceDeleted(deletedInstance);
-        }
+        InstanceEvents.broadcastInstanceDeleted(instance);
       }
+      print(
+          'ActivityInstanceUtilityService: Finished deleting future instances for templateId $templateId from $targetDate (count=${instances.length}, fallbacks=$fallbackCount)');
     } catch (e, stackTrace) {
       logFirestoreQueryError(
         e,

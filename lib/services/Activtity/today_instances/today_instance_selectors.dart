@@ -163,6 +163,102 @@ class TodayInstanceSelectors {
     return candidate.reference.id.compareTo(existing.reference.id) > 0;
   }
 
+  static int _duePriorityForRoutinePending(
+    ActivityInstanceRecord instance,
+    DateTime dayStart,
+  ) {
+    final due = instance.dueDate;
+    if (due == null) return 2;
+    final normalizedDue = normalizeDate(due);
+    if (normalizedDue.isAtSameMomentAs(dayStart)) return 0;
+    if (normalizedDue.isBefore(dayStart)) return 1;
+    return 2;
+  }
+
+  static bool _isNewer(DateTime? candidate, DateTime? existing) {
+    if (candidate == null && existing == null) return false;
+    if (candidate == null) return false;
+    if (existing == null) return true;
+    return candidate.isAfter(existing);
+  }
+
+  static bool _shouldReplaceRoutinePendingCandidate({
+    required ActivityInstanceRecord existing,
+    required ActivityInstanceRecord candidate,
+    required DateTime dayStart,
+  }) {
+    final candidateProgress = _asNumber(candidate.currentValue);
+    final existingProgress = _asNumber(existing.currentValue);
+    if (candidateProgress != existingProgress) {
+      return candidateProgress > existingProgress;
+    }
+
+    if (candidate.totalTimeLogged != existing.totalTimeLogged) {
+      return candidate.totalTimeLogged > existing.totalTimeLogged;
+    }
+
+    final candidateDuePriority = _duePriorityForRoutinePending(
+      candidate,
+      dayStart,
+    );
+    final existingDuePriority = _duePriorityForRoutinePending(
+      existing,
+      dayStart,
+    );
+    if (candidateDuePriority != existingDuePriority) {
+      return candidateDuePriority < existingDuePriority;
+    }
+
+    if (_isNewer(candidate.lastUpdated, existing.lastUpdated)) {
+      return true;
+    }
+    if (_isNewer(existing.lastUpdated, candidate.lastUpdated)) {
+      return false;
+    }
+
+    if (_isNewer(candidate.createdTime, existing.createdTime)) {
+      return true;
+    }
+    if (_isNewer(existing.createdTime, candidate.createdTime)) {
+      return false;
+    }
+
+    final candidateDue = candidate.dueDate;
+    final existingDue = existing.dueDate;
+    if (candidateDue != null &&
+        existingDue != null &&
+        candidateDue != existingDue) {
+      return candidateDue.isBefore(existingDue);
+    }
+    if (candidateDue != null && existingDue == null) {
+      return true;
+    }
+    if (candidateDue == null && existingDue != null) {
+      return false;
+    }
+
+    return candidate.reference.id.compareTo(existing.reference.id) > 0;
+  }
+
+  static ActivityInstanceRecord? _pickBestRoutinePendingCandidate({
+    required List<ActivityInstanceRecord> candidates,
+    required DateTime dayStart,
+  }) {
+    if (candidates.isEmpty) return null;
+    ActivityInstanceRecord best = candidates.first;
+    for (int i = 1; i < candidates.length; i++) {
+      final candidate = candidates[i];
+      if (_shouldReplaceRoutinePendingCandidate(
+        existing: best,
+        candidate: candidate,
+        dayStart: dayStart,
+      )) {
+        best = candidate;
+      }
+    }
+    return best;
+  }
+
   static List<ActivityInstanceRecord> selectQueueItems(
     TodayInstanceSnapshot snapshot,
   ) {
@@ -367,10 +463,13 @@ class TodayInstanceSelectors {
   }) {
     final pendingLiveWindow = candidates
         .where((i) => i.status == 'pending' && isHabitWindowLive(i, dayStart))
-        .toList()
-      ..sort(_compareDueDateAsc);
-    if (pendingLiveWindow.isNotEmpty) {
-      return pendingLiveWindow.first;
+        .toList();
+    final bestPendingLive = _pickBestRoutinePendingCandidate(
+      candidates: pendingLiveWindow,
+      dayStart: dayStart,
+    );
+    if (bestPendingLive != null) {
+      return bestPendingLive;
     }
 
     final liveWindowAny =
@@ -397,9 +496,11 @@ class TodayInstanceSelectors {
       return recentCompletedOrSkipped.first;
     }
 
-    final nextPending = candidates.where((i) => i.status == 'pending').toList()
-      ..sort(_compareDueDateAsc);
-    return nextPending.isNotEmpty ? nextPending.first : null;
+    final nextPending = candidates.where((i) => i.status == 'pending').toList();
+    return _pickBestRoutinePendingCandidate(
+      candidates: nextPending,
+      dayStart: dayStart,
+    );
   }
 
   static ActivityInstanceRecord? _pickRoutineTask({
@@ -410,10 +511,13 @@ class TodayInstanceSelectors {
     final pendingTodayOrOverdue = candidates
         .where((i) =>
             i.status == 'pending' && isTaskDueTodayOrOverdue(i, dayStart))
-        .toList()
-      ..sort(_compareDueDateAsc);
-    if (pendingTodayOrOverdue.isNotEmpty) {
-      return pendingTodayOrOverdue.first;
+        .toList();
+    final bestPendingTodayOrOverdue = _pickBestRoutinePendingCandidate(
+      candidates: pendingTodayOrOverdue,
+      dayStart: dayStart,
+    );
+    if (bestPendingTodayOrOverdue != null) {
+      return bestPendingTodayOrOverdue;
     }
 
     final recentCompletedOrSkipped = candidates
@@ -429,9 +533,11 @@ class TodayInstanceSelectors {
       return recentCompletedOrSkipped.first;
     }
 
-    final nextPending = candidates.where((i) => i.status == 'pending').toList()
-      ..sort(_compareDueDateAsc);
-    return nextPending.isNotEmpty ? nextPending.first : null;
+    final nextPending = candidates.where((i) => i.status == 'pending').toList();
+    return _pickBestRoutinePendingCandidate(
+      candidates: nextPending,
+      dayStart: dayStart,
+    );
   }
 
   static List<ActivityInstanceRecord> selectCalendarTodayTaskHabitPlanned(

@@ -195,8 +195,9 @@ class TodayInstanceRepository extends ChangeNotifier {
   Map<String, ActivityInstanceRecord> selectRoutineItems({
     required RoutineRecord routine,
   }) {
+    final routineSnapshot = _currentRoutineSnapshotOrEmpty();
     return TodayInstanceSelectors.selectRoutineItems(
-      snapshot: _currentSnapshotOrEmpty(),
+      snapshot: routineSnapshot,
       routine: routine,
     );
   }
@@ -243,6 +244,34 @@ class TodayInstanceRepository extends ChangeNotifier {
       );
     }
     return existing;
+  }
+
+  TodayInstanceSnapshot _currentRoutineSnapshotOrEmpty() {
+    final base = _currentSnapshotOrEmpty();
+    final merged = Map<String, ActivityInstanceRecord>.from(base.instancesById);
+
+    final taskScoped = _taskItemsIfValid();
+    if (taskScoped != null) {
+      for (final instance in taskScoped) {
+        merged[instance.reference.id] = instance;
+      }
+    }
+
+    final habitScoped = _habitItemsIfValid();
+    if (habitScoped != null) {
+      for (final instance in habitScoped) {
+        merged[instance.reference.id] = instance;
+      }
+    }
+
+    if (merged.length == base.instancesById.length) {
+      return base;
+    }
+
+    return base.copyWith(
+      instancesById: merged,
+      hydratedAt: DateTime.now(),
+    );
   }
 
   String _buildHydrationKey({

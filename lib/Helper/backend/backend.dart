@@ -1274,18 +1274,21 @@ Future<void> deleteHabit(DocumentReference habitRef) async {
     'isActive': false,
     'lastUpdated': DateTime.now(),
   });
-  // Also delete all instances for this habit
-  // TODO: Phase 6 - Implement with ActivityInstanceService
-  /*
+
+  // Cascade to instances so deleted habits do not reappear after restart.
   try {
-    await TaskInstanceService.deleteInstancesForTemplate(
+    await ActivityInstanceService.deleteInstancesForTemplate(
       templateId: habitRef.id,
-      templateType: 'habit',
     );
-  } catch (e) {
-    // Don't fail the habit deletion if instance deletion fails
+  } catch (e, stackTrace) {
+    // Do not fail template deletion if instance cleanup fails.
+    logFirestoreQueryError(
+      e,
+      queryDescription: 'deleteHabit cascade instances (${habitRef.id})',
+      collectionName: 'activity_instances',
+      stackTrace: stackTrace,
+    );
   }
-  */
 }
 
 /// Update a category

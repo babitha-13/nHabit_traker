@@ -266,13 +266,6 @@ class _ItemComponentState extends State<ItemComponent>
     return _binaryCompletionOverride ?? _isBackendCompleted;
   }
 
-  Color get _impactLevelColor {
-    return ItemUIBuildingHelper.getImpactLevelColor(
-      theme: FlutterFlowTheme.of(context),
-      priority: widget.instance.templatePriority,
-    );
-  }
-
   String _getTimerDisplayWithSeconds() {
     return TimerLogicHelper.formatTimeDisplay(widget.instance);
   }
@@ -793,7 +786,6 @@ class _ItemComponentState extends State<ItemComponent>
       treatAsBinary: widget.treatAsBinary,
       isUpdating: _isUpdating,
       isCompleted: _isCompleted,
-      impactLevelColor: _impactLevelColor,
       leftStripeColor: _leftStripeColor,
       currentProgressLocal: _currentProgressLocal,
       isTimerActiveLocal: _isTimerActiveLocal,

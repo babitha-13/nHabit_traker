@@ -146,7 +146,6 @@ class ItemUIBuildingHelper {
     required bool treatAsBinary,
     required bool isUpdating,
     required bool isCompleted,
-    required Color impactLevelColor,
     required Color leftStripeColor,
     required num Function() currentProgressLocal,
     required bool isTimerActiveLocal,
@@ -198,7 +197,11 @@ class ItemUIBuildingHelper {
                 width: 24,
                 height: 24,
                 decoration: BoxDecoration(
-                  color: isCompleted ? impactLevelColor : Colors.transparent,
+                  color: isCompleted
+                      ? FlutterFlowTheme.of(context)
+                          .secondaryText
+                          .withValues(alpha: 0.75)
+                      : Colors.transparent,
                   borderRadius: BorderRadius.circular(4),
                   border: isCompleted
                       ? null

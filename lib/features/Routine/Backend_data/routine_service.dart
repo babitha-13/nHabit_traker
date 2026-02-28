@@ -12,6 +12,99 @@ import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart'
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 
 class RoutineService {
+  static bool _stringListsEqual(List<String> a, List<String> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Remove stale/deleted/inactive routine items and normalize cached metadata.
+  static Future<RoutineRecord> _sanitizeRoutineItems({
+    required RoutineRecord routine,
+    required String userId,
+  }) async {
+    if (routine.itemIds.isEmpty) {
+      return routine;
+    }
+
+    Map<String, ActivityRecord> templates;
+    try {
+      // Bypass cache for correctness: routine sanitization should reflect current
+      // template state after delete/deactivate operations.
+      templates = await BatchReadService.batchGetTemplates(
+        templateIds: routine.itemIds,
+        userId: userId,
+        useCache: false,
+      );
+    } catch (_) {
+      // If lookup fails, keep routine unchanged to avoid destructive updates.
+      return routine;
+    }
+
+    final activeTemplates = <String, ActivityRecord>{};
+    for (final entry in templates.entries) {
+      if (entry.value.isActive) {
+        activeTemplates[entry.key] = entry.value;
+      }
+    }
+
+    final validIds = activeTemplates.keys.toSet();
+    final preferredOrder =
+        routine.itemOrder.isNotEmpty ? routine.itemOrder : routine.itemIds;
+
+    final sanitizedOrder = <String>[];
+    for (final id in preferredOrder) {
+      if (validIds.contains(id) && !sanitizedOrder.contains(id)) {
+        sanitizedOrder.add(id);
+      }
+    }
+    for (final id in routine.itemIds) {
+      if (validIds.contains(id) && !sanitizedOrder.contains(id)) {
+        sanitizedOrder.add(id);
+      }
+    }
+
+    final sanitizedIds = List<String>.from(sanitizedOrder);
+    final sanitizedNames = <String>[];
+    final sanitizedTypes = <String>[];
+    for (final id in sanitizedIds) {
+      final template = activeTemplates[id];
+      sanitizedNames.add(template?.name ?? 'Unknown Item');
+      sanitizedTypes.add(template?.categoryType ?? 'habit');
+    }
+
+    final hasChanges = !_stringListsEqual(sanitizedIds, routine.itemIds) ||
+        !_stringListsEqual(sanitizedOrder, routine.itemOrder) ||
+        !_stringListsEqual(sanitizedNames, routine.itemNames) ||
+        !_stringListsEqual(sanitizedTypes, routine.itemTypes);
+
+    if (!hasChanges) {
+      return routine;
+    }
+
+    final updateData = <String, dynamic>{
+      'itemIds': sanitizedIds,
+      'itemOrder': sanitizedOrder,
+      'itemNames': sanitizedNames,
+      'itemTypes': sanitizedTypes,
+      'lastUpdated': DateTime.now(),
+    };
+
+    await routine.reference.update(updateData);
+    final mergedData = Map<String, dynamic>.from(routine.snapshotData)
+      ..addAll(updateData);
+
+    NotificationCenter.post('routineUpdated', {
+      'action': 'itemsSanitized',
+      'routineId': routine.reference.id,
+    });
+
+    return RoutineRecord.getDocumentFromData(mergedData, routine.reference);
+  }
+
   /// Create a new routine with items and order
   static Future<DocumentReference> createRoutine({
     required String name,
@@ -218,11 +311,19 @@ class RoutineService {
       final routineDoc =
           await RoutineRecord.collectionForUser(uid).doc(routineId).get();
       if (!routineDoc.exists) return null;
-      final routine = RoutineRecord.fromSnapshot(routineDoc);
+      var routine = RoutineRecord.fromSnapshot(routineDoc);
       if (!routine.isActive) return null;
 
+      routine = await _sanitizeRoutineItems(
+        routine: routine,
+        userId: uid,
+      );
+
       final repo = TodayInstanceRepository.instance;
-      await repo.ensureHydrated(userId: uid);
+      await repo.ensureHydratedForTasks(
+        userId: uid,
+        includeHabitItems: true,
+      );
       final selectedInstances = repo.selectRoutineItems(routine: routine);
 
       return RoutineWithInstances(
@@ -243,17 +344,18 @@ class RoutineService {
     final currentUser = FirebaseAuth.instance.currentUser;
     final uid = userId ?? currentUser?.uid ?? '';
     try {
-      // Get the activity template - check cache first
-      final cache = FirestoreCacheService();
-      ActivityRecord? template = cache.getCachedTemplate(itemId);
-      if (template == null) {
-        final activityDoc =
-            await ActivityRecord.collectionForUser(uid).doc(itemId).get();
-        if (!activityDoc.exists) {
-          return null;
-        }
-        template = ActivityRecord.fromSnapshot(activityDoc);
-        cache.cacheTemplate(itemId, template);
+      // Always fetch latest template state to avoid recreating instances for
+      // recently deleted/deactivated routine items.
+      final activityDoc =
+          await ActivityRecord.collectionForUser(uid).doc(itemId).get();
+      if (!activityDoc.exists) {
+        return null;
+      }
+      final template = ActivityRecord.fromSnapshot(activityDoc);
+      FirestoreCacheService().cacheTemplate(itemId, template);
+
+      if (!template.isActive) {
+        return null;
       }
 
       // For Essential Activities, return null - UI should show time log dialog

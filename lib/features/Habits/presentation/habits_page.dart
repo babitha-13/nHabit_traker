@@ -174,6 +174,9 @@ class _HabitsPageState extends State<HabitsPage> with HabitsPageLogic {
     super.reassemble();
     NotificationCenter.removeObserver(this);
     _registerObservers();
+    // Hot reload can leave TodayInstanceRepository snapshot stale for this day.
+    // Force a silent refresh so deleted instances don't reappear from memory.
+    unawaited(loadHabitsSilently());
   }
 
   @override

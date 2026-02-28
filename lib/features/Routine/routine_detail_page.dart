@@ -14,6 +14,8 @@ import 'package:habit_tracker/features/Routine/Create%20Routine/create_routine_p
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
+import 'package:intl/intl.dart';
 
 class RoutineDetailPage extends StatefulWidget {
   final RoutineRecord routine;
@@ -30,10 +32,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _isReordering = false;
-  // Tracks itemIds ticked this Routine session (for qty increment-only items).
-  // The struck-off visual is driven by this set rather than by _binaryCompletionOverride
-  // (which can be cleared by reconciliation broadcasts).
-  final Set<String> _sessionTickedItemIds = {};
   @override
   void initState() {
     super.initState();
@@ -123,24 +121,9 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         );
       }
       if (mounted) {
-        // Rebuild session-ticked set from loaded instances:
-        // any qty item with existing progress (currentValue > 0) should remain
-        // visually struck-off in the Routine when navigating back to the page.
-        final rebuiltTicked = <String>{};
-        updatedRoutineWithInstances?.instances.forEach((itemId, inst) {
-          if (inst.templateTrackingType == 'quantitative') {
-            final val = inst.currentValue;
-            if (val is num && val > 0) {
-              rebuiltTicked.add(itemId);
-            }
-          }
-        });
         setState(() {
           _routineWithInstances = updatedRoutineWithInstances;
           _categories = allCategories;
-          _sessionTickedItemIds
-            ..clear()
-            ..addAll(rebuiltTicked);
           _isLoading = false;
         });
       }
@@ -546,6 +529,47 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     );
   }
 
+  bool _isSameDay(DateTime a, DateTime b) {
+    return a.year == b.year && a.month == b.month && a.day == b.day;
+  }
+
+  String _buildRoutineStatusSubtitle(ActivityInstanceRecord instance) {
+    final status = instance.status.toLowerCase();
+    if (status != 'completed' && status != 'skipped') {
+      return '';
+    }
+
+    final isSkipped = status == 'skipped';
+    final verb = isSkipped ? 'Skipped' : 'Completed';
+    final now = DateTime.now();
+    final yesterday = now.subtract(const Duration(days: 1));
+
+    DateTime? statusAt = isSkipped ? instance.skippedAt : instance.completedAt;
+    statusAt ??= instance.lastUpdated;
+
+    String whenLabel = '';
+    if (statusAt != null) {
+      if (_isSameDay(statusAt, now)) {
+        whenLabel = 'Today';
+      } else if (_isSameDay(statusAt, yesterday)) {
+        whenLabel = 'Yesterday';
+      } else {
+        whenLabel = DateFormat.MMMd().format(statusAt);
+      }
+    }
+
+    final due = instance.dueDate;
+    final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
+    final dueTime = instance.hasDueTime()
+        ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
+        : '';
+
+    if (whenLabel.isEmpty) {
+      return '$verb • Due: $dueStr$dueTime';
+    }
+    return '$verb $whenLabel • Due: $dueStr$dueTime';
+  }
+
   Widget _buildItemComponent(ActivityInstanceRecord? instance, String itemId,
       String itemType, String itemName) {
     if (instance == null) {
@@ -584,6 +608,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
 
     return ItemComponent(
       key: ValueKey(instance.reference.id),
+      subtitle: _buildRoutineStatusSubtitle(instance),
       instance: instance,
       categoryColorHex: categoryColor,
       onRefresh:
@@ -592,11 +617,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         setState(() {
           if (_routineWithInstances != null) {
             _routineWithInstances!.instances[itemId] = updatedInstance;
-          }
-          // For qty increment-only mode: mark the item as session-ticked so it
-          // stays visually struck-off regardless of subsequent status broadcasts.
-          if (instance.templateTrackingType == 'quantitative') {
-            _sessionTickedItemIds.add(itemId);
           }
         });
       },
@@ -613,12 +633,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showTypeIcon: true,
       showRecurringIcon: true,
       showCompleted: true,
-      treatAsBinary: true,
-      quantitativeTreatAsIncrement: true,
-      // forceVisuallyCompleted: session-ticked qty items always look struck-off,
-      // even if the backend status is still 'pending' (target not yet met).
-      forceVisuallyCompleted: instance.templateTrackingType == 'quantitative' &&
-          _sessionTickedItemIds.contains(itemId),
+      page: 'queue',
     );
   }
 
