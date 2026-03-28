@@ -634,7 +634,7 @@ class CalendarEventService {
             validStartTime.day,
           );
           if (startDateOnly.isAtSameMomentAs(selectedDateOnly)) {
-            final prefix = item.status == 'completed' ? '✓ ' : '';
+            const prefix = '';
             String? categoryColorHex;
             if (item.templateCategoryType == 'habit' ||
                 item.templateCategoryType == 'task') {

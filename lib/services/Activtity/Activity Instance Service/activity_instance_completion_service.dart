@@ -441,7 +441,8 @@ class ActivityInstanceCompletionService {
                     print('Error broadcasting instance created event: $e');
                   }
                 }
-              } else if (!template.isRecurring) {
+              } else if (!template.isRecurring &&
+                  template.categoryType != 'essential') {
                 await templateRef.update({
                   'isActive': false,
                   'status': 'complete',

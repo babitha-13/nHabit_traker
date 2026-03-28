@@ -360,12 +360,13 @@ class MorningCatchUpDialogLogic {
             !processedItemIds.contains(item.reference.id) &&
             item.templateCategoryType == 'habit' &&
             // Only include habits where window has ended
-            (item.windowEndDate == null ||
-                DateTime(
-                  item.windowEndDate!.year,
-                  item.windowEndDate!.month,
-                  item.windowEndDate!.day,
-                ).isBefore(today)))
+            (item.windowEndDate == null
+                ? item.windowDuration <= 1
+                : DateTime(
+                    item.windowEndDate!.year,
+                    item.windowEndDate!.month,
+                    item.windowEndDate!.day,
+                  ).isBefore(today)))
         .toList();
 
     if (remainingHabits.isEmpty) {

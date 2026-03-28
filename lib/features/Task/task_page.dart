@@ -68,6 +68,8 @@ class _TaskPageState extends State<TaskPage> {
   // Optimistic operation tracking
   final Map<String, String> _optimisticOperations =
       {}; // operationId -> instanceId
+  Timer? _syncDebounceTimer;
+  bool _isSilentSyncInFlight = false;
 
   @override
   void initState() {
@@ -131,6 +133,7 @@ class _TaskPageState extends State<TaskPage> {
   void dispose() {
     NotificationCenter.removeObserver(this);
     _searchManager.removeListener(_onSearchChanged);
+    _syncDebounceTimer?.cancel();
     _quickAddController.dispose();
     _quickTargetNumberController.dispose();
     _quickHoursController.dispose();
@@ -692,12 +695,43 @@ class _TaskPageState extends State<TaskPage> {
         instances: sortedInstances,
         scope: 'TaskPage._loadDataSilently.${widget.categoryName ?? 'all'}',
       );
+      // --- Optimistic-merge step ---
+      // If a silent sync fires while an optimistic (temp-ID) instance is still
+      // in the list, we must not drop it (the real instance may not be in the
+      // Firestore snapshot yet) AND must not add the real one if it is already
+      // there (that would create the visible duplicate).
+      //
+      // Strategy:
+      //  1. Build a set of (templateId, normalised-dueDate) keys from the
+      //     freshly-fetched list.
+      //  2. For every optimistic (temp_*) instance currently held, add it to
+      //     the merged list only if no real equivalent exists yet.
+      //  3. For every fresh instance, guard against double-insertion if a real
+      //     entry was already contributed by the current _taskInstances state.
+      final freshKeys = <String>{};
+      for (final inst in sortedInstances) {
+        final due = inst.dueDate;
+        final dateStr = due != null
+            ? '${due.year}-${due.month}-${due.day}'
+            : 'null';
+        freshKeys.add('${inst.templateId}|$dateStr');
+      }
+      final pendingOptimistic = _taskInstances.where((inst) {
+        if (!inst.reference.id.startsWith('temp_')) return false;
+        final due = inst.dueDate;
+        final dateStr = due != null
+            ? '${due.year}-${due.month}-${due.day}'
+            : 'null';
+        // Keep the temp entry only if the real instance is NOT in the fresh list yet.
+        return !freshKeys.contains('${inst.templateId}|$dateStr');
+      }).toList();
+      final mergedInstances = [...sortedInstances, ...pendingOptimistic];
       if (mounted) {
         // Calculate hash code when data changes
-        final newHash = _calculateInstancesHash(sortedInstances);
+        final newHash = _calculateInstancesHash(mergedInstances);
         setState(() {
           _categories = categories;
-          _taskInstances = sortedInstances;
+          _taskInstances = mergedInstances;
           // Invalidate cache when instances change
           _cachedBucketedItems = null;
           _taskInstancesHashCode = newHash;
@@ -739,6 +773,17 @@ class _TaskPageState extends State<TaskPage> {
       onOptimisticOperationsUpdate: _updateOptimisticOperations,
       onCacheInvalidate: _invalidateCache,
     );
+    // Only schedule a silent sync for truly external events (no operationId).
+    // Events with an operationId are our own reconcile broadcasts — the instance
+    // is already in the local list; a redundant re-fetch would add it a second
+    // time and cause the visible duplicate before the next full reload.
+    final isOptimistic =
+        (param is Map) ? (param['isOptimistic'] as bool? ?? false) : false;
+    final hasOperationId =
+        (param is Map) ? (param['operationId'] != null) : false;
+    if (!isOptimistic && !hasOperationId) {
+      _scheduleSilentSync();
+    }
   }
 
   void _handleInstanceUpdated(dynamic param) {
@@ -760,6 +805,14 @@ class _TaskPageState extends State<TaskPage> {
       onOptimisticOperationsUpdate: _updateOptimisticOperations,
       onCacheInvalidate: _invalidateCache,
     );
+    // Same logic as _handleInstanceCreated: only sync for external events.
+    final isOptimistic =
+        (param is Map) ? (param['isOptimistic'] as bool? ?? false) : false;
+    final hasOperationId =
+        (param is Map) ? (param['operationId'] != null) : false;
+    if (!isOptimistic && !hasOperationId) {
+      _scheduleSilentSync();
+    }
   }
 
   void _handleRollback(dynamic param) {
@@ -792,6 +845,7 @@ class _TaskPageState extends State<TaskPage> {
         );
       },
     );
+    _scheduleSilentSync(immediate: true);
   }
 
   void _handleInstanceDeleted(ActivityInstanceRecord instance) {
@@ -810,6 +864,35 @@ class _TaskPageState extends State<TaskPage> {
       },
       onCacheInvalidate: _invalidateCache,
     );
+    _scheduleSilentSync();
+  }
+
+  void _scheduleSilentSync({bool immediate = false}) {
+    if (!_isPageVisible()) {
+      return;
+    }
+    _syncDebounceTimer?.cancel();
+    final delay = immediate ? Duration.zero : const Duration(milliseconds: 450);
+    _syncDebounceTimer = Timer(delay, () async {
+      if (!mounted || _isSilentSyncInFlight || !_isPageVisible()) {
+        return;
+      }
+      _isSilentSyncInFlight = true;
+      try {
+        await _loadDataSilently();
+      } finally {
+        _isSilentSyncInFlight = false;
+      }
+    });
+  }
+
+  bool _isPageVisible() {
+    if (!mounted) return false;
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      return false;
+    }
+    return TickerMode.of(context);
   }
 
   /// Handle reordering of items within a section

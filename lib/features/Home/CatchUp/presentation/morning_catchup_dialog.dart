@@ -176,10 +176,18 @@ class _MorningCatchUpDialogState extends State<MorningCatchUpDialog> {
   }
 
   Future<void> _skipAllRemaining() async {
+    final today = IstDayBoundaryService.todayStartIst();
     final remainingHabits = _logic.items
         .where((item) =>
             !_logic.processedItemIds.contains(item.reference.id) &&
-            item.templateCategoryType == 'habit')
+            item.templateCategoryType == 'habit' &&
+            (item.windowEndDate == null
+                ? item.windowDuration <= 1
+                : DateTime(
+                    item.windowEndDate!.year,
+                    item.windowEndDate!.month,
+                    item.windowEndDate!.day,
+                  ).isBefore(today)))
         .toList();
 
     if (remainingHabits.isEmpty) {

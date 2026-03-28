@@ -47,13 +47,119 @@ class ManualTimeLogHelperService {
     return shouldComplete;
   }
 
+  static String _normalizeType(String value) {
+    final normalized = value.trim().toLowerCase();
+    if (normalized == 'essentials') return 'essential';
+    if (normalized == 'tasks') return 'task';
+    if (normalized == 'habits') return 'habit';
+    return normalized;
+  }
+
+  static DateTime _resolveInitialStartTime(ManualTimeLogModalState state) {
+    final initialStart = state.widget.initialStartTime;
+    if (initialStart == null) {
+      return state.startTime;
+    }
+
+    return DateTime(
+      state.widget.selectedDate.year,
+      state.widget.selectedDate.month,
+      state.widget.selectedDate.day,
+      initialStart.hour,
+      initialStart.minute,
+    );
+  }
+
+  static DateTime _resolveInitialEndTime(ManualTimeLogModalState state) {
+    final initialEnd = state.widget.initialEndTime;
+    if (initialEnd == null) {
+      return state.endTime;
+    }
+
+    final endDateOnly = DateTime(
+      initialEnd.year,
+      initialEnd.month,
+      initialEnd.day,
+    );
+    final selectedDateOnly = DateTime(
+      state.widget.selectedDate.year,
+      state.widget.selectedDate.month,
+      state.widget.selectedDate.day,
+    );
+    final dayDelta = endDateOnly.difference(selectedDateOnly).inDays;
+
+    if (dayDelta == 1 || dayDelta == 0) {
+      return initialEnd;
+    }
+
+    return DateTime(
+      state.widget.selectedDate.year,
+      state.widget.selectedDate.month,
+      state.widget.selectedDate.day,
+      initialEnd.hour,
+      initialEnd.minute,
+      initialEnd.second,
+    );
+  }
+
+  static bool _isSameMinute(DateTime a, DateTime b) {
+    return a.year == b.year &&
+        a.month == b.month &&
+        a.day == b.day &&
+        a.hour == b.hour &&
+        a.minute == b.minute;
+  }
+
+  static bool _hasEditModeChanges(ManualTimeLogModalState state) {
+    final metadata = state.widget.editMetadata;
+    if (metadata == null) return false;
+
+    final nameChanged =
+        state.activityController.text.trim() != metadata.activityName.trim();
+    final typeChanged = _normalizeType(state.selectedType) !=
+        _normalizeType(metadata.activityType);
+    final startChanged =
+        !_isSameMinute(state.startTime, _resolveInitialStartTime(state));
+    final endChanged =
+        !_isSameMinute(state.endTime, _resolveInitialEndTime(state));
+
+    // A newly selected template means metadata would change on save.
+    final templateChanged = state.selectedTemplate != null &&
+        state.selectedTemplate!.reference.id != metadata.templateId;
+    final completionChanged = state.markAsComplete || state.quantityValue > 0;
+
+    return nameChanged ||
+        typeChanged ||
+        startChanged ||
+        endChanged ||
+        templateChanged ||
+        completionChanged;
+  }
+
+  static bool _hasCreateModeChanges(ManualTimeLogModalState state) {
+    final hasTypedName = state.activityController.text.trim().isNotEmpty;
+    final hasTemplateSelection = state.selectedTemplate != null;
+    final hasCompletionChanges =
+        state.markAsComplete || state.quantityValue > 0;
+    final typeChanged = _normalizeType(state.selectedType) != 'task';
+    final startChanged =
+        !_isSameMinute(state.startTime, _resolveInitialStartTime(state));
+    final endChanged =
+        !_isSameMinute(state.endTime, _resolveInitialEndTime(state));
+
+    return hasTypedName ||
+        hasTemplateSelection ||
+        hasCompletionChanges ||
+        typeChanged ||
+        startChanged ||
+        endChanged;
+  }
+
   /// Handle back button - show warning if user has unsaved changes
   static Future<bool> onWillPop(ManualTimeLogModalState state) async {
-    // Check if user has made any changes
-    final hasChanges = state.activityController.text.isNotEmpty ||
-        state.selectedTemplate != null ||
-        state.markAsComplete ||
-        state.quantityValue > 0;
+    final hasChanges = state.widget.editMetadata != null
+        ? _hasEditModeChanges(state)
+        : _hasCreateModeChanges(state);
 
     if (!hasChanges) {
       // No changes, allow back navigation
@@ -71,7 +177,7 @@ class ManualTimeLogHelperService {
         actions: [
           TextButton(
             onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
+            child: const Text('Back'),
           ),
           ElevatedButton(
             onPressed: () => Navigator.of(context).pop(true),

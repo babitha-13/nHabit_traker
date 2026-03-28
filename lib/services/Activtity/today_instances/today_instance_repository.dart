@@ -21,9 +21,12 @@ class TodayInstanceRepository extends ChangeNotifier {
   }
 
   void ensureListenersSetup() {
-    if (_listenersSetup) {
-      return;
+    if (!_listenersSetup) {
+      _listenersSetup = true;
     }
+    // Idempotent registration: NotificationCenter keys include this object's
+    // hash, so re-adding replaces existing callbacks instead of duplicating.
+    // This keeps listeners resilient after NotificationCenter.reset().
     NotificationCenter.addObserver(
       this,
       InstanceEvents.instanceCreated,
@@ -44,7 +47,6 @@ class TodayInstanceRepository extends ChangeNotifier {
       'instanceUpdateRollback',
       _handleInstanceRollback,
     );
-    _listenersSetup = true;
   }
 
   TodayInstanceSnapshot? _snapshot;
@@ -342,18 +344,15 @@ class TodayInstanceRepository extends ChangeNotifier {
     }
 
     ActivityInstanceRecord? instance;
+    bool isOptimistic = false;
     if (param is ActivityInstanceRecord) {
       instance = param;
     } else if (param is Map && param['instance'] is ActivityInstanceRecord) {
       instance = param['instance'] as ActivityInstanceRecord;
+      isOptimistic = param['isOptimistic'] as bool? ?? false;
     }
     if (instance == null) {
       return;
-    }
-    if (instance.templateCategoryType == 'task') {
-      _upsertTaskItemsSnapshot(instance);
-    } else if (instance.templateCategoryType == 'habit') {
-      _upsertHabitItemsSnapshot(instance);
     }
 
     if (_extractUserIdFromPath(instance.reference.path) != existing.userId) {
@@ -361,6 +360,21 @@ class TodayInstanceRepository extends ChangeNotifier {
     }
 
     final instanceId = instance.reference.id;
+    final trackedInstance = existing.instancesById[instanceId];
+    if (_isStaleNonOptimisticUpdate(
+      existingInstance: trackedInstance,
+      incoming: instance,
+      isOptimistic: isOptimistic,
+    )) {
+      return;
+    }
+
+    if (instance.templateCategoryType == 'task') {
+      _upsertTaskItemsSnapshot(instance, isOptimistic: isOptimistic);
+    } else if (instance.templateCategoryType == 'habit') {
+      _upsertHabitItemsSnapshot(instance, isOptimistic: isOptimistic);
+    }
+
     final alreadyTracked = existing.instancesById.containsKey(instanceId);
     final isRelevant = _isRelevantForToday(instance, existing);
 
@@ -393,6 +407,22 @@ class TodayInstanceRepository extends ChangeNotifier {
     );
     _revision++;
     notifyListeners();
+  }
+
+  bool _isStaleNonOptimisticUpdate({
+    required ActivityInstanceRecord? existingInstance,
+    required ActivityInstanceRecord incoming,
+    required bool isOptimistic,
+  }) {
+    if (isOptimistic || existingInstance == null) {
+      return false;
+    }
+    final incomingLastUpdated = incoming.lastUpdated;
+    final existingLastUpdated = existingInstance.lastUpdated;
+    if (incomingLastUpdated != null && existingLastUpdated != null) {
+      return incomingLastUpdated.isBefore(existingLastUpdated);
+    }
+    return false;
   }
 
   void _handleInstanceDeleted(Object? param) {
@@ -681,12 +711,22 @@ class TodayInstanceRepository extends ChangeNotifier {
     _habitItemsDayStart = null;
   }
 
-  void _upsertTaskItemsSnapshot(ActivityInstanceRecord instance) {
+  void _upsertTaskItemsSnapshot(
+    ActivityInstanceRecord instance, {
+    bool isOptimistic = false,
+  }) {
     final items = _taskItemsSnapshot;
     if (items == null) return;
     final id = instance.reference.id;
     final index = items.indexWhere((i) => i.reference.id == id);
     if (index >= 0) {
+      if (_isStaleNonOptimisticUpdate(
+        existingInstance: items[index],
+        incoming: instance,
+        isOptimistic: isOptimistic,
+      )) {
+        return;
+      }
       items[index] = instance;
     } else {
       items.add(instance);
@@ -697,12 +737,22 @@ class TodayInstanceRepository extends ChangeNotifier {
     _taskItemsSnapshot?.removeWhere((i) => i.reference.id == instanceId);
   }
 
-  void _upsertHabitItemsSnapshot(ActivityInstanceRecord instance) {
+  void _upsertHabitItemsSnapshot(
+    ActivityInstanceRecord instance, {
+    bool isOptimistic = false,
+  }) {
     final items = _habitItemsSnapshot;
     if (items == null) return;
     final id = instance.reference.id;
     final index = items.indexWhere((i) => i.reference.id == id);
     if (index >= 0) {
+      if (_isStaleNonOptimisticUpdate(
+        existingInstance: items[index],
+        incoming: instance,
+        isOptimistic: isOptimistic,
+      )) {
+        return;
+      }
       items[index] = instance;
     } else {
       items.add(instance);

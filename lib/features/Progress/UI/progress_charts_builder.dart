@@ -52,7 +52,7 @@ class ProgressChartsBuilder {
     double maxTarget = 100.0;
     if (chartData.isNotEmpty) {
       final maxVal = chartData
-          .map((d) => d['target'] as double)
+          .map((d) => (d['target'] as num?)?.toDouble() ?? 0.0)
           .reduce((a, b) => a > b ? a : b);
       if (maxVal > 0) maxTarget = maxVal;
     }
@@ -114,9 +114,9 @@ class ProgressChartsBuilder {
     required double maxTarget,
     required ProgressPageLogic logic,
   }) {
-    final target = dayData['target'] as double;
-    final earned = dayData['earned'] as double;
-    final percentage = dayData['percentage'] as double;
+    final target = (dayData['target'] as num?)?.toDouble() ?? 0.0;
+    final earned = (dayData['earned'] as num?)?.toDouble() ?? 0.0;
+    final percentage = (dayData['percentage'] as num?)?.toDouble() ?? 0.0;
     final dayName = dayData['dayName'] as String;
 
     final targetHeight = (target / maxTarget) * 100;
@@ -304,7 +304,8 @@ class ProgressChartsBuilder {
   }) {
     if (data.isEmpty) return const SizedBox();
 
-    final scores = data.map((d) => d['score'] as double).toList();
+    final scores =
+        data.map((d) => (d['score'] as num?)?.toDouble() ?? 0.0).toList();
     final minScore = scores.reduce((a, b) => a < b ? a : b);
     final maxScore = scores.reduce((a, b) => a > b ? a : b);
     final adjustedMaxScore = maxScore == minScore ? minScore + 10.0 : maxScore;

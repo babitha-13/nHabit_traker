@@ -396,17 +396,36 @@ class CalendarEventTileBuilder {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Text(
-            event.title.isNotEmpty ? event.title : ' ',
-            style: TextStyle(
-              color: isEssentialActivity
-                  ? (isCompleted ? Colors.black87 : textColor.withOpacity(0.7))
-                  : textColor,
-              fontSize: 12,
-              fontWeight: FontWeight.bold,
-            ),
-            overflow: TextOverflow.ellipsis,
-            maxLines: 2,
+          Row(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              if (isCompleted)
+                Padding(
+                  padding: const EdgeInsets.only(right: 2.0),
+                  child: Icon(
+                    Icons.check,
+                    size: 12,
+                    color: isEssentialActivity ? Colors.black87 : textColor,
+                  ),
+                ),
+              Flexible(
+                child: Text(
+                  event.title.isNotEmpty ? event.title : ' ',
+                  style: TextStyle(
+                    color: isEssentialActivity
+                        ? (isCompleted
+                            ? Colors.black87
+                            : textColor.withOpacity(0.7))
+                        : textColor,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                ),
+              ),
+            ],
           ),
           if (event.description != null && event.description!.isNotEmpty)
             Text(
@@ -471,26 +490,46 @@ class CalendarEventTileBuilder {
             ),
           ],
         ),
-        child: Text(
-          event.title.isNotEmpty ? event.title : ' ',
-          style: TextStyle(
-            color:
-                isEssentialActivity && isCompleted ? Colors.black87 : textColor,
-            fontSize: 11,
-            fontWeight: FontWeight.w700,
-            shadows: isCompleted
-                ? null
-                : [
-                    Shadow(
-                      offset: const Offset(0, 0),
-                      blurRadius: 2.0,
-                      color: Colors.black.withOpacity(0.5),
-                    ),
-                  ],
-          ),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          softWrap: false,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            if (isCompleted)
+              Padding(
+                padding: const EdgeInsets.only(right: 2.0),
+                child: Icon(
+                  Icons.check,
+                  size: 11,
+                  color: isEssentialActivity && isCompleted
+                      ? Colors.black87
+                      : textColor,
+                ),
+              ),
+            Flexible(
+              child: Text(
+                event.title.isNotEmpty ? event.title : ' ',
+                style: TextStyle(
+                  color: isEssentialActivity && isCompleted
+                      ? Colors.black87
+                      : textColor,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  shadows: isCompleted
+                      ? null
+                      : [
+                          Shadow(
+                            offset: const Offset(0, 0),
+                            blurRadius: 2.0,
+                            color: Colors.black.withValues(alpha: 0.5),
+                          ),
+                        ],
+                ),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                softWrap: false,
+              ),
+            ),
+          ],
         ),
       ),
     );

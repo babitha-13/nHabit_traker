@@ -52,6 +52,19 @@ class TaskBucketingLogicHelper {
     final today = DateService.todayStart;
     final tomorrow = DateService.tomorrowStart;
     final thisWeekEnd = tomorrow.add(const Duration(days: 5));
+    final completedTodayTemplateIds = taskInstances
+        .where((inst) =>
+            inst.templateCategoryType == 'task' &&
+            inst.status == 'completed' &&
+            inst.completedAt != null &&
+            isSameDay(
+              DateTime(inst.completedAt!.year, inst.completedAt!.month,
+                  inst.completedAt!.day),
+              today,
+            ) &&
+            (categoryName == null || inst.templateCategoryName == categoryName))
+        .map((inst) => inst.templateId)
+        .toSet();
 
     // Group recurring tasks by templateId to show only earliest pending instance
     final Map<String, List<ActivityInstanceRecord>> recurringTasksByTemplate =
@@ -64,6 +77,12 @@ class TaskBucketingLogicHelper {
       }
       if (categoryName != null &&
           instance.templateCategoryName != categoryName) {
+        continue;
+      }
+      // Keep task-page behavior aligned with Queue/Calendar:
+      // when a template was completed today, don't also show its next pending
+      // occurrence as incomplete in the same day view.
+      if (completedTodayTemplateIds.contains(instance.templateId)) {
         continue;
       }
       if (instance.templateIsRecurring) {

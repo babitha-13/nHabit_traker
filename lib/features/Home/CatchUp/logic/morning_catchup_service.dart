@@ -444,6 +444,20 @@ class MorningCatchUpService {
     return candidates.where((item) {
       if (item.status != 'pending' || item.skippedAt != null) return false;
 
+      // Defensively handle cases where windowEndDate might be null but habit has a multi-day window
+      if (item.windowEndDate == null &&
+          item.windowDuration > 1 &&
+          item.belongsToDate != null) {
+        final belongsToDateOnly = DateTime(
+          item.belongsToDate!.year,
+          item.belongsToDate!.month,
+          item.belongsToDate!.day,
+        );
+        final inferredWindowEndDate =
+            belongsToDateOnly.add(Duration(days: item.windowDuration - 1));
+        if (inferredWindowEndDate.isAfter(yesterday)) return false;
+      }
+
       // Window must be closed by yesterday to be actionable in catch-up.
       if (item.windowEndDate != null) {
         final windowEndDateOnly = DateTime(
@@ -903,11 +917,19 @@ class MorningCatchUpService {
     required bool baselineProcessedAtOpen,
   }) async {
     final items = await getIncompleteItemsFromYesterday(userId);
+    final today = IstDayBoundaryService.todayStartIst();
     final remainingHabits = items
         .where((item) =>
             item.templateCategoryType == 'habit' &&
             item.status == 'pending' &&
-            item.skippedAt == null)
+            item.skippedAt == null &&
+            (item.windowEndDate == null
+                ? item.windowDuration <= 1
+                : DateTime(
+                    item.windowEndDate!.year,
+                    item.windowEndDate!.month,
+                    item.windowEndDate!.day,
+                  ).isBefore(today)))
         .toList();
 
     if (remainingHabits.isNotEmpty) {

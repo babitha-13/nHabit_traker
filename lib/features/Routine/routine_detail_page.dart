@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Routine/Backend_data/routine_service.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
@@ -7,12 +8,12 @@ import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
-import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_component_main.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Routine/Create%20Routine/create_routine_page.dart';
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
+import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:intl/intl.dart';
@@ -28,10 +29,51 @@ class RoutineDetailPage extends StatefulWidget {
 }
 
 class _RoutineDetailPageState extends State<RoutineDetailPage> {
+  static const bool _traceRoutineSyncEnv =
+      bool.fromEnvironment('TRACE_ROUTINE_SYNC', defaultValue: true);
+  static bool get _traceRoutineSync => kDebugMode && _traceRoutineSyncEnv;
   RoutineWithInstances? _routineWithInstances;
   List<CategoryRecord> _categories = [];
   bool _isLoading = true;
   bool _isReordering = false;
+
+  void _logRoutineSync(
+    String stage, {
+    String? templateId,
+    ActivityInstanceRecord? instance,
+    bool? isOptimistic,
+    String? note,
+  }) {
+    if (!_traceRoutineSync) return;
+    final instanceId = instance?.reference.id ?? 'null';
+    final status = instance?.status ?? 'null';
+    final value = instance?.currentValue;
+    final lastUpdatedMs = instance?.lastUpdated?.millisecondsSinceEpoch;
+    debugPrint(
+      '[routine-sync][$stage] '
+      'routine=${widget.routine.reference.id} '
+      'template=${templateId ?? instance?.templateId ?? 'null'} '
+      'instance=$instanceId status=$status value=$value '
+      'updatedMs=${lastUpdatedMs ?? 'null'} '
+      'optimistic=${isOptimistic ?? false} '
+      '${note ?? ''}',
+    );
+  }
+
+  void _logRoutineSnapshot(
+      String stage, Map<String, ActivityInstanceRecord> map) {
+    if (!_traceRoutineSync) return;
+    final entries = map.entries
+        .take(8)
+        .map((e) =>
+            '${e.key}->${e.value.reference.id}:${e.value.status}:${e.value.currentValue}')
+        .join(' | ');
+    debugPrint(
+      '[routine-sync][$stage] routine=${widget.routine.reference.id} '
+      'items=${map.length} sample=$entries',
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -39,6 +81,12 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
         _refreshRoutine();
+      }
+    });
+    NotificationCenter.addObserver(this, InstanceEvents.instanceCreated,
+        (param) {
+      if (mounted) {
+        _handleRoutineInstanceCreated(param);
       }
     });
     NotificationCenter.addObserver(this, InstanceEvents.instanceUpdated,
@@ -51,6 +99,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         (param) {
       if (mounted) {
         _handleRoutineInstanceDeleted(param);
+      }
+    });
+    NotificationCenter.addObserver(this, 'instanceUpdateRollback', (param) {
+      if (mounted) {
+        _handleRoutineRollback(param);
       }
     });
   }
@@ -126,6 +179,10 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           _categories = allCategories;
           _isLoading = false;
         });
+        _logRoutineSnapshot(
+          'load_complete',
+          updatedRoutineWithInstances?.instances ?? const {},
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -150,46 +207,160 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     return null;
   }
 
+  bool _isOptimisticNotification(Object? param) {
+    if (param is Map) {
+      return param['isOptimistic'] as bool? ?? false;
+    }
+    return false;
+  }
+
+  bool _isStaleNonOptimisticUpdate({
+    required ActivityInstanceRecord existing,
+    required ActivityInstanceRecord incoming,
+    required bool isOptimistic,
+  }) {
+    if (isOptimistic) return false;
+    final incomingLastUpdated = incoming.lastUpdated;
+    final existingLastUpdated = existing.lastUpdated;
+    if (incomingLastUpdated != null && existingLastUpdated != null) {
+      return incomingLastUpdated.isBefore(existingLastUpdated);
+    }
+    return false;
+  }
+
+  void _handleRoutineInstanceCreated(Object? param) {
+    final createdInstance = _extractInstanceFromNotification(param);
+    if (createdInstance == null) return;
+    _logRoutineSync(
+      'event_created',
+      instance: createdInstance,
+      isOptimistic: _isOptimisticNotification(param),
+    );
+    _applyRoutineInstanceUpdate(
+      createdInstance,
+      isOptimistic: _isOptimisticNotification(param),
+    );
+  }
+
   void _handleRoutineInstanceUpdated(Object? param) {
     final updatedInstance = _extractInstanceFromNotification(param);
-    if (updatedInstance == null || _routineWithInstances == null) {
-      return;
-    }
-
-    // Skip optimistic broadcasts — they are already applied via the direct
-    // onInstanceUpdated callback inside ItemBinaryControlsHelper. Letting them
-    // also flow through here would cause a double setState, and in the
-    // quantitative path it creates an intermediate pending-state flash between
-    // updateInstanceProgress and completeInstance that clears the binary
-    // completion override and makes the item flicker back to incomplete.
-    final isOptimistic = updatedInstance.snapshotData['_optimistic'] == true;
-    if (isOptimistic) return;
-
-    final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
-      (mapEntry) => mapEntry.value.reference.id == updatedInstance.reference.id,
+    if (updatedInstance == null) return;
+    _logRoutineSync(
+      'event_updated',
+      instance: updatedInstance,
+      isOptimistic: _isOptimisticNotification(param),
     );
-    if (entry == null) {
+    _applyRoutineInstanceUpdate(
+      updatedInstance,
+      isOptimistic: _isOptimisticNotification(param),
+    );
+  }
+
+  void _applyRoutineInstanceUpdate(
+    ActivityInstanceRecord incoming, {
+    required bool isOptimistic,
+  }) {
+    final routineWithInstances = _routineWithInstances;
+    if (routineWithInstances == null) return;
+
+    String? matchedTemplateId;
+    ActivityInstanceRecord? existing;
+
+    for (final entry in routineWithInstances.instances.entries) {
+      if (entry.value.reference.id == incoming.reference.id) {
+        matchedTemplateId = entry.key;
+        existing = entry.value;
+        break;
+      }
+    }
+
+    matchedTemplateId ??= incoming.templateId;
+    if (!routineWithInstances.routine.itemIds.contains(matchedTemplateId)) {
+      _logRoutineSync(
+        'apply_skip_not_in_routine',
+        templateId: matchedTemplateId,
+        instance: incoming,
+        isOptimistic: isOptimistic,
+      );
       return;
     }
+
+    existing ??= routineWithInstances.instances[matchedTemplateId];
+    if (existing != null &&
+        _isStaleNonOptimisticUpdate(
+          existing: existing,
+          incoming: incoming,
+          isOptimistic: isOptimistic,
+        )) {
+      _logRoutineSync(
+        'apply_skip_stale',
+        templateId: matchedTemplateId,
+        instance: incoming,
+        isOptimistic: isOptimistic,
+        note:
+            'existing=${existing.reference.id}:${existing.currentValue}:${existing.lastUpdated?.millisecondsSinceEpoch}',
+      );
+      return;
+    }
+
     setState(() {
-      _routineWithInstances!.instances[entry.key] = updatedInstance;
+      routineWithInstances.instances[matchedTemplateId!] = incoming;
     });
+    _logRoutineSync(
+      'apply_success',
+      templateId: matchedTemplateId,
+      instance: incoming,
+      isOptimistic: isOptimistic,
+    );
   }
 
   void _handleRoutineInstanceDeleted(Object? param) {
     final deletedInstance = _extractInstanceFromNotification(param);
-    if (deletedInstance == null || _routineWithInstances == null) {
+    String? deletedId;
+    if (deletedInstance != null) {
+      deletedId = deletedInstance.reference.id;
+    } else if (param is Map && param['instanceId'] is String) {
+      deletedId = param['instanceId'] as String;
+    }
+    if (deletedId == null ||
+        deletedId.isEmpty ||
+        _routineWithInstances == null) {
       return;
     }
     final entry = _routineWithInstances!.instances.entries.firstWhereOrNull(
-      (mapEntry) => mapEntry.value.reference.id == deletedInstance.reference.id,
+      (mapEntry) => mapEntry.value.reference.id == deletedId,
     );
-    if (entry == null) {
-      return;
-    }
+    if (entry == null) return;
+
     setState(() {
       _routineWithInstances!.instances.remove(entry.key);
     });
+    _logRoutineSync(
+      'event_deleted',
+      templateId: entry.key,
+      instance: deletedInstance,
+    );
+  }
+
+  void _handleRoutineRollback(Object? param) {
+    if (param is! Map) return;
+    final original = param['originalInstance'] as ActivityInstanceRecord?;
+    if (original != null) {
+      _logRoutineSync('event_rollback_restore', instance: original);
+      _applyRoutineInstanceUpdate(original, isOptimistic: false);
+      return;
+    }
+    final operationType = param['operationType'] as String?;
+    final instanceId = param['instanceId'] as String?;
+    if (operationType == 'create' &&
+        instanceId != null &&
+        instanceId.isNotEmpty) {
+      _logRoutineSync(
+        'event_rollback_create_remove',
+        note: 'instanceId=$instanceId',
+      );
+      _handleRoutineInstanceDeleted({'instanceId': instanceId});
+    }
   }
 
   @override
@@ -634,6 +805,8 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showRecurringIcon: true,
       showCompleted: true,
       page: 'queue',
+      showCalendar: true,
+      showCalendarSkipOnly: true,
       showManagementActions: false,
     );
   }

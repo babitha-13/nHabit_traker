@@ -282,13 +282,13 @@ class ProgressStatsWidgets {
     required Function(double) onShowBreakdown,
   }) {
     final sharedData = TodayProgressState().getCumulativeScoreData();
-    final displayScore = sharedData['cumulativeScore'] as double? ??
+    final displayScore = (sharedData['cumulativeScore'] as num?)?.toDouble() ??
         logic.projectedCumulativeScore;
 
     // Use authoritative todayScore from shared state (matches Score Breakdown)
     // instead of computing from history diff which can diverge
-    final displayGain =
-        (sharedData['todayScore'] as double?) ?? logic.projectedDailyGain;
+    final displayGain = (sharedData['todayScore'] as num?)?.toDouble() ??
+        logic.projectedDailyGain;
 
     final gainColor = displayGain >= 0 ? Colors.green : Colors.red;
     final gainIcon = displayGain >= 0 ? Icons.trending_up : Icons.trending_down;

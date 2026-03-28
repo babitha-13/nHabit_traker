@@ -35,6 +35,7 @@ import 'package:habit_tracker/Helper/auth/logout_cleanup.dart';
 import 'package:habit_tracker/features/Timer/global_floating_timer.dart';
 import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/services/resource_tracker.dart';
 
 class Home extends StatefulWidget {
@@ -74,6 +75,8 @@ class _HomeState extends State<Home> {
       FirestoreCacheService.resetListenersSetup();
       FirestoreCacheService()
           .ensureListenersSetup(); // Re-register observers for cache
+      TodayInstanceRepository.resetListenersSetup();
+      TodayInstanceRepository.instance.ensureListenersSetup();
       ResourceTracker.reset();
     }
     NotificationCenter.addObserver(

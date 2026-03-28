@@ -97,6 +97,7 @@ class ItemMenuLogicHelper {
     required Function(ActivityInstanceRecord) onInstanceUpdated,
     required Future<void> Function()? onRefresh,
     required Future<String?> Function() showUncompleteDialog,
+    bool skipOnly = false,
   }) async {
     final box = anchorContext.findRenderObject() as RenderBox?;
     final overlay =
@@ -111,7 +112,13 @@ class ItemMenuLogicHelper {
         DateTime.now().isBefore(instance.snoozedUntil!);
     final menuItems = <PopupMenuEntry<String>>[];
 
-    if (isHabit) {
+    if (skipOnly) {
+      menuItems.add(const PopupMenuItem<String>(
+        value: 'skip',
+        height: 32,
+        child: Text('Skip', style: TextStyle(fontSize: 12)),
+      ));
+    } else if (isHabit) {
       final isSkipped = instance.status == 'skipped';
       if (isSkipped) {
         menuItems.add(const PopupMenuItem<String>(

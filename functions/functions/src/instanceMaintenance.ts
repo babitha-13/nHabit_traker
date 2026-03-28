@@ -191,7 +191,7 @@ async function autoSkipExpiredHabitsBeforeYesterday(
   try {
     // Calculate cutoff: 2 days before yesterday
     const cutoffDate = new Date(yesterday);
-    cutoffDate.setUTCDate(cutoffDate.getUTCDate() - 2);
+    // Removed erroneous -2 day offset
     const cutoffNormalized = normalizeToStartOfDay(cutoffDate);
     
     // Query habit instances where windowEndDate < cutoff (2+ days expired)

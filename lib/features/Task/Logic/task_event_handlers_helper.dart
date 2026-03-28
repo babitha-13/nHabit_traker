@@ -1,6 +1,38 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 
+/// Returns true if [instances] already contains an equivalent entry for [instance].
+/// Equivalence is: exact same reference.id  **OR**  same templateId + same
+/// normalized dueDate (date-only, null == null).  The second check prevents the
+/// silent-sync race from inserting a real instance alongside the already-reconciled
+/// optimistic copy when they carry different Firestore document IDs.
+bool _hasDuplicate(
+  List<ActivityInstanceRecord> instances,
+  ActivityInstanceRecord instance,
+) {
+  final incomingId = instance.reference.id;
+  final incomingTemplateId = instance.templateId;
+  final incomingDue = instance.dueDate != null
+      ? DateTime(instance.dueDate!.year, instance.dueDate!.month,
+          instance.dueDate!.day)
+      : null;
+
+  for (final existing in instances) {
+    // Fast path: exact document ID match.
+    if (existing.reference.id == incomingId) return true;
+
+    // Semantic match: same template + same normalized due date.
+    if (existing.templateId == incomingTemplateId) {
+      final existingDue = existing.dueDate != null
+          ? DateTime(existing.dueDate!.year, existing.dueDate!.month,
+              existing.dueDate!.day)
+          : null;
+      if (existingDue == incomingDue) return true;
+    }
+  }
+  return false;
+}
+
 class TaskEventHandlersHelper {
   static void handleInstanceCreated({
     required dynamic param,
@@ -53,10 +85,10 @@ class TaskEventHandlersHelper {
             }
             updatedOperations.remove(operationId);
           } else {
-            final exists = updatedInstances.any(
-              (inst) => inst.reference.id == instance.reference.id,
-            );
-            if (!exists) {
+            // Use semantic dedup: by reference.id OR by templateId+normalised dueDate.
+            // This prevents the silent-sync race where a real instance is added
+            // alongside an already-reconciled copy that now carries a different ID.
+            if (!_hasDuplicate(updatedInstances, instance)) {
               updatedInstances.add(instance);
             }
           }
@@ -134,8 +166,12 @@ class TaskEventHandlersHelper {
               updatedOperations.remove(operationId);
             }
           }
-        } else if (!isOptimistic) {
-          updatedInstances.add(instance);
+        } else {
+          final exists = updatedInstances
+              .any((inst) => inst.reference.id == instance.reference.id);
+          if (!exists) {
+            updatedInstances.add(instance);
+          }
         }
 
         onTaskInstancesUpdate(updatedInstances);

@@ -20,6 +20,7 @@ import 'package:habit_tracker/features/Progress/Pages/habit_detail_statistics_pa
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_component_expanded.dart';
+import 'package:habit_tracker/services/sound_helper.dart';
 
 class ItemComponent extends StatefulWidget {
   final ActivityInstanceRecord instance;
@@ -45,6 +46,7 @@ class ItemComponent extends StatefulWidget {
   final bool showQuickLogOnLeft; // NEW: Flag to show + on left
   final VoidCallback? onQuickLog; // NEW: Callback for + on left
   final bool showManagementActions;
+  final bool showCalendarSkipOnly;
   final bool enableExpandedEdit;
   final bool showSwipeTimerAction;
   final bool
@@ -82,6 +84,7 @@ class ItemComponent extends StatefulWidget {
       this.showQuickLogOnLeft = false,
       this.onQuickLog,
       this.showManagementActions = true,
+      this.showCalendarSkipOnly = false,
       this.enableExpandedEdit = true,
       this.showSwipeTimerAction = true,
       this.treatAsBinary = false,
@@ -101,6 +104,7 @@ class _ItemComponentState extends State<ItemComponent>
   bool? _timerStateOverride;
   bool? _binaryCompletionOverride;
   bool _isExpanded = false;
+  bool _targetHitSoundPlayed = false;
   bool? _hasReminders; // Cache for reminder check
   String? _reminderDisplayText; // Cache for reminder display text
   int? _resolvedTimeEstimateMinutes;
@@ -199,9 +203,18 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   void _startTimer() {
+    _targetHitSoundPlayed = false;
     _timer?.cancel();
     _timer = Timer.periodic(const Duration(seconds: 1), (_) {
-      if (mounted) setState(() {});
+      if (mounted) {
+        if (!_targetHitSoundPlayed &&
+            widget.instance.templateTrackingType == 'time' &&
+            TimerLogicHelper.hasMetTarget(widget.instance)) {
+          _targetHitSoundPlayed = true;
+          SoundHelper().playStopButtonSound();
+        }
+        setState(() {});
+      }
     });
   }
 
@@ -249,9 +262,34 @@ class _ItemComponentState extends State<ItemComponent>
 
   @override
   void dispose() {
+    _flushPendingQuantUpdateOnDispose();
     _timer?.cancel();
     _quantUpdateTimer?.cancel();
     super.dispose();
+  }
+
+  void _flushPendingQuantUpdateOnDispose() {
+    if (widget.instance.templateTrackingType != 'quantitative') {
+      return;
+    }
+    if (_pendingQuantIncrement == 0) {
+      return;
+    }
+
+    final valueToPersist = _currentProgressLocal();
+    _pendingQuantIncrement = 0;
+    _quantUpdateTimer?.cancel();
+    _quantUpdateTimer = null;
+
+    // Best-effort flush: if user navigates away before debounce fires,
+    // persist the latest quantitative value instead of dropping it.
+    unawaited(
+      ActivityInstanceService.updateInstanceProgress(
+        instanceId: widget.instance.reference.id,
+        currentValue: valueToPersist,
+        referenceTime: widget.progressReferenceTime,
+      ),
+    );
   }
 
   bool get _isBackendCompleted {
@@ -549,7 +587,9 @@ class _ItemComponentState extends State<ItemComponent>
                           ),
                           const SizedBox(width: 5),
                         ],
-                        if (widget.showManagementActions && !_isessential) ...[
+                        if ((widget.showManagementActions ||
+                                widget.showCalendar) &&
+                            !_isessential) ...[
                           Builder(
                             builder: (btnCtx) => GestureDetector(
                               onTap: () {
@@ -563,6 +603,7 @@ class _ItemComponentState extends State<ItemComponent>
                                       widget.onInstanceUpdated?.call(updated),
                                   onRefresh: widget.onRefresh,
                                   showUncompleteDialog: _showUncompleteDialog,
+                                  skipOnly: widget.showCalendarSkipOnly,
                                 );
                               },
                               child: const Icon(Icons.calendar_month, size: 20),

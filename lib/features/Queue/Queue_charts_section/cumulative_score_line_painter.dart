@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+double _readScore(Map<String, dynamic> entry) {
+  return (entry['score'] as num?)?.toDouble() ?? 0.0;
+}
+
 /// Custom painter for cumulative score line chart
 /// used in both queue page and progress page
 class CumulativeScoreLinePainter extends CustomPainter {
@@ -47,7 +51,7 @@ class CumulativeScoreLinePainter extends CustomPainter {
     final availableHeight = size.height - topPadding - bottomPadding;
 
     for (int i = 0; i < data.length; i++) {
-      final score = data[i]['score'] as double;
+      final score = _readScore(data[i]);
       // Position points so both first and last point circles fit within bounds
       // First point at: leftPadding + pointRadius
       // Last point at: size.width - rightPadding - pointRadius
@@ -79,16 +83,16 @@ class CumulativeScoreLinePainter extends CustomPainter {
     // Only check historical points if last point changed or if we need to verify
     if (data.isNotEmpty && oldDelegate.data.isNotEmpty) {
       final lastIndex = data.length - 1;
-      final currentLastScore = data[lastIndex]['score'] as double;
-      final oldLastScore = oldDelegate.data[lastIndex]['score'] as double;
+      final currentLastScore = _readScore(data[lastIndex]);
+      final oldLastScore = _readScore(oldDelegate.data[lastIndex]);
 
       // If last point changed, we need to repaint (but only the last segment will actually change)
       if (currentLastScore != oldLastScore) return true;
 
       // If last point is same, check historical points (rare case - only when history is reloaded)
       for (int i = 0; i < lastIndex; i++) {
-        final currentScore = data[i]['score'] as double;
-        final oldScore = oldDelegate.data[i]['score'] as double;
+        final currentScore = _readScore(data[i]);
+        final oldScore = _readScore(oldDelegate.data[i]);
         if (currentScore != oldScore) return true;
       }
     }
@@ -151,7 +155,7 @@ class CumulativeScoreHistoricalPainter extends CustomPainter {
 
     final points = <Offset>[];
     for (int i = 0; i < historicalData.length; i++) {
-      final score = historicalData[i]['score'] as double;
+      final score = _readScore(historicalData[i]);
       // Use totalDataPoints for positioning to align with current day painter
       final x = leftPadding + pointRadius + (i / denominator) * availableWidth;
       final y = topPadding +
@@ -186,8 +190,8 @@ class CumulativeScoreHistoricalPainter extends CustomPainter {
 
     // Check if any historical scores changed (should be rare)
     for (int i = 0; i < historicalData.length; i++) {
-      final currentScore = historicalData[i]['score'] as double;
-      final oldScore = oldDelegate.historicalData[i]['score'] as double;
+      final currentScore = _readScore(historicalData[i]);
+      final oldScore = _readScore(oldDelegate.historicalData[i]);
       if (currentScore != oldScore) return true;
     }
 
@@ -241,7 +245,7 @@ class CumulativeScoreCurrentDayPainter extends CustomPainter {
 
     // Calculate current day point position (last point)
     final currentDayIndex = totalDataPoints - 1;
-    final currentScore = currentDayData['score'] as double;
+    final currentScore = _readScore(currentDayData);
     final currentX = leftPadding +
         pointRadius +
         (currentDayIndex / denominator) * availableWidth;
@@ -254,7 +258,7 @@ class CumulativeScoreCurrentDayPainter extends CustomPainter {
     // Draw connecting line from previous day to current day (if previous day exists)
     if (previousDayData != null) {
       final previousIndex = totalDataPoints - 2;
-      final previousScore = previousDayData!['score'] as double;
+      final previousScore = _readScore(previousDayData!);
       final previousX = leftPadding +
           pointRadius +
           (previousIndex / denominator) * availableWidth;
@@ -273,14 +277,14 @@ class CumulativeScoreCurrentDayPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CumulativeScoreCurrentDayPainter oldDelegate) {
     // Only repaint if current day score changed (most common case)
-    final currentScore = currentDayData['score'] as double;
-    final oldCurrentScore = oldDelegate.currentDayData['score'] as double;
+    final currentScore = _readScore(currentDayData);
+    final oldCurrentScore = _readScore(oldDelegate.currentDayData);
     if (currentScore != oldCurrentScore) return true;
 
     // Check if previous day changed (rare - only on day transition)
     if (previousDayData != null && oldDelegate.previousDayData != null) {
-      final prevScore = previousDayData!['score'] as double;
-      final oldPrevScore = oldDelegate.previousDayData!['score'] as double;
+      final prevScore = _readScore(previousDayData!);
+      final oldPrevScore = _readScore(oldDelegate.previousDayData!);
       if (prevScore != oldPrevScore) return true;
     } else if (previousDayData != oldDelegate.previousDayData) {
       return true; // One is null, other isn't

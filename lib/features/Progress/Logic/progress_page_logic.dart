@@ -56,9 +56,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
       if (mounted) {
         setState(() {
           final data = TodayProgressState().getProgressData();
-          todayTarget = data['target']!;
-          todayEarned = data['earned']!;
-          todayPercentage = data['percentage']!;
+          todayTarget = (data['target'] as num?)?.toDouble() ?? 0.0;
+          todayEarned = (data['earned'] as num?)?.toDouble() ?? 0.0;
+          todayPercentage = (data['percentage'] as num?)?.toDouble() ?? 0.0;
         });
         updateTodayScore();
       }
@@ -69,9 +69,10 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
           final data = TodayProgressState().getCumulativeScoreData();
           final hasLiveScore = data['hasLiveScore'] as bool? ?? false;
           projectedCumulativeScore =
-              data['cumulativeScore'] as double? ?? projectedCumulativeScore;
+              (data['cumulativeScore'] as num?)?.toDouble() ??
+                  projectedCumulativeScore;
           projectedDailyGain =
-              data['todayScore'] as double? ?? projectedDailyGain;
+              (data['todayScore'] as num?)?.toDouble() ?? projectedDailyGain;
           final breakdown = data['breakdown'] as Map<String, double>?;
           if (breakdown != null) {
             dailyScore = breakdown['dailyScore'] ?? 0.0;
@@ -265,9 +266,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
   void loadInitialTodayProgress() {
     final data = TodayProgressState().getProgressData();
     setState(() {
-      todayTarget = data['target']!;
-      todayEarned = data['earned']!;
-      todayPercentage = data['percentage']!;
+      todayTarget = (data['target'] as num?)?.toDouble() ?? 0.0;
+      todayEarned = (data['earned'] as num?)?.toDouble() ?? 0.0;
+      todayPercentage = (data['percentage'] as num?)?.toDouble() ?? 0.0;
     });
   }
 
@@ -283,9 +284,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
         if (mounted) {
           setState(() {
             projectedCumulativeScore =
-                (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
+                (sharedScoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
             projectedDailyGain =
-                (sharedScoreData['todayScore'] as double?) ?? 0.0;
+                (sharedScoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
             final breakdown =
                 sharedScoreData['breakdown'] as Map<String, double>?;
             if (breakdown != null) {
@@ -343,9 +344,9 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
         if (!mounted) return;
         setState(() {
           projectedCumulativeScore =
-              (sharedScoreData['cumulativeScore'] as double?) ?? 0.0;
+              (sharedScoreData['cumulativeScore'] as num?)?.toDouble() ?? 0.0;
           projectedDailyGain =
-              (sharedScoreData['todayScore'] as double?) ?? 0.0;
+              (sharedScoreData['todayScore'] as num?)?.toDouble() ?? 0.0;
           final breakdown =
               sharedScoreData['breakdown'] as Map<String, double>?;
           if (breakdown != null) {
@@ -401,8 +402,8 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
 
       if (hasLiveScore) {
         currentCumulativeScore =
-            (sharedScoreData['cumulativeScore'] as double?);
-        currentTodayScore = (sharedScoreData['todayScore'] as double?);
+            (sharedScoreData['cumulativeScore'] as num?)?.toDouble();
+        currentTodayScore = (sharedScoreData['todayScore'] as num?)?.toDouble();
       } else if (hasProjection) {
         currentCumulativeScore = projectedCumulativeScore;
         currentTodayScore = projectedDailyGain;
@@ -483,16 +484,22 @@ mixin ProgressPageLogic<T extends StatefulWidget> on State<T> {
 
       if (mounted) {
         setState(() {
-          averageDailyScore7Day = stats['averageDailyScore7Day'] as double;
-          averageDailyScore30Day = stats['averageDailyScore30Day'] as double;
-          bestDailyScoreGain = stats['bestDailyScoreGain'] as double;
-          worstDailyScoreGain = stats['worstDailyScoreGain'] as double;
-          positiveDaysCount7Day = stats['positiveDaysCount7Day'] as int;
-          positiveDaysCount30Day = stats['positiveDaysCount30Day'] as int;
+          averageDailyScore7Day =
+              (stats['averageDailyScore7Day'] as num?)?.toDouble() ?? 0.0;
+          averageDailyScore30Day =
+              (stats['averageDailyScore30Day'] as num?)?.toDouble() ?? 0.0;
+          bestDailyScoreGain =
+              (stats['bestDailyScoreGain'] as num?)?.toDouble() ?? 0.0;
+          worstDailyScoreGain =
+              (stats['worstDailyScoreGain'] as num?)?.toDouble() ?? 0.0;
+          positiveDaysCount7Day =
+              (stats['positiveDaysCount7Day'] as num?)?.toInt() ?? 0;
+          positiveDaysCount30Day =
+              (stats['positiveDaysCount30Day'] as num?)?.toInt() ?? 0;
           averageCumulativeScore7Day =
-              stats['averageCumulativeScore7Day'] as double;
+              (stats['averageCumulativeScore7Day'] as num?)?.toDouble() ?? 0.0;
           averageCumulativeScore30Day =
-              stats['averageCumulativeScore30Day'] as double;
+              (stats['averageCumulativeScore30Day'] as num?)?.toDouble() ?? 0.0;
         });
       }
     } catch (e) {}
