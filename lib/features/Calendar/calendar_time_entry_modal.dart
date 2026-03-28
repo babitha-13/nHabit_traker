@@ -57,6 +57,9 @@ class CalendarModals {
         onPreviewChange,
     required VoidCallback onSave,
     required VoidCallback onRemovePreview,
+    String? initialActivityName,
+    String? initialActivityType,
+    String? initialTemplateId,
   }) {
     showModalBottomSheet(
       context: context,
@@ -72,6 +75,9 @@ class CalendarModals {
           optimisticUiOnSave: true,
           // Manual calendar logs should not auto-complete by default
           markCompleteOnSave: false,
+          initialActivityName: initialActivityName,
+          initialActivityType: initialActivityType,
+          initialTemplateId: initialTemplateId,
         );
       },
     ).whenComplete(() {

@@ -13,6 +13,7 @@ class CalendarEventTileBuilder {
   final double Function() calculateHeightPerMinute;
   final Set<String> plannedOverlappedEventIds;
   final Function(CalendarEventMetadata) onEditEntry;
+  final void Function(CalendarEventMetadata)? onAddTimeLog;
 
   // Cache for label offsets to avoid recalculating on every build
   Map<String, double> _labelOffsetCache = {};
@@ -24,6 +25,7 @@ class CalendarEventTileBuilder {
     required this.calculateHeightPerMinute,
     required this.plannedOverlappedEventIds,
     required this.onEditEntry,
+    this.onAddTimeLog,
   });
 
   /// Generate hash of event list to detect changes
@@ -198,6 +200,19 @@ class CalendarEventTileBuilder {
     void handleLongPress() {
       if (isCompleted && metadata != null && metadata.sessionIndex >= 0) {
         onEditEntry(metadata);
+      } else if (onAddTimeLog != null && metadata != null) {
+        // For yesterday's events: allow adding a time log via long press
+        final eventDate = event.startTime;
+        if (eventDate != null) {
+          final today = DateTime.now();
+          final todayDate = DateTime(today.year, today.month, today.day);
+          final yesterday = todayDate.subtract(const Duration(days: 1));
+          final eventDateOnly =
+              DateTime(eventDate.year, eventDate.month, eventDate.day);
+          if (eventDateOnly == yesterday) {
+            onAddTimeLog!(metadata);
+          }
+        }
       }
     }
 

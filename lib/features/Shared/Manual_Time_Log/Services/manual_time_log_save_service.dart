@@ -10,6 +10,8 @@ import 'package:habit_tracker/services/Activtity/optimistic_operation_tracker.da
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/features/Shared/Manual_Time_Log/manual_time_log_helper.dart';
 import 'package:habit_tracker/features/Shared/Manual_Time_Log/Services/manual_time_log_helper_service.dart';
+import 'package:habit_tracker/features/Home/CatchUp/logic/day_end_processor.dart';
+import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_persistence_service.dart';
 
 /// Service for save and delete operations
 class ManualTimeLogSaveService {
@@ -292,6 +294,11 @@ class ManualTimeLogSaveService {
         Navigator.of(state.context).pop();
         state.widget.onSave();
       }
+
+      // Prompt recomputation if this was a new entry on a past day
+      if (state.widget.editMetadata == null) {
+        _maybeShowRecomputeDialog(rootContext, state.widget.selectedDate, userId);
+      }
     } catch (e) {
       if (closeOptimistically) {
         if (rootContext.mounted) {
@@ -491,5 +498,86 @@ class ManualTimeLogSaveService {
         state.setState(() => state.isLoading = false);
       }
     }
+  }
+
+  static void _maybeShowRecomputeDialog(
+    BuildContext context,
+    DateTime selectedDate,
+    String userId,
+  ) {
+    final today = DateTime.now();
+    final todayDate = DateTime(today.year, today.month, today.day);
+    final entryDate =
+        DateTime(selectedDate.year, selectedDate.month, selectedDate.day);
+
+    if (!entryDate.isBefore(todayDate)) return; // Only for past days
+
+    if (!context.mounted) return;
+
+    final dateLabel = DateFormat('MMM d').format(selectedDate);
+
+    showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Recompute Points?'),
+        content: Text(
+          'You added a time log for $dateLabel. This may have changed the '
+          'points calculated for that day and your cumulative score.\n\n'
+          'Would you like to recompute?',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('Skip'),
+          ),
+          ElevatedButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('Recompute'),
+          ),
+        ],
+      ),
+    ).then((confirmed) async {
+      if (confirmed != true) return;
+      if (!context.mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Recomputing points...'),
+          duration: Duration(seconds: 10),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+
+      try {
+        await DayEndProcessor.processDayEnd(
+          userId: userId,
+          targetDate: entryDate,
+          closeInstances: false,
+          ensureInstances: false,
+        );
+        await ScorePersistenceService.recalculateFromHistory(userId);
+
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Points recomputed for $dateLabel'),
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      } catch (e) {
+        if (context.mounted) {
+          ScaffoldMessenger.of(context).hideCurrentSnackBar();
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Failed to recompute: $e'),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+            ),
+          );
+        }
+      }
+    });
   }
 }

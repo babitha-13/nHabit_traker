@@ -672,6 +672,53 @@ class TaskInstanceTimeLoggingService {
             targetInstanceRef = match.reference;
             existingInstance = match;
           }
+          // For past dates: also search for instances (including completed) due on that date
+          if (targetInstanceRef == null) {
+            final startDate =
+                DateTime(startTime.year, startTime.month, startTime.day);
+            final today = DateTime.now();
+            final todayDate =
+                DateTime(today.year, today.month, today.day);
+            if (startDate.isBefore(todayDate)) {
+              try {
+                final endDate = startDate.add(const Duration(days: 1));
+                final pastQuery = ActivityInstanceRecord.collectionForUser(uid)
+                    .where('templateId', isEqualTo: templateId)
+                    .where('dueDate', isGreaterThanOrEqualTo: startDate)
+                    .where('dueDate', isLessThan: endDate)
+                    .limit(1);
+                final pastResult = await pastQuery.get();
+                if (pastResult.docs.isNotEmpty) {
+                  final inst =
+                      ActivityInstanceRecord.fromSnapshot(pastResult.docs.first);
+                  targetInstanceRef = inst.reference;
+                  existingInstance = inst;
+                }
+              } catch (_) {
+                // Composite index may not exist — fall back to in-memory filter
+                try {
+                  final allResult =
+                      await ActivityInstanceRecord.collectionForUser(uid)
+                          .where('templateId', isEqualTo: templateId)
+                          .get();
+                  for (final doc in allResult.docs) {
+                    final inst = ActivityInstanceRecord.fromSnapshot(doc);
+                    if (inst.dueDate != null) {
+                      final dueDateOnly = DateTime(inst.dueDate!.year,
+                          inst.dueDate!.month, inst.dueDate!.day);
+                      if (dueDateOnly == startDate) {
+                        targetInstanceRef = inst.reference;
+                        existingInstance = inst;
+                        break;
+                      }
+                    }
+                  }
+                } catch (_) {
+                  //
+                }
+              }
+            }
+          }
           if (targetInstanceRef == null) {
             try {
               final allInstancesQuery =

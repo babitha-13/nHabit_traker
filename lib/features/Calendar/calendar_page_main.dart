@@ -85,6 +85,7 @@ class _CalendarPageState extends State<CalendarPage> {
       calculateHeightPerMinute: _calculateHeightPerMinute,
       plannedOverlappedEventIds: _plannedOverlappedEventIds,
       onEditEntry: (metadata) => _showEditEntryDialog(metadata: metadata),
+      onAddTimeLog: (metadata) => _showManualEntryDialogForInstance(metadata),
     );
     _calculateInitialScrollOffset();
     _initializeTabState();
@@ -178,6 +179,29 @@ class _CalendarPageState extends State<CalendarPage> {
       selectedDate: _selectedDate,
       startTime: startTime,
       endTime: endTime,
+      onPreviewChange: _handlePreviewChange,
+      onSave: () {
+        _loadEvents();
+      },
+      onRemovePreview: _removePreviewEvent,
+    );
+  }
+
+  void _showManualEntryDialogForInstance(CalendarEventMetadata metadata) {
+    final now = DateTime.now();
+    final base = _selectedDate;
+    final defaultStart =
+        DateTime(base.year, base.month, base.day, now.hour, now.minute);
+    final defaultEnd =
+        defaultStart.add(Duration(minutes: _defaultDurationMinutes));
+    CalendarModals.showManualEntryDialog(
+      context: context,
+      selectedDate: _selectedDate,
+      startTime: defaultStart,
+      endTime: defaultEnd,
+      initialActivityName: metadata.activityName,
+      initialActivityType: metadata.activityType,
+      initialTemplateId: metadata.templateId,
       onPreviewChange: _handlePreviewChange,
       onSave: () {
         _loadEvents();

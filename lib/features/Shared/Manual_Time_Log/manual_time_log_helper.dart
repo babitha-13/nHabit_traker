@@ -33,6 +33,9 @@ class ManualTimeLogModal extends StatefulWidget {
     this.editMetadata,
     this.markCompleteOnSave = true,
     this.optimisticUiOnSave = false,
+    this.initialActivityName,
+    this.initialActivityType,
+    this.initialTemplateId,
   });
 
   final DateTime? initialStartTime;
@@ -42,6 +45,10 @@ class ManualTimeLogModal extends StatefulWidget {
   final bool fromTimer; // If true, auto-mark binary tasks as complete
   final CalendarEventMetadata?
       editMetadata; // If provided, we're editing an existing entry
+  // Pre-selection params for launching from an event tile
+  final String? initialActivityName;
+  final String? initialActivityType; // 'task', 'habit', 'essential'
+  final String? initialTemplateId;
 
   @override
   State<ManualTimeLogModal> createState() => _ManualTimeLogModalState();

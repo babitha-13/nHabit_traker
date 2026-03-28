@@ -109,6 +109,33 @@ class ManualTimeLogInitializationService {
           }
         }
       });
+    } else if (state.widget.initialActivityName != null) {
+      // Pre-fill from event tile long press (yesterday's event)
+      if (state.widget.initialActivityType != null) {
+        state.selectedType = state.widget.initialActivityType!;
+      }
+      state.activityController.text = state.widget.initialActivityName!;
+      if (state.widget.initialTemplateId != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) async {
+          await loadActivities(state);
+          await loadCategories(state);
+          if (state.mounted) {
+            final template = state.allActivities.firstWhereOrNull(
+              (a) => a.reference.id == state.widget.initialTemplateId,
+            );
+            if (template != null) {
+              state.setState(() {
+                state.selectedTemplate = template;
+                state.selectedCategory = state.allCategories.firstWhereOrNull(
+                  (c) =>
+                      c.reference.id == template.categoryId ||
+                      c.name == template.categoryName,
+                );
+              });
+            }
+          }
+        });
+      }
     }
 
     // Initial preview update
