@@ -630,20 +630,32 @@ class ActivityInstanceSchedulingService {
       DateTime currentDueDate = oldestInstance.dueDate!;
       while (currentDueDate.isBefore(untilDate)) {
         try {
+          // Use a date-range query instead of exact equality to handle timestamp
+          // precision/timezone differences between stored values and calculated dates.
+          final dateStart = DateTime(
+              currentDueDate.year, currentDueDate.month, currentDueDate.day);
+          final dateEnd = dateStart.add(const Duration(days: 1));
           final existingQuery = ActivityInstanceRecord.collectionForUser(uid)
               .where('templateId', isEqualTo: templateId)
               .where('status', isEqualTo: 'pending')
-              .where('dueDate', isEqualTo: currentDueDate);
+              .where('dueDate', isGreaterThanOrEqualTo: dateStart)
+              .where('dueDate', isLessThan: dateEnd);
           final existingInstances = await existingQuery.get();
           if (existingInstances.docs.isNotEmpty) {
-            final existingInstance = existingInstances.docs.first;
-            await existingInstance.reference.update({
-              'status': 'skipped',
-              'skippedAt': now,
-              'lastUpdated': now,
-            });
+            // Skip all pending instances for this date (handles legacy duplicates)
+            for (final doc in existingInstances.docs) {
+              await doc.reference.update({
+                'status': 'skipped',
+                'skippedAt': now,
+                'lastUpdated': now,
+              });
+            }
           } else {
-            await ActivityInstanceCreationService.createActivityInstance(
+            // No existing instance — create one and skip it using the returned
+            // DocumentReference directly. Re-querying after creation is unreliable
+            // because Firestore propagation may not be immediate.
+            final ref =
+                await ActivityInstanceCreationService.createActivityInstance(
               templateId: templateId,
               dueDate: currentDueDate,
               dueTime: template.dueTime,
@@ -651,19 +663,11 @@ class ActivityInstanceSchedulingService {
               userId: uid,
               sourceTag: 'skipInstancesUntil',
             );
-            final newInstanceQuery =
-                ActivityInstanceRecord.collectionForUser(uid)
-                    .where('templateId', isEqualTo: templateId)
-                    .where('status', isEqualTo: 'pending')
-                    .where('dueDate', isEqualTo: currentDueDate);
-            final newInstances = await newInstanceQuery.get();
-            if (newInstances.docs.isNotEmpty) {
-              await newInstances.docs.first.reference.update({
-                'status': 'skipped',
-                'skippedAt': now,
-                'lastUpdated': now,
-              });
-            }
+            await ref.update({
+              'status': 'skipped',
+              'skippedAt': now,
+              'lastUpdated': now,
+            });
           }
         } catch (e) {
           if (e.toString().contains('index') ||

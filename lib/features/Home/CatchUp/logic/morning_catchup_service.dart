@@ -88,6 +88,22 @@ class MorningCatchUpService {
     });
   }
 
+  /// Reconstructs skipped instance records for [fromDate, toDate] and
+  /// recalculates scores for that range with overwrite:true.
+  /// Use this to recover historical penalties after a system failure.
+  static Future<Map<String, dynamic>> recoverHistoricalData({
+    required String userId,
+    required DateTime fromDate,
+    required DateTime toDate,
+  }) async {
+    final result = await _callable('recoverHistoricalData').call({
+      'userId': userId,
+      'fromDate': formatDateKeyIST(fromDate),
+      'toDate': formatDateKeyIST(toDate),
+    });
+    return Map<String, dynamic>.from(result.data as Map);
+  }
+
   static DateTime _normalizeDate(DateTime input) {
     return DateTime(input.year, input.month, input.day);
   }

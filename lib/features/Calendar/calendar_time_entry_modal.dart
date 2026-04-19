@@ -139,6 +139,10 @@ class CalendarModals {
         return;
       }
 
+      final isCompleted = instance.status == 'completed';
+      final quantityValue =
+          instance.currentValue is num ? (instance.currentValue as num).toInt() : null;
+
       showModalBottomSheet(
         context: context,
         isScrollControlled: true,
@@ -154,6 +158,8 @@ class CalendarModals {
             optimisticUiOnSave: true,
             // Editing an entry should not auto-complete implicitly
             markCompleteOnSave: false,
+            initialIsCompleted: isCompleted,
+            initialQuantityValue: quantityValue,
           );
         },
       ).whenComplete(() {

@@ -37,6 +37,7 @@ import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/services/resource_tracker.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -331,7 +332,39 @@ class _HomeState extends State<Home> {
       return;
     }
 
+    await _runHistoricalRecoveryIfNeeded();
     await _runDayEndFlow(showDayTransitionInfo: false);
+  }
+
+  /// One-shot recovery for April 3–15 2026: reconstructs synthetic skipped
+  /// instances and recalculates penalties for the period the system was broken.
+  /// Guarded by a SharedPreferences flag so it runs exactly once per device.
+  Future<void> _runHistoricalRecoveryIfNeeded() async {
+    // v2: extends toDate to yesterday to also fix any stale records written
+    // after the initial recovery (e.g. April 16 was written with the old
+    // pre-recovery cumulative starting point).
+    const flagKey = 'historical_recovery_apr2026_v2_done';
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.getBool(flagKey) == true) return;
+
+      final userId = users.uid;
+      if (userId == null || userId.isEmpty) return;
+
+      final now = DateTime.now();
+      final yesterday = DateTime(now.year, now.month, now.day)
+          .subtract(const Duration(days: 1));
+
+      await MorningCatchUpService.recoverHistoricalData(
+        userId: userId,
+        fromDate: DateTime(2026, 4, 3),
+        toDate: yesterday,
+      );
+
+      await prefs.setBool(flagKey, true);
+    } catch (_) {
+      // Non-fatal — normal app flow continues regardless.
+    }
   }
 
   Future<void> _runDayEndFlow({required bool showDayTransitionInfo}) async {

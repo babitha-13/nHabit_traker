@@ -91,6 +91,7 @@ class TaskInstanceTaskService {
     int? finalAccumulatedTime,
     String? notes,
     String? userId,
+    DateTime? completedAt, // If provided, overrides DateTime.now() (use for past-day completions)
   }) async {
     final uid = userId ?? TaskInstanceHelperService.getCurrentUserId();
     try {
@@ -106,19 +107,30 @@ class TaskInstanceTaskService {
       // Check if this is a habit - habits should use ActivityInstanceService completion logic
       // which handles next instance generation correctly
       if (instance.templateCategoryType == 'habit') {
-        // For habits, use ActivityInstanceService.completeInstance which handles habit logic correctly
-        await ActivityInstanceService.completeInstance(
-          instanceId: instanceId,
-          finalValue: finalValue,
-          finalAccumulatedTime: finalAccumulatedTime,
-          notes: notes,
-          userId: uid,
-        );
+        if (completedAt != null) {
+          await ActivityInstanceService.completeInstanceWithBackdate(
+            instanceId: instanceId,
+            finalValue: finalValue,
+            finalAccumulatedTime: finalAccumulatedTime,
+            notes: notes,
+            userId: uid,
+            completedAt: completedAt,
+          );
+        } else {
+          await ActivityInstanceService.completeInstance(
+            instanceId: instanceId,
+            finalValue: finalValue,
+            finalAccumulatedTime: finalAccumulatedTime,
+            notes: notes,
+            userId: uid,
+          );
+        }
         return; // Exit early - habit completion handled
       }
 
       // For tasks, proceed with task completion logic
       final now = DateTime.now();
+      final effectiveCompletedAt = completedAt ?? now;
 
       // Resolve finalValue to prevent time storage in non-time tasks
       dynamic currentValueToStore = finalValue;
@@ -144,7 +156,7 @@ class TaskInstanceTaskService {
         instance,
         finalValue: currentValueToStore,
         finalAccumulatedTime: finalAccumulatedTime ?? instance.accumulatedTime,
-        completedAt: now,
+        completedAt: effectiveCompletedAt,
       );
 
       // 2. Generate operation ID
@@ -167,7 +179,7 @@ class TaskInstanceTaskService {
       try {
         await instanceRef.update({
           'status': 'completed',
-          'completedAt': now,
+          'completedAt': effectiveCompletedAt,
           'currentValue': currentValueToStore,
           'accumulatedTime': finalAccumulatedTime ?? instance.accumulatedTime,
           'notes': notes ?? instance.notes,

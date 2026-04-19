@@ -119,13 +119,14 @@ class ManualTimeLogSaveService {
     final closeOptimistically = state.widget.optimisticUiOnSave;
     final rootContext =
         Navigator.of(state.context, rootNavigator: true).context;
+    final onSaveCallback = state.widget.onSave;
 
     if (!closeOptimistically) {
       state.setState(() => state.isLoading = true);
     } else {
       Navigator.of(state.context).pop();
       if (state.widget.fromTimer) {
-        state.widget.onSave();
+        onSaveCallback();
       }
     }
 
@@ -292,7 +293,11 @@ class ManualTimeLogSaveService {
       // In optimistic mode the modal is already closed before backend sync.
       if (!closeOptimistically && state.mounted) {
         Navigator.of(state.context).pop();
-        state.widget.onSave();
+        onSaveCallback();
+      } else if (closeOptimistically && !state.widget.fromTimer) {
+        // For non-timer optimistic saves (e.g. calendar), reload after backend
+        // confirms so time tiles appear without waiting for the observer debounce.
+        onSaveCallback();
       }
 
       // Prompt recomputation if this was a new entry on a past day
@@ -554,6 +559,7 @@ class ManualTimeLogSaveService {
           targetDate: entryDate,
           closeInstances: false,
           ensureInstances: false,
+          overwriteExistingRecord: true,
         );
         await ScorePersistenceService.recalculateFromHistory(userId);
 

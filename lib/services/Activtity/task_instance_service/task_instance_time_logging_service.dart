@@ -832,6 +832,7 @@ class TaskInstanceTimeLoggingService {
                 finalValue: newCurrentValue ?? newTotalLogged,
                 finalAccumulatedTime: newTotalLogged,
                 userId: uid,
+                completedAt: endTime,
               );
             }
             return; // Done
@@ -929,10 +930,12 @@ class TaskInstanceTimeLoggingService {
 
             if (shouldComplete) {
               await TaskInstanceTaskService.completeTaskInstance(
-                  instanceId: instanceRef.id,
-                  finalValue: newCurrentValue ?? totalTime,
-                  finalAccumulatedTime: totalTime,
-                  userId: uid);
+                instanceId: instanceRef.id,
+                finalValue: newCurrentValue ?? totalTime,
+                finalAccumulatedTime: totalTime,
+                userId: uid,
+                completedAt: endTime,
+              );
             }
           } catch (e) {
             OptimisticOperationTracker.rollbackOperation(operationId);
@@ -1076,6 +1079,8 @@ class TaskInstanceTimeLoggingService {
         InstanceEvents.broadcastInstanceUpdatedOptimistic(
             optimisticInstance, operationId);
 
+        final startDate =
+            DateTime(startTime.year, startTime.month, startTime.day);
         final updateData = <String, dynamic>{
           'status': 'pending',
           'isTimerActive': false,
@@ -1091,6 +1096,7 @@ class TaskInstanceTimeLoggingService {
           'templateTrackingType': 'binary',
           'lastUpdated': now,
           'currentSessionStartTime': null,
+          'belongsToDate': startDate,
         };
 
         if (categoryId != null) updateData['templateCategoryId'] = categoryId;
@@ -1107,10 +1113,12 @@ class TaskInstanceTimeLoggingService {
 
           if (markComplete) {
             await TaskInstanceTaskService.completeTaskInstance(
-                instanceId: taskInstanceRef.id,
-                finalValue: totalTime,
-                finalAccumulatedTime: totalTime,
-                userId: uid);
+              instanceId: taskInstanceRef.id,
+              finalValue: totalTime,
+              finalAccumulatedTime: totalTime,
+              userId: uid,
+              completedAt: endTime,
+            );
           }
         } catch (e) {
           OptimisticOperationTracker.rollbackOperation(operationId);

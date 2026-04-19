@@ -88,6 +88,13 @@ class ManualTimeLogInitializationService {
     if (state.widget.editMetadata != null) {
       state.selectedType = state.widget.editMetadata!.activityType;
       state.activityController.text = state.widget.editMetadata!.activityName;
+      if (state.widget.initialIsCompleted == true) {
+        state.markAsComplete = true;
+      }
+      if (state.widget.initialQuantityValue != null &&
+          state.widget.initialQuantityValue! > 0) {
+        state.quantityValue = state.widget.initialQuantityValue!;
+      }
       // Find and select the template if it exists
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await loadActivities(state); // Ensure activities are loaded

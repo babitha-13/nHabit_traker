@@ -22,6 +22,12 @@ type PendingInstanceEntry = {
   ref: admin.firestore.DocumentReference;
 };
 
+function stripUndefined<T extends Record<string, unknown>>(obj: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined)
+  ) as Partial<T>;
+}
+
 function dateKey(date: Date | null | undefined): string {
   if (!date) return 'null';
   const normalized = normalizeToStartOfDay(date);
@@ -214,36 +220,36 @@ async function autoSkipExpiredHabitsBeforeYesterday(
     // Process in batches
     let batch = db.batch();
     let batchCount = 0;
-    const maxBatchSize = 500;
-    
+    const maxBatchSize = 249; // Each habit = 1 skip + 1 generate = 2 ops; stay under 500 limit
+
     for (const doc of expiredSnapshot.docs) {
       const instance = doc.data() as ActivityInstance;
       const windowEndDate = timestampToDate(instance.windowEndDate);
-      
+
       if (!windowEndDate) continue;
-      
+
       const windowEndNormalized = normalizeToStartOfDay(windowEndDate);
-      
+
       // Only skip if window ended before cutoff (2+ days ago)
       if (windowEndNormalized < cutoffNormalized) {
+        // Commit before adding if we're at the limit (skip+generate = 2 ops per habit)
+        if (batchCount >= maxBatchSize) {
+          await batch.commit();
+          batch = db.batch();
+          batchCount = 0;
+        }
+
         // Mark as skipped
         batch.update(doc.ref, {
           status: 'skipped',
           skippedAt: admin.firestore.Timestamp.fromDate(windowEndNormalized),
           lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
         });
-        
         batchCount++;
-        
-        // Generate next instance
+
+        // Generate next instance (adds one more op to the batch)
         await generateNextInstance(instance, userId, batch);
-        
-        // Commit batch if it reaches max size and create a new one
-        if (batchCount >= maxBatchSize) {
-          await batch.commit();
-          batch = db.batch(); // Create new batch after commit
-          batchCount = 0;
-        }
+        batchCount++;
       }
     }
     
@@ -581,7 +587,7 @@ async function generateNextInstance(
     const nextInstanceRef = instancesRef.doc(
       buildHabitPendingDocId(instance.templateId, nextBelongsToDateNormalized)
     );
-    batch.set(nextInstanceRef, nextInstanceData);
+    batch.set(nextInstanceRef, stripUndefined(nextInstanceData as Record<string, unknown>));
   } catch (error) {
     logFirestoreIndexHint('instanceMaintenance.generateNextInstance', error);
     console.error(`Error generating next instance:`, error);
@@ -669,10 +675,149 @@ async function createInitialInstance(
     await db.runTransaction(async (tx) => {
       const existing = await tx.get(initialRef);
       if (!existing.exists) {
-        tx.set(initialRef, instanceData);
+        tx.set(initialRef, stripUndefined(instanceData as Record<string, unknown>));
       }
     });
   } catch (error) {
     console.error(`Error creating initial instance for template ${templateId}:`, error);
   }
+}
+
+/**
+ * For each active habit, project what instances SHOULD have existed in [fromDate, toDate]
+ * and write synthetic 'skipped' records for any that are missing.
+ * Used to recover historical data after a system failure wiped pending instances.
+ */
+export async function createSyntheticSkippedInstances(
+  userId: string,
+  fromDate: Date,
+  toDate: Date
+): Promise<{ created: number; skipped: number }> {
+  const normalizedFrom = normalizeToStartOfDay(fromDate);
+  const normalizedTo = normalizeToStartOfDay(toDate);
+
+  const templatesRef = db.collection('users').doc(userId).collection('activities');
+  const instancesRef = db.collection('users').doc(userId).collection('activity_instances');
+
+  const templatesSnapshot = await templatesRef
+    .where('categoryType', '==', 'habit')
+    .where('isActive', '==', true)
+    .get();
+
+  if (templatesSnapshot.empty) return { created: 0, skipped: 0 };
+
+  let totalCreated = 0;
+  let totalSkipped = 0;
+  let batch = db.batch();
+  let batchCount = 0;
+  const maxBatchSize = 249;
+
+  const commitBatch = async () => {
+    if (batchCount > 0) {
+      await batch.commit();
+      batch = db.batch();
+      batchCount = 0;
+    }
+  };
+
+  for (const templateDoc of templatesSnapshot.docs) {
+    const template = templateDoc.data() as ActivityRecord;
+    const templateId = templateDoc.id;
+
+    // Find the most recent instance that ended BEFORE the recovery window starts.
+    // This is the last instance before the gap — it gives us the correct windowDuration
+    // and the right starting date to project forward from.
+    const anchorQuery = instancesRef
+      .where('templateId', '==', templateId)
+      .where('windowEndDate', '<', admin.firestore.Timestamp.fromDate(normalizedFrom))
+      .orderBy('windowEndDate', 'desc')
+      .limit(1);
+
+    const anchorSnapshot = await anchorQuery.get();
+
+    let currentWindowEnd: Date;
+    let windowDuration: number;
+
+    if (!anchorSnapshot.empty) {
+      const anchor = anchorSnapshot.docs[0].data() as ActivityInstance;
+      const wEnd = timestampToDate(anchor.windowEndDate);
+      if (!wEnd) continue;
+      currentWindowEnd = normalizeToStartOfDay(wEnd);
+      windowDuration = anchor.windowDuration ?? 1;
+    } else {
+      // No prior instance at all — start one day before the recovery window
+      currentWindowEnd = new Date(normalizedFrom.getTime() - 24 * 60 * 60 * 1000);
+      windowDuration = 1;
+    }
+
+    // Walk forward from the anchor, generating one window at a time
+    let nextBelongsTo = normalizeToStartOfDay(
+      new Date(currentWindowEnd.getTime() + 24 * 60 * 60 * 1000)
+    );
+
+    while (nextBelongsTo.getTime() <= normalizedTo.getTime()) {
+      const nextWindowEnd = normalizeToStartOfDay(
+        new Date(nextBelongsTo.getTime() + (windowDuration - 1) * 24 * 60 * 60 * 1000)
+      );
+
+      // Only create if this window overlaps the recovery range
+      if (nextWindowEnd.getTime() >= normalizedFrom.getTime()) {
+        const docId = `habit_recovery_${templateId}_${dateKey(nextBelongsTo)}`;
+        const docRef = instancesRef.doc(docId);
+
+        const existing = await docRef.get();
+        if (existing.exists) {
+          totalSkipped++;
+        } else {
+          const instanceData = stripUndefined({
+            templateId,
+            dueDate: admin.firestore.Timestamp.fromDate(nextBelongsTo),
+            dueTime: template.dueTime,
+            status: 'skipped',
+            skippedAt: admin.firestore.Timestamp.fromDate(nextWindowEnd),
+            createdTime: admin.firestore.FieldValue.serverTimestamp(),
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+            isActive: true,
+            belongsToDate: admin.firestore.Timestamp.fromDate(nextBelongsTo),
+            windowEndDate: admin.firestore.Timestamp.fromDate(nextWindowEnd),
+            windowDuration,
+            currentValue: 0,
+            lastDayValue: 0,
+            templateName: template.name,
+            templateCategoryId: template.categoryId,
+            templateCategoryName: template.categoryName,
+            templateCategoryType: template.categoryType,
+            templatePriority: template.priority,
+            templateTrackingType: template.trackingType,
+            templateTarget: template.target,
+            templateUnit: template.unit,
+            templateDescription: template.description,
+            templateTimeEstimateMinutes: undefined,
+            templateShowInFloatingTimer: template.showInFloatingTimer,
+            templateIsRecurring: template.isRecurring,
+            templateEveryXValue: template.everyXValue,
+            templateEveryXPeriodType: template.everyXPeriodType,
+            templateTimesPerPeriod: template.timesPerPeriod,
+            templatePeriodType: template.periodType,
+          } as Record<string, unknown>);
+
+          batch.set(docRef, instanceData);
+          batchCount++;
+          totalCreated++;
+
+          if (batchCount >= maxBatchSize) {
+            await commitBatch();
+          }
+        }
+      }
+
+      // Advance to next window
+      nextBelongsTo = normalizeToStartOfDay(
+        new Date(nextWindowEnd.getTime() + 24 * 60 * 60 * 1000)
+      );
+    }
+  }
+
+  await commitBatch();
+  return { created: totalCreated, skipped: totalSkipped };
 }

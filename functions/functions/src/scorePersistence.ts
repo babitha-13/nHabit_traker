@@ -41,6 +41,9 @@ export const PENALTY_BASE_MULTIPLIER = 0.06;
 export const CATEGORY_NEGLECT_PENALTY = 0.4;
 export const CONSISTENCY_BONUS_FULL = 5.0;
 export const CONSISTENCY_BONUS_PARTIAL = 2.0;
+// Minimum completion % required for a recovery bounce to be awarded.
+// Prevents a low-effort or 0%-completion day from clearing the slump pool.
+export const RECOVERY_BONUS_MIN_COMPLETION = 30.0;
 
 export interface PersistScoreOptions {
   overwrite?: boolean;
@@ -639,16 +642,22 @@ async function calculateScore(
   let newCumulativeLowStreakPenalty = prevLossPool;
 
   if (isSlumpDay) {
+    // Score went down: accumulate streak and penalty pool.
     const lossToday = startCumulativeScore - endBeforeRecovery;
     newConsecutiveLowDays = prevDropDays + 1;
     newCumulativeLowStreakPenalty = prevLossPool + lossToday;
-  } else {
+  } else if (completionPercentage >= RECOVERY_BONUS_MIN_COMPLETION) {
+    // Score held/rose AND meaningful effort shown: award recovery bounce and clear streak.
     if (prevDropDays > 0 && prevLossPool > 0) {
       recoveryBonus = calculateRecoveryBonus(prevLossPool);
     }
     newConsecutiveLowDays = 0;
     newCumulativeLowStreakPenalty = 0.0;
   }
+  // else: score held/rose but effort was below threshold — neutral day.
+  // Streak state is preserved (newConsecutiveLowDays/newCumulativeLowStreakPenalty
+  // keep their initialised values of prevDropDays/prevLossPool) so the slump
+  // pool isn't wiped without being repaid.
 
   const todayScore = gainBeforeRecovery + recoveryBonus;
 

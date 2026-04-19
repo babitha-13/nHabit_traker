@@ -27,6 +27,7 @@ class DayEndProcessor {
     DateTime? targetDate,
     bool closeInstances = false,
     bool ensureInstances = true,
+    bool overwriteExistingRecord = false,
   }) async {
     // Use targetDate if provided, otherwise use yesterday's date
     final processDate = targetDate ?? DateService.yesterdayStart;
@@ -39,7 +40,7 @@ class DayEndProcessor {
 
       // Step 1: Create daily progress record BEFORE any day-end roll-forward.
       // This preserves the exact values shown in Queue page for the target day.
-      await _createDailyProgressRecord(userId, processDate);
+      await _createDailyProgressRecord(userId, processDate, overwrite: overwriteExistingRecord);
       // Step 2: Roll forward lastDayValue for active windowed habits.
       // This prepares next-day differential scoring after the snapshot is saved.
       await _updateLastDayValues(userId, processDate);
@@ -258,8 +259,9 @@ class DayEndProcessor {
   /// Create daily progress record for a specific date
   static Future<void> _createDailyProgressRecord(
     String userId,
-    DateTime targetDate,
-  ) async {
+    DateTime targetDate, {
+    bool overwrite = false,
+  }) async {
     final normalizedDate =
         DateTime(targetDate.year, targetDate.month, targetDate.day);
     // Use date-based doc ID for duplicate detection (YYYY-MM-DD)
@@ -268,7 +270,7 @@ class DayEndProcessor {
     final existingDoc = await DailyProgressRecord.collectionForUser(userId)
         .doc(dateDocId)
         .get();
-    if (existingDoc.exists) {
+    if (existingDoc.exists && !overwrite) {
       return;
     }
     // Get all habit instances (we'll filter them using the shared calculator)

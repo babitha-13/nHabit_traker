@@ -24,27 +24,26 @@ class CustomTabDecorator extends StatelessWidget {
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
         curve: Curves.easeInOut,
-        padding:
-            padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        padding: padding ?? const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
         decoration: BoxDecoration(
-          color: isActive ? theme.primary : theme.secondaryBackground,
-          borderRadius: const BorderRadius.only(
-            topLeft: Radius.circular(12),
-            topRight: Radius.circular(12),
-          ),
-          border: Border(
-            bottom: BorderSide(
-              color: isActive ? theme.accent1 : Colors.transparent,
-              width: 3,
-            ),
-          ),
-          boxShadow: isActive ? theme.neumorphicShadowsRaised : null,
+          color: isActive ? theme.primary : const Color(0xFFF0F0F0),
+          borderRadius: BorderRadius.circular(20),
+          boxShadow: isActive
+              ? [
+                  BoxShadow(
+                    color: theme.primary.withValues(alpha: 0.3),
+                    blurRadius: 6,
+                    offset: const Offset(0, 2),
+                  )
+                ]
+              : null,
         ),
         child: DefaultTextStyle(
           style: TextStyle(
-            color: isActive ? Colors.white : theme.primaryText,
+            color: isActive ? Colors.white : theme.primaryText.withValues(alpha: 0.75),
             fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-            fontSize: 14,
+            fontSize: 13,
+            letterSpacing: 0.2,
           ),
           child: child,
         ),

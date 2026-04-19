@@ -158,8 +158,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
       body: Column(
         children: [
           Container(
-            // Add breathing room so the first tab isn't glued to the edge
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+            padding: const EdgeInsets.fromLTRB(12, 8, 8, 8),
             color: Colors.white,
             child: Row(
               children: [
@@ -169,16 +168,18 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                       : TabBar(
                           indicator: const BoxDecoration(),
                           indicatorColor: Colors.transparent,
+                          dividerColor: Colors.transparent,
                           controller: _tabController,
                           isScrollable: true,
                           labelPadding:
-                              const EdgeInsets.symmetric(horizontal: 8),
+                              const EdgeInsets.symmetric(horizontal: 4),
                           padding: EdgeInsets.zero,
                           tabAlignment: TabAlignment.start,
                           tabs: _tabNames.asMap().entries.map((entry) {
                             final index = entry.key;
                             final name = entry.value;
                             return Tab(
+                              height: 36,
                               child: CustomTabDecorator(
                                 isActive: _tabController.index == index,
                                 child: Text(name),
@@ -187,12 +188,18 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                           }).toList(),
                         ),
                 ),
-                IconButton(
-                  icon: const Icon(Icons.add, color: Colors.black),
-                  onPressed: () async {
-                    await _showAddCategoryDialog(context);
-                    await _loadCategories();
-                  },
+                const SizedBox(width: 4),
+                GestureDetector(
+                  onTap: () => _showCategoryMenu(context),
+                  child: Container(
+                    padding: const EdgeInsets.all(8),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF0F0F0),
+                      borderRadius: BorderRadius.circular(10),
+                    ),
+                    child: const Icon(Icons.grid_view_rounded,
+                        size: 20, color: Colors.black87),
+                  ),
                 ),
               ],
             ),
@@ -211,6 +218,101 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
                         ))
         ],
       ),
+    );
+  }
+
+  void _showCategoryMenu(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.white,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (ctx, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey[300],
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text(
+                        'Categories',
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w600),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          Navigator.pop(ctx);
+                          await _showAddCategoryDialog(context);
+                          await _loadCategories();
+                        },
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('New'),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 8,
+                    children: _tabNames.asMap().entries.map((entry) {
+                      final index = entry.key;
+                      final name = entry.value;
+                      final isSelected = _tabController.index == index;
+                      return GestureDetector(
+                        onTap: () {
+                          _tabController.animateTo(index);
+                          Navigator.pop(ctx);
+                        },
+                        child: AnimatedContainer(
+                          duration: const Duration(milliseconds: 150),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 16, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? FlutterFlowTheme.of(context).primary
+                                : const Color(0xFFF0F0F0),
+                            borderRadius: BorderRadius.circular(20),
+                          ),
+                          child: Text(
+                            name,
+                            style: TextStyle(
+                              color:
+                                  isSelected ? Colors.white : Colors.black87,
+                              fontWeight: isSelected
+                                  ? FontWeight.w600
+                                  : FontWeight.w500,
+                              fontSize: 14,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+              ),
+            );
+          },
+        );
+      },
     );
   }
 

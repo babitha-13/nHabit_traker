@@ -36,6 +36,8 @@ class ManualTimeLogModal extends StatefulWidget {
     this.initialActivityName,
     this.initialActivityType,
     this.initialTemplateId,
+    this.initialIsCompleted,
+    this.initialQuantityValue,
   });
 
   final DateTime? initialStartTime;
@@ -49,6 +51,9 @@ class ManualTimeLogModal extends StatefulWidget {
   final String? initialActivityName;
   final String? initialActivityType; // 'task', 'habit', 'essential'
   final String? initialTemplateId;
+  // Pre-fill completion state when editing an existing entry
+  final bool? initialIsCompleted;
+  final int? initialQuantityValue;
 
   @override
   State<ManualTimeLogModal> createState() => _ManualTimeLogModalState();

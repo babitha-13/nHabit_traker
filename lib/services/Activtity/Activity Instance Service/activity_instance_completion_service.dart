@@ -400,7 +400,9 @@ class ActivityInstanceCompletionService {
         if (operationId != null) {
           OptimisticOperationTracker.reconcileOperation(
               operationId, updatedInstance);
-        } else if (!skipOptimisticUpdate) {
+        } else {
+          // Always broadcast the final confirmed state so listeners (e.g. calendar)
+          // replace any stale optimistic entry, even when skipOptimisticUpdate was true.
           InstanceEvents.broadcastInstanceUpdated(updatedInstance);
         }
         if (!skipNextInstanceGeneration) {

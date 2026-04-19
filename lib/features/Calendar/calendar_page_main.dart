@@ -1889,7 +1889,9 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   void _onCalendarPointerDown(PointerDownEvent event) {
-    _lastTapDownPosition = event.localPosition;
+    setState(() {
+      _lastTapDownPosition = event.localPosition;
+    });
   }
 
   @override

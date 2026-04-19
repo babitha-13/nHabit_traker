@@ -6,6 +6,7 @@ import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminde
 import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
@@ -605,7 +606,13 @@ class ReminderScheduler {
     required int durationMinutes,
   }) async {
     try {
-      final userId = await waitForCurrentUserUid();
+      String userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) {
+        // In a background isolate (notification action tap), the app-level
+        // currentUser global may not be set yet. Fall back to FirebaseAuth
+        // directly — its auth state is persisted and available immediately.
+        userId = FirebaseAuth.instance.currentUser?.uid ?? '';
+      }
       if (userId.isEmpty) return;
 
       // Parse reminderId to find instance

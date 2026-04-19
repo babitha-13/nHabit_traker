@@ -10,7 +10,7 @@ import * as admin from 'firebase-admin';
 
 admin.initializeApp();
 
-import { runInstanceMaintenanceForDayTransition } from './instanceMaintenance.js';
+import { runInstanceMaintenanceForDayTransition, createSyntheticSkippedInstances } from './instanceMaintenance.js';
 import { persistScoresForDate, persistScoresForDateRange, backfillRecentScores } from './scorePersistence.js';
 import { getYesterdayStart } from './types.js';
 
@@ -210,6 +210,42 @@ export const recalculateRange = onCall(
       throw new HttpsError('internal', 'recalculateRange failed', {
         error: String(error),
       });
+    }
+  }
+);
+
+/**
+ * Recovers historical score data after a period where instances were missing.
+ * Step 1: Creates synthetic 'skipped' instance records for each habit for each day
+ *         in [fromDate, toDate] where no instance existed, using the last known
+ *         instance before the gap as the anchor (preserves correct windowDuration).
+ * Step 2: Re-runs score calculation for the range with overwrite: true, so
+ *         correct penalties are applied as if the app had worked normally.
+ */
+export const recoverHistoricalData = onCall(
+  { timeoutSeconds: 540, memory: '512MiB' },
+  async (request) => {
+    try {
+      const userId = resolveAuthorizedUser(request.auth?.uid, request.data?.userId);
+      const fromDate = parseDateInput(request.data?.fromDate, 'fromDate');
+      const toDate = parseDateInput(request.data?.toDate, 'toDate');
+
+      console.log(`recoverHistoricalData: userId=${userId}, from=${fromDate.toISOString()}, to=${toDate.toISOString()}`);
+
+      const { created, skipped } = await createSyntheticSkippedInstances(userId, fromDate, toDate);
+      console.log(`recoverHistoricalData: created=${created} synthetic instances, skipped=${skipped} already-existing`);
+
+      await persistScoresForDateRange(userId, fromDate, toDate, {
+        overwrite: true,
+        setLastProcessedDate: false,
+        throwOnError: true,
+      });
+
+      return { ok: true, userId, fromDate: fromDate.toISOString(), toDate: toDate.toISOString(), created, skipped };
+    } catch (error) {
+      console.error('recoverHistoricalData failed:', error);
+      if (error instanceof HttpsError) throw error;
+      throw new HttpsError('internal', 'recoverHistoricalData failed', { error: String(error) });
     }
   }
 );

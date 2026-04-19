@@ -60,6 +60,7 @@ class TaskInstanceService {
     int? finalAccumulatedTime,
     String? notes,
     String? userId,
+    DateTime? completedAt,
   }) async {
     return TaskInstanceTaskService.completeTaskInstance(
       instanceId: instanceId,
@@ -67,6 +68,7 @@ class TaskInstanceService {
       finalAccumulatedTime: finalAccumulatedTime,
       notes: notes,
       userId: userId,
+      completedAt: completedAt,
     );
   }
 
