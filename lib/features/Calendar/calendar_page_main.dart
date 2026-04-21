@@ -1135,6 +1135,13 @@ class _CalendarPageState extends State<CalendarPage> {
     events.sort(compareCompletedEvents);
 
     DateTime? earliestStartTime;
+    // Tracks the end of the last event that was forward-cascaded from midnight,
+    // so overflow events stack neatly forward instead of piling at midnight.
+    DateTime latestForwardEnd = DateTime(
+      _selectedDate.year,
+      _selectedDate.month,
+      _selectedDate.day,
+    );
     final cascaded = <CalendarEventData>[];
     final selectedDayStart = DateTime(
       _selectedDate.year,
@@ -1146,10 +1153,22 @@ class _CalendarPageState extends State<CalendarPage> {
       DateTime startTime = event.startTime!;
       DateTime endTime = event.endTime!;
       final duration = endTime.difference(startTime);
+      bool forwardCascaded = false;
 
       if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
-        endTime = earliestStartTime;
-        startTime = endTime.subtract(duration);
+        final proposedEnd = earliestStartTime;
+        final proposedStart = proposedEnd.subtract(duration);
+        if (!proposedStart.isBefore(selectedDayStart)) {
+          // Normal backward cascade — fits within the day.
+          endTime = proposedEnd;
+          startTime = proposedStart;
+        } else {
+          // Backward cascade would go past midnight; cascade forward from
+          // midnight instead so events stay inside the time grid.
+          startTime = latestForwardEnd;
+          endTime = latestForwardEnd.add(duration);
+          forwardCascaded = true;
+        }
       }
 
       if (startTime.isBefore(selectedDayStart)) {
@@ -1167,6 +1186,9 @@ class _CalendarPageState extends State<CalendarPage> {
 
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
         earliestStartTime = startTime;
+      }
+      if (forwardCascaded && endTime.isAfter(latestForwardEnd)) {
+        latestForwardEnd = endTime;
       }
 
       cascaded.add(

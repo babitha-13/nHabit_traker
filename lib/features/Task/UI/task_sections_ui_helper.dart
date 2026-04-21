@@ -103,7 +103,7 @@ class TaskSectionsUIHelper {
         }
         widgets.add(
           const SliverToBoxAdapter(
-            child: SizedBox(height: 8),
+            child: SizedBox(height: 20),
           ),
         );
       }
@@ -141,25 +141,16 @@ class TaskSectionsUIHelper {
     final theme = FlutterFlowTheme.of(context);
     return Container(
       key: headerKey,
-      margin: EdgeInsets.fromLTRB(16, 8, 16, isExpanded ? 0 : 6),
-      padding: EdgeInsets.fromLTRB(12, 8, 12, isExpanded ? 2 : 6),
+      margin: const EdgeInsets.fromLTRB(16, 8, 16, 6),
+      padding: const EdgeInsets.fromLTRB(12, 8, 12, 6),
       decoration: BoxDecoration(
         gradient: theme.neumorphicGradient,
         border: Border.all(
           color: theme.surfaceBorderColor,
           width: 1,
         ),
-        borderRadius: BorderRadius.only(
-          topLeft: const Radius.circular(16),
-          topRight: const Radius.circular(16),
-          bottomLeft: isExpanded
-              ? const Radius.circular(12)
-              : const Radius.circular(16),
-          bottomRight: isExpanded
-              ? const Radius.circular(12)
-              : const Radius.circular(16),
-        ),
-        boxShadow: isExpanded ? [] : theme.neumorphicShadowsRaised,
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: theme.neumorphicShadowsRaised,
       ),
       child: InkWell(
         onTap: onTap,
@@ -181,7 +172,7 @@ class TaskSectionsUIHelper {
             ),
             Icon(
               isExpanded ? Icons.expand_less : Icons.expand_more,
-              size: 28,
+              size: 22,
             ),
           ],
         ),
@@ -366,10 +357,10 @@ class TaskSectionsUIHelper {
                 padding:
                     const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                 decoration: BoxDecoration(
-                  color: theme.primary.withOpacity(0.1),
+                  color: theme.primary.withValues(alpha: 0.1),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(
-                    color: theme.primary.withOpacity(0.3),
+                    color: theme.primary.withValues(alpha: 0.3),
                     width: 1,
                   ),
                 ),
