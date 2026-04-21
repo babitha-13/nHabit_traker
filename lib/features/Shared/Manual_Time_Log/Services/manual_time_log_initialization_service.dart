@@ -22,14 +22,6 @@ class ManualTimeLogInitializationService {
         initialStart.hour,
         initialStart.minute,
       );
-    } else {
-      final now = DateTime.now();
-      state.startTime = DateTime(
-          state.widget.selectedDate.year,
-          state.widget.selectedDate.month,
-          state.widget.selectedDate.day,
-          now.hour,
-          now.minute);
     }
 
     if (state.widget.initialEndTime != null) {
@@ -66,17 +58,32 @@ class ManualTimeLogInitializationService {
           initialEnd.second,
         );
       }
-    } else {
-      // Default to user's configured duration only when no end time provided (manual calendar entry)
+      // If start was not explicitly provided, anchor it to end - duration
+      if (state.widget.initialStartTime == null) {
+        state.startTime = state.endTime
+            .subtract(Duration(minutes: state.defaultDurationMinutes));
+      }
+    } else if (state.widget.initialStartTime != null) {
+      // Start provided but no end: end = start + duration
       state.endTime =
           state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
+    } else {
+      // Neither provided (FAB): anchor end to now, start = end - duration
+      final now = DateTime.now();
+      state.endTime = DateTime(
+          state.widget.selectedDate.year,
+          state.widget.selectedDate.month,
+          state.widget.selectedDate.day,
+          now.hour,
+          now.minute);
+      state.startTime = state.endTime
+          .subtract(Duration(minutes: state.defaultDurationMinutes));
     }
 
     // Ensure end time is after start time
     // Only apply default if end time is invalid (shouldn't happen with timer)
     if (state.endTime.isBefore(state.startTime) ||
         state.endTime.isAtSameMomentAs(state.startTime)) {
-      // This fallback should only happen for manual calendar entries
       state.endTime =
           state.startTime.add(Duration(minutes: state.defaultDurationMinutes));
     }
@@ -186,9 +193,13 @@ class ManualTimeLogInitializationService {
         if (state.mounted) {
           state.setState(() {
             state.defaultDurationMinutes = durationMinutes;
-            // Update end time if no initial end time was provided (was set using default)
-            // This ensures the end time uses the actual setting value instead of hardcoded 10
-            if (state.widget.initialEndTime == null) {
+            if (state.widget.initialEndTime == null &&
+                state.widget.initialStartTime == null) {
+              // FAB case: end is fixed to now, recalculate start from end
+              state.startTime = state.endTime
+                  .subtract(Duration(minutes: state.defaultDurationMinutes));
+            } else if (state.widget.initialEndTime == null) {
+              // Start provided but no end: recalculate end from start
               state.endTime = state.startTime
                   .add(Duration(minutes: state.defaultDurationMinutes));
             } else if (state.endTime.isBefore(state.startTime) ||

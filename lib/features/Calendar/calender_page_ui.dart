@@ -10,10 +10,8 @@ class CalendarDayViewBody extends StatelessWidget {
   final DateTime selectedDate;
   final GlobalKey<DayViewState> dayViewKey;
   final int plannedOverlapPairCount;
-  final double currentScrollOffset;
   final double initialScrollOffset;
   final double calendarViewportHeight;
-  final Offset? lastTapDownPosition;
   final bool isLoadingEvents;
   final EventController plannedEventController;
   final EventController completedEventController;
@@ -24,10 +22,6 @@ class CalendarDayViewBody extends StatelessWidget {
   final Function(bool) onTogglePlanned;
   final VoidCallback onShowTimeBreakdownChart;
   final Function(DateTime, DateTime) onShowManualEntryDialog;
-  final Function(PointerDownEvent) onPointerDownEvent;
-  final Function(PointerMoveEvent) onPointerMoveEvent;
-  final Function(PointerUpEvent) onPointerUpEvent;
-  final Function(PointerCancelEvent) onPointerCancelEvent;
   final Function(double) onCalendarViewportHeightChanged;
   final Function(double) onCurrentScrollOffsetChanged;
   final double Function() calculateHeightPerMinute;
@@ -41,10 +35,8 @@ class CalendarDayViewBody extends StatelessWidget {
     required this.selectedDate,
     required this.dayViewKey,
     required this.plannedOverlapPairCount,
-    required this.currentScrollOffset,
     required this.initialScrollOffset,
     required this.calendarViewportHeight,
-    required this.lastTapDownPosition,
     required this.isLoadingEvents,
     required this.plannedEventController,
     required this.completedEventController,
@@ -55,10 +47,6 @@ class CalendarDayViewBody extends StatelessWidget {
     required this.onTogglePlanned,
     required this.onShowTimeBreakdownChart,
     required this.onShowManualEntryDialog,
-    required this.onPointerDownEvent,
-    required this.onPointerMoveEvent,
-    required this.onPointerUpEvent,
-    required this.onPointerCancelEvent,
     required this.onCalendarViewportHeightChanged,
     required this.onCurrentScrollOffsetChanged,
     required this.calculateHeightPerMinute,
@@ -244,13 +232,7 @@ class CalendarDayViewBody extends StatelessWidget {
                         behavior: ScrollConfiguration.of(context).copyWith(
                           scrollbars: false,
                         ),
-                        child: Listener(
-                          behavior: HitTestBehavior.translucent,
-                          onPointerDown: onPointerDownEvent,
-                          onPointerMove: onPointerMoveEvent,
-                          onPointerUp: onPointerUpEvent,
-                          onPointerCancel: onPointerCancelEvent,
-                          child: Stack(
+                        child: Stack(
                             children: [
                               DayView(
                                 key: dayViewKey,
@@ -266,6 +248,7 @@ class CalendarDayViewBody extends StatelessWidget {
                                 // initialDay sets the date - this should update when _selectedDate changes
                                 initialDay: selectedDate,
                                 heightPerMinute: calculateHeightPerMinute(),
+                                minuteSlotSize: MinuteSlotSize.minutes15,
                                 backgroundColor: Colors.white,
                                 showVerticalLine:
                                     true, // Ensure vertical line is visible
@@ -319,82 +302,21 @@ class CalendarDayViewBody extends StatelessWidget {
                                       .shrink(); // Hide default header
                                 },
                                 onDateLongPress: (date) {
-                                  if (lastTapDownPosition != null) {
-                                    final double tapY = lastTapDownPosition!.dy;
-
-                                    double scrollOffset = currentScrollOffset;
-
-                                    // Try to get scroll position directly from DayView state
-                                    try {
-                                      final dayViewState =
-                                          dayViewKey.currentState;
-                                      if (dayViewState != null) {
-                                        // Access scrollController if available
-                                        final dynamic state = dayViewState;
-                                        if (state.scrollController != null) {
-                                          scrollOffset = state
-                                              .scrollController.position.pixels;
-                                        }
-                                      }
-                                    } catch (e) {
-                                      // Fallback to tracked offset
-                                    }
-                                    // scrollOffset is how far we've scrolled from the top
-                                    final double totalPixels =
-                                        tapY + scrollOffset;
-                                    final double totalMinutes = totalPixels /
-                                        calculateHeightPerMinute();
-
-                                    // Convert total minutes to HH:MM on the selected date
-                                    final int totalMinutesInt =
-                                        totalMinutes.toInt();
-                                    final int hours = totalMinutesInt ~/ 60;
-                                    final int minutes = totalMinutesInt % 60;
-
-                                    // Round minutes to nearest 5
-                                    final int remainder = minutes % 5;
-                                    final int roundedMinute = remainder >= 2.5
-                                        ? minutes + (5 - remainder)
-                                        : minutes - remainder;
-
-                                    final startTime = DateTime(
-                                      selectedDate.year,
-                                      selectedDate.month,
-                                      selectedDate.day,
-                                      hours,
-                                      0, // Start from 0 minutes and add rounded minutes
-                                    ).add(Duration(minutes: roundedMinute));
-
-                                    final endTime = startTime.add(Duration(
-                                        minutes: defaultDurationMinutes));
-
-                                    onShowManualEntryDialog(
-                                      startTime,
-                                      endTime,
-                                    );
-                                  } else {
-                                    // Fallback to old logic if no tap position (unlikely)
-                                    final minute = date.minute;
-                                    final remainder = minute % 5;
-                                    final roundedMinute = remainder >= 2.5
-                                        ? minute + (5 - remainder)
-                                        : minute - remainder;
-
-                                    final startTime = DateTime(
-                                      date.year,
-                                      date.month,
-                                      date.day,
-                                      date.hour,
-                                      roundedMinute,
-                                    );
-                                    final endTime = startTime.add(Duration(
-                                        minutes: defaultDurationMinutes));
-
-                                    onShowManualEntryDialog(
-                                      startTime,
-                                      endTime,
-                                    );
-                                  }
+                                  // `date` is computed by PressDetector from
+                                  // within the scroll content, so its position
+                                  // is always correct regardless of any widgets
+                                  // above the scroll area. minuteSlotSize=15
+                                  // gives us 15-min precision here.
+                                  final startTime = DateTime(
+                                    selectedDate.year,
+                                    selectedDate.month,
+                                    selectedDate.day,
+                                    date.hour,
+                                    date.minute,
+                                  );
+                                  final endTime = startTime.add(
+                                      Duration(minutes: defaultDurationMinutes));
+                                  onShowManualEntryDialog(startTime, endTime);
                                 },
                               ),
                               // Loading overlay
@@ -410,7 +332,6 @@ class CalendarDayViewBody extends StatelessWidget {
                             ],
                           ),
                         ),
-                      ),
                     );
                   },
                 ),

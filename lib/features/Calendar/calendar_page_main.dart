@@ -51,7 +51,6 @@ class _CalendarPageState extends State<CalendarPage> {
   final Set<String> _plannedOverlappedEventIds = {};
   List<PlannedOverlapGroup> _plannedOverlapGroups = const [];
   GlobalKey<DayViewState> _dayViewKey = GlobalKey<DayViewState>();
-  Offset? _lastTapDownPosition;
   double? _pendingScrollSyncOffset;
   bool _pendingScrollSyncScheduled = false;
   double? _latestZoomScrollTarget;
@@ -1910,12 +1909,6 @@ class _CalendarPageState extends State<CalendarPage> {
     );
   }
 
-  void _onCalendarPointerDown(PointerDownEvent event) {
-    setState(() {
-      _lastTapDownPosition = event.localPosition;
-    });
-  }
-
   @override
   void reassemble() {
     super.reassemble();
@@ -1980,10 +1973,8 @@ class _CalendarPageState extends State<CalendarPage> {
         selectedDate: _selectedDate,
         dayViewKey: _dayViewKey,
         plannedOverlapPairCount: _plannedOverlapPairCount,
-        currentScrollOffset: _currentScrollOffset,
         initialScrollOffset: _initialScrollOffset,
         calendarViewportHeight: _calendarViewportHeight,
-        lastTapDownPosition: _lastTapDownPosition,
         isLoadingEvents: _isLoadingEvents,
         plannedEventController: _plannedEventController,
         completedEventController: _completedEventController,
@@ -2017,10 +2008,6 @@ class _CalendarPageState extends State<CalendarPage> {
         onShowManualEntryDialog: (startTime, endTime) {
           _showManualEntryDialog(startTime: startTime, endTime: endTime);
         },
-        onPointerDownEvent: _onCalendarPointerDown,
-        onPointerMoveEvent: (_) {},
-        onPointerUpEvent: (_) {},
-        onPointerCancelEvent: (_) {},
         onCalendarViewportHeightChanged: (height) {
           if ((height - _calendarViewportHeight).abs() < 0.5) {
             return;

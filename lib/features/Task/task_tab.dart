@@ -7,6 +7,7 @@ import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Task/task_tabs_UI.dart';
 import 'package:habit_tracker/features/Task/task_page.dart';
+import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 
 class TaskTab extends StatefulWidget {
   const TaskTab({super.key});
@@ -28,6 +29,10 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
     _tabController = TabController(length: _tabNames.length, vsync: this);
     _tabController.addListener(_onTabChanged);
     _loadCategories();
+
+    NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
+      if (mounted) _loadCategories();
+    });
 
     // Listen for auth changes to retry loading if initial load failed due to missing auth
     _authSubscription = FirebaseAuth.instance.authStateChanges().listen((user) {
@@ -145,6 +150,7 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
 
   @override
   void dispose() {
+    NotificationCenter.removeObserver(this, 'categoryUpdated');
     _authSubscription?.cancel();
     _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
@@ -233,7 +239,8 @@ class _TaskTabState extends State<TaskTab> with TickerProviderStateMixin {
         return StatefulBuilder(
           builder: (ctx, setModalState) {
             return Padding(
-              padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
+              padding: EdgeInsets.fromLTRB(
+                  20, 16, 20, 32 + MediaQuery.of(ctx).padding.bottom),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
