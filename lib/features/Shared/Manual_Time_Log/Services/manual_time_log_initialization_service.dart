@@ -102,25 +102,45 @@ class ManualTimeLogInitializationService {
           state.widget.initialQuantityValue! > 0) {
         state.quantityValue = state.widget.initialQuantityValue!;
       }
-      // Find and select the template if it exists
+      // Find and select the template and restore the saved category
       WidgetsBinding.instance.addPostFrameCallback((_) async {
         await loadActivities(state); // Ensure activities are loaded
         await loadCategories(state); // Ensure categories are loaded
-        if (state.mounted && state.widget.editMetadata!.templateId != null) {
+        if (!state.mounted) return;
+
+        final metadata = state.widget.editMetadata!;
+
+        // The saved log's categoryId/categoryName is the source of truth.
+        final savedCategory = state.allCategories.firstWhereOrNull(
+          (c) =>
+              (metadata.categoryId != null &&
+                  c.reference.id == metadata.categoryId) ||
+              (metadata.categoryName != null &&
+                  c.name == metadata.categoryName),
+        );
+
+        if (metadata.templateId != null) {
           final template = state.allActivities.firstWhereOrNull(
-            (a) => a.reference.id == state.widget.editMetadata!.templateId,
+            (a) => a.reference.id == metadata.templateId,
           );
           if (template != null) {
             state.setState(() {
               state.selectedTemplate = template;
-              // Set category from template
-              state.selectedCategory = state.allCategories.firstWhereOrNull(
-                (c) =>
-                    c.reference.id == template.categoryId ||
-                    c.name == template.categoryName,
-              );
+              // Prefer saved log category; fall back to template's category.
+              state.selectedCategory = savedCategory ??
+                  state.allCategories.firstWhereOrNull(
+                    (c) =>
+                        c.reference.id == template.categoryId ||
+                        c.name == template.categoryName,
+                  );
             });
+            return;
           }
+        }
+
+        // No template (ad-hoc entry) — restore saved category directly.
+        if (savedCategory != null) {
+          state.setState(() => state.selectedCategory = savedCategory);
         }
       });
     } else if (state.widget.initialActivityName != null) {

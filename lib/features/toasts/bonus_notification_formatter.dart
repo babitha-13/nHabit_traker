@@ -55,10 +55,11 @@ class BonusNotificationFormatter {
     final penalty = scoreData['decayPenalty'] ?? 0.0;
     if (penalty > 0) {
       final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
-      // Message is phrased from morning catch-up perspective where we look back.
+      final message = consecutiveDays > 0
+          ? 'Low Completion Penalty: You completed less than 50% yesterday (day $consecutiveDays in a row), so you lose ${penalty.toStringAsFixed(1)} points (penalty softens the longer the streak)'
+          : 'Low Completion Penalty: You completed less than 50% yesterday, so you lose ${penalty.toStringAsFixed(1)} points';
       notifications.add({
-        'message':
-            'Slump Penalty: Yesterday caused a score decline (day $consecutiveDays of slump), so you lose ${penalty.toStringAsFixed(1)} points',
+        'message': message,
         'points': -penalty,
         'type': 'penalty',
       });

@@ -1823,9 +1823,6 @@ class _CalendarPageState extends State<CalendarPage> {
     required double focalDy,
     double? anchorMinute,
   }) {
-    if (!_hasLiveDayViewClient()) {
-      return;
-    }
     final normalizedFocalDy = _normalizedFocalDy(focalDy);
     final resolvedAnchorMinute =
         anchorMinute ?? _anchorMinuteAtFocalPoint(normalizedFocalDy);
@@ -1840,9 +1837,16 @@ class _CalendarPageState extends State<CalendarPage> {
     final offsetChanged = (clampedOffset - currentOffset).abs() >= 0.5;
     if (!zoomChanged && !offsetChanged) return;
 
-    // Pre-jump the scroll controller BEFORE setState. This updates the
-    // DayView's internal _lastScrollOffset via its scroll listener.
-    _syncDayViewScroll(clampedOffset);
+    if (_hasLiveDayViewClient()) {
+      // Pre-jump the scroll controller BEFORE setState. This updates the
+      // DayView's internal _lastScrollOffset via its scroll listener.
+      _syncDayViewScroll(clampedOffset);
+    } else {
+      // Controller not ready yet — queue the scroll sync so it applies once
+      // the DayView attaches its scroll position after the rebuild.
+      _pendingScrollSyncOffset = clampedOffset;
+      _schedulePendingScrollSync();
+    }
 
     setState(() {
       _verticalZoom = clampedZoom;
@@ -1855,7 +1859,7 @@ class _CalendarPageState extends State<CalendarPage> {
     // starts at the controller's immutable initialScrollOffset (often 0).
     // We must correct it after the rebuild. We use a shared target field so
     // that during rapid pinch events, all callbacks read the LATEST target
-    // rather than a stale captured value â€” preventing flicker.
+    // rather than a stale captured value — preventing flicker.
     _latestZoomScrollTarget = clampedOffset;
     if (!_zoomScrollCorrectionScheduled) {
       _zoomScrollCorrectionScheduled = true;

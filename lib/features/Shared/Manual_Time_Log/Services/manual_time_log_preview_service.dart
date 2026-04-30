@@ -29,13 +29,13 @@ class ManualTimeLogPreviewService {
 
   /// Select activity type
   static void selectType(ManualTimeLogModalState state, String type) {
+    state.activityFocusNode.unfocus();
     state.setState(() {
       state.selectedType = type;
       state.selectedTemplate = null;
       state.activityController.clear();
       ManualTimeLogHelperService.updateDefaultCategory(state);
       ManualTimeLogSearchService.removeOverlay(state);
-      ManualTimeLogSearchService.onSearchChanged(state);
       updatePreview(state);
     });
   }

@@ -695,14 +695,15 @@ class CalendarEventService {
         .where((e) => e.startTime != null && e.endTime != null)
         .toList();
 
-    DateTime? earliestStartTime;
-    final cascadedEvents = <CalendarEventData>[];
     final selectedDayStart = DateTime(
       selectedDate.year,
       selectedDate.month,
       selectedDate.day,
     );
     final selectedDayEnd = selectedDayStart.add(const Duration(days: 1));
+    DateTime? earliestStartTime;
+    DateTime latestForwardEnd = selectedDayStart;
+    final cascadedEvents = <CalendarEventData>[];
 
     // Process events in order (latest end time first)
     // This allows cascading to work correctly by pushing earlier events back
@@ -710,10 +711,20 @@ class CalendarEventService {
       DateTime startTime = event.startTime!;
       DateTime endTime = event.endTime!;
       final duration = endTime.difference(startTime);
+      bool forwardCascaded = false;
 
       if (earliestStartTime != null && endTime.isAfter(earliestStartTime)) {
-        endTime = earliestStartTime;
-        startTime = endTime.subtract(duration);
+        final proposedEnd = earliestStartTime;
+        final proposedStart = proposedEnd.subtract(duration);
+        if (!proposedStart.isBefore(selectedDayStart)) {
+          endTime = proposedEnd;
+          startTime = proposedStart;
+        } else {
+          // Backward cascade would cross midnight; stack forward from midnight.
+          startTime = latestForwardEnd;
+          endTime = latestForwardEnd.add(duration);
+          forwardCascaded = true;
+        }
       }
 
       if (startTime.isBefore(selectedDayStart)) {
@@ -731,6 +742,9 @@ class CalendarEventService {
 
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
         earliestStartTime = startTime;
+      }
+      if (forwardCascaded && endTime.isAfter(latestForwardEnd)) {
+        latestForwardEnd = endTime;
       }
 
       cascadedEvents.add(CalendarEventData(

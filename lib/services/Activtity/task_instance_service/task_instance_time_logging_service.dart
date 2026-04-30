@@ -952,6 +952,8 @@ class TaskInstanceTimeLoggingService {
         showInFloatingTimer: false,
       );
       final now = DateTime.now();
+      final entryDate =
+          DateTime(startTime.year, startTime.month, startTime.day);
       final currentInstance = await _getInstanceServerFirst(taskInstanceRef);
       final isessential = activityType.toLowerCase() == 'essential';
       final timeLogSessions = [newSession];
@@ -994,6 +996,7 @@ class TaskInstanceTimeLoggingService {
             matchingTemplate?.trackingType ?? 'binary';
         optimisticData['currentSessionStartTime'] = null;
         optimisticData['lastUpdated'] = now;
+        optimisticData['belongsToDate'] = entryDate;
         optimisticData['_optimistic'] = true;
         final optimisticInstance = ActivityInstanceRecord.getDocumentFromData(
           optimisticData,
@@ -1024,6 +1027,7 @@ class TaskInstanceTimeLoggingService {
           'templateTrackingType': matchingTemplate?.trackingType ?? 'binary',
           'currentSessionStartTime': null,
           'lastUpdated': now,
+          'belongsToDate': entryDate,
         };
 
         try {
@@ -1079,8 +1083,6 @@ class TaskInstanceTimeLoggingService {
         InstanceEvents.broadcastInstanceUpdatedOptimistic(
             optimisticInstance, operationId);
 
-        final startDate =
-            DateTime(startTime.year, startTime.month, startTime.day);
         final updateData = <String, dynamic>{
           'status': 'pending',
           'isTimerActive': false,
@@ -1096,7 +1098,7 @@ class TaskInstanceTimeLoggingService {
           'templateTrackingType': 'binary',
           'lastUpdated': now,
           'currentSessionStartTime': null,
-          'belongsToDate': startDate,
+          'belongsToDate': entryDate,
         };
 
         if (categoryId != null) updateData['templateCategoryId'] = categoryId;

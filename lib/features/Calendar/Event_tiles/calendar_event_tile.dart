@@ -201,15 +201,14 @@ class CalendarEventTileBuilder {
       if (isCompleted && metadata != null && metadata.sessionIndex >= 0) {
         onEditEntry(metadata);
       } else if (onAddTimeLog != null && metadata != null) {
-        // For yesterday's events: allow adding a time log via long press
+        // Allow adding a time log via long press for today or any past day.
         final eventDate = event.startTime;
         if (eventDate != null) {
           final today = DateTime.now();
           final todayDate = DateTime(today.year, today.month, today.day);
-          final yesterday = todayDate.subtract(const Duration(days: 1));
           final eventDateOnly =
               DateTime(eventDate.year, eventDate.month, eventDate.day);
-          if (eventDateOnly == yesterday) {
+          if (!eventDateOnly.isAfter(todayDate)) {
             onAddTimeLog!(metadata);
           }
         }

@@ -13,6 +13,9 @@ class ManualTimeLogHelperService {
       return;
     }
 
+    // When editing, the category is restored from the saved entry — don't override it.
+    if (state.widget.editMetadata != null) return;
+
     if (state.selectedType == 'task') {
       state.selectedCategory = state.allCategories.firstWhereOrNull(
           (c) => c.name == 'Inbox' && c.categoryType == 'task');
