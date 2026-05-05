@@ -45,7 +45,7 @@ class Home extends StatefulWidget {
   State<Home> createState() => _HomeState();
 }
 
-class _HomeState extends State<Home> {
+class _HomeState extends State<Home> with WidgetsBindingObserver {
   String title = "Queue";
   DateTime preBackPress = DateTime.now();
   final GlobalKey _parentKey = GlobalKey();
@@ -61,6 +61,9 @@ class _HomeState extends State<Home> {
     "Calendar": 5,
   };
   static bool _isCheckingCatchUp = false;
+  // Prevents redundant catch-up re-runs when user frequently switches apps.
+  static DateTime? _lastCatchUpCheck;
+  static const _catchUpCooldown = Duration(minutes: 15);
   Timer? _dayTransitionTimer;
   ScaffoldFeatureController<SnackBar, SnackBarClosedReason>?
       _catchUpPendingSnackbar;
@@ -82,6 +85,7 @@ class _HomeState extends State<Home> {
     }
     NotificationCenter.addObserver(
         this, 'navigateBottomTab', _onNavigateBottomTab);
+    WidgetsBinding.instance.addObserver(this);
     super.initState();
     SystemChrome.setSystemUIOverlayStyle(
       const SystemUiOverlayStyle(
@@ -95,6 +99,7 @@ class _HomeState extends State<Home> {
     );
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      _lastCatchUpCheck = DateTime.now();
       NotificationService.processPendingNotificationResponses();
       Future.wait([
         _checkMorningCatchUp(),
@@ -108,6 +113,19 @@ class _HomeState extends State<Home> {
       });
     });
     _scheduleDayTransitionTimer();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed && mounted) {
+      final now = DateTime.now();
+      if (_lastCatchUpCheck != null &&
+          now.difference(_lastCatchUpCheck!) < _catchUpCooldown) {
+        return;
+      }
+      _lastCatchUpCheck = now;
+      unawaited(_checkMorningCatchUp());
+    }
   }
 
   void _onNavigateBottomTab(Object? param) {
@@ -129,6 +147,7 @@ class _HomeState extends State<Home> {
   void dispose() {
     _dayTransitionTimer?.cancel();
     _clearCatchUpPendingSnackbar();
+    WidgetsBinding.instance.removeObserver(this);
     NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
     super.dispose();
