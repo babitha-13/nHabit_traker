@@ -866,8 +866,12 @@ class _WeeklyViewState extends State<WeeklyView> {
             }
           }
         } else if (!isOptimistic) {
-          // New instance from backend (not optimistic) - add it
-          _instances.add(instance);
+          // Only add genuinely new pending instances. Non-pending instances
+          // arriving for an unknown ID came from outside this view's scope
+          // (e.g. a past-day edit reconciliation) and must not be injected.
+          if (instance.status == 'pending') {
+            _instances.add(instance);
+          }
         }
       });
       await _calculateWeeklyProgress();

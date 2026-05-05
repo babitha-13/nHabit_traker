@@ -1183,6 +1183,19 @@ class _CalendarPageState extends State<CalendarPage> {
         continue;
       }
 
+      // Events that were clamped to midnight (or whose times fall inside the
+      // already-occupied forward-cascade zone) must be pushed forward so they
+      // don't overlap with events that were explicitly forward-cascaded.
+      if (!forwardCascaded && startTime.isBefore(latestForwardEnd)) {
+        startTime = latestForwardEnd;
+        endTime = latestForwardEnd.add(duration);
+        if (!endTime.isBefore(selectedDayEnd)) {
+          endTime = selectedDayEnd.subtract(const Duration(seconds: 1));
+        }
+        if (!endTime.isAfter(startTime)) continue;
+        forwardCascaded = true;
+      }
+
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
         earliestStartTime = startTime;
       }
@@ -1937,17 +1950,6 @@ class _CalendarPageState extends State<CalendarPage> {
       appBar: AppBar(
         title: const Text('Calendar View'),
         actions: [
-          IconButton(
-            icon: _isLoadingEvents
-                ? const SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.refresh),
-            onPressed: _isLoadingEvents ? null : _loadEvents,
-            tooltip: 'Refresh Events',
-          ),
           IconButton(
             icon: const Icon(Icons.zoom_out),
             onPressed: _zoomOut,

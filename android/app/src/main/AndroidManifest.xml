@@ -60,6 +60,9 @@
         <receiver
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver"
             android:exported="false" />
+        <receiver
+            android:name=".DismissAlarmReceiver"
+            android:exported="false" />
         <!-- Android Alarm Manager receivers/services -->
         <receiver
             android:name="dev.fluttercommunity.plus.androidalarmmanager.AlarmBroadcastReceiver"

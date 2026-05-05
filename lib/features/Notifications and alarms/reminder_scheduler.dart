@@ -752,6 +752,13 @@ class ReminderScheduler {
           actions: _buildNotificationActions(instance, newReminderId),
         );
       }
+
+      // Persist the snooze time so scheduleAllPendingReminders skips this
+      // instance until the snoozed notification fires.
+      await instance.reference.update({
+        'snoozedUntil': newReminderTime,
+        'lastUpdated': DateService.currentDate,
+      });
     } catch (e) {
       // Error snoozing reminder
     }

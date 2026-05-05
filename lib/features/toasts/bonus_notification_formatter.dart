@@ -42,10 +42,17 @@ class BonusNotificationFormatter {
     // Recovery bonus notification
     final recoveryBonus = scoreData['recoveryBonus'] ?? 0.0;
     if (recoveryBonus > 0) {
-      final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
+      // Use pre-reset slump count; fall back to current consecutiveLowDays if unavailable.
+      // Morning catchup reads stats after they've already been reset to 0, so the count
+      // may be missing — in that case, omit the count from the message.
+      final recoveredFromDays = (scoreData['recoveredFromDays'] as int?) ??
+          (scoreData['consecutiveLowDays'] as int? ?? 0);
+      final slumpPhrase = recoveredFromDays > 0
+          ? 'after $recoveredFromDays day${recoveredFromDays == 1 ? '' : 's'} of score decline'
+          : 'after your recent score decline streak';
       notifications.add({
         'message':
-            'Recovery Bonus! You\'re back on track after $consecutiveDays day${consecutiveDays == 1 ? '' : 's'} of score decline, so you get ${recoveryBonus.toStringAsFixed(1)} extra points',
+            'Recovery Bonus! You\'re back on track $slumpPhrase, so you get ${recoveryBonus.toStringAsFixed(1)} extra points',
         'points': recoveryBonus,
         'type': 'bonus',
       });
@@ -56,7 +63,7 @@ class BonusNotificationFormatter {
     if (penalty > 0) {
       final consecutiveDays = scoreData['consecutiveLowDays'] ?? 0;
       final message = consecutiveDays > 0
-          ? 'Low Completion Penalty: You completed less than 50% yesterday (day $consecutiveDays in a row), so you lose ${penalty.toStringAsFixed(1)} points (penalty softens the longer the streak)'
+          ? 'Low Completion Penalty: You completed less than 50% yesterday (day $consecutiveDays in a row), so you lose ${penalty.toStringAsFixed(1)} points'
           : 'Low Completion Penalty: You completed less than 50% yesterday, so you lose ${penalty.toStringAsFixed(1)} points';
       notifications.add({
         'message': message,

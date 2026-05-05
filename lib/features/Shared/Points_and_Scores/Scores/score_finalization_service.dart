@@ -253,6 +253,7 @@ class CumulativeScoreService {
         'currentStreak': newCurrentStreak,
         'longestStreak': newLongestStreak,
         'consecutiveLowDays': newConsecutiveLowDays,
+        'recoveredFromDays': prevDropDays,
         'newMilestones': newMilestones,
         'achievedMilestones': newAchievedMilestones,
         'aggregateStats': aggregateStats,

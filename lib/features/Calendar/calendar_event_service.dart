@@ -740,6 +740,18 @@ class CalendarEventService {
         continue;
       }
 
+      // Events clamped to midnight or falling inside the forward-cascade zone
+      // must be pushed to the end of that zone to prevent overlaps.
+      if (!forwardCascaded && startTime.isBefore(latestForwardEnd)) {
+        startTime = latestForwardEnd;
+        endTime = latestForwardEnd.add(duration);
+        if (!endTime.isBefore(selectedDayEnd)) {
+          endTime = selectedDayEnd.subtract(const Duration(seconds: 1));
+        }
+        if (!endTime.isAfter(startTime)) continue;
+        forwardCascaded = true;
+      }
+
       if (earliestStartTime == null || startTime.isBefore(earliestStartTime)) {
         earliestStartTime = startTime;
       }

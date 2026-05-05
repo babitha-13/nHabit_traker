@@ -151,8 +151,13 @@ class QueueInstanceHandlers {
         }
       }
     } else if (!isOptimistic) {
-      // New instance from backend (not optimistic) - add it
-      instances.add(instance);
+      // Only add a genuinely new pending instance from the backend.
+      // Non-pending instances arriving as updates to an ID we don't already
+      // track are from outside this queue's scope (e.g. a past-day edit that
+      // broadcasts its reconciled state) and must not be injected here.
+      if (instance.status == 'pending') {
+        instances.add(instance);
+      }
     }
   }
 

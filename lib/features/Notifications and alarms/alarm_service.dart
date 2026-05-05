@@ -1,4 +1,3 @@
-import 'dart:async';
 import 'package:android_alarm_manager_plus/android_alarm_manager_plus.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
@@ -12,8 +11,6 @@ import 'package:vibration/vibration.dart';
 @pragma('vm:entry-point')
 class AlarmService {
   static bool _initialized = false;
-  static const Duration _maxFallbackAlarmFeedbackDuration =
-      Duration(minutes: 2);
 
   /// Initialize the alarm service
   static Future<bool> initialize() async {
@@ -138,24 +135,24 @@ class AlarmService {
     try {
       WidgetsFlutterBinding.ensureInitialized();
 
-      // Immediate vibration feedback
+      // Finite vibration pattern (~40 s). Cancelled immediately when the user
+      // dismisses the notification via the native DismissAlarmReceiver delete
+      // intent, or via the Dismiss action button.
       try {
         if (await Vibration.hasVibrator()) {
-          Vibration.vibrate(pattern: [0, 1000, 1000, 1000], repeat: 1);
-          Timer(_maxFallbackAlarmFeedbackDuration, () {
-            Vibration.cancel();
-          });
+          Vibration.vibrate(
+            pattern: [
+              0, 900, 600, 900, 600, 900, 600, 900, 600, 900, 600,
+              900, 600, 900, 600, 900, 600, 900, 600, 900, 600,
+              900, 600, 900, 600, 900, 600, 900, 600, 900, 600,
+            ],
+          );
         }
-      } catch (e) {
-        // Vibration failed, continue without it
-      }
+      } catch (_) {}
 
       await NotificationService.initialize();
 
-      // Use fullScreenIntent priority for the notification
-      // This will trigger the onNotificationResponse callback immediately if app is in foreground,
-      // or show the high-priority notification that can launch the activity
-      // Include reminderId in payload: ALARM_RINGING:title|body|payload|reminderId
+      final notificationStringId = 'alarm_${reminderId ?? id}';
       String ringingPayload = 'ALARM_RINGING:$title|$body|$payload';
       if (reminderId != null) {
         ringingPayload += '|$reminderId';
@@ -189,17 +186,24 @@ class AlarmService {
       }
 
       await NotificationService.showImmediate(
-        id: 'alarm_${reminderId ?? id}',
+        id: notificationStringId,
         title: title,
         body: body,
-        payload: ringingPayload, // Special payload format
+        payload: ringingPayload,
         actions: actions,
       );
+
+      // Patch the live notification with a deleteIntent so that swiping it
+      // away triggers DismissAlarmReceiver, which cancels the vibration.
+      try {
+        const dismissChannel = MethodChannel('alarm_notification_dismiss');
+        await dismissChannel.invokeMethod('patchDeleteIntent', {
+          'notificationId': notificationStringId.hashCode,
+        });
+      } catch (_) {}
     } catch (e) {
       // Failed to show notification from alarm callback
     }
-    // Note: To show notifications from this callback, you needed to
-    // initialize the notification service in this isolate (done above).
   }
 
   static Future<void> _fallbackToNotification({
