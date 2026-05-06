@@ -60,21 +60,46 @@ export const processDayEndForAllUsers = onSchedule(
         const batchPromises = batch.map(async (userDoc) => {
           const userId = userDoc.id;
 
+          // Step 1: Instance maintenance — must succeed before we do anything else.
           try {
             console.log(`Processing user: ${userId}`);
-
-            // Step 1: Run instance maintenance
             await runInstanceMaintenanceForDayTransition(userId);
-
-            // Step 2: Persist scores for yesterday (setLastProcessedDate: true to track execution)
-            await persistScoresForDate(userId, yesterday, { setLastProcessedDate: true });
-
-            processedCount++;
-            console.log(`Completed processing for user: ${userId}`);
           } catch (error) {
             errorCount++;
-            console.error(`Error processing user ${userId}:`, error);
-            // Continue processing other users even if one fails
+            console.error(`Instance maintenance failed for ${userId}:`, error);
+            return; // Skip score step for this user
+          }
+
+          // Step 2: Mark the day as processed immediately after maintenance succeeds.
+          // This is a fast single-document write and is decoupled from score calculation.
+          // If scoring below fails, the client will still see isDayTransitionProcessedInCloud=true
+          // on next app open and won't trigger the slow cold-start fallback.
+          try {
+            await admin.firestore()
+              .collection('users').doc(userId)
+              .collection('progress_stats').doc('main')
+              .set(
+                {
+                  lastProcessedDate: admin.firestore.Timestamp.fromDate(yesterday),
+                  lastUpdatedAt: admin.firestore.FieldValue.serverTimestamp(),
+                },
+                { merge: true }
+              );
+          } catch (stampError) {
+            console.error(`Failed to stamp lastProcessedDate for ${userId}:`, stampError);
+            // Non-fatal — scoring can still run
+          }
+
+          // Step 3: Score calculation — separate concern; failure here does not
+          // prevent the client from opening quickly on next session.
+          try {
+            await persistScoresForDate(userId, yesterday, { setLastProcessedDate: false });
+            processedCount++;
+            console.log(`Completed processing for user: ${userId}`);
+          } catch (scoreError) {
+            errorCount++;
+            console.error(`Score calculation failed for ${userId}:`, scoreError);
+            processedCount++; // Instance maintenance did succeed
           }
         });
 

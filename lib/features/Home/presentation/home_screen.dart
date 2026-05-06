@@ -37,7 +37,6 @@ import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/services/resource_tracker.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -346,87 +345,76 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> _checkMorningCatchUp() async {
-    // Cloud-first day transition starts only after 00:05 IST.
+    final t0 = DateTime.now();
+    debugPrint('[CatchUp] _checkMorningCatchUp started at $t0');
+
     if (!IstDayBoundaryService.hasReachedIst005()) {
+      debugPrint('[CatchUp] hasReachedIst005=false — skipping (before 00:05 IST)');
       return;
     }
+    debugPrint('[CatchUp] hasReachedIst005=true — proceeding');
 
-    await _runHistoricalRecoveryIfNeeded();
     await _runDayEndFlow(showDayTransitionInfo: false);
-  }
-
-  /// One-shot recovery for April 3–15 2026: reconstructs synthetic skipped
-  /// instances and recalculates penalties for the period the system was broken.
-  /// Guarded by a SharedPreferences flag so it runs exactly once per device.
-  Future<void> _runHistoricalRecoveryIfNeeded() async {
-    // v2: extends toDate to yesterday to also fix any stale records written
-    // after the initial recovery (e.g. April 16 was written with the old
-    // pre-recovery cumulative starting point).
-    const flagKey = 'historical_recovery_apr2026_v2_done';
-    try {
-      final prefs = await SharedPreferences.getInstance();
-      if (prefs.getBool(flagKey) == true) return;
-
-      final userId = users.uid;
-      if (userId == null || userId.isEmpty) return;
-
-      final now = DateTime.now();
-      final yesterday = DateTime(now.year, now.month, now.day)
-          .subtract(const Duration(days: 1));
-
-      await MorningCatchUpService.recoverHistoricalData(
-        userId: userId,
-        fromDate: DateTime(2026, 4, 3),
-        toDate: yesterday,
-      );
-
-      await prefs.setBool(flagKey, true);
-    } catch (_) {
-      // Non-fatal — normal app flow continues regardless.
-    }
+    final elapsed = DateTime.now().difference(t0).inMilliseconds;
+    debugPrint('[CatchUp] _checkMorningCatchUp finished — total ${elapsed}ms');
   }
 
   Future<void> _runDayEndFlow({required bool showDayTransitionInfo}) async {
-    if (_isCheckingCatchUp) return;
+    if (_isCheckingCatchUp) {
+      debugPrint('[CatchUp] _runDayEndFlow skipped — already running');
+      return;
+    }
 
+    final t0 = DateTime.now();
     try {
       _isCheckingCatchUp = true;
       final userId = users.uid;
       if (userId == null || userId.isEmpty) {
+        debugPrint('[CatchUp] _runDayEndFlow aborted — userId empty');
         return;
       }
 
       final targetDateIst = IstDayBoundaryService.yesterdayStartIst();
+      debugPrint('[CatchUp] targetDate (yesterday IST): $targetDateIst');
+
+      final t1 = DateTime.now();
       var alreadyProcessedInCloud =
           await MorningCatchUpService.isDayTransitionProcessedInCloud(
         userId: userId,
         targetDateIst: targetDateIst,
       );
+      debugPrint(
+          '[CatchUp] isDayTransitionProcessedInCloud=$alreadyProcessedInCloud '
+          '(${DateTime.now().difference(t1).inMilliseconds}ms)');
+
       bool ranFallback = false;
 
       if (!alreadyProcessedInCloud) {
-        try {
-          await MorningCatchUpService.runDayTransitionForUser(
-            userId: userId,
-            targetDate: targetDateIst,
-          );
-          ranFallback = true;
-          alreadyProcessedInCloud =
-              await MorningCatchUpService.isDayTransitionProcessedInCloud(
-            userId: userId,
-            targetDateIst: targetDateIst,
-          );
-        } catch (e) {
-          if (kDebugMode) {
-            print('Cloud fallback day transition failed: $e');
-          }
-        }
+        debugPrint('[CatchUp] Cloud not processed — firing fallback in background');
+        unawaited(MorningCatchUpService.runDayTransitionForUser(
+          userId: userId,
+          targetDate: targetDateIst,
+        ).then((_) {
+          debugPrint('[CatchUp] Background runDayTransitionForUser completed '
+              '(${DateTime.now().difference(t0).inMilliseconds}ms from flow start)');
+        }).catchError((e) {
+          debugPrint('[CatchUp] Background runDayTransitionForUser FAILED: $e');
+        }));
+        ranFallback = true;
       }
 
+      final t2 = DateTime.now();
       final launchState =
           await MorningCatchUpService.getCatchUpLaunchState(userId);
+      debugPrint('[CatchUp] getCatchUpLaunchState done '
+          '(${DateTime.now().difference(t2).inMilliseconds}ms) — '
+          'shouldShow=${launchState.shouldShow} '
+          'shouldAutoResolve=${launchState.shouldAutoResolveAfterCap} '
+          'itemCount=${launchState.items.length} '
+          'totalFromFlowStart=${DateTime.now().difference(t0).inMilliseconds}ms');
 
       if (launchState.shouldAutoResolveAfterCap) {
+        debugPrint('[CatchUp] Auto-resolving after reminder cap');
         try {
           await MorningCatchUpService.autoResolveAfterReminderCap(
             userId: userId,
@@ -446,13 +434,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           NotificationCenter.post('loadData', null);
           return;
         } catch (e) {
-          if (kDebugMode) {
-            print('Catch-up auto resolve after reminder cap failed: $e');
-          }
+          debugPrint('[CatchUp] autoResolveAfterReminderCap FAILED: $e');
         }
       }
 
       if (launchState.shouldShow && mounted) {
+        debugPrint('[CatchUp] *** SHOWING POPUP *** '
+            '(${DateTime.now().difference(t0).inMilliseconds}ms from flow start)');
         final result = await showDialog<MorningCatchUpDialogResult>(
           context: context,
           barrierDismissible: false,
@@ -470,6 +458,9 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           _clearCatchUpPendingSnackbar();
         }
       } else {
+        debugPrint('[CatchUp] Popup NOT shown — '
+            'shouldShow=${launchState.shouldShow} mounted=$mounted '
+            'alreadyProcessed=$alreadyProcessedInCloud ranFallback=$ranFallback');
         if (alreadyProcessedInCloud || ranFallback) {
           await MorningCatchUpService.showFinalizationToastsIfNeeded(
             userId: userId,
@@ -477,15 +468,16 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           );
         }
         if (ranFallback) {
-          // Refresh Queue/Progress views for the new day
           NotificationCenter.post('loadHabits', null);
           NotificationCenter.post('loadData', null);
         }
       }
-    } catch (e) {
-      // Error running day-end flow
+    } catch (e, stack) {
+      debugPrint('[CatchUp] _runDayEndFlow THREW: $e\n$stack');
     } finally {
       _isCheckingCatchUp = false;
+      debugPrint('[CatchUp] _runDayEndFlow done — '
+          'total ${DateTime.now().difference(t0).inMilliseconds}ms');
     }
   }
 

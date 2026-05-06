@@ -1,8 +1,8 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/diagonal_stripe_painter.dart';
-import 'package:habit_tracker/features/Calendar/Event_tiles/dotted_diagonal_painter.dart';
-import 'package:habit_tracker/features/Calendar/Event_tiles/double_diagonal_painter.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_component_ui.dart';
+import 'package:habit_tracker/features/Item_component/presentation/item_dotted_line_painter.dart';
 import 'dart:math' as math;
 
 import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
@@ -296,36 +296,37 @@ class CalendarEventTileBuilder {
       {required bool isConflict}) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
     final activityType = (metadata?.activityType ?? 'task').toLowerCase();
+
     Color boxColor;
-    Color borderColor = event.color;
-    CustomPainter? patternPainter;
+    Color borderColor;
+    double leftEdgeWidth;
+    Widget leftEdgeContent;
 
     if (activityType == 'essential') {
-      boxColor = event.color.withOpacity(isCompleted ? 0.08 : 0.04);
-      borderColor = event.color.withOpacity(0.3);
-      patternPainter = DoubleDiagonalPainter(
-        stripeColor: event.color.withOpacity(0.2),
-        stripeWidth: 2.5,
-        spacing: 28.0,
-        lineGap: 5.0,
+      boxColor = event.color.withValues(alpha: isCompleted ? 0.07 : 0.03);
+      borderColor = event.color.withValues(alpha: 0.2);
+      leftEdgeWidth = 6.0;
+      leftEdgeContent = CustomPaint(
+        painter: DoubleLinePainter(
+          color: event.color.withValues(alpha: isCompleted ? 0.6 : 0.4),
+        ),
       );
     } else if (activityType == 'habit') {
-      boxColor = event.color.withOpacity(isCompleted ? 0.5 : 0.25);
-      borderColor = event.color;
-      patternPainter = DottedDiagonalPainter(
-        stripeColor: event.color.withOpacity(0.6),
-        stripeWidth: 3.0,
-        spacing: 12.0,
-        dotLength: 4.0,
-        dotGap: 4.0,
+      boxColor = event.color.withValues(alpha: isCompleted ? 0.12 : 0.06);
+      borderColor = event.color.withValues(alpha: 0.25);
+      leftEdgeWidth = 4.0;
+      leftEdgeContent = CustomPaint(
+        painter: DottedLinePainter(
+          color: event.color.withValues(alpha: isCompleted ? 0.9 : 0.75),
+        ),
       );
     } else {
-      if (isCompleted) {
-        boxColor = event.color.withOpacity(0.6);
-      } else {
-        boxColor = event.color.withOpacity(0.3);
-      }
-      borderColor = event.color;
+      boxColor = event.color.withValues(alpha: isCompleted ? 0.18 : 0.10);
+      borderColor = event.color.withValues(alpha: 0.3);
+      leftEdgeWidth = 3.5;
+      leftEdgeContent = Container(
+        color: event.color.withValues(alpha: isCompleted ? 0.85 : 0.7),
+      );
     }
 
     final conflictBorderColor = Colors.red.shade700;
@@ -343,35 +344,38 @@ class CalendarEventTileBuilder {
             borderRadius: BorderRadius.circular(4.0),
             border: Border.all(
               color: isConflict ? conflictBorderColor : borderColor,
-              width: isConflict ? 2.0 : 1.0,
+              width: isConflict ? 2.0 : 0.8,
             ),
             boxShadow: isConflict
                 ? [
                     BoxShadow(
-                      color: Colors.red.withOpacity(0.25),
+                      color: Colors.red.withValues(alpha: 0.25),
                       blurRadius: 6,
                       offset: const Offset(0, 2),
                     ),
                   ]
                 : null,
           ),
-          child: patternPainter != null
-              ? ClipRRect(
-                  borderRadius: BorderRadius.circular(4.0),
-                  child: SizedBox.expand(
-                    child: CustomPaint(
-                      painter: patternPainter,
-                    ),
-                  ),
-                )
-              : null,
+        ),
+        Positioned(
+          left: 0,
+          top: 0,
+          bottom: 0,
+          width: leftEdgeWidth,
+          child: ClipRRect(
+            borderRadius: const BorderRadius.only(
+              topLeft: Radius.circular(4.0),
+              bottomLeft: Radius.circular(4.0),
+            ),
+            child: leftEdgeContent,
+          ),
         ),
         if (isConflict)
           ClipRRect(
             borderRadius: BorderRadius.circular(4.0),
             child: CustomPaint(
               painter: DiagonalStripePainter(
-                stripeColor: Colors.red.withOpacity(0.18),
+                stripeColor: Colors.red.withValues(alpha: 0.18),
                 stripeWidth: 3.0,
                 spacing: 7.0,
               ),
@@ -391,14 +395,16 @@ class CalendarEventTileBuilder {
     final activityType = (metadata?.activityType ?? 'task').toLowerCase();
     final isEssentialActivity = activityType == 'essential';
 
+    // Fills are now near-transparent — text sits on a light background, so always use dark text.
     Color textColor;
-    if (isEssentialActivity || event.color == Colors.grey) {
-      textColor = Colors.black;
-    } else if (event.color == const Color(0xFF1A1A1A)) {
-      textColor = Colors.white;
+    if (isEssentialActivity) {
+      textColor = Colors.black54;
     } else {
-      textColor =
-          event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+      // Use the category color for text when it's dark enough to read on a light bg,
+      // otherwise fall back to black87.
+      textColor = event.color.computeLuminance() < 0.5
+          ? event.color.withValues(alpha: 0.9)
+          : Colors.black87;
     }
 
     return ConstrainedBox(
@@ -420,18 +426,14 @@ class CalendarEventTileBuilder {
                   child: Icon(
                     Icons.check,
                     size: 12,
-                    color: isEssentialActivity ? Colors.black87 : textColor,
+                    color: textColor,
                   ),
                 ),
               Flexible(
                 child: Text(
                   event.title.isNotEmpty ? event.title : ' ',
                   style: TextStyle(
-                    color: isEssentialActivity
-                        ? (isCompleted
-                            ? Colors.black87
-                            : textColor.withOpacity(0.7))
-                        : textColor,
+                    color: textColor,
                     fontSize: 12,
                     fontWeight: FontWeight.bold,
                   ),
@@ -445,9 +447,7 @@ class CalendarEventTileBuilder {
             Text(
               event.description!,
               style: TextStyle(
-                color: isEssentialActivity && isCompleted
-                    ? Colors.black87
-                    : textColor.withOpacity(0.8),
+                color: textColor.withValues(alpha: 0.75),
                 fontSize: 10,
               ),
               overflow: TextOverflow.ellipsis,
