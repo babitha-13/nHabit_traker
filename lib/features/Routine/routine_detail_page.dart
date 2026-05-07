@@ -511,17 +511,36 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return null;
       final today = DateService.todayStart;
-      final existingInstancesQuery =
-          ActivityInstanceRecord.collectionForUser(userId)
+      final tomorrow = today.add(const Duration(days: 1));
+
+      // 1. Look for any active instance belonging to today (pending or completed).
+      final byBelongsToDate =
+          await ActivityInstanceRecord.collectionForUser(userId)
               .where('templateId', isEqualTo: itemId)
               .where('belongsToDate', isEqualTo: today)
-              .limit(1);
-      final existingInstances = await existingInstancesQuery.get();
-
-      if (existingInstances.docs.isNotEmpty) {
-        return ActivityInstanceRecord.fromSnapshot(
-            existingInstances.docs.first);
+              .where('isActive', isEqualTo: true)
+              .limit(1)
+              .get();
+      if (byBelongsToDate.docs.isNotEmpty) {
+        return ActivityInstanceRecord.fromSnapshot(byBelongsToDate.docs.first);
       }
+
+      // 2. Fallback: find a completed instance whose completedAt falls today
+      //    (covers time-logged essentials that may not have belongsToDate set).
+      final byCompletedAt =
+          await ActivityInstanceRecord.collectionForUser(userId)
+              .where('templateId', isEqualTo: itemId)
+              .where('status', isEqualTo: 'completed')
+              .where('completedAt', isGreaterThanOrEqualTo: today)
+              .where('completedAt', isLessThan: tomorrow)
+              .where('isActive', isEqualTo: true)
+              .limit(1)
+              .get();
+      if (byCompletedAt.docs.isNotEmpty) {
+        return ActivityInstanceRecord.fromSnapshot(byCompletedAt.docs.first);
+      }
+
+      // 3. Nothing found — create a fresh pending instance for today.
       final templateDoc =
           await ActivityRecord.collectionForUser(userId).doc(itemId).get();
       if (!templateDoc.exists) {

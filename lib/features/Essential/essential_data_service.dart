@@ -153,6 +153,10 @@ class essentialService {
         // If category lookup fails, continue without color fallback.
       }
     }
+    // Normalize to start-of-day so queries by belongsToDate find this instance.
+    final belongsToDate =
+        DateTime(startTime.year, startTime.month, startTime.day);
+
     final instanceData = createActivityInstanceRecordData(
       templateId: templateId,
       status:
@@ -176,6 +180,9 @@ class essentialService {
       timeLogSessions: [timeLogSession],
       totalTimeLogged: totalTimeLogged,
       accumulatedTime: totalTimeLogged,
+      // Anchor to the day the session started so the instance shows up on the
+      // correct day in the routine and essential-today queries.
+      belongsToDate: belongsToDate,
       // Inherit order from previous instance
       queueOrder: queueOrder,
       habitsOrder: habitsOrder,

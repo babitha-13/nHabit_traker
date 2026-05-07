@@ -122,6 +122,8 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
                                 ? ReorderableListView.builder(
                                     itemCount: routines.length,
                                     onReorder: handleReorder,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 16),
                                     itemBuilder: (context, index) {
                                       final routine = routines[index];
                                       final itemNames =
@@ -182,7 +184,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   }) {
     return Container(
       key: key,
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      margin: const EdgeInsets.symmetric(vertical: 4),
       decoration: BoxDecoration(
         color: FlutterFlowTheme.of(context).secondaryBackground,
         borderRadius: BorderRadius.circular(12),

@@ -1,6 +1,7 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/diagonal_stripe_painter.dart';
+import 'package:habit_tracker/features/Calendar/Event_tiles/dashed_border_painter.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_component_ui.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_dotted_line_painter.dart';
 import 'dart:math' as math;
@@ -467,85 +468,97 @@ class CalendarEventTileBuilder {
     final metadata = CalendarEventMetadata.fromMap(event.event);
     final activityType = (metadata?.activityType ?? 'task').toLowerCase();
     final isEssentialActivity = activityType == 'essential';
-    final labelColor = isEssentialActivity
-        ? event.color.withOpacity(0.5)
-        : event.color.withOpacity(0.9);
+    final isHabit = activityType == 'habit';
+
+    // Per-type chip style:
+    // Task   → solid fill, no special border
+    // Habit  → solid fill + dashed white border overlay
+    // Essential → transparent fill + solid colored border (less prominent)
+    Color fillColor;
     Color textColor;
-    if (isEssentialActivity || event.color == Colors.grey) {
-      textColor = Colors.black;
-    } else if (event.color == const Color(0xFF1A1A1A)) {
-      textColor = Colors.white;
+    Border? solidBorder;
+    bool useDashedBorder = false;
+    Color dashedBorderColor = Colors.transparent;
+    List<BoxShadow>? shadows;
+
+    if (isEssentialActivity) {
+      fillColor = event.color.withValues(alpha: isCompleted ? 0.08 : 0.0);
+      textColor = Colors.black87;
+      solidBorder = Border.all(
+        color: event.color.withValues(alpha: isCompleted ? 0.65 : 0.45),
+        width: 1.5,
+      );
+      shadows = null;
+    } else if (isHabit) {
+      fillColor = event.color.withValues(alpha: isCompleted ? 0.92 : 0.82);
+      textColor = event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+      useDashedBorder = true;
+      dashedBorderColor = Colors.white.withValues(alpha: isCompleted ? 0.6 : 0.45);
+      shadows = const [BoxShadow(color: Colors.black26, blurRadius: 4.0, offset: Offset(0, 2))];
     } else {
-      textColor =
-          event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+      // task
+      fillColor = event.color.withValues(alpha: isCompleted ? 0.92 : 0.82);
+      textColor = event.color == const Color(0xFF1A1A1A)
+          ? Colors.white
+          : event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
+      shadows = const [BoxShadow(color: Colors.black26, blurRadius: 4.0, offset: Offset(0, 2))];
     }
 
+    final rowContent = Row(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.center,
+      children: [
+        if (isCompleted)
+          Padding(
+            padding: const EdgeInsets.only(right: 2.0),
+            child: Icon(Icons.check, size: 11, color: textColor),
+          ),
+        Flexible(
+          child: Text(
+            event.title.isNotEmpty ? event.title : ' ',
+            style: TextStyle(
+              color: textColor,
+              fontSize: 11,
+              fontWeight: FontWeight.w700,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            softWrap: false,
+          ),
+        ),
+      ],
+    );
+
+    final container = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
+      decoration: BoxDecoration(
+        color: fillColor,
+        borderRadius: BorderRadius.circular(4.0),
+        border: solidBorder,
+        boxShadow: shadows,
+      ),
+      child: rowContent,
+    );
+
     return ConstrainedBox(
-      constraints: const BoxConstraints(
-        minHeight: 24.0,
-        minWidth: 40.0,
-      ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8.0, vertical: 4.0),
-        decoration: BoxDecoration(
-          color: labelColor,
-          borderRadius: BorderRadius.circular(4.0),
-          border: isCompleted
-              ? Border.all(
-                  color: event.color,
-                  width: 1.5,
-                )
-              : null,
-          boxShadow: const [
-            BoxShadow(
-              color: Colors.black26,
-              blurRadius: 4.0,
-              offset: Offset(0, 2),
-            ),
-          ],
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.center,
-          children: [
-            if (isCompleted)
-              Padding(
-                padding: const EdgeInsets.only(right: 2.0),
-                child: Icon(
-                  Icons.check,
-                  size: 11,
-                  color: isEssentialActivity && isCompleted
-                      ? Colors.black87
-                      : textColor,
+      constraints: const BoxConstraints(minHeight: 24.0, minWidth: 40.0),
+      child: useDashedBorder
+          ? Stack(
+              children: [
+                container,
+                Positioned.fill(
+                  child: IgnorePointer(
+                    child: CustomPaint(
+                      painter: DashedBorderPainter(
+                        color: dashedBorderColor,
+                        borderRadius: 4.0,
+                      ),
+                    ),
+                  ),
                 ),
-              ),
-            Flexible(
-              child: Text(
-                event.title.isNotEmpty ? event.title : ' ',
-                style: TextStyle(
-                  color: isEssentialActivity && isCompleted
-                      ? Colors.black87
-                      : textColor,
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  shadows: isCompleted
-                      ? null
-                      : [
-                          Shadow(
-                            offset: const Offset(0, 0),
-                            blurRadius: 2.0,
-                            color: Colors.black.withValues(alpha: 0.5),
-                          ),
-                        ],
-                ),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                softWrap: false,
-              ),
-            ),
-          ],
-        ),
-      ),
+              ],
+            )
+          : container,
     );
   }
 }

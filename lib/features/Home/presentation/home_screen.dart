@@ -37,6 +37,7 @@ import 'package:habit_tracker/features/Shared/Search/search_state_manager.dart';
 import 'package:habit_tracker/Helper/backend/cache/firestore_cache_service.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/services/resource_tracker.dart';
+import 'package:habit_tracker/Helper/backend/schema/user_progress_stats_record.dart';
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -66,6 +67,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   Timer? _dayTransitionTimer;
   ScaffoldFeatureController<SnackBar, SnackBarClosedReason>?
       _catchUpPendingSnackbar;
+  ScaffoldFeatureController<SnackBar, SnackBarClosedReason>?
+      _dayTransitionSnackbar;
   @override
   void initState() {
     // CRITICAL: Reset observers on hot reload BEFORE widgets start adding new ones
@@ -146,6 +149,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   void dispose() {
     _dayTransitionTimer?.cancel();
     _clearCatchUpPendingSnackbar();
+    _clearDayTransitionSnackbar();
     WidgetsBinding.instance.removeObserver(this);
     NotificationCenter.removeObserver(this, 'navigateBottomTab');
     NotificationCenter.removeObserver(this);
@@ -332,7 +336,10 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
 
   void _scheduleDayTransitionTimer() {
     _dayTransitionTimer?.cancel();
-    final nextCheck = IstDayBoundaryService.nextIst005();
+    // Fire at 00:01 IST — 1 minute after midnight gives the cloud job a small
+    // head-start; then we listen for its completion rather than waiting the
+    // full 5 minutes.
+    final nextCheck = IstDayBoundaryService.nextIst001();
     final delayMs = nextCheck.millisecondsSinceEpoch -
         DateTime.now().millisecondsSinceEpoch;
     final delay = Duration(milliseconds: delayMs > 0 ? delayMs : 0);
@@ -340,19 +347,100 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
   }
 
   Future<void> _handleDayTransitionWhileOpen() async {
+    final userId = users.uid;
+    if (userId == null || userId.isEmpty) {
+      _scheduleDayTransitionTimer();
+      return;
+    }
+
+    final targetDateIst = IstDayBoundaryService.yesterdayStartIst();
+
+    // Show snackbar immediately so the user knows a sync is in progress.
+    _showDayTransitionSnackbar();
+    debugPrint('[CatchUp] Day transition: waiting for cloud to complete...');
+
+    // Block until cloud stamps lastProcessedDate, or fall through after 90s.
+    await _waitForCloudTransitionOrTimeout(
+      userId: userId,
+      targetDateIst: targetDateIst,
+      timeout: const Duration(seconds: 90),
+    );
+
+    _clearDayTransitionSnackbar();
+    debugPrint('[CatchUp] Day transition: cloud check done — running day-end flow');
+
     await _runDayEndFlow(showDayTransitionInfo: true);
     _scheduleDayTransitionTimer();
+  }
+
+  /// Resolves as soon as the cloud function stamps [targetDateIst] into
+  /// `lastProcessedDate` on the user's progress_stats document, or after
+  /// [timeout] — whichever comes first.
+  Future<void> _waitForCloudTransitionOrTimeout({
+    required String userId,
+    required DateTime targetDateIst,
+    required Duration timeout,
+  }) async {
+    // Quick synchronous check — cloud may already be done.
+    final alreadyDone =
+        await MorningCatchUpService.isDayTransitionProcessedInCloud(
+      userId: userId,
+      targetDateIst: targetDateIst,
+    );
+    if (alreadyDone) return;
+
+    final targetKey = IstDayBoundaryService.formatDateKeyIst(targetDateIst);
+    final completer = Completer<void>();
+
+    final docRef =
+        UserProgressStatsRecord.collectionForUser(userId).doc('main');
+    final subscription =
+        UserProgressStatsRecord.getDocument(docRef).listen((stats) {
+      final lastProcessed = stats.lastProcessedDate;
+      if (lastProcessed == null) return;
+      final processedKey =
+          IstDayBoundaryService.formatDateKeyIst(lastProcessed);
+      if (processedKey == targetKey && !completer.isCompleted) {
+        debugPrint('[CatchUp] Cloud completion detected via Firestore listener');
+        completer.complete();
+      }
+    }, onError: (_) {
+      if (!completer.isCompleted) completer.complete();
+    });
+
+    await Future.any([
+      completer.future,
+      Future.delayed(timeout),
+    ]);
+
+    await subscription.cancel();
+  }
+
+  void _showDayTransitionSnackbar() {
+    if (!mounted) return;
+    _clearDayTransitionSnackbar();
+    _dayTransitionSnackbar = ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        duration: Duration(minutes: 2),
+        content: Text('New day started — syncing yesterday\'s data...'),
+      ),
+    );
+  }
+
+  void _clearDayTransitionSnackbar() {
+    _dayTransitionSnackbar?.close();
+    _dayTransitionSnackbar = null;
   }
 
   Future<void> _checkMorningCatchUp() async {
     final t0 = DateTime.now();
     debugPrint('[CatchUp] _checkMorningCatchUp started at $t0');
 
-    if (!IstDayBoundaryService.hasReachedIst005()) {
-      debugPrint('[CatchUp] hasReachedIst005=false — skipping (before 00:05 IST)');
+    if (!IstDayBoundaryService.hasReachedMidnightIst()) {
+      debugPrint('[CatchUp] before midnight IST — skipping');
       return;
     }
-    debugPrint('[CatchUp] hasReachedIst005=true — proceeding');
+    debugPrint('[CatchUp] past midnight IST — proceeding');
 
     await _runDayEndFlow(showDayTransitionInfo: false);
     final elapsed = DateTime.now().difference(t0).inMilliseconds;

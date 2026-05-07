@@ -388,8 +388,10 @@ class TodayInstanceSelectors {
       return belongsToday || sessionToday;
     }).toList()
       ..sort((a, b) {
-        if (a.status == 'pending' && b.status != 'pending') return -1;
-        if (a.status != 'pending' && b.status == 'pending') return 1;
+        // Prefer completed/skipped over pending so a done essential stays shown
+        // as done when multiple candidates exist (e.g. real + optimistic temp).
+        if (a.status != 'pending' && b.status == 'pending') return -1;
+        if (a.status == 'pending' && b.status != 'pending') return 1;
         return _compareStatusTimestampDesc(a, b);
       });
     if (todayMatches.isNotEmpty) {

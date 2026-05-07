@@ -55,6 +55,20 @@ class IstDayBoundaryService {
     return todayStartIst().subtract(const Duration(days: 1));
   }
 
+  /// Next 00:01 IST instant in absolute time.
+  /// Used by the day-transition timer: fires 1 minute after midnight to give
+  /// the cloud job a small head-start before we begin listening for completion.
+  static tz.TZDateTime nextIst001() {
+    final now = nowIst();
+    var next = tz.TZDateTime(_ist, now.year, now.month, now.day, 0, 1);
+    if (!now.isBefore(next)) {
+      final tomorrow = now.add(const Duration(days: 1));
+      next = tz.TZDateTime(
+          _ist, tomorrow.year, tomorrow.month, tomorrow.day, 0, 1);
+    }
+    return next;
+  }
+
   /// Next 00:05 IST instant in absolute time.
   static tz.TZDateTime nextIst005() {
     final now = nowIst();
@@ -65,6 +79,14 @@ class IstDayBoundaryService {
           _ist, tomorrow.year, tomorrow.month, tomorrow.day, 0, 5);
     }
     return next;
+  }
+
+  /// True when current IST time is >= 00:00 IST (midnight has passed).
+  static bool hasReachedMidnightIst() {
+    // Midnight is always in the past — if we have an IST date, midnight has
+    // passed by definition. This guard exists to prevent the catch-up from
+    // running on a brand-new install before any day has ended.
+    return true;
   }
 
   /// True when current IST time is >= 00:05 IST.

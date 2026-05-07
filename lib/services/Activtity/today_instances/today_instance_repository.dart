@@ -378,6 +378,13 @@ class TodayInstanceRepository extends ChangeNotifier {
     final alreadyTracked = existing.instancesById.containsKey(instanceId);
     final isRelevant = _isRelevantForToday(instance, existing);
 
+    // Optimistic creates (temp IDs) must not enter the snapshot — they have
+    // IDs that don't exist in Firestore, so any UI interaction with them fails.
+    // Only the reconciled broadcast (isOptimistic=false) should add new entries.
+    if (!alreadyTracked && isOptimistic) {
+      return;
+    }
+
     if (!alreadyTracked && !isRelevant) {
       return;
     }
