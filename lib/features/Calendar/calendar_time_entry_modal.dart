@@ -5,6 +5,7 @@ import 'package:habit_tracker/features/Calendar/Helpers/calendar_models.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/features/Shared/Manual_Time_Log/manual_time_log_helper.dart';
+import 'package:habit_tracker/features/Calendar/calendar_planned_task_modal.dart';
 
 /// Helper class for calendar modal dialogs
 class CalendarModals {
@@ -45,6 +46,38 @@ class CalendarModals {
     }
 
     return -1;
+  }
+
+  /// Show planned task dialog (Planned section only).
+  /// Pass [editMetadata] to enter edit mode (long-press on existing tile).
+  static void showPlannedTaskDialog({
+    required BuildContext context,
+    required DateTime selectedDate,
+    DateTime? startTime,
+    DateTime? endTime,
+    required Function(DateTime start, DateTime end, String type, Color? color)
+        onPreviewChange,
+    required VoidCallback onSave,
+    required VoidCallback onRemovePreview,
+    CalendarEventMetadata? editMetadata,
+  }) {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (BuildContext context) {
+        return CalendarPlannedTaskModal(
+          selectedDate: selectedDate,
+          initialStartTime: startTime,
+          initialEndTime: endTime,
+          onPreviewChange: onPreviewChange,
+          onSave: onSave,
+          editMetadata: editMetadata,
+        );
+      },
+    ).whenComplete(() {
+      onRemovePreview();
+    });
   }
 
   /// Show manual entry dialog

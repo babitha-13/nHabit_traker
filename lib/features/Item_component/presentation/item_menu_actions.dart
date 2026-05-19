@@ -359,6 +359,10 @@ class ItemMenuLogicHelper {
     required Future<String?> Function() showUncompleteDialog,
   }) async {
     final previousInstance = instance;
+    // Guard: if the instance still has a temp_ ID it hasn't been written to
+    // Firestore yet — the reschedule service would throw. Skip the service call;
+    // the creation reconcile will supply the real instance momentarily.
+    final isTempInstance = instance.reference.id.startsWith('temp_');
     try {
       final now = DateTime.now();
       final today = DateTime(now.year, now.month, now.day);
@@ -402,16 +406,20 @@ class ItemMenuLogicHelper {
               instance,
               newDueDate: today,
               newDueTime: instance.dueTime));
-          await ActivityInstanceService.rescheduleInstance(
-              instanceId: instance.reference.id, newDueDate: today);
+          if (!isTempInstance) {
+            await ActivityInstanceService.rescheduleInstance(
+                instanceId: instance.reference.id, newDueDate: today);
+          }
           break;
         case 'tomorrow':
           onInstanceUpdated(InstanceEvents.createOptimisticRescheduledInstance(
               instance,
               newDueDate: tomorrow,
               newDueTime: instance.dueTime));
-          await ActivityInstanceService.rescheduleInstance(
-              instanceId: instance.reference.id, newDueDate: tomorrow);
+          if (!isTempInstance) {
+            await ActivityInstanceService.rescheduleInstance(
+                instanceId: instance.reference.id, newDueDate: tomorrow);
+          }
           break;
         case 'pick_date':
           DateTime lastDate = today.add(const Duration(days: 365 * 5));
@@ -455,16 +463,20 @@ class ItemMenuLogicHelper {
             onInstanceUpdated(
                 InstanceEvents.createOptimisticRescheduledInstance(instance,
                     newDueDate: picked, newDueTime: instance.dueTime));
-            await ActivityInstanceService.rescheduleInstance(
-                instanceId: instance.reference.id, newDueDate: picked);
+            if (!isTempInstance) {
+              await ActivityInstanceService.rescheduleInstance(
+                  instanceId: instance.reference.id, newDueDate: picked);
+            }
           }
           break;
         case 'clear_due_date':
           onInstanceUpdated(
               InstanceEvents.createOptimisticPropertyUpdateInstance(
                   instance, {'dueDate': null, 'dueTime': null}));
-          await ActivityInstanceService.removeDueDateFromInstance(
-              instanceId: instance.reference.id);
+          if (!isTempInstance) {
+            await ActivityInstanceService.removeDueDateFromInstance(
+                instanceId: instance.reference.id);
+          }
           break;
         case 'skip_rest':
           onInstanceUpdated(

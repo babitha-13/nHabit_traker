@@ -84,7 +84,9 @@ class _CalendarPageState extends State<CalendarPage> {
       calculateHeightPerMinute: _calculateHeightPerMinute,
       plannedOverlappedEventIds: _plannedOverlappedEventIds,
       onEditEntry: (metadata) => _showEditEntryDialog(metadata: metadata),
-      onAddTimeLog: (metadata) => _showManualEntryDialogForInstance(metadata),
+      onAddTimeLog: (metadata, startTime, endTime) =>
+          _showManualEntryDialogForInstance(metadata,
+              eventStartTime: startTime, eventEndTime: endTime),
     );
     _calculateInitialScrollOffset();
     _initializeTabState();
@@ -173,40 +175,84 @@ class _CalendarPageState extends State<CalendarPage> {
   }
 
   void _showManualEntryDialog({DateTime? startTime, DateTime? endTime}) {
-    CalendarModals.showManualEntryDialog(
-      context: context,
-      selectedDate: _selectedDate,
-      startTime: startTime,
-      endTime: endTime,
-      onPreviewChange: _handlePreviewChange,
-      onSave: () {
-        _loadEvents();
-      },
-      onRemovePreview: _removePreviewEvent,
-    );
+    if (_showPlanned) {
+      CalendarModals.showPlannedTaskDialog(
+        context: context,
+        selectedDate: _selectedDate,
+        startTime: startTime,
+        endTime: endTime,
+        onPreviewChange: _handlePreviewChange,
+        onSave: _loadEvents,
+        onRemovePreview: _removePreviewEvent,
+      );
+    } else {
+      CalendarModals.showManualEntryDialog(
+        context: context,
+        selectedDate: _selectedDate,
+        startTime: startTime,
+        endTime: endTime,
+        onPreviewChange: _handlePreviewChange,
+        onSave: () {
+          _loadEvents();
+        },
+        onRemovePreview: _removePreviewEvent,
+      );
+    }
   }
 
-  void _showManualEntryDialogForInstance(CalendarEventMetadata metadata) {
-    final now = DateTime.now();
-    final base = _selectedDate;
-    final defaultStart =
-        DateTime(base.year, base.month, base.day, now.hour, now.minute);
-    final defaultEnd =
-        defaultStart.add(Duration(minutes: _defaultDurationMinutes));
-    CalendarModals.showManualEntryDialog(
-      context: context,
-      selectedDate: _selectedDate,
-      startTime: defaultStart,
-      endTime: defaultEnd,
-      initialActivityName: metadata.activityName,
-      initialActivityType: metadata.activityType,
-      initialTemplateId: metadata.templateId,
-      onPreviewChange: _handlePreviewChange,
-      onSave: () {
-        _loadEvents();
-      },
-      onRemovePreview: _removePreviewEvent,
-    );
+  void _showManualEntryDialogForInstance(
+    CalendarEventMetadata metadata, {
+    DateTime? eventStartTime,
+    DateTime? eventEndTime,
+  }) {
+    if (_showPlanned) {
+      // In the planned tab, open the planned task modal pre-filled with the
+      // event's existing due time and duration so the user can edit them.
+      final base = _selectedDate;
+      DateTime fallbackStart() {
+        final now = DateTime.now();
+        return DateTime(base.year, base.month, base.day, now.hour, now.minute);
+      }
+      final startTime = eventStartTime != null
+          ? DateTime(base.year, base.month, base.day,
+              eventStartTime.hour, eventStartTime.minute)
+          : fallbackStart();
+      final endTime = eventEndTime != null
+          ? DateTime(base.year, base.month, base.day,
+              eventEndTime.hour, eventEndTime.minute)
+          : startTime.add(Duration(minutes: _defaultDurationMinutes));
+      CalendarModals.showPlannedTaskDialog(
+        context: context,
+        selectedDate: _selectedDate,
+        startTime: startTime,
+        endTime: endTime,
+        onPreviewChange: _handlePreviewChange,
+        onSave: _loadEvents,
+        onRemovePreview: _removePreviewEvent,
+        editMetadata: metadata,
+      );
+    } else {
+      final now = DateTime.now();
+      final base = _selectedDate;
+      final defaultStart =
+          DateTime(base.year, base.month, base.day, now.hour, now.minute);
+      final defaultEnd =
+          defaultStart.add(Duration(minutes: _defaultDurationMinutes));
+      CalendarModals.showManualEntryDialog(
+        context: context,
+        selectedDate: _selectedDate,
+        startTime: defaultStart,
+        endTime: defaultEnd,
+        initialActivityName: metadata.activityName,
+        initialActivityType: metadata.activityType,
+        initialTemplateId: metadata.templateId,
+        onPreviewChange: _handlePreviewChange,
+        onSave: () {
+          _loadEvents();
+        },
+        onRemovePreview: _removePreviewEvent,
+      );
+    }
   }
 
   TimeBreakdownData _calculateTimeBreakdown() {
@@ -569,7 +615,24 @@ class _CalendarPageState extends State<CalendarPage> {
       );
     } else {
       if (operationId != null) {
+        // For create operations the tracker maps operationId → tempInstanceId.
+        // Evict the temp instance before adding the real one so both IDs don't
+        // simultaneously appear in _optimisticInstances (which would produce a
+        // duplicate planned event once the backend instance is also returned by
+        // the next _loadEvents fetch).
+        final tempInstanceId = _optimisticOperations[operationId];
         _optimisticOperations.remove(operationId);
+        if (tempInstanceId != null && tempInstanceId != instanceId) {
+          _optimisticInstances.remove(tempInstanceId);
+          _plannedEventController.removeWhere((e) {
+            final meta = CalendarEventMetadata.fromMap(e.event);
+            return meta?.instanceId == tempInstanceId;
+          });
+          _sortedPlannedEvents.removeWhere((e) {
+            final meta = CalendarEventMetadata.fromMap(e.event);
+            return meta?.instanceId == tempInstanceId;
+          });
+        }
       }
       // Keep authoritative local state even after reconciliation to bridge query latency
       if (affectsPlannedSection || affectsSelectedDate) {
@@ -1970,7 +2033,7 @@ class _CalendarPageState extends State<CalendarPage> {
       floatingActionButton: FloatingActionButton(
         onPressed: _showManualEntryDialog,
         heroTag: 'add_entry',
-        tooltip: 'Log Time Entry',
+        tooltip: _showPlanned ? 'Plan Task' : 'Log Time Entry',
         child: const Icon(Icons.add),
       ),
       body: CalendarDayViewBody(

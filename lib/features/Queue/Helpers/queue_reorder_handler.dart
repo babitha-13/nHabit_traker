@@ -1,4 +1,6 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
+import 'package:habit_tracker/features/Queue/Helpers/queue_mode_order_seeder.dart';
+import 'package:habit_tracker/features/Queue/Helpers/queue_sort_state_manager.dart';
 import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 
 /// Helper class for handling reordering in queue page
@@ -10,11 +12,14 @@ class QueueReorderHandler {
     required int newIndex,
     required List<ActivityInstanceRecord> allInstances,
     required Set<String> reorderingInstanceIds,
-    required bool isSortActive,
+    required QueueSortState currentSort,
     required String sectionKey,
     required Function(List<ActivityInstanceRecord>, Set<String>)
         onOptimisticUpdate,
   }) async {
+    final pageType =
+        QueueModeOrderSeeder.pageTypeForSortType(currentSort.sortType);
+    final fieldName = InstanceOrderService.orderFieldFor(pageType);
     // Allow dropping at the end (newIndex can equal items.length)
     if (oldIndex < 0 ||
         oldIndex >= items.length ||
@@ -45,9 +50,9 @@ class QueueReorderHandler {
       final index = updatedInstances
           .indexWhere((inst) => inst.reference.id == instanceId);
       if (index != -1) {
-        // Create updated instance with new queue order by creating new data map
+        // Optimistic snapshot: write the new index to the active mode's field.
         final updatedData = Map<String, dynamic>.from(instance.snapshotData);
-        updatedData['queueOrder'] = i;
+        updatedData[fieldName] = i;
         final updatedInstance = ActivityInstanceRecord.getDocumentFromData(
           updatedData,
           instance.reference,
@@ -62,7 +67,7 @@ class QueueReorderHandler {
     // Perform database update in background
     await InstanceOrderService.reorderInstancesInSection(
       reorderedItems,
-      'queue',
+      pageType,
       oldIndex,
       adjustedNewIndex,
     );

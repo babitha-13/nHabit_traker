@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Routine/Routine%20Main%20page/Logic/routines_page_logic.dart';
+import 'package:habit_tracker/features/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/features/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
@@ -14,6 +15,17 @@ class Routines extends StatefulWidget {
 
 class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   final scaffoldKey = GlobalKey<ScaffoldState>();
+  RoutineRecord? _selectedRoutine;
+
+  @override
+  void navigateToRoutineDetail(RoutineRecord routine) {
+    setState(() => _selectedRoutine = routine);
+  }
+
+  void _clearSelectedRoutine() {
+    setState(() => _selectedRoutine = null);
+    loadData();
+  }
 
   @override
   void initState() {
@@ -37,141 +49,187 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      key: scaffoldKey,
-      backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
-      body: SafeArea(
-        top: true,
-        child: Stack(
-          children: [
-            isLoading
-                ? const Center(child: CircularProgressIndicator())
-                : Column(
-                    children: [
-                      // Search indicator banner when search is active
-                      if (searchQuery.isNotEmpty && filteredRoutines.isNotEmpty)
-                        Container(
-                          width: double.infinity,
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 16, vertical: 8),
-                          color: FlutterFlowTheme.of(context)
-                              .secondaryBackground
-                              .withOpacity(0.7),
-                          child: Row(
+    return PopScope(
+      canPop: _selectedRoutine == null,
+      onPopInvokedWithResult: (didPop, _) {
+        if (!didPop && _selectedRoutine != null) {
+          _clearSelectedRoutine();
+        }
+      },
+      child: Scaffold(
+        key: scaffoldKey,
+        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+        body: SafeArea(
+          top: true,
+          child: _selectedRoutine != null
+              ? RoutineDetailPage(
+                  key: ValueKey(_selectedRoutine!.reference.id),
+                  routine: _selectedRoutine!,
+                  embedded: true,
+                  onBack: _clearSelectedRoutine,
+                )
+              : Stack(
+                  children: [
+                    isLoading
+                        ? const Center(child: CircularProgressIndicator())
+                        : Column(
                             children: [
-                              Icon(
-                                Icons.info_outline,
-                                size: 16,
-                                color:
-                                    FlutterFlowTheme.of(context).secondaryText,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Drag and drop is disabled while searching',
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontSize: 12,
+                              // Search indicator banner when search is active
+                              if (searchQuery.isNotEmpty &&
+                                  filteredRoutines.isNotEmpty)
+                                Container(
+                                  width: double.infinity,
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 16, vertical: 8),
+                                  color: FlutterFlowTheme.of(context)
+                                      .secondaryBackground
+                                      .withOpacity(0.7),
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        Icons.info_outline,
+                                        size: 16,
+                                        color: FlutterFlowTheme.of(context)
+                                            .secondaryText,
                                       ),
+                                      const SizedBox(width: 8),
+                                      Expanded(
+                                        child: Text(
+                                          'Drag and drop is disabled while searching',
+                                          style: FlutterFlowTheme.of(context)
+                                              .bodySmall
+                                              .override(
+                                                fontSize: 12,
+                                              ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
                                 ),
+                              // Routines list
+                              Expanded(
+                                child: filteredRoutines.isEmpty
+                                    ? Center(
+                                        child: Column(
+                                          mainAxisAlignment:
+                                              MainAxisAlignment.center,
+                                          children: [
+                                            Icon(
+                                              Icons.playlist_play,
+                                              size: 64,
+                                              color: FlutterFlowTheme.of(
+                                                      context)
+                                                  .secondaryText,
+                                            ),
+                                            const SizedBox(height: 16),
+                                            Text(
+                                              searchQuery.isNotEmpty
+                                                  ? 'No routines found'
+                                                  : 'No routines yet',
+                                              style:
+                                                  FlutterFlowTheme.of(context)
+                                                      .titleMedium,
+                                            ),
+                                            const SizedBox(height: 8),
+                                            Text(
+                                              searchQuery.isNotEmpty
+                                                  ? 'Try a different search term'
+                                                  : 'Create routines to group related habits and tasks!',
+                                              style:
+                                                  FlutterFlowTheme.of(context)
+                                                      .bodyMedium,
+                                            ),
+                                            if (searchQuery.isEmpty) ...[
+                                              const SizedBox(height: 16),
+                                              ElevatedButton(
+                                                onPressed:
+                                                    navigateToCreateRoutine,
+                                                child: const Text(
+                                                    'Create Routine'),
+                                              ),
+                                            ],
+                                          ],
+                                        ),
+                                      )
+                                    : searchQuery.isEmpty
+                                        ? ReorderableListView.builder(
+                                            itemCount: routines.length,
+                                            onReorder: handleReorder,
+                                            padding: const EdgeInsets.symmetric(
+                                                horizontal: 16, vertical: 4),
+                                            proxyDecorator:
+                                                (child, index, animation) =>
+                                                    AnimatedBuilder(
+                                                      animation: animation,
+                                                      builder: (context,
+                                                              child) =>
+                                                          Material(
+                                                        elevation: 6,
+                                                        color:
+                                                            Colors.transparent,
+                                                        borderRadius:
+                                                            BorderRadius
+                                                                .circular(12),
+                                                        shadowColor:
+                                                            Colors.black38,
+                                                        child: child,
+                                                      ),
+                                                      child: child,
+                                                    ),
+                                            itemBuilder: (context, index) {
+                                              final routine = routines[index];
+                                              final itemNames =
+                                                  routine.itemNames.isNotEmpty
+                                                      ? routine.itemNames
+                                                      : getItemNames(
+                                                          routine.itemIds);
+                                              return _buildRoutineTile(
+                                                routine,
+                                                itemNames,
+                                                key: Key(
+                                                    routine.reference.id),
+                                              );
+                                            },
+                                          )
+                                        : ListView.builder(
+                                            itemCount:
+                                                filteredRoutines.length,
+                                            itemBuilder: (context, index) {
+                                              final routine =
+                                                  filteredRoutines[index];
+                                              final itemNames =
+                                                  routine.itemNames.isNotEmpty
+                                                      ? routine.itemNames
+                                                      : getItemNames(
+                                                          routine.itemIds);
+                                              return _buildRoutineTile(
+                                                routine,
+                                                itemNames,
+                                              );
+                                            },
+                                          ),
                               ),
                             ],
                           ),
+                    // Search FAB at bottom-left
+                    const SearchFAB(heroTag: 'search_fab_routines'),
+                    // FAB at bottom-right for creating new routine
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: FloatingActionButton(
+                        heroTag: 'fab_create_routine',
+                        onPressed: navigateToCreateRoutine,
+                        backgroundColor: FlutterFlowTheme.of(context).primary,
+                        child: const Icon(
+                          Icons.add,
+                          color: Colors.white,
                         ),
-                      // Routines list
-                      Expanded(
-                        child: filteredRoutines.isEmpty
-                            ? Center(
-                                child: Column(
-                                  mainAxisAlignment: MainAxisAlignment.center,
-                                  children: [
-                                    Icon(
-                                      Icons.playlist_play,
-                                      size: 64,
-                                      color: FlutterFlowTheme.of(context)
-                                          .secondaryText,
-                                    ),
-                                    const SizedBox(height: 16),
-                                    Text(
-                                      searchQuery.isNotEmpty
-                                          ? 'No routines found'
-                                          : 'No routines yet',
-                                      style: FlutterFlowTheme.of(context)
-                                          .titleMedium,
-                                    ),
-                                    const SizedBox(height: 8),
-                                    Text(
-                                      searchQuery.isNotEmpty
-                                          ? 'Try a different search term'
-                                          : 'Create routines to group related habits and tasks!',
-                                      style: FlutterFlowTheme.of(context)
-                                          .bodyMedium,
-                                    ),
-                                    if (searchQuery.isEmpty) ...[
-                                      const SizedBox(height: 16),
-                                      ElevatedButton(
-                                        onPressed: navigateToCreateRoutine,
-                                        child: const Text('Create Routine'),
-                                      ),
-                                    ],
-                                  ],
-                                ),
-                              )
-                            : searchQuery.isEmpty
-                                ? ReorderableListView.builder(
-                                    itemCount: routines.length,
-                                    onReorder: handleReorder,
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 16),
-                                    itemBuilder: (context, index) {
-                                      final routine = routines[index];
-                                      final itemNames =
-                                          routine.itemNames.isNotEmpty
-                                              ? routine.itemNames
-                                              : getItemNames(routine.itemIds);
-                                      return _buildRoutineTile(
-                                        routine,
-                                        itemNames,
-                                        key: Key(routine.reference.id),
-                                      );
-                                    },
-                                  )
-                                : ListView.builder(
-                                    itemCount: filteredRoutines.length,
-                                    itemBuilder: (context, index) {
-                                      final routine = filteredRoutines[index];
-                                      final itemNames =
-                                          routine.itemNames.isNotEmpty
-                                              ? routine.itemNames
-                                              : getItemNames(routine.itemIds);
-                                      return _buildRoutineTile(
-                                        routine,
-                                        itemNames,
-                                      );
-                                    },
-                                  ),
+                        tooltip: 'Create New Routine',
                       ),
-                    ],
-                  ),
-            // Search FAB at bottom-left
-            const SearchFAB(heroTag: 'search_fab_routines'),
-            // FAB at bottom-right for creating new routine
-            Positioned(
-              right: 16,
-              bottom: 16,
-              child: FloatingActionButton(
-                heroTag: 'fab_create_routine',
-                onPressed: navigateToCreateRoutine,
-                backgroundColor: FlutterFlowTheme.of(context).primary,
-                child: const Icon(
-                  Icons.add,
-                  color: Colors.white,
+                    ),
+                  ],
                 ),
-                tooltip: 'Create New Routine',
-              ),
-            ),
-          ],
         ),
       ),
     );
@@ -184,7 +242,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   }) {
     return Container(
       key: key,
-      margin: const EdgeInsets.symmetric(vertical: 4),
+      margin: EdgeInsets.zero,
       decoration: BoxDecoration(
         color: FlutterFlowTheme.of(context).secondaryBackground,
         borderRadius: BorderRadius.circular(12),

@@ -321,6 +321,9 @@ class ActivityInstanceHelperService {
       int? queueOrder;
       int? habitsOrder;
       int? tasksOrder;
+      int? queuePointsOrder;
+      int? queueTimeOrder;
+      int? queueUrgencyOrder;
       try {
         queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
             instance.templateId, 'queue', userId);
@@ -328,13 +331,22 @@ class ActivityInstanceHelperService {
             instance.templateId, 'habits', userId);
         tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
             instance.templateId, 'tasks', userId);
+        queuePointsOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                instance.templateId, 'queue_points', userId);
+        queueTimeOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                instance.templateId, 'queue_time', userId);
+        queueUrgencyOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                instance.templateId, 'queue_urgency', userId);
       } catch (e) {
         //
       }
       final nextInstanceData = schema.createActivityInstanceRecordData(
         templateId: instance.templateId,
         dueDate: nextBelongsToDate, // dueDate = start of window
-        dueTime: instance.templateDueTime,
+        dueTime: template.dueTime,
         status: 'pending',
         createdTime: DateService.currentDate,
         lastUpdated: DateService.currentDate,
@@ -356,6 +368,7 @@ class ActivityInstanceHelperService {
         templateEveryXPeriodType: template.everyXPeriodType,
         templateTimesPerPeriod: template.timesPerPeriod,
         templatePeriodType: template.periodType,
+        templateDueTime: template.dueTime,
         dayState: 'open',
         belongsToDate: nextBelongsToDate,
         windowEndDate: nextWindowEndDate,
@@ -363,6 +376,9 @@ class ActivityInstanceHelperService {
         queueOrder: queueOrder,
         habitsOrder: habitsOrder,
         tasksOrder: tasksOrder,
+        queuePointsOrder: queuePointsOrder,
+        queueTimeOrder: queueTimeOrder,
+        queueUrgencyOrder: queueUrgencyOrder,
       );
       final tempRef = ActivityInstanceRecord.collectionForUser(userId)
           .doc('temp_${DateTime.now().millisecondsSinceEpoch}');

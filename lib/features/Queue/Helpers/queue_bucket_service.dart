@@ -2,6 +2,7 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_state_manager.dart';
 import 'package:habit_tracker/features/Queue/Helpers/queue_sort_state_manager.dart';
+import 'package:habit_tracker/features/Queue/Helpers/queue_mode_order_seeder.dart';
 import 'package:habit_tracker/services/Activtity/instance_order_service.dart';
 import 'package:habit_tracker/features/Queue/Helpers/queue_utils.dart';
 
@@ -176,24 +177,17 @@ class QueueBucketService {
       buckets['Skipped/Snoozed'] = deduped;
     }
 
-    // Sort items within each bucket
+    // Sort items within each bucket using the active mode's stored order
+    // field. Algorithmic modes (points/time/urgency) read their per-mode
+    // field; Manual (`none`) reads queueOrder. Persisted ordering is the
+    // single source of truth — no algorithm is re-run at build time.
+    final pageType =
+        QueueModeOrderSeeder.pageTypeForSortType(currentSort.sortType);
     for (final key in buckets.keys) {
       final items = buckets[key]!;
       if (items.isNotEmpty) {
-        // Apply sort if active, otherwise use queue order
-        if (currentSort.isActive && expandedSections.contains(key)) {
-          buckets[key] = QueueUtils.sortSectionItems(
-            items,
-            key,
-            expandedSections,
-            currentSort,
-            categories,
-          );
-        } else {
-          // Sort by queue order (manual order)
-          buckets[key] =
-              InstanceOrderService.sortInstancesByOrder(items, 'queue');
-        }
+        buckets[key] =
+            InstanceOrderService.sortInstancesByOrder(items, pageType);
       }
     }
 

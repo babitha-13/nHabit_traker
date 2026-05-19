@@ -14,7 +14,8 @@ class CalendarEventTileBuilder {
   final double Function() calculateHeightPerMinute;
   final Set<String> plannedOverlappedEventIds;
   final Function(CalendarEventMetadata) onEditEntry;
-  final void Function(CalendarEventMetadata)? onAddTimeLog;
+  final void Function(CalendarEventMetadata, DateTime? startTime,
+      DateTime? endTime)? onAddTimeLog;
 
   // Cache for label offsets to avoid recalculating on every build
   Map<String, double> _labelOffsetCache = {};
@@ -210,7 +211,7 @@ class CalendarEventTileBuilder {
           final eventDateOnly =
               DateTime(eventDate.year, eventDate.month, eventDate.day);
           if (!eventDateOnly.isAfter(todayDate)) {
-            onAddTimeLog!(metadata);
+            onAddTimeLog!(metadata, event.startTime, event.endTime);
           }
         }
       }
@@ -493,7 +494,7 @@ class CalendarEventTileBuilder {
       fillColor = event.color.withValues(alpha: isCompleted ? 0.92 : 0.82);
       textColor = event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
       useDashedBorder = true;
-      dashedBorderColor = Colors.white.withValues(alpha: isCompleted ? 0.6 : 0.45);
+      dashedBorderColor = Colors.black.withValues(alpha: isCompleted ? 0.35 : 0.25);
       shadows = const [BoxShadow(color: Colors.black26, blurRadius: 4.0, offset: Offset(0, 2))];
     } else {
       // task

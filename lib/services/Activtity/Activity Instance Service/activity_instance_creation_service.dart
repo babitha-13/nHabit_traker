@@ -101,6 +101,9 @@ class ActivityInstanceCreationService {
     int? queueOrder;
     int? habitsOrder;
     int? tasksOrder;
+    int? queuePointsOrder;
+    int? queueTimeOrder;
+    int? queueUrgencyOrder;
     if (!skipOrderLookup) {
       try {
         queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
@@ -109,6 +112,15 @@ class ActivityInstanceCreationService {
             templateId, 'habits', uid);
         tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
             templateId, 'tasks', uid);
+        queuePointsOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                templateId, 'queue_points', uid);
+        queueTimeOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                templateId, 'queue_time', uid);
+        queueUrgencyOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                templateId, 'queue_urgency', uid);
       } catch (e) {
         // If order lookup fails, continue with null values (will use default sorting)
       }
@@ -159,6 +171,9 @@ class ActivityInstanceCreationService {
       queueOrder: queueOrder,
       habitsOrder: habitsOrder,
       tasksOrder: tasksOrder,
+      queuePointsOrder: queuePointsOrder,
+      queueTimeOrder: queueTimeOrder,
+      queueUrgencyOrder: queueUrgencyOrder,
     );
 
     // ==================== OPTIMISTIC BROADCAST ====================

@@ -269,23 +269,15 @@ class _TaskPageState extends State<TaskPage> {
       if (!mounted) return;
 
       if (mounted) {
-        // Calculate hash code when data changes (not in getter)
-        final newHash = _calculateInstancesHash(sortedInstances);
-
         setState(() {
           _categories = categories;
-          // Store all instances
-          _taskInstances = sortedInstances;
-          // Invalidate cache when instances change
-          _cachedBucketedItems = null;
-          // Update hash code when data changes
-          _taskInstancesHashCode = newHash;
           if (_selectedQuickCategoryId == null && categories.isNotEmpty) {
             final currentCategory = _resolveQuickAddCategory(categories);
             _selectedQuickCategoryId = currentCategory.reference.id;
           }
           _isLoading = false;
         });
+        _applyTaskInstancesUpdate(sortedInstances, '_loadData');
       }
       // Initialize missing order values during load (avoid DB writes during build/getters).
       // Best-effort: don't crash UI if something was deleted concurrently.
@@ -636,19 +628,33 @@ class _TaskPageState extends State<TaskPage> {
     );
   }
 
+  void _applyTaskInstancesUpdate(
+      List<ActivityInstanceRecord> updated, String caller) {
+    final beforeIds = _taskInstances
+        .map((i) =>
+            '${i.reference.id}|tpl=${i.templateId}|due=${i.dueDate}')
+        .join(", ");
+    final afterIds = updated
+        .map((i) =>
+            '${i.reference.id}|tpl=${i.templateId}|due=${i.dueDate}')
+        .join(", ");
+    // ignore: avoid_print
+    print(
+        '[FLICKER-LOG] setTaskInstances via $caller. before(${_taskInstances.length})=[$beforeIds]. after(${updated.length})=[$afterIds]');
+    final newHash = _calculateInstancesHash(updated);
+    setState(() {
+      _taskInstances = updated;
+      _cachedBucketedItems = null;
+      _taskInstancesHashCode = newHash;
+    });
+  }
+
   void _updateInstanceInLocalState(ActivityInstanceRecord updatedInstance) {
     TaskEventHandlersHelper.updateInstanceInLocalState(
       updatedInstance: updatedInstance,
       taskInstances: _taskInstances,
-      onTaskInstancesUpdate: (updated) {
-        // Recalculate hash code when instances change
-        final newHash = _calculateInstancesHash(updated);
-        setState(() {
-          _taskInstances = updated;
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
-        });
-      },
+      onTaskInstancesUpdate: (updated) =>
+          _applyTaskInstancesUpdate(updated, '_updateInstanceInLocalState'),
       onCacheInvalidate: _invalidateCache,
       loadDataSilently: _loadDataSilently,
     );
@@ -658,15 +664,8 @@ class _TaskPageState extends State<TaskPage> {
     TaskEventHandlersHelper.removeInstanceFromLocalState(
       deletedInstance: deletedInstance,
       taskInstances: _taskInstances,
-      onTaskInstancesUpdate: (updated) {
-        // Recalculate hash code when instances change
-        final newHash = _calculateInstancesHash(updated);
-        setState(() {
-          _taskInstances = updated;
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
-        });
-      },
+      onTaskInstancesUpdate: (updated) =>
+          _applyTaskInstancesUpdate(updated, '_removeInstanceFromLocalState'),
       onCacheInvalidate: _invalidateCache,
     );
   }
@@ -709,15 +708,30 @@ class _TaskPageState extends State<TaskPage> {
       //  3. For every fresh instance, guard against double-insertion if a real
       //     entry was already contributed by the current _taskInstances state.
       final freshKeys = <String>{};
+      // For one-time (non-recurring) tasks, track templateIds with any real
+      // instance so we can drop stale temp_ entries regardless of dueDate.
+      // This prevents a temp_ that was optimistically rescheduled (dueDate changed
+      // locally but the reschedule write failed because the temp_ ID doesn't exist
+      // in Firestore) from surviving the merge alongside the real instance.
+      final freshOneTimeTemplateIds = <String>{};
       for (final inst in sortedInstances) {
         final due = inst.dueDate;
         final dateStr = due != null
             ? '${due.year}-${due.month}-${due.day}'
             : 'null';
         freshKeys.add('${inst.templateId}|$dateStr');
+        if (!inst.templateIsRecurring) {
+          freshOneTimeTemplateIds.add(inst.templateId);
+        }
       }
       final pendingOptimistic = _taskInstances.where((inst) {
         if (!inst.reference.id.startsWith('temp_')) return false;
+        // For one-time tasks: if Firestore already has a real instance for this
+        // template (any dueDate), the temp_ is obsolete — drop it.
+        if (!inst.templateIsRecurring &&
+            freshOneTimeTemplateIds.contains(inst.templateId)) {
+          return false;
+        }
         final due = inst.dueDate;
         final dateStr = due != null
             ? '${due.year}-${due.month}-${due.day}'
@@ -726,16 +740,26 @@ class _TaskPageState extends State<TaskPage> {
         return !freshKeys.contains('${inst.templateId}|$dateStr');
       }).toList();
       final mergedInstances = [...sortedInstances, ...pendingOptimistic];
+      // Template-dupe trace: log any same-templateId duplicates that survive the merge.
+      final byTemplate = <String, List<ActivityInstanceRecord>>{};
+      for (final inst in mergedInstances) {
+        byTemplate.putIfAbsent(inst.templateId, () => []).add(inst);
+      }
+      for (final entry in byTemplate.entries) {
+        if (entry.value.length > 1) {
+          // ignore: avoid_print
+          print(
+              '[FLICKER-LOG] _loadDataSilently merge produced template dupe templateId=${entry.key}: ${entry.value.map((i) => "${i.reference.id}|due=${i.dueDate}").join(", ")}');
+        }
+      }
+      // ignore: avoid_print
+      print(
+          '[FLICKER-LOG] _loadDataSilently merged ${mergedInstances.length} items. fresh=${sortedInstances.length} pendingOptimistic=${pendingOptimistic.length}. _taskInstances before merge size=${_taskInstances.length} IDs=${_taskInstances.map((i) => i.reference.id).join(",")}');
       if (mounted) {
-        // Calculate hash code when data changes
-        final newHash = _calculateInstancesHash(mergedInstances);
         setState(() {
           _categories = categories;
-          _taskInstances = mergedInstances;
-          // Invalidate cache when instances change
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
         });
+        _applyTaskInstancesUpdate(mergedInstances, '_loadDataSilently');
       }
       // Best-effort initialize missing order values (safe, caught).
       try {
@@ -756,20 +780,18 @@ class _TaskPageState extends State<TaskPage> {
 
   // Event handlers for live updates
   void _handleInstanceCreated(dynamic param) {
+    final isOpt =
+        (param is Map) ? (param['isOptimistic'] as bool? ?? false) : false;
+    final opId = (param is Map) ? param['operationId'] as String? : null;
+    final tag =
+        '_handleInstanceCreated(isOptimistic=$isOpt,opId=$opId)';
     TaskEventHandlersHelper.handleInstanceCreated(
       param: param,
       categoryName: widget.categoryName,
       taskInstances: _taskInstances,
       optimisticOperations: _optimisticOperations,
-      onTaskInstancesUpdate: (updated) {
-        // Recalculate hash code when instances change
-        final newHash = _calculateInstancesHash(updated);
-        setState(() {
-          _taskInstances = updated;
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
-        });
-      },
+      onTaskInstancesUpdate: (updated) =>
+          _applyTaskInstancesUpdate(updated, tag),
       onOptimisticOperationsUpdate: _updateOptimisticOperations,
       onCacheInvalidate: _invalidateCache,
     );
@@ -787,21 +809,19 @@ class _TaskPageState extends State<TaskPage> {
   }
 
   void _handleInstanceUpdated(dynamic param) {
+    final isOpt =
+        (param is Map) ? (param['isOptimistic'] as bool? ?? false) : false;
+    final opId = (param is Map) ? param['operationId'] as String? : null;
+    final tag =
+        '_handleInstanceUpdated(isOptimistic=$isOpt,opId=$opId)';
     TaskEventHandlersHelper.handleInstanceUpdated(
       param: param,
       categoryName: widget.categoryName,
       taskInstances: _taskInstances,
       reorderingInstanceIds: _reorderingInstanceIds,
       optimisticOperations: _optimisticOperations,
-      onTaskInstancesUpdate: (updated) {
-        // Recalculate hash code when instances change
-        final newHash = _calculateInstancesHash(updated);
-        setState(() {
-          _taskInstances = updated;
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
-        });
-      },
+      onTaskInstancesUpdate: (updated) =>
+          _applyTaskInstancesUpdate(updated, tag),
       onOptimisticOperationsUpdate: _updateOptimisticOperations,
       onCacheInvalidate: _invalidateCache,
     );
@@ -820,27 +840,16 @@ class _TaskPageState extends State<TaskPage> {
       param: param,
       taskInstances: _taskInstances,
       optimisticOperations: _optimisticOperations,
-      onTaskInstancesUpdate: (updated) {
-        // Recalculate hash code when instances change
-        final newHash = _calculateInstancesHash(updated);
-        setState(() {
-          _taskInstances = updated;
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
-        });
-      },
+      onTaskInstancesUpdate: (updated) =>
+          _applyTaskInstancesUpdate(updated, '_handleRollback'),
       onOptimisticOperationsUpdate: _updateOptimisticOperations,
       onCacheInvalidate: _invalidateCache,
       revertOptimisticUpdate: (instanceId) {
         TaskEventHandlersHelper.revertOptimisticUpdate(
           instanceId: instanceId,
           taskInstances: _taskInstances,
-          onTaskInstancesUpdate: (updated) {
-            setState(() {
-              _taskInstances = updated;
-              _cachedBucketedItems = null;
-            });
-          },
+          onTaskInstancesUpdate: (updated) =>
+              _applyTaskInstancesUpdate(updated, '_handleRollback.revert'),
           onCacheInvalidate: _invalidateCache,
         );
       },
@@ -853,15 +862,8 @@ class _TaskPageState extends State<TaskPage> {
       instance: instance,
       categoryName: widget.categoryName,
       taskInstances: _taskInstances,
-      onTaskInstancesUpdate: (updated) {
-        // Recalculate hash code when instances change
-        final newHash = _calculateInstancesHash(updated);
-        setState(() {
-          _taskInstances = updated;
-          _cachedBucketedItems = null;
-          _taskInstancesHashCode = newHash;
-        });
-      },
+      onTaskInstancesUpdate: (updated) =>
+          _applyTaskInstancesUpdate(updated, '_handleInstanceDeleted'),
       onCacheInvalidate: _invalidateCache,
     );
     _scheduleSilentSync();

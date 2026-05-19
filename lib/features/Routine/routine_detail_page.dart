@@ -20,10 +20,16 @@ import 'package:intl/intl.dart';
 
 class RoutineDetailPage extends StatefulWidget {
   final RoutineRecord routine;
+  final bool embedded;
+  final VoidCallback? onBack;
+
   const RoutineDetailPage({
     super.key,
     required this.routine,
+    this.embedded = false,
+    this.onBack,
   });
+
   @override
   State<RoutineDetailPage> createState() => _RoutineDetailPageState();
 }
@@ -157,6 +163,16 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               );
               if (newInstance != null) {
                 instances[itemId] = newInstance;
+              } else {
+                // createInstanceForRoutineItem returns null for essential
+                // templates even when the cached itemType says 'habit'/'task'.
+                // Fall back to the essential path so stale metadata doesn't
+                // leave the item permanently missing.
+                final essentialInstance =
+                    await _createPendingessentialInstance(itemId);
+                if (essentialInstance != null) {
+                  instances[itemId] = essentialInstance;
+                }
               }
             } catch (e) {}
           } else if (itemType == 'essential') {
@@ -164,6 +180,24 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               final newInstance = await _createPendingessentialInstance(itemId);
               if (newInstance != null) {
                 instances[itemId] = newInstance;
+              }
+            } catch (e) {}
+          } else {
+            // Unknown or empty itemType — try both paths as a best-effort.
+            try {
+              final newInstance =
+                  await RoutineService.createInstanceForRoutineItem(
+                itemId: itemId,
+                userId: userId,
+              );
+              if (newInstance != null) {
+                instances[itemId] = newInstance;
+              } else {
+                final essentialInstance =
+                    await _createPendingessentialInstance(itemId);
+                if (essentialInstance != null) {
+                  instances[itemId] = essentialInstance;
+                }
               }
             } catch (e) {}
           }
@@ -511,7 +545,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return null;
       final today = DateService.todayStart;
-      final tomorrow = today.add(const Duration(days: 1));
 
       // 1. Look for any active instance belonging to today (pending or completed).
       final byBelongsToDate =
@@ -525,25 +558,12 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         return ActivityInstanceRecord.fromSnapshot(byBelongsToDate.docs.first);
       }
 
-      // 2. Fallback: find a completed instance whose completedAt falls today
-      //    (covers time-logged essentials that may not have belongsToDate set).
-      final byCompletedAt =
-          await ActivityInstanceRecord.collectionForUser(userId)
-              .where('templateId', isEqualTo: itemId)
-              .where('status', isEqualTo: 'completed')
-              .where('completedAt', isGreaterThanOrEqualTo: today)
-              .where('completedAt', isLessThan: tomorrow)
-              .where('isActive', isEqualTo: true)
-              .limit(1)
-              .get();
-      if (byCompletedAt.docs.isNotEmpty) {
-        return ActivityInstanceRecord.fromSnapshot(byCompletedAt.docs.first);
-      }
-
-      // 3. Nothing found — create a fresh pending instance for today.
+      // 2. Nothing found — create a fresh pending instance for today.
       final templateDoc =
           await ActivityRecord.collectionForUser(userId).doc(itemId).get();
       if (!templateDoc.exists) {
+        debugPrint(
+            '[routine-essential] template not found for itemId=$itemId');
         return null;
       }
       final template = ActivityRecord.fromSnapshot(templateDoc);
@@ -556,90 +576,24 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         dueDate: DateTime.now(),
       );
 
+      // Avoid a second round-trip for the dummy ref returned when habit
+      // window-duration is already met (doc id = 'dummy').
+      if (newInstanceRef.id == 'dummy') {
+        debugPrint(
+            '[routine-essential] dummy ref returned for itemId=$itemId');
+        return null;
+      }
+
       final instanceDoc = await newInstanceRef.get();
       if (instanceDoc.exists) {
         return ActivityInstanceRecord.fromSnapshot(instanceDoc);
       }
+      debugPrint(
+          '[routine-essential] created instance doc missing for itemId=$itemId ref=${newInstanceRef.id}');
       return null;
     } catch (e) {
+      debugPrint('[routine-essential] _createPendingessentialInstance failed for itemId=$itemId: $e');
       return null;
-    }
-  }
-
-  Future<void> _resetRoutineItems() async {
-    final hasRoutineItems = _routineWithInstances?.routine.itemTypes
-            .any((type) => type == 'essential') ??
-        false;
-    if (!hasRoutineItems) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('No Essential Activities to reset'),
-            backgroundColor: Colors.orange,
-          ),
-        );
-      }
-      return;
-    }
-
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Reset Essential Activities'),
-        content: const Text(
-            'This will create fresh instances for all completed Essential Activities. '
-            'Habits and tasks will not be affected.\n\n'
-            'Continue?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: const Text('Cancel'),
-          ),
-          ElevatedButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Reset'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-    try {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Resetting Essential Activities...'),
-            duration: Duration(seconds: 1),
-          ),
-        );
-      }
-      final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return;
-      final resetCount = await RoutineService.resetRoutineItems(
-        routineId: widget.routine.reference.id,
-        currentInstances: _routineWithInstances!.instances,
-        itemTypes: _routineWithInstances!.routine.itemTypes,
-        itemIds: _routineWithInstances!.routine.itemIds,
-        userId: userId,
-      );
-      await _refreshRoutine();
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-                'Reset $resetCount essential item${resetCount != 1 ? 's' : ''}'),
-            backgroundColor: Colors.green,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Error resetting Essential Activities: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
     }
   }
 
@@ -668,6 +622,15 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       ),
       child: Row(
         children: [
+          if (widget.onBack != null)
+            IconButton(
+              onPressed: widget.onBack,
+              icon: const Icon(Icons.arrow_back_ios),
+              color: theme.primary,
+              iconSize: 20,
+              padding: EdgeInsets.zero,
+              constraints: const BoxConstraints(minWidth: 32, minHeight: 32),
+            ),
           Icon(
             Icons.playlist_play,
             color: theme.primary,
@@ -683,13 +646,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               ),
               overflow: TextOverflow.ellipsis,
             ),
-          ),
-          IconButton(
-            onPressed: _resetRoutineItems,
-            icon: const Icon(Icons.refresh_outlined),
-            tooltip: 'Reset Essential Activities',
-            color: theme.secondaryText,
-            iconSize: 20,
           ),
           IconButton(
             onPressed: _editRoutine,
@@ -832,6 +788,8 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
 
   @override
   Widget build(BuildContext context) {
+    final body = _buildBodyContent();
+    if (widget.embedded) return body;
     return Scaffold(
       backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
       appBar: AppBar(
@@ -841,140 +799,138 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
           style: FlutterFlowTheme.of(context).headlineMedium,
         ),
       ),
-      body: _isLoading
-          ? const Center(child: CircularProgressIndicator())
-          : _routineWithInstances == null
-              ? Center(
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Icon(
-                        Icons.error_outline,
-                        size: 64,
-                        color: FlutterFlowTheme.of(context).secondaryText,
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Error loading routine',
-                        style: FlutterFlowTheme.of(context).titleMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        'Please try refreshing or check your connection',
-                        style: FlutterFlowTheme.of(context).bodyMedium,
-                      ),
-                      const SizedBox(height: 16),
-                      ElevatedButton(
-                        onPressed: _refreshRoutine,
-                        child: const Text('Retry'),
-                      ),
-                    ],
-                  ),
-                )
-              : CustomScrollView(
-                  slivers: [
-                    SliverToBoxAdapter(
-                      child: _buildSectionHeader(
-                        widget.routine.name,
-                        _routineWithInstances!.routine.itemIds.length,
-                      ),
-                    ),
-                    if (widget.routine.description.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 16),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: FlutterFlowTheme.of(context)
-                                .secondaryBackground,
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: FlutterFlowTheme.of(context).alternate,
-                              width: 1,
-                            ),
-                          ),
-                          child: Text(
-                            widget.routine.description,
-                            style: FlutterFlowTheme.of(context).bodyMedium,
-                          ),
-                        ),
-                      ),
-                    SliverReorderableList(
-                      itemCount:
-                          _routineWithInstances!.routine.itemOrder.length,
-                      onReorder: _onReorderItems,
-                      itemBuilder: (context, index) {
-                        final itemId =
-                            _routineWithInstances!.routine.itemOrder[index];
-                        final instance =
-                            _routineWithInstances!.instances[itemId];
-                        final itemType = _routineWithInstances!
-                                    .routine.itemTypes.isNotEmpty &&
-                                index <
-                                    _routineWithInstances!
-                                        .routine.itemTypes.length
-                            ? _routineWithInstances!.routine.itemTypes[index]
-                            : 'habit';
-                        final itemName = _routineWithInstances!
-                                    .routine.itemNames.isNotEmpty &&
-                                index <
-                                    _routineWithInstances!
-                                        .routine.itemNames.length
-                            ? _routineWithInstances!.routine.itemNames[index]
-                            : 'Unknown Item';
-                        return ReorderableDelayedDragStartListener(
-                          key: ValueKey('routine_item_$itemId'),
-                          index: index,
-                          enabled: !_isReordering,
-                          child: _buildItemComponent(
-                            instance,
-                            itemId,
-                            itemType,
-                            itemName,
-                          ),
-                        );
-                      },
-                    ),
-                    if (_routineWithInstances!.missingInstances.isNotEmpty)
-                      SliverToBoxAdapter(
-                        child: Container(
-                          margin: const EdgeInsets.all(16),
-                          padding: const EdgeInsets.all(16),
-                          decoration: BoxDecoration(
-                            color: Colors.orange.withOpacity(0.1),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(
-                              color: Colors.orange.withOpacity(0.3),
-                              width: 1,
-                            ),
-                          ),
-                          child: Row(
-                            children: [
-                              const Icon(
-                                Icons.info_outline,
-                                color: Colors.orange,
-                                size: 20,
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  'Some items don\'t have instances for today. They may appear after day-end processing.',
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        color: Colors.orange.shade700,
-                                      ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      ),
-                    const SliverToBoxAdapter(
-                      child: SizedBox(height: 100),
-                    ),
-                  ],
+      body: body,
+    );
+  }
+
+  Widget _buildBodyContent() {
+    if (_isLoading) return const Center(child: CircularProgressIndicator());
+    if (_routineWithInstances == null) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Icon(
+              Icons.error_outline,
+              size: 64,
+              color: FlutterFlowTheme.of(context).secondaryText,
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Error loading routine',
+              style: FlutterFlowTheme.of(context).titleMedium,
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Please try refreshing or check your connection',
+              style: FlutterFlowTheme.of(context).bodyMedium,
+            ),
+            const SizedBox(height: 16),
+            ElevatedButton(
+              onPressed: _refreshRoutine,
+              child: const Text('Retry'),
+            ),
+          ],
+        ),
+      );
+    }
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: _buildSectionHeader(
+            widget.routine.name,
+            _routineWithInstances!.routine.itemIds.length,
+          ),
+        ),
+        if (widget.routine.description.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: FlutterFlowTheme.of(context).secondaryBackground,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: FlutterFlowTheme.of(context).alternate,
+                  width: 1,
                 ),
+              ),
+              child: Text(
+                widget.routine.description,
+                style: FlutterFlowTheme.of(context).bodyMedium,
+              ),
+            ),
+          ),
+        SliverReorderableList(
+          itemCount: _routineWithInstances!.routine.itemOrder.length,
+          onReorder: _onReorderItems,
+          itemBuilder: (context, index) {
+            final itemId = _routineWithInstances!.routine.itemOrder[index];
+            final instance = _routineWithInstances!.instances[itemId];
+            final itemType =
+                _routineWithInstances!.routine.itemTypes.isNotEmpty &&
+                        index <
+                            _routineWithInstances!.routine.itemTypes.length
+                    ? _routineWithInstances!.routine.itemTypes[index]
+                    : 'habit';
+            final itemName =
+                _routineWithInstances!.routine.itemNames.isNotEmpty &&
+                        index <
+                            _routineWithInstances!.routine.itemNames.length
+                    ? _routineWithInstances!.routine.itemNames[index]
+                    : 'Unknown Item';
+            return ReorderableDelayedDragStartListener(
+              key: ValueKey('routine_item_$itemId'),
+              index: index,
+              enabled: !_isReordering,
+              child: _buildItemComponent(
+                instance,
+                itemId,
+                itemType,
+                itemName,
+              ),
+            );
+          },
+        ),
+        if (_routineWithInstances!.missingInstances.isNotEmpty)
+          SliverToBoxAdapter(
+            child: Container(
+              margin: const EdgeInsets.all(16),
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color: Colors.orange.withOpacity(0.1),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: Colors.orange.withOpacity(0.3),
+                  width: 1,
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.info_outline,
+                    color: Colors.orange,
+                    size: 20,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Some items don\'t have instances for today. They may appear after day-end processing.',
+                      style: FlutterFlowTheme.of(context)
+                          .bodySmall
+                          .override(
+                            color: Colors.orange.shade700,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        const SliverToBoxAdapter(
+          child: SizedBox(height: 100),
+        ),
+      ],
     );
   }
 }

@@ -21,6 +21,7 @@ import 'package:habit_tracker/features/Queue/Helpers/queue_instance_state_manage
 import 'package:habit_tracker/features/Queue/Helpers/queue_bucket_service.dart';
 import 'package:habit_tracker/features/Queue/Helpers/queue_page_refresh.dart';
 import 'package:habit_tracker/features/Queue/Helpers/queue_reorder_handler.dart';
+import 'package:habit_tracker/features/Queue/Helpers/queue_mode_order_seeder.dart';
 import 'package:habit_tracker/features/Queue/Queue_filter/queue_filter_logic.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/today_points_service.dart';
 import 'package:habit_tracker/features/Shared/Points_and_Scores/Scores/score_coordinator.dart';
@@ -638,6 +639,14 @@ class _QueuePageState extends State<QueuePage>
               _maybeApplyPendingFocus();
             }
           });
+          // Seed the active sort mode's order field if it hasn't been seeded
+          // yet (e.g. the user had an algorithmic sort saved before this
+          // feature shipped, or just installed the new build).
+          unawaited(QueueModeOrderSeeder.seedIfNeeded(
+            instances: _instances,
+            sortState: _currentSort,
+            categories: _categories,
+          ));
           // Fast UI update using local instances
           _calculateProgress(optimistic: true);
           if (isInitialLoad) {
@@ -1470,6 +1479,27 @@ class _QueuePageState extends State<QueuePage>
             ],
           ),
           actions: [
+            // Reset icon — re-apply the algorithm for the active sort mode.
+            // Hidden in Manual mode (`none`) because there's no algorithm to
+            // reset to.
+            if (QueueModeOrderSeeder.isAlgorithmic(_currentSort.sortType))
+              IconButton(
+                icon: Icon(Icons.refresh, color: theme.secondaryText),
+                tooltip: 'Reset to algorithm',
+                onPressed: () async {
+                  final sortToReset = _currentSort;
+                  await QueueModeOrderSeeder.resetMode(
+                    instances: _instances,
+                    sortState: sortToReset,
+                    categories: _categories,
+                  );
+                  if (mounted) {
+                    setState(() {
+                      _cachedBucketedItems = null;
+                    });
+                  }
+                },
+              ),
             // Sort button
             PopupMenuButton<String>(
               icon: Icon(
@@ -1489,39 +1519,20 @@ class _QueuePageState extends State<QueuePage>
                   }
                   return;
                 }
-                if (sortType == QueueSortType.points) {
-                  final sort = QueueSortState(
-                    sortType: QueueSortType.points,
-                  );
-                  if (mounted) {
-                    await QueueSortStateManager().setSortState(sort);
-                    setState(() {
-                      _currentSort = sort;
-                      _cachedBucketedItems = null;
-                    });
-                  }
-                } else if (sortType == QueueSortType.time) {
-                  final sort = QueueSortState(
-                    sortType: QueueSortType.time,
-                  );
-                  if (mounted) {
-                    await QueueSortStateManager().setSortState(sort);
-                    setState(() {
-                      _currentSort = sort;
-                      _cachedBucketedItems = null;
-                    });
-                  }
-                } else if (sortType == QueueSortType.urgency) {
-                  final sort = QueueSortState(
-                    sortType: QueueSortType.urgency,
-                  );
-                  if (mounted) {
-                    await QueueSortStateManager().setSortState(sort);
-                    setState(() {
-                      _currentSort = sort;
-                      _cachedBucketedItems = null;
-                    });
-                  }
+                final sort = QueueSortState(sortType: sortType);
+                await QueueSortStateManager().setSortState(sort);
+                // Seed the per-mode order field if this is the first time the
+                // user selects this mode. No-op if already seeded.
+                await QueueModeOrderSeeder.seedIfNeeded(
+                  instances: _instances,
+                  sortState: sort,
+                  categories: _categories,
+                );
+                if (mounted) {
+                  setState(() {
+                    _currentSort = sort;
+                    _cachedBucketedItems = null;
+                  });
                 }
               },
               itemBuilder: (BuildContext context) => <PopupMenuEntry<String>>[
@@ -2078,17 +2089,6 @@ class _QueuePageState extends State<QueuePage>
   Future<void> _handleReorder(
       int oldIndex, int newIndex, String sectionKey) async {
     try {
-      if (_currentSort.isActive) {
-        final clearedSort = QueueSortState();
-        await QueueSortStateManager().setSortState(clearedSort);
-        if (mounted) {
-          setState(() {
-            _currentSort = clearedSort;
-            _cachedBucketedItems = null;
-          });
-        }
-      }
-
       final buckets = _bucketedItems;
       final items = buckets[sectionKey]!;
 
@@ -2098,7 +2098,7 @@ class _QueuePageState extends State<QueuePage>
         newIndex: newIndex,
         allInstances: _instances,
         reorderingInstanceIds: _reorderingInstanceIds,
-        isSortActive: _currentSort.isActive,
+        currentSort: _currentSort,
         sectionKey: sectionKey,
         onOptimisticUpdate: (updatedInstances, reorderingIds) {
           if (mounted) {

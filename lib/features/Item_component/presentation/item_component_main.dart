@@ -454,15 +454,23 @@ class _ItemComponentState extends State<ItemComponent>
                                 .isNotEmpty &&
                             !_isessential) ...[
                           const SizedBox(height: 2),
-                          Text(
-                            _getEnhancedSubtitle(
-                                includeProgress: _shouldShowProgress),
-                            maxLines: _isExpanded ? null : 1,
-                            overflow: _isExpanded
-                                ? TextOverflow.visible
-                                : TextOverflow.ellipsis,
-                            style:
-                                FlutterFlowTheme.of(context).bodySmall.override(
+                          Material(
+                            type: MaterialType.transparency,
+                            child: InkWell(
+                              onTap: widget.enableExpandedEdit
+                                  ? _editActivity
+                                  : null,
+                              borderRadius: BorderRadius.circular(4),
+                              child: Text(
+                                _getEnhancedSubtitle(
+                                    includeProgress: _shouldShowProgress),
+                                maxLines: _isExpanded ? null : 1,
+                                overflow: _isExpanded
+                                    ? TextOverflow.visible
+                                    : TextOverflow.ellipsis,
+                                style: FlutterFlowTheme.of(context)
+                                    .bodySmall
+                                    .override(
                                       fontFamily: 'Readex Pro',
                                       color: FlutterFlowTheme.of(context)
                                           .primaryText
@@ -470,6 +478,8 @@ class _ItemComponentState extends State<ItemComponent>
                                       fontSize: 13,
                                       fontWeight: FontWeight.w500,
                                     ),
+                              ),
+                            ),
                           ),
                         ],
                         if (_isExpanded && !_isessential) ...[

@@ -171,7 +171,7 @@ class ActivityInstanceRecord extends FirestoreRecord {
   DateTime? get snoozedUntil => _snoozedUntil;
   bool hasSnoozedUntil() => _snoozedUntil != null;
   // Order fields for drag-to-reorder functionality (per page)
-  int? _queueOrder; // Order position in Queue page
+  int? _queueOrder; // Order position in Queue page (Manual / 'none' sort mode)
   int get queueOrder => _queueOrder ?? 0;
   bool hasQueueOrder() => _queueOrder != null;
   int? _habitsOrder; // Order position in Habits page
@@ -180,6 +180,16 @@ class ActivityInstanceRecord extends FirestoreRecord {
   int? _tasksOrder; // Order position in Tasks page
   int get tasksOrder => _tasksOrder ?? 0;
   bool hasTasksOrder() => _tasksOrder != null;
+  // Per-sort-mode queue order fields. `null` = not yet seeded for this mode.
+  int? _queuePointsOrder;
+  int get queuePointsOrder => _queuePointsOrder ?? 0;
+  bool hasQueuePointsOrder() => _queuePointsOrder != null;
+  int? _queueTimeOrder;
+  int get queueTimeOrder => _queueTimeOrder ?? 0;
+  bool hasQueueTimeOrder() => _queueTimeOrder != null;
+  int? _queueUrgencyOrder;
+  int get queueUrgencyOrder => _queueUrgencyOrder ?? 0;
+  bool hasQueueUrgencyOrder() => _queueUrgencyOrder != null;
   void _initializeFields() {
     _templateId = snapshotData['templateId'] as String?;
     _dueDate = snapshotData['dueDate'] as DateTime?;
@@ -232,6 +242,9 @@ class ActivityInstanceRecord extends FirestoreRecord {
     _queueOrder = snapshotData['queueOrder'] as int?;
     _habitsOrder = snapshotData['habitsOrder'] as int?;
     _tasksOrder = snapshotData['tasksOrder'] as int?;
+    _queuePointsOrder = snapshotData['queuePointsOrder'] as int?;
+    _queueTimeOrder = snapshotData['queueTimeOrder'] as int?;
+    _queueUrgencyOrder = snapshotData['queueUrgencyOrder'] as int?;
   }
 
   static CollectionReference get collection =>
@@ -317,6 +330,9 @@ Map<String, dynamic> createActivityInstanceRecordData({
   int? queueOrder,
   int? habitsOrder,
   int? tasksOrder,
+  int? queuePointsOrder,
+  int? queueTimeOrder,
+  int? queueUrgencyOrder,
   List<dynamic>? timeLogSessions,
   DateTime? currentSessionStartTime,
   bool? isTimeLogging,
@@ -366,6 +382,9 @@ Map<String, dynamic> createActivityInstanceRecordData({
       'queueOrder': queueOrder,
       'habitsOrder': habitsOrder,
       'tasksOrder': tasksOrder,
+      'queuePointsOrder': queuePointsOrder,
+      'queueTimeOrder': queueTimeOrder,
+      'queueUrgencyOrder': queueUrgencyOrder,
       'timeLogSessions': timeLogSessions,
       'currentSessionStartTime': currentSessionStartTime,
       'isTimeLogging': isTimeLogging,
@@ -420,6 +439,9 @@ class ActivityInstanceRecordDocumentEquality
         e1?.queueOrder == e2?.queueOrder &&
         e1?.habitsOrder == e2?.habitsOrder &&
         e1?.tasksOrder == e2?.tasksOrder &&
+        e1?.queuePointsOrder == e2?.queuePointsOrder &&
+        e1?.queueTimeOrder == e2?.queueTimeOrder &&
+        e1?.queueUrgencyOrder == e2?.queueUrgencyOrder &&
         e1?.timeLogSessions == e2?.timeLogSessions &&
         e1?.currentSessionStartTime == e2?.currentSessionStartTime &&
         e1?.isTimeLogging == e2?.isTimeLogging &&
@@ -465,6 +487,9 @@ class ActivityInstanceRecordDocumentEquality
         e?.queueOrder,
         e?.habitsOrder,
         e?.tasksOrder,
+        e?.queuePointsOrder,
+        e?.queueTimeOrder,
+        e?.queueUrgencyOrder,
         e?.timeLogSessions,
         e?.currentSessionStartTime,
         e?.isTimeLogging,

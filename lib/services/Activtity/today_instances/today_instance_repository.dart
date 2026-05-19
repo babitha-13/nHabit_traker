@@ -736,6 +736,12 @@ class TodayInstanceRepository extends ChangeNotifier {
       }
       items[index] = instance;
     } else {
+      // Optimistic creates carry temp IDs that get replaced by real Firestore
+      // IDs on reconciliation. If we added the temp here, the reconciled event
+      // (different ID) would add a second entry instead of replacing it, and a
+      // later _loadData would surface both rows. Skip adding new optimistic
+      // entries — only the reconciled broadcast should add new items.
+      if (isOptimistic) return;
       items.add(instance);
     }
   }
@@ -762,6 +768,7 @@ class TodayInstanceRepository extends ChangeNotifier {
       }
       items[index] = instance;
     } else {
+      if (isOptimistic) return;
       items.add(instance);
     }
   }

@@ -389,51 +389,6 @@ class RoutineService {
     }
   }
 
-  /// Reset all completed essential (routine item) instances in a routine
-  /// Uncompletes existing instances while preserving time logs
-  /// Leaves habits and tasks untouched
-  static Future<int> resetRoutineItems({
-    required String routineId,
-    required Map<String, ActivityInstanceRecord> currentInstances,
-    required List<String> itemTypes,
-    required List<String> itemIds,
-    String? userId,
-  }) async {
-    final currentUser = FirebaseAuth.instance.currentUser;
-    final uid = userId ?? currentUser?.uid ?? '';
-
-    int resetCount = 0;
-
-    try {
-      // Iterate through items and reset only Essential Activities that are completed
-      for (int i = 0; i < itemIds.length; i++) {
-        final itemId = itemIds[i];
-        final itemType = i < itemTypes.length ? itemTypes[i] : 'habit';
-
-        // Only process Essential Activities
-        if (itemType != 'essential') continue;
-
-        final instance = currentInstances[itemId];
-
-        // Only reset if instance exists and is completed/skipped
-        if (instance != null &&
-            (instance.status == 'completed' || instance.status == 'skipped')) {
-          // Uncomplete the existing instance, preserving time logs
-          await ActivityInstanceService.uncompleteInstance(
-            instanceId: instance.reference.id,
-            userId: uid,
-            deleteLogs: false, // Keep time logs for historical records
-          );
-          resetCount++;
-        }
-      }
-
-      return resetCount;
-    } catch (e) {
-      return resetCount;
-    }
-  }
-
   /// Get all routines for a user
   static Future<List<RoutineRecord>> getUserRoutines({String? userId}) async {
     final currentUser = FirebaseAuth.instance.currentUser;

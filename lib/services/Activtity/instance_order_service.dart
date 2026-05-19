@@ -3,10 +3,36 @@ import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dar
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class InstanceOrderService {
+  /// pageType values:
+  ///   'queue'         => queueOrder (Manual / 'none' sort)
+  ///   'queue_points'  => queuePointsOrder
+  ///   'queue_time'    => queueTimeOrder
+  ///   'queue_urgency' => queueUrgencyOrder
+  ///   'habits'        => habitsOrder
+  ///   'tasks'         => tasksOrder
+  static String orderFieldFor(String pageType) {
+    switch (pageType) {
+      case 'queue':
+        return 'queueOrder';
+      case 'queue_points':
+        return 'queuePointsOrder';
+      case 'queue_time':
+        return 'queueTimeOrder';
+      case 'queue_urgency':
+        return 'queueUrgencyOrder';
+      case 'habits':
+        return 'habitsOrder';
+      case 'tasks':
+        return 'tasksOrder';
+      default:
+        throw ArgumentError('Invalid page type: $pageType');
+    }
+  }
+
   /// Update the order of a single instance for a specific page
   static Future<void> updateInstanceOrder(
     String instanceId,
-    String pageType, // 'queue', 'habits', 'tasks'
+    String pageType,
     int newOrder,
   ) async {
     try {
@@ -14,21 +40,7 @@ class InstanceOrderService {
       if (userId.isEmpty) return;
       final instanceRef =
           ActivityInstanceRecord.collectionForUser(userId).doc(instanceId);
-      Map<String, dynamic> updateData = {};
-      switch (pageType) {
-        case 'queue':
-          updateData['queueOrder'] = newOrder;
-          break;
-        case 'habits':
-          updateData['habitsOrder'] = newOrder;
-          break;
-        case 'tasks':
-          updateData['tasksOrder'] = newOrder;
-          break;
-        default:
-          throw ArgumentError('Invalid page type: $pageType');
-      }
-      await instanceRef.update(updateData);
+      await instanceRef.update({orderFieldFor(pageType): newOrder});
     } catch (e) {
       rethrow;
     }
@@ -50,24 +62,13 @@ class InstanceOrderService {
         final userId = await waitForCurrentUserUid();
         if (userId.isEmpty) return;
         final List<String> instanceIds = [];
+        final fieldName = orderFieldFor(pageType);
         for (int i = 0; i < instances.length; i++) {
           final instance = instances[i];
           final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
               .doc(instance.reference.id);
           instanceIds.add(instance.reference.id);
-          Map<String, dynamic> updateData = {};
-          switch (pageType) {
-            case 'queue':
-              updateData['queueOrder'] = i;
-              break;
-            case 'habits':
-              updateData['habitsOrder'] = i;
-              break;
-            case 'tasks':
-              updateData['tasksOrder'] = i;
-              break;
-          }
-          batch.update(instanceRef, updateData);
+          batch.update(instanceRef, {fieldName: i});
         }
         // Commit the batch
         await batch.commit();
@@ -101,6 +102,7 @@ class InstanceOrderService {
         futures.add(instanceRef.get());
       }
       final snapshots = await Future.wait(futures);
+      final fieldName = orderFieldFor(pageType);
       // Validate each instance's order value
       for (int i = 0; i < snapshots.length; i++) {
         final snapshot = snapshots[i];
@@ -108,18 +110,7 @@ class InstanceOrderService {
           throw Exception('Instance ${instanceIds[i]} not found after update');
         }
         final data = snapshot.data() as Map<String, dynamic>;
-        int? actualOrder;
-        switch (pageType) {
-          case 'queue':
-            actualOrder = data['queueOrder'] as int?;
-            break;
-          case 'habits':
-            actualOrder = data['habitsOrder'] as int?;
-            break;
-          case 'tasks':
-            actualOrder = data['tasksOrder'] as int?;
-            break;
-        }
+        final actualOrder = data[fieldName] as int?;
         final expectedOrder = i;
         if (actualOrder != expectedOrder) {
           throw Exception(
@@ -140,35 +131,13 @@ class InstanceOrderService {
       final batch = FirebaseFirestore.instance.batch();
       final userId = await waitForCurrentUserUid();
       if (userId.isEmpty) return;
+      final fieldName = orderFieldFor(pageType);
       for (int i = 0; i < instances.length; i++) {
         final instance = instances[i];
-        bool needsUpdate = false;
-        Map<String, dynamic> updateData = {};
-        switch (pageType) {
-          case 'queue':
-            if (!instance.hasQueueOrder()) {
-              updateData['queueOrder'] = i;
-              needsUpdate = true;
-            }
-            break;
-          case 'habits':
-            if (!instance.hasHabitsOrder()) {
-              updateData['habitsOrder'] = i;
-              needsUpdate = true;
-            }
-            break;
-          case 'tasks':
-            if (!instance.hasTasksOrder()) {
-              updateData['tasksOrder'] = i;
-              needsUpdate = true;
-            }
-            break;
-        }
-        if (needsUpdate) {
-          final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
-              .doc(instance.reference.id);
-          batch.update(instanceRef, updateData);
-        }
+        if (hasOrderValue(instance, pageType)) continue;
+        final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
+            .doc(instance.reference.id);
+        batch.update(instanceRef, {fieldName: i});
       }
       await batch.commit();
     } catch (e) {
@@ -181,12 +150,39 @@ class InstanceOrderService {
     switch (pageType) {
       case 'queue':
         return instance.queueOrder;
+      case 'queue_points':
+        return instance.queuePointsOrder;
+      case 'queue_time':
+        return instance.queueTimeOrder;
+      case 'queue_urgency':
+        return instance.queueUrgencyOrder;
       case 'habits':
         return instance.habitsOrder;
       case 'tasks':
         return instance.tasksOrder;
       default:
         return 0;
+    }
+  }
+
+  /// Whether the instance has a stored order value for this page type.
+  static bool hasOrderValue(
+      ActivityInstanceRecord instance, String pageType) {
+    switch (pageType) {
+      case 'queue':
+        return instance.hasQueueOrder();
+      case 'queue_points':
+        return instance.hasQueuePointsOrder();
+      case 'queue_time':
+        return instance.hasQueueTimeOrder();
+      case 'queue_urgency':
+        return instance.hasQueueUrgencyOrder();
+      case 'habits':
+        return instance.hasHabitsOrder();
+      case 'tasks':
+        return instance.hasTasksOrder();
+      default:
+        return false;
     }
   }
 
@@ -209,21 +205,8 @@ class InstanceOrderService {
       final previousInstance =
           ActivityInstanceRecord.fromSnapshot(querySnapshot.docs.first);
       // Get the order value for the specified page type
-      final orderValue = getOrderValue(previousInstance, pageType);
-      // Return null if order is 0 (default) and instance doesn't have explicit order
-      // This distinguishes between "no order set" and "order is 0"
-      switch (pageType) {
-        case 'queue':
-          if (!previousInstance.hasQueueOrder()) return null;
-          break;
-        case 'habits':
-          if (!previousInstance.hasHabitsOrder()) return null;
-          break;
-        case 'tasks':
-          if (!previousInstance.hasTasksOrder()) return null;
-          break;
-      }
-      return orderValue;
+      if (!hasOrderValue(previousInstance, pageType)) return null;
+      return getOrderValue(previousInstance, pageType);
     } catch (e) {
       // If query fails, return null to allow instance creation to continue
       return null;

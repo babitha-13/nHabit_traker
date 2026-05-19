@@ -1,6 +1,35 @@
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
 import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 
+/// Logs when [instances] contains more than one entry for the same templateId
+/// (template-level duplicate, the visible bug). Includes the event that just
+/// produced the list so we can identify which path created the duplicate.
+void _logIfTemplateDupe(
+  List<ActivityInstanceRecord> instances,
+  String caller, {
+  required ActivityInstanceRecord instance,
+  required bool isOptimistic,
+  String? opId,
+}) {
+  final byTemplate = <String, List<ActivityInstanceRecord>>{};
+  for (final inst in instances) {
+    byTemplate.putIfAbsent(inst.templateId, () => []).add(inst);
+  }
+  final dupeTemplates =
+      byTemplate.entries.where((e) => e.value.length > 1).toList();
+  if (dupeTemplates.isEmpty) return;
+  // ignore: avoid_print
+  print(
+      '[TEMPLATE-DUPE] $caller produced template-level duplicate. trigger: id=${instance.reference.id} templateId=${instance.templateId} dueDate=${instance.dueDate} isOptimistic=$isOptimistic opId=$opId');
+  for (final entry in dupeTemplates) {
+    for (final inst in entry.value) {
+      // ignore: avoid_print
+      print(
+          '[TEMPLATE-DUPE]   templateId=${entry.key} id=${inst.reference.id} dueDate=${inst.dueDate} status=${inst.status}');
+    }
+  }
+}
+
 /// Returns true if [instances] already contains an equivalent entry for [instance].
 /// Equivalence is: exact same reference.id  **OR**  same templateId + same
 /// normalized dueDate (date-only, null == null).  The second check prevents the
@@ -81,19 +110,20 @@ class TaskEventHandlersHelper {
             if (index != -1) {
               updatedInstances[index] = instance;
             } else {
-              updatedInstances.add(instance);
+              if (!_hasDuplicate(updatedInstances, instance)) {
+                updatedInstances.add(instance);
+              }
             }
             updatedOperations.remove(operationId);
           } else {
-            // Use semantic dedup: by reference.id OR by templateId+normalised dueDate.
-            // This prevents the silent-sync race where a real instance is added
-            // alongside an already-reconciled copy that now carries a different ID.
             if (!_hasDuplicate(updatedInstances, instance)) {
               updatedInstances.add(instance);
             }
           }
         }
 
+        _logIfTemplateDupe(updatedInstances, 'handleInstanceCreated',
+            instance: instance, isOptimistic: isOptimistic, opId: operationId);
         onTaskInstancesUpdate(updatedInstances);
         onOptimisticOperationsUpdate(updatedOperations);
         onCacheInvalidate();
@@ -174,6 +204,8 @@ class TaskEventHandlersHelper {
           }
         }
 
+        _logIfTemplateDupe(updatedInstances, 'handleInstanceUpdated',
+            instance: instance, isOptimistic: isOptimistic, opId: operationId);
         onTaskInstancesUpdate(updatedInstances);
         onOptimisticOperationsUpdate(updatedOperations);
         onCacheInvalidate();
@@ -324,8 +356,14 @@ class TaskEventHandlersHelper {
         (inst) => inst.reference.id == updatedInstance.reference.id);
     if (index != -1) {
       updatedInstances[index] = updatedInstance;
+      _logIfTemplateDupe(updatedInstances, 'updateInstanceInLocalState',
+          instance: updatedInstance, isOptimistic: true);
       onTaskInstancesUpdate(updatedInstances);
       onCacheInvalidate();
+    } else {
+      // ignore: avoid_print
+      print(
+          '[FLICKER-LOG] updateInstanceInLocalState MISS: id=${updatedInstance.reference.id} templateId=${updatedInstance.templateId} dueDate=${updatedInstance.dueDate}. Current list (${updatedInstances.length}): ${updatedInstances.map((i) => "${i.reference.id}|${i.templateId}|due=${i.dueDate}").join(", ")}');
     }
     // Note: No need to reload from backend - optimistic update system handles synchronization
     // Removed: loadDataSilently(); - This was causing status flips by reloading stale data

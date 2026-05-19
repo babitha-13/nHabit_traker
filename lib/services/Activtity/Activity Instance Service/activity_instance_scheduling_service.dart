@@ -182,6 +182,9 @@ class ActivityInstanceSchedulingService {
         int? queueOrder;
         int? habitsOrder;
         int? tasksOrder;
+        int? queuePointsOrder;
+        int? queueTimeOrder;
+        int? queueUrgencyOrder;
         try {
           queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
               instance.templateId, 'queue', userId);
@@ -189,6 +192,15 @@ class ActivityInstanceSchedulingService {
               instance.templateId, 'habits', userId);
           tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
               instance.templateId, 'tasks', userId);
+          queuePointsOrder =
+              await InstanceOrderService.getOrderFromPreviousInstance(
+                  instance.templateId, 'queue_points', userId);
+          queueTimeOrder =
+              await InstanceOrderService.getOrderFromPreviousInstance(
+                  instance.templateId, 'queue_time', userId);
+          queueUrgencyOrder =
+              await InstanceOrderService.getOrderFromPreviousInstance(
+                  instance.templateId, 'queue_urgency', userId);
         } catch (e) {
           // Continue with null values if order lookup fails
         }
@@ -196,27 +208,28 @@ class ActivityInstanceSchedulingService {
         final nextInstanceData = schema.createActivityInstanceRecordData(
           templateId: instance.templateId,
           dueDate: nextBelongsToDate,
-          dueTime: instance.templateDueTime,
+          dueTime: template.dueTime,
           status: 'pending',
           createdTime: now,
           lastUpdated: now,
           isActive: true,
-          templateName: instance.templateName,
-          templateCategoryId: instance.templateCategoryId,
-          templateCategoryName: instance.templateCategoryName,
-          templateCategoryType: instance.templateCategoryType,
-          templatePriority: instance.templatePriority,
-          templateTrackingType: instance.templateTrackingType,
-          templateTarget: instance.templateTarget,
-          templateUnit: instance.templateUnit,
-          templateDescription: instance.templateDescription,
-          templateTimeEstimateMinutes: instance.templateTimeEstimateMinutes,
-          templateShowInFloatingTimer: instance.templateShowInFloatingTimer,
-          templateIsRecurring: instance.templateIsRecurring,
-          templateEveryXValue: instance.templateEveryXValue,
-          templateEveryXPeriodType: instance.templateEveryXPeriodType,
-          templateTimesPerPeriod: instance.templateTimesPerPeriod,
-          templatePeriodType: instance.templatePeriodType,
+          templateName: template.name,
+          templateCategoryId: template.categoryId,
+          templateCategoryName: template.categoryName,
+          templateCategoryType: template.categoryType,
+          templatePriority: template.priority,
+          templateTrackingType: template.trackingType,
+          templateTarget: template.target,
+          templateUnit: template.unit,
+          templateDescription: template.description,
+          templateTimeEstimateMinutes: template.timeEstimateMinutes,
+          templateShowInFloatingTimer: template.showInFloatingTimer,
+          templateIsRecurring: template.isRecurring,
+          templateEveryXValue: template.everyXValue,
+          templateEveryXPeriodType: template.everyXPeriodType,
+          templateTimesPerPeriod: template.timesPerPeriod,
+          templatePeriodType: template.periodType,
+          templateDueTime: template.dueTime,
           dayState: 'open',
           belongsToDate: nextBelongsToDate,
           windowEndDate: nextWindowEndDate,
@@ -224,6 +237,9 @@ class ActivityInstanceSchedulingService {
           queueOrder: queueOrder,
           habitsOrder: habitsOrder,
           tasksOrder: tasksOrder,
+          queuePointsOrder: queuePointsOrder,
+          queueTimeOrder: queueTimeOrder,
+          queueUrgencyOrder: queueUrgencyOrder,
         );
 
         final nextInstanceRef = ActivityInstanceRecord.collectionForUser(userId)

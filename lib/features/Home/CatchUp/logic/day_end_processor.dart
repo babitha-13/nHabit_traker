@@ -199,6 +199,9 @@ class DayEndProcessor {
       int? queueOrder;
       int? habitsOrder;
       int? tasksOrder;
+      int? queuePointsOrder;
+      int? queueTimeOrder;
+      int? queueUrgencyOrder;
       try {
         queueOrder = await InstanceOrderService.getOrderFromPreviousInstance(
             instance.templateId, 'queue', userId);
@@ -206,6 +209,15 @@ class DayEndProcessor {
             instance.templateId, 'habits', userId);
         tasksOrder = await InstanceOrderService.getOrderFromPreviousInstance(
             instance.templateId, 'tasks', userId);
+        queuePointsOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                instance.templateId, 'queue_points', userId);
+        queueTimeOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                instance.templateId, 'queue_time', userId);
+        queueUrgencyOrder =
+            await InstanceOrderService.getOrderFromPreviousInstance(
+                instance.templateId, 'queue_urgency', userId);
       } catch (e) {
         // If order lookup fails, continue with null values (will use default sorting)
       }
@@ -242,6 +254,9 @@ class DayEndProcessor {
         queueOrder: queueOrder,
         habitsOrder: habitsOrder,
         tasksOrder: tasksOrder,
+        queuePointsOrder: queuePointsOrder,
+        queueTimeOrder: queueTimeOrder,
+        queueUrgencyOrder: queueUrgencyOrder,
       );
       // Add to batch
       final nextInstanceId = _buildHabitPendingDocId(
