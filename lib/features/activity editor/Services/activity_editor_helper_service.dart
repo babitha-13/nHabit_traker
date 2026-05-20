@@ -6,10 +6,9 @@ class ActivityEditorHelperService {
   static const String createNewCategoryValue =
       'CREATE_NEW_CATEGORY_SPECIAL_VALUE';
 
-  /// Check if this is an essential activity
+  /// Check if this is a template activity (no schedule; points controlled by priority)
   static bool isEssential(ActivityEditorDialogState state) {
-    if (state.widget.isEssential != null) return state.widget.isEssential!;
-    return state.widget.activity?.categoryType == 'essential';
+    return state.kind == ActivityKind.template;
   }
 
   /// Get the categories to use - prefer loaded categories, fallback to widget categories

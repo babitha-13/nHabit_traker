@@ -118,8 +118,10 @@ class _ManageCategoriesState extends State<ManageCategories>
         categories.where((cat) => cat.categoryType == 'habit').toList();
     final taskCategories =
         categories.where((cat) => cat.categoryType == 'task').toList();
-    final essentialCategories =
-        categories.where((cat) => cat.categoryType == 'essential').toList();
+    final essentialCategories = categories
+        .where((cat) =>
+            cat.categoryType == 'template' || cat.categoryType == 'essential')
+        .toList();
     return SingleChildScrollView(
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,

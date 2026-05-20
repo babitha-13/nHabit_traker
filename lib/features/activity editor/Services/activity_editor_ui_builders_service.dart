@@ -15,17 +15,8 @@ class ActivityEditorUIBuildersService {
   /// Build the main dialog widget
   static Widget build(ActivityEditorDialogState state, BuildContext context) {
     final theme = FlutterFlowTheme.of(context);
-    final title = state.widget.activity == null
-        ? (ActivityEditorHelperService.isEssential(state)
-            ? 'Create Essential'
-            : state.widget.isHabit
-                ? 'Create Habit'
-                : 'Create Task')
-        : (ActivityEditorHelperService.isEssential(state)
-            ? 'Edit Essential'
-            : state.widget.isHabit
-                ? 'Edit Habit'
-                : 'Edit Task');
+    final isCreating = state.widget.activity == null;
+    final isTemplate = ActivityEditorHelperService.isEssential(state);
 
     return Dialog(
       backgroundColor: Colors.transparent,
@@ -41,7 +32,7 @@ class ActivityEditorUIBuildersService {
           ),
           boxShadow: [
             BoxShadow(
-              color: Colors.black.withOpacity(0.05),
+              color: Colors.black.withValues(alpha: 0.05),
               offset: const Offset(0, 2),
               blurRadius: 4,
               spreadRadius: 0,
@@ -55,13 +46,7 @@ class ActivityEditorUIBuildersService {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  title,
-                  style: theme.titleMedium.override(
-                    fontFamily: 'Readex Pro',
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                buildKindSelector(state, theme, isCreating),
                 const SizedBox(height: 16),
                 buildTextField(state, theme, state.titleController, 'Name'),
                 const SizedBox(height: 12),
@@ -74,43 +59,39 @@ class ActivityEditorUIBuildersService {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    // Hide tracking type for essentials (always binary)
-                    if (!ActivityEditorHelperService.isEssential(state))
-                      buildTaskTypeField(state, theme),
-                    if (!ActivityEditorHelperService.isEssential(state) &&
-                        (state.selectedTrackingType == 'quantitative' ||
-                            state.selectedTrackingType == 'time')) ...[
+                    buildTaskTypeField(state, theme),
+                    if (state.selectedTrackingType == 'quantitative' ||
+                        state.selectedTrackingType == 'time') ...[
                       const SizedBox(height: 12),
                       buildTrackingDetails(state, theme),
                     ],
-                    const SizedBox(height: 12),
-                    buildFrequencyField(state, theme),
-                    // Hide due date for essentials (only due time)
+                    // Frequency only for tasks and habits, not templates
+                    if (!isTemplate) ...[
+                      const SizedBox(height: 12),
+                      buildFrequencyField(state, theme),
+                    ],
+                    // Due date for non-recurring, non-habit items (including templates)
                     if (!ActivityEditorHelperService.isRecurring(state) &&
-                        !state.widget.isHabit &&
-                        !ActivityEditorHelperService.isEssential(state)) ...[
+                        !state.widget.isHabit) ...[
                       const SizedBox(height: 12),
                       buildDueDateField(state, theme),
                     ],
                     const SizedBox(height: 12),
                     buildDueTimeField(state, theme),
-                    // Hide reminders for essentials
-                    if (!ActivityEditorHelperService.isEssential(state)) ...[
+                    // Reminders only for non-template
+                    if (!isTemplate) ...[
                       const SizedBox(height: 12),
                       buildReminderField(state, theme),
                     ],
-                    // Show time estimate field for all activities (not time-target)
+                    // Time estimate for all (not time-target)
                     if (!ActivityEditorHelperService.isTimeTarget(state)) ...[
                       const SizedBox(height: 12),
                       buildTimeEstimateField(state, theme),
                     ],
                   ],
                 ),
-                // Hide priority for essentials
-                if (!ActivityEditorHelperService.isEssential(state)) ...[
-                  const SizedBox(height: 12),
-                  buildPrioritySlider(state, theme),
-                ],
+                const SizedBox(height: 12),
+                buildPrioritySlider(state, theme),
                 Container(
                   height: 1,
                   margin: const EdgeInsets.symmetric(vertical: 12),
@@ -132,6 +113,19 @@ class ActivityEditorUIBuildersService {
         ),
       ),
     );
+  }
+
+  /// Build the dialog title (fixed — type is determined by the calling context)
+  static Widget buildKindSelector(
+      ActivityEditorDialogState state, FlutterFlowTheme theme, bool isCreating) {
+    final label = switch (state.kind) {
+      ActivityKind.template => isCreating ? 'Create Template' : 'Edit Template',
+      ActivityKind.habit => isCreating ? 'Create Habit' : 'Edit Habit',
+      ActivityKind.task => isCreating ? 'Create Task' : 'Edit Task',
+    };
+    return Text(label,
+        style: theme.titleMedium
+            .override(fontFamily: 'Readex Pro', fontWeight: FontWeight.w600));
   }
 
   /// Build text field widget
@@ -242,7 +236,10 @@ class ActivityEditorUIBuildersService {
   /// Build task type field widget
   static Widget buildTaskTypeField(
       ActivityEditorDialogState state, FlutterFlowTheme theme) {
-    final taskTypes = ActivityTypeDropdownHelper.getAllTaskTypes();
+    final isTemplate = ActivityEditorHelperService.isEssential(state);
+    final taskTypes = isTemplate
+        ? ActivityTypeDropdownHelper.getTemplateTaskTypes()
+        : ActivityTypeDropdownHelper.getAllTaskTypes();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
@@ -341,41 +338,73 @@ class ActivityEditorUIBuildersService {
                 )),
               ],
             )
-          : Row(
-              children: [
-                Text('Duration:',
-                    style: theme.bodySmall.override(
-                        color: theme.primary, fontWeight: FontWeight.w600)),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: TextFormField(
-                  initialValue: state.targetDuration.inHours.toString(),
-                  keyboardType: TextInputType.number,
-                  style: theme.bodyMedium,
-                  decoration: inputDecoration(theme, label: 'Hrs'),
-                  onChanged: (v) {
-                    final h = int.tryParse(v) ?? 0;
-                    state.setState(() => state.targetDuration = Duration(
-                        hours: h,
-                        minutes: state.targetDuration.inMinutes % 60));
-                  },
-                )),
-                const SizedBox(width: 8),
-                Expanded(
-                    child: TextFormField(
-                  initialValue:
-                      (state.targetDuration.inMinutes % 60).toString(),
-                  keyboardType: TextInputType.number,
-                  style: theme.bodyMedium,
-                  decoration: inputDecoration(theme, label: 'Min'),
-                  onChanged: (v) {
-                    final m = int.tryParse(v) ?? 0;
-                    state.setState(() => state.targetDuration = Duration(
-                        hours: state.targetDuration.inHours, minutes: m));
-                  },
-                )),
-              ],
-            ),
+          : _buildTimeDurationDetails(state, theme),
+    );
+  }
+
+  static Widget _buildTimeDurationDetails(
+      ActivityEditorDialogState state, FlutterFlowTheme theme) {
+    final isTemplate = ActivityEditorHelperService.isEssential(state);
+    final hasTarget = state.targetDuration.inMinutes > 0;
+
+    // Templates: show a "Set target" prompt when no target, or fields + clear when set
+    if (isTemplate && !hasTarget) {
+      return GestureDetector(
+        onTap: () => state.setState(
+            () => state.targetDuration = const Duration(minutes: 30)),
+        child: Row(
+          children: [
+            Icon(Icons.add_circle_outline,
+                size: 16, color: theme.secondaryText),
+            const SizedBox(width: 6),
+            Text('Set target duration (optional)',
+                style: theme.bodySmall
+                    .override(color: theme.secondaryText, fontSize: 13)),
+          ],
+        ),
+      );
+    }
+
+    return Row(
+      children: [
+        Text('Duration:',
+            style: theme.bodySmall
+                .override(color: theme.primary, fontWeight: FontWeight.w600)),
+        const SizedBox(width: 8),
+        Expanded(
+            child: TextFormField(
+          initialValue: state.targetDuration.inHours.toString(),
+          keyboardType: TextInputType.number,
+          style: theme.bodyMedium,
+          decoration: inputDecoration(theme, label: 'Hrs'),
+          onChanged: (v) {
+            final h = int.tryParse(v) ?? 0;
+            state.setState(() => state.targetDuration =
+                Duration(hours: h, minutes: state.targetDuration.inMinutes % 60));
+          },
+        )),
+        const SizedBox(width: 8),
+        Expanded(
+            child: TextFormField(
+          initialValue: (state.targetDuration.inMinutes % 60).toString(),
+          keyboardType: TextInputType.number,
+          style: theme.bodyMedium,
+          decoration: inputDecoration(theme, label: 'Min'),
+          onChanged: (v) {
+            final m = int.tryParse(v) ?? 0;
+            state.setState(() => state.targetDuration =
+                Duration(hours: state.targetDuration.inHours, minutes: m));
+          },
+        )),
+        if (isTemplate) ...[
+          const SizedBox(width: 4),
+          GestureDetector(
+            onTap: () =>
+                state.setState(() => state.targetDuration = Duration.zero),
+            child: Icon(Icons.close, size: 18, color: theme.secondaryText),
+          ),
+        ],
+      ],
     );
   }
 
@@ -404,6 +433,7 @@ class ActivityEditorUIBuildersService {
           const SizedBox(width: 12),
           Expanded(
             child: TextFormField(
+              key: ValueKey('time_est_${state.timeEstimateMinutes}'),
               initialValue: state.timeEstimateMinutes?.toString() ?? '',
               keyboardType: TextInputType.number,
               style: theme.bodyMedium,
@@ -459,7 +489,7 @@ class ActivityEditorUIBuildersService {
       ActivityEditorDialogState state, FlutterFlowTheme theme) {
     String displayText;
     if (ActivityEditorHelperService.isEssential(state)) {
-      // Essentials: show "Manual only" if frequency disabled
+      // Templates: show "Manual only" if frequency disabled
       displayText = state.frequencyEnabled && state.frequencyConfig != null
           ? ActivityEditorFrequencyService.formatFrequencySummary(state)
           : "Manual only (won't auto-schedule)";
@@ -640,6 +670,7 @@ class ActivityEditorUIBuildersService {
   /// Build priority slider widget
   static Widget buildPrioritySlider(
       ActivityEditorDialogState state, FlutterFlowTheme theme) {
+    final label = state.priority == 0 ? 'No points' : state.priority.toString();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
       decoration: BoxDecoration(
@@ -654,16 +685,26 @@ class ActivityEditorUIBuildersService {
           Expanded(
             child: Slider(
               value: state.priority.toDouble(),
-              min: 1.0,
+              min: 0.0,
               max: 3.0,
-              divisions: 2,
-              label: state.priority.toString(),
-              activeColor: theme.primary,
+              divisions: 3,
+              label: label,
+              activeColor:
+                  state.priority == 0 ? theme.secondaryText : theme.primary,
               inactiveColor: theme.secondaryText.withOpacity(0.3),
               onChanged: (value) =>
                   state.setState(() => state.priority = value.round()),
             ),
           ),
+          if (state.priority == 0)
+            Padding(
+              padding: const EdgeInsets.only(left: 4),
+              child: Text(
+                'No pts',
+                style: theme.bodySmall
+                    .override(color: theme.secondaryText, fontSize: 10),
+              ),
+            ),
         ],
       ),
     );

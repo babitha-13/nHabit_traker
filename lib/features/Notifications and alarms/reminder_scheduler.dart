@@ -10,6 +10,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
+import 'package:habit_tracker/features/Notifications%20and%20alarms/notification_preferences_service.dart';
 
 /// Service for managing reminder scheduling for tasks and habits
 class ReminderScheduler {
@@ -22,17 +23,16 @@ class ReminderScheduler {
       return;
     }
     try {
+      // Always fetch userId upfront (needed for both template and prefs)
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+
       ActivityRecord? template = templateOverride;
       if (template == null) {
-        // Get the template to access reminder configurations
-        final userId = await waitForCurrentUserUid();
-        if (userId.isEmpty) return;
         final templateRef =
             ActivityRecord.collectionForUser(userId).doc(instance.templateId);
         final templateDoc = await templateRef.get();
-        if (!templateDoc.exists) {
-          return;
-        }
+        if (!templateDoc.exists) return;
         template = ActivityRecord.fromSnapshot(templateDoc);
       }
 
@@ -42,9 +42,15 @@ class ReminderScheduler {
         reminders = ReminderConfigList.fromMapList(template.reminders);
       }
 
-      // If no reminders configured, use default (10 minutes before)
+      // If no individual reminders, apply the universal due-time reminder setting
       if (reminders.isEmpty) {
-        final reminderTime = _calculateReminderTime(instance);
+        final enabled =
+            await NotificationPreferencesService.isDueTimeReminderEnabled(userId);
+        if (!enabled) return; // User turned off default reminders
+        final minutesBefore =
+            await NotificationPreferencesService.getDueTimeReminderMinutes(userId);
+        final offsetMinutes = -minutesBefore; // negative = before due time; 0 = on-time
+        final reminderTime = _calculateReminderTime(instance, offsetMinutes: offsetMinutes);
         // Ensure time is in future or today (for recurring checks)
         // If it's recurring daily/weekly, we can schedule even if time passed today (for next occurrence)
         bool canSchedule = false;
@@ -101,7 +107,7 @@ class ReminderScheduler {
             body: _getReminderBody(
               dueDateTime: dueDateTime,
               reminderTime: reminderTime,
-              offsetMinutes: -10, // Default is 10 minutes before
+              offsetMinutes: offsetMinutes,
             ),
             payload: instance
                 .templateId, // Use templateId for payload to find active instance later
@@ -548,12 +554,16 @@ class ReminderScheduler {
     return true;
   }
 
-  /// Calculate reminder time (10 minutes before due time)
-  static DateTime? _calculateReminderTime(ActivityInstanceRecord instance) {
+  /// Calculate reminder time relative to due time.
+  /// [offsetMinutes] is negative for before (e.g. -10 = 10 min before), 0 for on-time.
+  static DateTime? _calculateReminderTime(
+    ActivityInstanceRecord instance, {
+    int offsetMinutes = -10,
+  }) {
     try {
       return _calculateReminderTimeFromOffset(
         instance: instance,
-        offsetMinutes: -10,
+        offsetMinutes: offsetMinutes,
       );
     } catch (e) {
       return null;

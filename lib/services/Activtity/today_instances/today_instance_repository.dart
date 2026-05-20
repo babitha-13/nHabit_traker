@@ -545,7 +545,15 @@ class TodayInstanceRepository extends ChangeNotifier {
       return ts != null && !ts.isBefore(recentThreshold);
     }
 
-    if (type == 'essential') {
+    if (type == 'template' || type == 'essential') {
+      // Pending template scheduled for today/overdue — include in queue
+      if (type == 'template' &&
+          instance.status == 'pending' &&
+          instance.dueDate != null) {
+        return TodayInstanceSelectors.isTaskDueTodayOrOverdue(
+            instance, dayStart);
+      }
+      // Logged/completed template instances — include by date
       final belongsToday =
           TodayInstanceSelectors.isSameDay(instance.belongsToDate, dayStart);
       final sessionToday =

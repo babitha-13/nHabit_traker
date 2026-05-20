@@ -30,15 +30,9 @@ class ActivityEditorInitializationService {
 
     // Initialize recurring state based on type
     if (ActivityEditorHelperService.isEssential(state)) {
-      // Essentials: frequency can be enabled/disabled
-      state.frequencyEnabled = t?.isRecurring ?? false;
-      state.quickIsTaskRecurring = state.frequencyEnabled;
-      if (t == null) {
-        state.frequencyConfig = FrequencyConfig(
-          type: FrequencyType.everyXPeriod,
-          startDate: DateTime.now(),
-        );
-      }
+      // Templates: no frequency, always manual
+      state.frequencyEnabled = false;
+      state.quickIsTaskRecurring = false;
     } else if (state.widget.isHabit) {
       state.quickIsTaskRecurring = true;
       // Default frequency for new habits
@@ -56,13 +50,19 @@ class ActivityEditorInitializationService {
     // This method is called from initState after controllers are initialized
 
     state.priority = t?.priority ?? 1;
-    state.selectedTrackingType = t?.trackingType ?? 'binary';
+    final rawTrackingType = t?.trackingType ?? 'binary';
+    // Templates don't support quantitative — fall back to binary for legacy records
+    state.selectedTrackingType =
+        (ActivityEditorHelperService.isEssential(state) &&
+                rawTrackingType == 'quantitative')
+            ? 'binary'
+            : rawTrackingType;
     state.targetNumber = _parseTargetToInt(t?.target, fallback: 1);
     final parsedTargetMinutes = _parseTargetToInt(t?.target, fallback: 0);
-    state.targetDuration =
-        (t?.trackingType == 'time' && parsedTargetMinutes > 0)
-            ? Duration(minutes: parsedTargetMinutes)
-            : const Duration(hours: 1);
+    final isTemplate = ActivityEditorHelperService.isEssential(state);
+    state.targetDuration = (t?.trackingType == 'time' && parsedTargetMinutes > 0)
+        ? Duration(minutes: parsedTargetMinutes)
+        : (isTemplate ? Duration.zero : const Duration(hours: 1));
     state.unit = t?.unit ?? '';
     state.dueDate = t?.dueDate;
     // When editing a one-time task from an instance card, the instance date is
@@ -119,12 +119,6 @@ class ActivityEditorInitializationService {
       state.originalStartDate = t.startDate;
     } else if (t == null && state.widget.isHabit) {
       // Already set default above
-    } else if (t == null && ActivityEditorHelperService.isEssential(state)) {
-      // Essentials: default frequency config already set, but frequency is disabled by default
-      state.frequencyConfig = FrequencyConfig(
-        type: FrequencyType.everyXPeriod,
-        startDate: DateTime.now(),
-      );
     }
 
     // Load reminders

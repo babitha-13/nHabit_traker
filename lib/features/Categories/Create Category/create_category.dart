@@ -43,8 +43,9 @@ class _CreateCategoryState extends State<CreateCategory>
     final theme = FlutterFlowTheme.of(context);
     final isEdit = widget.category != null;
 
-    final categoryTypeLabel = widget.categoryType == 'essential'
-        ? 'Essential '
+    final categoryTypeLabel =
+        (widget.categoryType == 'template' || widget.categoryType == 'essential')
+        ? 'Template '
         : (widget.categoryType == 'task'
             ? 'Task '
             : (widget.categoryType == 'habit' ? 'Habit ' : ''));

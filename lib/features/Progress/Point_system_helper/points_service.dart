@@ -85,11 +85,9 @@ class PointsService {
   static double calculateInstanceTargetPoints(
     ActivityInstanceRecord instance,
   ) {
-    if (instance.templateCategoryType == 'essential') {
-      return 0.0;
-    }
-
     final priority = instance.templatePriority.toDouble();
+    if (priority <= 0) return 0.0;
+
     final isHabit = instance.templateCategoryType == 'habit';
     final dailyFrequency = isHabit ? _calculateDailyFrequency(instance) : 1.0;
 
@@ -150,12 +148,9 @@ class PointsService {
     ActivityInstanceRecord instance,
     ActivityRecord template,
   ) {
-    if (instance.templateCategoryType == 'essential' ||
-        template.categoryType == 'essential') {
-      return 0.0;
-    }
-
     final priority = instance.templatePriority.toDouble();
+    if (priority <= 0) return 0.0;
+
     final isHabit = instance.templateCategoryType == 'habit';
     final dailyFrequency =
         isHabit ? calculateDailyFrequencyFromTemplate(template) : 1.0;
@@ -216,9 +211,7 @@ class PointsService {
   static double calculatePointsEarnedSync(
     ActivityInstanceRecord instance,
   ) {
-    if (instance.templateCategoryType == 'essential') {
-      return 0.0;
-    }
+    if (instance.templatePriority <= 0) return 0.0;
     return _calculatePointsEarnedCore(instance);
   }
 
@@ -228,9 +221,7 @@ class PointsService {
     ActivityInstanceRecord instance,
     String userId,
   ) async {
-    if (instance.templateCategoryType == 'essential') {
-      return 0.0;
-    }
+    if (instance.templatePriority <= 0) return 0.0;
     return _calculatePointsEarnedCore(instance);
   }
 
@@ -264,7 +255,12 @@ class PointsService {
 
       case 'time':
         final targetMinutes = PointsValueHelper.targetValue(instance);
-        if (targetMinutes <= 0) return 0.0;
+        if (targetMinutes <= 0) {
+          // No target set — template earns flat priority points per completion
+          final isTemplate = instance.templateCategoryType == 'template' ||
+              instance.templateCategoryType == 'essential';
+          return isTemplate && instance.status == 'completed' ? priority : 0.0;
+        }
         final loggedMinutes =
             BinaryTimeBonusHelper.loggedTimeMinutes(instance) ?? 0.0;
         final isWindowedHabit = instance.templateCategoryType == 'habit' &&
@@ -440,11 +436,7 @@ class PointsService {
   ) {
     double totalTarget = 0.0;
     for (final instance in instances) {
-      // Skip Essential Activities, only process habits
-      if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'essential') {
-        continue;
-      }
+      if (instance.templateCategoryType != 'habit') continue;
       final target = calculateDailyTarget(instance);
       totalTarget += target;
     }
@@ -459,11 +451,7 @@ class PointsService {
   ) async {
     double totalTarget = 0.0;
     for (final instance in instances) {
-      // Skip Essential Activities, only process habits
-      if (instance.templateCategoryType != 'habit' ||
-          instance.templateCategoryType == 'essential') {
-        continue;
-      }
+      if (instance.templateCategoryType != 'habit') continue;
       // Fetch template data for accurate frequency calculation
       final template = await ActivityTemplateService.getTemplateById(
         userId: userId,
@@ -487,8 +475,6 @@ class PointsService {
     double totalPoints = 0.0;
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
-      // Skip Essential Activities
-      if (instance.templateCategoryType == 'essential') continue;
       final points = calculatePointsEarnedSync(instance);
       totalPoints += points;
     }
@@ -503,8 +489,6 @@ class PointsService {
     double totalPoints = 0.0;
     for (final instance in instances) {
       if (instance.templateCategoryType != 'habit') continue;
-      // Skip Essential Activities
-      if (instance.templateCategoryType == 'essential') continue;
       final points = await calculatePointsEarned(instance, userId);
       totalPoints += points;
     }
@@ -519,8 +503,6 @@ class PointsService {
   ) {
     double totalPoints = 0.0;
     for (final instance in instances) {
-      // Skip Essential Activities
-      if (instance.templateCategoryType == 'essential') continue;
       final points = calculatePointsEarnedSync(instance);
       totalPoints += points;
     }
@@ -535,8 +517,6 @@ class PointsService {
   ) async {
     double totalPoints = 0.0;
     for (final instance in instances) {
-      // Skip Essential Activities
-      if (instance.templateCategoryType == 'essential') continue;
       final points = await calculatePointsEarned(instance, userId);
       totalPoints += points;
     }

@@ -207,8 +207,12 @@ class TodayInstanceSelectors {
     final recentThreshold = snapshot.dayStart.subtract(const Duration(days: 2));
 
     for (final instance in snapshot.instances) {
-      final isQueueType = instance.templateCategoryType == 'task' ||
-          instance.templateCategoryType == 'habit';
+      final t = instance.templateCategoryType;
+      final isScheduledTemplate = (t == 'template' || t == 'essential') &&
+          instance.status == 'pending' &&
+          instance.dueDate != null;
+      final isQueueType =
+          t == 'task' || t == 'habit' || isScheduledTemplate;
       if (!instance.isActive || !isQueueType) {
         continue;
       }
@@ -235,6 +239,7 @@ class TodayInstanceSelectors {
           recentThreshold: recentThreshold,
         );
       } else {
+        // tasks and scheduled templates both use task-style picking
         picked = _pickRoutineTask(
           candidates: entries,
           dayStart: snapshot.dayStart,
@@ -348,7 +353,7 @@ class TodayInstanceSelectors {
       }
 
       ActivityInstanceRecord? picked;
-      if (itemType == 'essential') {
+      if (itemType == 'template' || itemType == 'essential') {
         picked = _pickRoutineEssential(
           candidates: candidates,
           snapshot: snapshot,
@@ -510,6 +515,7 @@ class TodayInstanceSelectors {
       if (i.status != 'pending') return false;
       final isCalendarPlannable = i.templateCategoryType == 'task' ||
           i.templateCategoryType == 'habit' ||
+          i.templateCategoryType == 'template' ||
           i.templateCategoryType == 'essential';
       if (!isCalendarPlannable) return false;
 
@@ -575,7 +581,8 @@ class TodayInstanceSelectors {
 
     final essentials = snapshot.instances.where((i) {
       if (!i.isActive) return false;
-      if (i.templateCategoryType != 'essential') return false;
+      if (i.templateCategoryType != 'template' &&
+          i.templateCategoryType != 'essential') return false;
 
       final pendingShape = isSameDay(i.belongsToDate, snapshot.dayStart);
       final loggedShape =

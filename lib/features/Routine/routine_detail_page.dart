@@ -175,7 +175,7 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
                 }
               }
             } catch (e) {}
-          } else if (itemType == 'essential') {
+          } else if (itemType == 'template' || itemType == 'essential') {
             try {
               final newInstance = await _createPendingessentialInstance(itemId);
               if (newInstance != null) {

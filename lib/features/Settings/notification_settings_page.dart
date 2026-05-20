@@ -23,6 +23,10 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
   TimeOfDay _sleepTime = const TimeOfDay(hour: 22, minute: 0);
   TimeOfDay? _calculatedMorningTime;
   TimeOfDay? _calculatedEveningTime;
+  bool _dueTimeReminderEnabled = true;
+  int _dueTimeReminderMinutes = 10;
+
+  static const List<int> _reminderMinuteOptions = [0, 5, 10, 15, 30, 60];
 
   @override
   void initState() {
@@ -72,6 +76,11 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
             NotificationPreferencesService.calculateEveningNotificationTime(
                 _sleepTime);
 
+        _dueTimeReminderEnabled =
+            prefs['due_time_reminder_enabled'] as bool? ?? true;
+        _dueTimeReminderMinutes =
+            prefs['due_time_reminder_minutes'] as int? ?? 10;
+
         _isLoading = false;
       });
     } catch (e) {
@@ -109,9 +118,11 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
       final preferences = {
         'wake_up_time': TimeUtils.timeOfDayToString(_wakeUpTime),
         'sleep_time': TimeUtils.timeOfDayToString(_sleepTime),
-        'morning_reminder_enabled': true, // Always enabled
-        'evening_reminder_enabled': true, // Always enabled
+        'morning_reminder_enabled': true,
+        'evening_reminder_enabled': true,
         'engagement_reminder_enabled': true,
+        'due_time_reminder_enabled': _dueTimeReminderEnabled,
+        'due_time_reminder_minutes': _dueTimeReminderMinutes,
       };
 
       await NotificationPreferencesService.updateNotificationPreferences(
@@ -290,6 +301,8 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                     calculatedLabel: 'Evening notification',
                     calculatedDescription: 'Sent 1 hour before you sleep',
                   ),
+                  const SizedBox(height: 16),
+                  _buildDueTimeReminderCard(theme),
                   const SizedBox(height: 32),
                   // Test notification button
                   SizedBox(
@@ -310,6 +323,69 @@ class _NotificationSettingsPageState extends State<NotificationSettingsPage> {
                 ],
               ),
             ),
+    );
+  }
+
+  Widget _buildDueTimeReminderCard(FlutterFlowTheme theme) {
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Due Time Reminder',
+                        style: theme.titleMedium.override(
+                          fontFamily: 'Outfit',
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Notify before items with a due time (when no individual reminder is set)',
+                        style: theme.bodySmall,
+                      ),
+                    ],
+                  ),
+                ),
+                Switch(
+                  value: _dueTimeReminderEnabled,
+                  onChanged: (val) {
+                    setState(() => _dueTimeReminderEnabled = val);
+                    _savePreferences();
+                  },
+                ),
+              ],
+            ),
+            if (_dueTimeReminderEnabled) ...[
+              const SizedBox(height: 16),
+              Text('Notify me:', style: theme.bodySmall),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                children: _reminderMinuteOptions.map((mins) {
+                  final label = mins == 0 ? 'On time' : '$mins min before';
+                  final selected = _dueTimeReminderMinutes == mins;
+                  return ChoiceChip(
+                    label: Text(label),
+                    selected: selected,
+                    onSelected: (_) {
+                      setState(() => _dueTimeReminderMinutes = mins);
+                      _savePreferences();
+                    },
+                  );
+                }).toList(),
+              ),
+            ],
+          ],
+        ),
+      ),
     );
   }
 

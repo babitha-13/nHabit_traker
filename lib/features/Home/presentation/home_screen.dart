@@ -11,6 +11,7 @@ import 'package:habit_tracker/features/Home/presentation/widgets/home_bottom_nav
 import 'package:habit_tracker/features/Home/presentation/widgets/app_drawer.dart';
 import 'package:habit_tracker/features/Categories/Manage%20Category/manage_categories.dart';
 import 'package:habit_tracker/features/Essential/essential_templates_page_main.dart';
+import 'package:habit_tracker/services/migration/essential_to_template_migration.dart';
 import 'package:habit_tracker/features/Routine/Routine%20Main%20page/routines_page_main.dart';
 import 'package:habit_tracker/features/Task/task_tab.dart';
 import 'package:habit_tracker/features/Habits/presentation/habits_page.dart';
@@ -56,7 +57,7 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     "Tasks": 0,
     "Habits": 1,
     "Queue": 2,
-    "Essential": 3,
+    "Templates": 3,
     "Routines": 4,
     "Calendar": 5,
   };
@@ -103,6 +104,8 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _lastCatchUpCheck = DateTime.now();
       NotificationService.processPendingNotificationResponses();
+      // One-time migration: rename 'essential' → 'template' in Firestore
+      EssentialToTemplateMigration.runIfNeeded(currentUserUid);
       Future.wait([
         _checkMorningCatchUp(),
         _checkGoalOnboarding(),

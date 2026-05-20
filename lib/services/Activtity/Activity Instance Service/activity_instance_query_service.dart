@@ -928,21 +928,27 @@ class ActivityInstanceQueryService {
         includeLiveWindowCompletedHabits: true,
       );
 
-      // Separate tasks and habits for different filtering logic
-      // Exclude essentials from normal queries
-      // Also filter out inactive instances to match tasks page behavior
+      // Separate tasks, habits, and scheduled templates for different filtering logic
+      // Exclude unscheduled template instances (quick-logs) from the queue snapshot
       final taskInstances = allInstances.where((inst) {
         final isTask = inst.templateCategoryType == 'task';
-        final isEssential = inst.templateCategoryType == 'essential';
         final isActive = inst.isActive;
-        return isTask && !isEssential && isActive;
+        return isTask && isActive;
       }).toList();
 
       final habitInstances = allInstances
           .where((inst) =>
-              inst.templateCategoryType == 'habit' &&
-              inst.isActive) // Filter inactive instances
+              inst.templateCategoryType == 'habit' && inst.isActive)
           .toList();
+
+      // Scheduled template instances: pending with a dueDate (user set a due date)
+      final scheduledTemplateInstances = allInstances.where((inst) {
+        final t = inst.templateCategoryType;
+        return inst.isActive &&
+            (t == 'template' || t == 'essential') &&
+            inst.status == 'pending' &&
+            inst.dueDate != null;
+      }).toList();
       final List<ActivityInstanceRecord> finalInstanceList = [];
       // For tasks: keep the earliest pending instance per template AND any
       // recently completed/skipped instances. Using two separate passes ensures
@@ -979,6 +985,8 @@ class ActivityInstanceQueryService {
       }
 
       finalInstanceList.addAll(earliestPendingTasks.values);
+      // Scheduled template instances (pending with due date set by user)
+      finalInstanceList.addAll(scheduledTemplateInstances);
       // Add completed/skipped instances, deduplicating against already-added
       // pending instances by document ID to avoid exact duplicates.
       final addedIds = finalInstanceList.map((i) => i.reference.id).toSet();

@@ -6,6 +6,8 @@ import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
 import 'package:habit_tracker/services/Activtity/recurrence_calculator.dart';
+import 'package:habit_tracker/features/Essential/essential_data_service.dart';
+import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 
 class ItemMenuLogicHelper {
   // Utility to match your original _isSameDay
@@ -71,14 +73,17 @@ class ItemMenuLogicHelper {
           ActivityRecord.collectionForUser(uid).doc(instance.templateId);
       await templateRef
           .update({'priority': newPriority, 'lastUpdated': DateTime.now()});
-      final instanceRef = ActivityInstanceRecord.collectionForUser(uid)
-          .doc(instance.reference.id);
-      await instanceRef.update(
-          {'templatePriority': newPriority, 'lastUpdated': DateTime.now()});
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-          instanceId: instance.reference.id);
-      onInstanceUpdated(updatedInstance);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      final instanceId = instance.reference.id;
+      if (!instanceId.startsWith('display_')) {
+        final instanceRef =
+            ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+        await instanceRef.update(
+            {'templatePriority': newPriority, 'lastUpdated': DateTime.now()});
+        final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
+            instanceId: instanceId);
+        onInstanceUpdated(updatedInstance);
+        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      }
     } catch (e) {
       onInstanceUpdated(previousInstance);
       if (context.mounted) {
@@ -476,6 +481,24 @@ class ItemMenuLogicHelper {
           if (!isTempInstance) {
             await ActivityInstanceService.removeDueDateFromInstance(
                 instanceId: instance.reference.id);
+          }
+          // For templates: also clear the dueDate on the ActivityRecord and
+          // deactivate any remaining pending instances for this template.
+          if (instance.templateCategoryType == 'template' ||
+              instance.templateCategoryType == 'essential') {
+            final uid = await waitForCurrentUserUid();
+            if (uid.isNotEmpty) {
+              await essentialService.updateessentialTemplate(
+                templateId: instance.templateId,
+                dueDate: null,
+                userId: uid,
+              );
+              await essentialService.managePendingInstanceForDueDate(
+                templateId: instance.templateId,
+                newDueDate: null,
+                userId: uid,
+              );
+            }
           }
           break;
         case 'skip_rest':

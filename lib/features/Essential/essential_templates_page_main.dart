@@ -33,7 +33,8 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
     if (!mounted) return;
     final instance = _extractInstanceFromEvent(param);
     if (instance == null) return;
-    if (instance.templateCategoryType != 'essential') return;
+    if (instance.templateCategoryType != 'template' &&
+        instance.templateCategoryType != 'essential') return;
     loadTodayStats();
   }
 
@@ -78,6 +79,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
 
   @override
   void dispose() {
+    cancelTickTimer();
     NotificationCenter.removeObserver(this);
     searchManager.removeListener(onSearchChanged);
     super.dispose();
@@ -99,7 +101,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
             Text(
               searchQuery.isNotEmpty
                   ? 'No Templates Found'
-                  : 'No essential Templates',
+                  : 'No Templates',
               style: FlutterFlowTheme.of(context).titleMedium,
             ),
             const SizedBox(height: 8),
@@ -146,8 +148,9 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
       if (expanded) {
         for (final template in templates) {
           final displayInstance = createDisplayInstance(template);
-          final timeEstimate = template.timeEstimateMinutes;
-          final timeEstimateText = formatTimeEstimate(timeEstimate);
+          final isTimeType = template.trackingType == 'time';
+          final templateId = template.reference.id;
+          final timerRunning = isTemplateTimerRunning(templateId);
           slivers.add(
             SliverToBoxAdapter(
               child: Stack(
@@ -155,12 +158,13 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                 children: [
                   // Main ItemComponent
                   ItemComponent(
-                    key: Key('essential_template_${template.reference.id}'),
+                    key: Key('essential_template_$templateId'),
                     instance: displayInstance,
                     isHabit: false,
                     showTypeIcon: false,
                     showRecurringIcon: false,
                     showCompleted: false,
+                    showManagementActions: false,
                     onRefresh: loadTemplates,
                     onInstanceUpdated: handleInstanceUpdated,
                     onInstanceDeleted: handleInstanceDeleted,
@@ -172,9 +176,18 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                     },
                     categoryColorHex: category.color,
                     showQuickLogOnLeft: true,
-                    onQuickLog: () => quickLog(template),
+                    quickLogIcon: isTimeType
+                        ? (timerRunning
+                            ? Icons.stop_circle
+                            : Icons.play_circle_outline)
+                        : null,
+                    onQuickLog: isTimeType
+                        ? () => timerRunning
+                            ? stopTemplateTimer(template)
+                            : startTemplateTimer(template)
+                        : () => quickLog(template),
                   ),
-                  // Overlay: Kebab menu icon and time estimate
+                  // Overlay: count badge (or elapsed time while timing) + kebab
                   Positioned.fill(
                     child: Padding(
                       padding: const EdgeInsets.only(right: 16 + 6),
@@ -184,11 +197,27 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                           mainAxisSize: MainAxisSize.min,
                           crossAxisAlignment: CrossAxisAlignment.center,
                           children: [
-                            if (todayCounts.containsKey(template.reference.id))
+                            if (timerRunning)
                               Padding(
                                 padding: const EdgeInsets.only(right: 8),
                                 child: Text(
-                                  '${todayCounts[template.reference.id]}x (${todayMinutes[template.reference.id]}m)',
+                                  timerElapsedDisplay(templateId),
+                                  style: FlutterFlowTheme.of(context)
+                                      .bodySmall
+                                      .override(
+                                        fontFamily: 'Readex Pro',
+                                        color: FlutterFlowTheme.of(context)
+                                            .primary,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                ),
+                              )
+                            else if (todayCounts.containsKey(templateId))
+                              Padding(
+                                padding: const EdgeInsets.only(right: 8),
+                                child: Text(
+                                  '${todayCounts[templateId]}x (${todayMinutes[templateId]}m)',
                                   style: FlutterFlowTheme.of(context)
                                       .bodySmall
                                       .override(
@@ -200,30 +229,28 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                                       ),
                                 ),
                               ),
-                            if (timeEstimateText.isNotEmpty)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Container(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 2),
-                                  decoration: BoxDecoration(
-                                    color: Colors.white.withOpacity(0.9),
-                                    borderRadius: BorderRadius.circular(4),
-                                  ),
-                                  child: Text(
-                                    timeEstimateText,
-                                    style: FlutterFlowTheme.of(context)
-                                        .bodySmall
-                                        .override(
-                                          fontFamily: 'Readex Pro',
-                                          color: FlutterFlowTheme.of(context)
-                                              .secondaryText,
-                                          fontSize: 11,
-                                          fontWeight: FontWeight.w500,
-                                        ),
+                            // Calendar / date quick-picker
+                            Builder(
+                              builder: (calCtx) => Material(
+                                color: Colors.transparent,
+                                child: InkWell(
+                                  onTap: () =>
+                                      showTemplateDateMenu(calCtx, template),
+                                  borderRadius: BorderRadius.circular(20),
+                                  child: Container(
+                                    padding: const EdgeInsets.all(6),
+                                    child: Icon(
+                                      Icons.calendar_month,
+                                      size: 20,
+                                      color: FlutterFlowTheme.of(context)
+                                          .primaryText,
+                                    ),
                                   ),
                                 ),
                               ),
+                            ),
+                            const SizedBox(width: 2),
+                            // Kebab menu
                             Builder(
                               builder: (btnContext) => Material(
                                 color: Colors.transparent,
@@ -422,7 +449,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                       Padding(
                         padding: const EdgeInsets.fromLTRB(16.0, 6.0, 16.0, 0),
                         child: Text(
-                          'Essential activities track time but do not earn points.',
+                          'Templates are reusable items. Set priority to 0 to skip scoring.',
                           style: FlutterFlowTheme.of(context)
                               .bodySmall
                               .override(
@@ -449,7 +476,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                                     Text(
                                       searchQuery.isNotEmpty
                                           ? 'No Templates Found'
-                                          : 'No essential Templates',
+                                          : 'No Templates',
                                       style: FlutterFlowTheme.of(context)
                                           .titleMedium,
                                     ),
@@ -479,7 +506,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
                 heroTag: 'fab_add_essential',
                 onPressed: showCreateDialog,
                 child: const Icon(Icons.add),
-                tooltip: 'Create Essential Template',
+                tooltip: 'Create Template',
               ),
             ),
           ],

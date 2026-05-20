@@ -19,8 +19,10 @@ class ManualTimeLogSearchService {
           typeMatch = activity.categoryType == 'habit';
         } else if (state.selectedType == 'task') {
           typeMatch = activity.categoryType == 'task';
-        } else if (state.selectedType == 'essential') {
-          typeMatch = activity.categoryType == 'essential';
+        } else if (state.selectedType == 'essential' ||
+            state.selectedType == 'template') {
+          typeMatch = activity.categoryType == 'template' ||
+              activity.categoryType == 'essential';
         }
 
         if (!typeMatch) return false;

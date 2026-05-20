@@ -65,18 +65,20 @@ class NotificationPreferencesService {
   /// Get default notification preferences
   static Map<String, dynamic> getDefaultNotificationPreferences() {
     return {
-      'wake_up_time': '07:00', // 7:00 AM default
-      'sleep_time': '22:00', // 10:00 PM default
-      'morning_time': '08:00', // Calculated: wake up + 1 hour
-      'evening_time': '21:00', // Calculated: sleep - 1 hour
+      'wake_up_time': '07:00',
+      'sleep_time': '22:00',
+      'morning_time': '08:00',
+      'evening_time': '21:00',
       'morning_reminder_enabled': true,
       'evening_reminder_enabled': true,
       'engagement_reminder_enabled': true,
-      'engagement_reminder_hours':
-          6, // Send reminder if app not opened for 6 hours
+      'engagement_reminder_hours': 6,
       'max_notifications_per_day': 5,
-      'quiet_hours_start': 22, // Will be calculated from sleep_time
-      'quiet_hours_end': 7, // Will be calculated from wake_up_time
+      'quiet_hours_start': 22,
+      'quiet_hours_end': 7,
+      // Universal due-time reminder (fires when no individual reminders are set)
+      'due_time_reminder_enabled': true,
+      'due_time_reminder_minutes': 10, // 0 = on-time, 5/10/15/30/60 = before
     };
   }
 
@@ -253,6 +255,26 @@ class NotificationPreferencesService {
       return prefs['engagement_reminder_hours'] as int? ?? 6;
     } catch (e) {
       return 6;
+    }
+  }
+
+  /// Whether the universal due-time reminder is enabled
+  static Future<bool> isDueTimeReminderEnabled(String userId) async {
+    try {
+      final prefs = await getUserNotificationPreferences(userId);
+      return prefs['due_time_reminder_enabled'] as bool? ?? true;
+    } catch (e) {
+      return true;
+    }
+  }
+
+  /// Minutes before due time for the universal reminder (0 = on-time)
+  static Future<int> getDueTimeReminderMinutes(String userId) async {
+    try {
+      final prefs = await getUserNotificationPreferences(userId);
+      return prefs['due_time_reminder_minutes'] as int? ?? 10;
+    } catch (e) {
+      return 10;
     }
   }
 

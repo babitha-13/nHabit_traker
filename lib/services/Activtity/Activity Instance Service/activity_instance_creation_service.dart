@@ -162,6 +162,7 @@ class ActivityInstanceCreationService {
       // Set habit-specific fields
       dayState: template.categoryType == 'habit' ? 'open' : null,
       belongsToDate: template.categoryType == 'habit' ||
+              template.categoryType == 'template' ||
               template.categoryType == 'essential'
           ? normalizedDate
           : null,

@@ -41,7 +41,9 @@ class ItemExpandedDetails extends StatelessWidget {
         subtitle == categoryName;
   }
 
-  bool get _isessential => instance.templateCategoryType == 'essential';
+  bool get _isessential =>
+      instance.templateCategoryType == 'essential' ||
+      instance.templateCategoryType == 'template';
 
   String? get _timeEstimateDisplay {
     final minutes = timeEstimateMinutes ?? instance.templateTimeEstimateMinutes;

@@ -7,11 +7,12 @@ class CalendarEventMetadata {
   final int? sessionEndEpochMs;
   final int? sessionLoggedAtEpochMs;
   final String activityName;
-  final String activityType; // 'task', 'habit', 'essential'
+  final String activityType; // 'task', 'habit', 'template', 'essential'
   final String? templateId;
   final String? categoryId;
   final String? categoryName;
   final String? categoryColorHex;
+  final int templatePriority; // 0 = non-scoring, 1–3 = scored
 
   CalendarEventMetadata({
     required this.instanceId,
@@ -25,6 +26,7 @@ class CalendarEventMetadata {
     this.categoryId,
     this.categoryName,
     this.categoryColorHex,
+    this.templatePriority = 0,
   });
 
   Map<String, dynamic> toMap() {
@@ -40,6 +42,7 @@ class CalendarEventMetadata {
       'categoryId': categoryId,
       'categoryName': categoryName,
       'categoryColorHex': categoryColorHex,
+      'templatePriority': templatePriority,
     };
   }
 
@@ -49,6 +52,7 @@ class CalendarEventMetadata {
       final rawSessionStart = data['sessionStartEpochMs'];
       final rawSessionEnd = data['sessionEndEpochMs'];
       final rawSessionLoggedAt = data['sessionLoggedAtEpochMs'];
+      final rawPriority = data['templatePriority'];
       return CalendarEventMetadata(
         instanceId: data['instanceId'] as String,
         sessionIndex: rawSessionIndex is num ? rawSessionIndex.toInt() : -1,
@@ -63,6 +67,7 @@ class CalendarEventMetadata {
         categoryId: data['categoryId'] as String?,
         categoryName: data['categoryName'] as String?,
         categoryColorHex: data['categoryColorHex'] as String?,
+        templatePriority: rawPriority is num ? rawPriority.toInt() : 0,
       );
     }
     return null;

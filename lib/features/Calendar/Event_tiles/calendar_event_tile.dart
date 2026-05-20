@@ -1,7 +1,6 @@
 import 'package:calendar_view/calendar_view.dart';
 import 'package:flutter/material.dart';
 import 'package:habit_tracker/features/Calendar/Conflicting_events_overlap/diagonal_stripe_painter.dart';
-import 'package:habit_tracker/features/Calendar/Event_tiles/dashed_border_painter.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_component_ui.dart';
 import 'package:habit_tracker/features/Item_component/presentation/item_dotted_line_painter.dart';
 import 'dart:math' as math;
@@ -304,25 +303,34 @@ class CalendarEventTileBuilder {
     double leftEdgeWidth;
     Widget leftEdgeContent;
 
-    if (activityType == 'essential') {
-      boxColor = event.color.withValues(alpha: isCompleted ? 0.07 : 0.03);
-      borderColor = event.color.withValues(alpha: 0.2);
-      leftEdgeWidth = 6.0;
+    final priority = metadata?.templatePriority ?? 0;
+    final isZeroPriority = priority <= 0;
+
+    if (isZeroPriority) {
+      // Any type with no scoring: very transparent fill, light border, faint dotted edge
+      boxColor = event.color.withValues(alpha: isCompleted ? 0.08 : 0.04);
+      borderColor = event.color.withValues(alpha: 0.15);
+      leftEdgeWidth = 3.5;
       leftEdgeContent = CustomPaint(
-        painter: DoubleLinePainter(
-          color: event.color.withValues(alpha: isCompleted ? 0.6 : 0.4),
+        painter: DottedLinePainter(
+          color: event.color.withValues(alpha: isCompleted ? 0.55 : 0.40),
+          strokeWidth: 2.5,
+          dashHeight: 3.0,
+          dashSpace: 7.0,
         ),
       );
     } else if (activityType == 'habit') {
+      // Scored habit: double stripe signals recurring
       boxColor = event.color.withValues(alpha: isCompleted ? 0.12 : 0.06);
       borderColor = event.color.withValues(alpha: 0.25);
-      leftEdgeWidth = 4.0;
+      leftEdgeWidth = 5.5;
       leftEdgeContent = CustomPaint(
-        painter: DottedLinePainter(
+        painter: DoubleLinePainter(
           color: event.color.withValues(alpha: isCompleted ? 0.9 : 0.75),
         ),
       );
     } else {
+      // Scored task or template: solid stripe
       boxColor = event.color.withValues(alpha: isCompleted ? 0.18 : 0.10);
       borderColor = event.color.withValues(alpha: 0.3);
       leftEdgeWidth = 3.5;
@@ -394,8 +402,7 @@ class CalendarEventTileBuilder {
     bool isessential,
   ) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
-    final activityType = (metadata?.activityType ?? 'task').toLowerCase();
-    final isEssentialActivity = activityType == 'essential';
+    final isEssentialActivity = (metadata?.templatePriority ?? 0) <= 0;
 
     // Fills are now near-transparent — text sits on a light background, so always use dark text.
     Color textColor;
@@ -467,42 +474,36 @@ class CalendarEventTileBuilder {
     bool isessential,
   ) {
     final metadata = CalendarEventMetadata.fromMap(event.event);
-    final activityType = (metadata?.activityType ?? 'task').toLowerCase();
-    final isEssentialActivity = activityType == 'essential';
-    final isHabit = activityType == 'habit';
+    final isEssentialActivity = (metadata?.templatePriority ?? 0) <= 0;
 
-    // Per-type chip style:
-    // Task   → solid fill, no special border
-    // Habit  → solid fill + dashed white border overlay
-    // Essential → transparent fill + solid colored border (less prominent)
+    // Chip style:
+    // Zero priority → transparent fill + light solid border
+    // Scored (task, habit, template) → solid fill, shadow
     Color fillColor;
     Color textColor;
     Border? solidBorder;
-    bool useDashedBorder = false;
-    Color dashedBorderColor = Colors.transparent;
     List<BoxShadow>? shadows;
 
     if (isEssentialActivity) {
+      // Zero priority (any type): transparent fill + light colored border
       fillColor = event.color.withValues(alpha: isCompleted ? 0.08 : 0.0);
       textColor = Colors.black87;
       solidBorder = Border.all(
-        color: event.color.withValues(alpha: isCompleted ? 0.65 : 0.45),
+        color: event.color.withValues(alpha: isCompleted ? 0.55 : 0.38),
         width: 1.5,
       );
       shadows = null;
-    } else if (isHabit) {
-      fillColor = event.color.withValues(alpha: isCompleted ? 0.92 : 0.82);
-      textColor = event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
-      useDashedBorder = true;
-      dashedBorderColor = Colors.black.withValues(alpha: isCompleted ? 0.35 : 0.25);
-      shadows = const [BoxShadow(color: Colors.black26, blurRadius: 4.0, offset: Offset(0, 2))];
     } else {
-      // task
+      // Scored items (task, habit, template): solid fill chip, no special border
       fillColor = event.color.withValues(alpha: isCompleted ? 0.92 : 0.82);
       textColor = event.color == const Color(0xFF1A1A1A)
           ? Colors.white
-          : event.color.computeLuminance() > 0.5 ? Colors.black87 : Colors.white;
-      shadows = const [BoxShadow(color: Colors.black26, blurRadius: 4.0, offset: Offset(0, 2))];
+          : event.color.computeLuminance() > 0.5
+              ? Colors.black87
+              : Colors.white;
+      shadows = const [
+        BoxShadow(color: Colors.black26, blurRadius: 4.0, offset: Offset(0, 2))
+      ];
     }
 
     final rowContent = Row(
@@ -543,23 +544,7 @@ class CalendarEventTileBuilder {
 
     return ConstrainedBox(
       constraints: const BoxConstraints(minHeight: 24.0, minWidth: 40.0),
-      child: useDashedBorder
-          ? Stack(
-              children: [
-                container,
-                Positioned.fill(
-                  child: IgnorePointer(
-                    child: CustomPaint(
-                      painter: DashedBorderPainter(
-                        color: dashedBorderColor,
-                        borderRadius: 4.0,
-                      ),
-                    ),
-                  ),
-                ),
-              ],
-            )
-          : container,
+      child: container,
     );
   }
 }

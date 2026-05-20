@@ -43,6 +43,11 @@ class ActivityTypeDropdownHelper {
     return taskTypes.values.toList();
   }
 
+  /// Get task type options for templates (binary and time only — qty doesn't apply)
+  static List<TaskTypeInfo> getTemplateTaskTypes() {
+    return [taskTypes['binary']!, taskTypes['time']!];
+  }
+
   /// Validate task type value
   static bool isValidTaskType(String? value) {
     return taskTypes.containsKey(value);

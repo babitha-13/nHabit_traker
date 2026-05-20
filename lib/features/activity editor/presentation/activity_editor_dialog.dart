@@ -8,6 +8,8 @@ import 'package:habit_tracker/features/activity%20editor/Services/activity_edito
 import 'package:habit_tracker/features/activity%20editor/Services/activity_editor_ui_builders_service.dart';
 import 'package:habit_tracker/features/activity%20editor/Reminder_config/reminder_config.dart';
 
+enum ActivityKind { task, habit, template }
+
 // Public typedef for services to reference the state class
 // This allows service files to reference the private state class
 typedef ActivityEditorDialogState = _ActivityEditorDialogState;
@@ -18,8 +20,8 @@ class ActivityEditorDialog extends StatefulWidget {
   final List<CategoryRecord> categories;
   final Function(ActivityRecord?)? onSave; // Optional callback
   final ActivityInstanceRecord? instance;
-  final bool?
-      isEssential; // Optional: if null, derived from activity.categoryType
+  // isEssential kept for backward compat; prefer passing kind directly
+  final bool? isEssential;
 
   const ActivityEditorDialog({
     super.key,
@@ -58,15 +60,13 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   bool _isLoadingCategories = false;
   int? _timeEstimateMinutes;
   int? _defaultTimeEstimateMinutes;
-  bool _frequencyEnabled = false; // For essentials: frequency can be disabled
+  bool _frequencyEnabled = false; // For templates: frequency can be disabled
+  ActivityKind _kind = ActivityKind.task;
 
   bool get _isRecurring => quickIsTaskRecurring && _frequencyConfig != null;
 
-  /// Check if this is an essential activity
-  bool get _isEssential {
-    if (widget.isEssential != null) return widget.isEssential!;
-    return widget.activity?.categoryType == 'essential';
-  }
+  /// Check if this is a template activity (no schedule, point-accrual controlled by priority)
+  bool get _isEssential => _kind == ActivityKind.template;
 
   /// Get the categories to use - prefer loaded categories, fallback to widget categories
   List<CategoryRecord> get _categories {
@@ -83,8 +83,23 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     _unitController = TextEditingController(text: t?.unit ?? '');
     _descriptionController = TextEditingController(text: t?.description ?? '');
 
+    // Derive kind before the init service runs (it reads kind via isEssential)
+    _kind = _deriveInitialKind();
+
     // Delegate rest of initialization to service
     ActivityEditorInitializationService.initializeState(this);
+  }
+
+  ActivityKind _deriveInitialKind() {
+    if (widget.activity != null) {
+      final ct = widget.activity!.categoryType;
+      if (ct == 'template' || ct == 'essential') return ActivityKind.template;
+      if (ct == 'habit') return ActivityKind.habit;
+      return ActivityKind.task;
+    }
+    if (widget.isEssential == true) return ActivityKind.template;
+    if (widget.isHabit) return ActivityKind.habit;
+    return ActivityKind.task;
   }
 
   @override
@@ -139,6 +154,8 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
       _defaultTimeEstimateMinutes = value;
   bool get frequencyEnabled => _frequencyEnabled;
   set frequencyEnabled(bool value) => _frequencyEnabled = value;
+  ActivityKind get kind => _kind;
+  set kind(ActivityKind value) => _kind = value;
   bool get isRecurring => _isRecurring;
   bool get isEssential => _isEssential;
   List<CategoryRecord> get categories => _categories;

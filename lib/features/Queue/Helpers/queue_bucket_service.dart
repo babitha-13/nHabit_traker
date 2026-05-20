@@ -55,7 +55,13 @@ class QueueBucketService {
     // Filter instances by search query if active
     final instancesToProcess = filteredInstances.where((instance) {
       final normalizedType = instance.templateCategoryType.trim().toLowerCase();
-      final isQueueType = normalizedType == 'task' || normalizedType == 'habit';
+      final isTemplate =
+          normalizedType == 'template' || normalizedType == 'essential';
+      // Pending template instances with a due date appear in the queue;
+      // completed template instances stay in the Templates tab only.
+      final isQueueType = normalizedType == 'task' ||
+          normalizedType == 'habit' ||
+          (isTemplate && instance.status == 'pending' && instance.dueDate != null);
       if (!isQueueType || !instance.isActive) {
         return false;
       }
@@ -81,8 +87,11 @@ class QueueBucketService {
         continue;
       }
       final dateOnly = DateTime(dueDate.year, dueDate.month, dueDate.day);
-      // OVERDUE: Only tasks that are overdue
-      if (dateOnly.isBefore(today) && instance.templateCategoryType == 'task') {
+      // OVERDUE: Tasks and scheduled templates that are overdue
+      final t = instance.templateCategoryType;
+      final isScheduledTemplate = t == 'template' || t == 'essential';
+      if (dateOnly.isBefore(today) &&
+          (instance.templateCategoryType == 'task' || isScheduledTemplate)) {
         buckets['Overdue']!.add(instance);
       }
       // PENDING: Both habits and tasks for today

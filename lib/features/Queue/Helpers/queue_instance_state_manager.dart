@@ -3,13 +3,15 @@ import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/a
 
 /// Helper class for handling instance events in queue page
 class QueueInstanceHandlers {
-  static bool _isQueueType(String? type) {
-    final normalized = (type ?? '').trim().toLowerCase();
-    return normalized == 'task' || normalized == 'habit';
-  }
-
   static bool _shouldTrackQueueInstance(ActivityInstanceRecord instance) {
-    return instance.isActive && _isQueueType(instance.templateCategoryType);
+    if (!instance.isActive) return false;
+    final type = instance.templateCategoryType.trim().toLowerCase();
+    if (type == 'task' || type == 'habit') return true;
+    // Pending templates with a due date appear in the queue
+    if (type == 'template' || type == 'essential') {
+      return instance.status == 'pending' && instance.dueDate != null;
+    }
+    return false;
   }
 
   /// Update instance in local state

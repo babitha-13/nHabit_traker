@@ -43,8 +43,9 @@ class ItemComponent extends StatefulWidget {
   final String? subtitle;
   final bool showExpandedCategoryName;
   final DateTime? progressReferenceTime;
-  final bool showQuickLogOnLeft; // NEW: Flag to show + on left
-  final VoidCallback? onQuickLog; // NEW: Callback for + on left
+  final bool showQuickLogOnLeft;
+  final VoidCallback? onQuickLog;
+  final IconData? quickLogIcon; // overrides the default add_circle_outline icon
   final bool showManagementActions;
   final bool showCalendarSkipOnly;
   final bool enableExpandedEdit;
@@ -83,6 +84,7 @@ class ItemComponent extends StatefulWidget {
       this.progressReferenceTime,
       this.showQuickLogOnLeft = false,
       this.onQuickLog,
+      this.quickLogIcon,
       this.showManagementActions = true,
       this.showCalendarSkipOnly = false,
       this.enableExpandedEdit = true,
@@ -111,8 +113,8 @@ class _ItemComponentState extends State<ItemComponent>
   bool _isFetchingTimeEstimate = false;
 
   bool get _shouldLoadQueueReminderState {
-    return widget.page == 'queue' &&
-        widget.instance.templateCategoryType != 'essential';
+    final t = widget.instance.templateCategoryType;
+    return widget.page == 'queue' && t != 'template' && t != 'essential';
   }
 
   @override
@@ -655,9 +657,7 @@ class _ItemComponentState extends State<ItemComponent>
                   ),
                 ),
               ),
-              if (_isExpanded &&
-                  !_isessential &&
-                  widget.showManagementActions) ...[
+              if (_isExpanded && !_isessential) ...[
                 Center(
                   child: _buildHabitPriorityStars(),
                 ),
@@ -720,17 +720,21 @@ class _ItemComponentState extends State<ItemComponent>
         'priority': newPriority,
         'lastUpdated': DateTime.now(),
       });
-      final instanceRef = ActivityInstanceRecord.collectionForUser(uid)
-          .doc(widget.instance.reference.id);
-      await instanceRef.update({
-        'templatePriority': newPriority,
-        'lastUpdated': DateTime.now(),
-      });
-      final updatedInstance = await ActivityInstanceService.getUpdatedInstance(
-        instanceId: widget.instance.reference.id,
-      );
-      widget.onInstanceUpdated?.call(updatedInstance);
-      InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      final instanceId = widget.instance.reference.id;
+      if (!instanceId.startsWith('display_')) {
+        final instanceRef =
+            ActivityInstanceRecord.collectionForUser(uid).doc(instanceId);
+        await instanceRef.update({
+          'templatePriority': newPriority,
+          'lastUpdated': DateTime.now(),
+        });
+        final updatedInstance =
+            await ActivityInstanceService.getUpdatedInstance(
+          instanceId: instanceId,
+        );
+        widget.onInstanceUpdated?.call(updatedInstance);
+        InstanceEvents.broadcastInstanceUpdated(updatedInstance);
+      }
     } catch (e) {
       widget.onInstanceUpdated?.call(previousInstance);
       if (mounted) {
@@ -756,14 +760,15 @@ class _ItemComponentState extends State<ItemComponent>
       }
       return;
     }
-    if (widget.instance.templateCategoryType == 'task' ||
-        widget.instance.templateCategoryType == 'habit') {
+    final cType = widget.instance.templateCategoryType;
+    if (cType == 'task' || cType == 'habit' || cType == 'template') {
       showDialog(
         context: context,
         builder: (_) => ActivityEditorDialog(
           activity: template,
           instance: widget.instance,
-          isHabit: widget.instance.templateCategoryType == 'habit',
+          isHabit: cType == 'habit',
+          isEssential: cType == 'template',
           categories: widget.categories ?? [],
           onSave: (updatedHabit) async {
             final newEstimate = updatedHabit != null
@@ -793,6 +798,8 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   bool get _isessential {
+    // Only legacy 'essential' records retain the essential-suppressed display.
+    // New 'template' records get full task-like item component rendering.
     return widget.instance.templateCategoryType == 'essential';
   }
 
@@ -835,6 +842,7 @@ class _ItemComponentState extends State<ItemComponent>
       instance: widget.instance,
       showQuickLogOnLeft: widget.showQuickLogOnLeft,
       onQuickLog: widget.onQuickLog,
+      quickLogIcon: widget.quickLogIcon,
       treatAsBinary: widget.treatAsBinary,
       isUpdating: _isUpdating,
       isCompleted: _isCompleted,

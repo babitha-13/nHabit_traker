@@ -127,8 +127,10 @@ class ItemSubtitleReminderHelper {
 
     final bool hasDueTime = dueTimeStr != null && dueTimeStr.isNotEmpty;
     final timeSuffix = hasDueTime ? ' @ $dueTimeStr' : '';
-    if (instance.dueDate == null || isEssential) {
-      return subtitle; // No due date, can't add time
+    if (instance.dueDate == null) {
+      // Templates with a due time but no specific date: show time alone
+      if (hasDueTime && isEssential) return '$subtitle$timeSuffix';
+      return subtitle;
     }
     final datePatterns = [
       RegExp(r'\b(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\s+\d{1,2}\b',
@@ -231,7 +233,8 @@ class ItemSubtitleReminderHelper {
     processedSubtitle = addDueTimeToSubtitle(
       subtitle: processedSubtitle,
       instance: instance,
-      isEssential: instance.templateCategoryType == 'essential',
+      isEssential: instance.templateCategoryType == 'template' ||
+          instance.templateCategoryType == 'essential',
     );
     if (processedSubtitle.isEmpty && progressText.isEmpty) {
       return '';

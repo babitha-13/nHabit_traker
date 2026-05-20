@@ -14,6 +14,7 @@ import 'package:habit_tracker/features/Shared/section_expansion_state_manager.da
 import 'package:habit_tracker/features/Categories/Create%20Category/create_category.dart';
 import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
 import 'package:habit_tracker/features/Settings/default_time_estimates_service.dart';
+import 'package:habit_tracker/services/template_timer_service.dart';
 
 mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   List<ActivityRecord> templates = [];
@@ -29,7 +30,81 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   Map<String, int> todayCounts = {};
   Map<String, int> todayMinutes = {};
   int? defaultTimeEstimateMinutes;
-  bool isLoadingData = false; // Guard against concurrent loads
+  bool isLoadingData = false;
+
+  // Timer tick — drives elapsed time display for time-type templates
+  Timer? _tickTimer;
+
+  final _timerService = TemplateTimerService.instance;
+
+  bool isTemplateTimerRunning(String templateId) =>
+      _timerService.isRunning(templateId);
+
+  String timerElapsedDisplay(String templateId) =>
+      _timerService.elapsedDisplay(templateId);
+
+  void cancelTickTimer() => _tickTimer?.cancel();
+
+  void _startTickTimer() {
+    _tickTimer?.cancel();
+    _tickTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted && _timerService.hasAnyRunning) {
+        setState(() {});
+      } else {
+        _tickTimer?.cancel();
+        _tickTimer = null;
+      }
+    });
+  }
+
+  void startTemplateTimer(ActivityRecord template) {
+    _timerService.start(template.reference.id);
+    _startTickTimer();
+    if (mounted) setState(() {});
+  }
+
+  Future<void> stopTemplateTimer(ActivityRecord template) async {
+    final startTime = _timerService.stop(template.reference.id);
+    if (startTime == null) return;
+    final endTime = DateTime.now();
+    final templateId = template.reference.id;
+
+    if (mounted) setState(() {});
+
+    unawaited(() async {
+      try {
+        final userId = await waitForCurrentUserUid();
+        if (userId.isEmpty) throw Exception('User not signed in');
+        await essentialService.createessentialInstance(
+          templateId: templateId,
+          startTime: startTime,
+          endTime: endTime,
+          userId: userId,
+        );
+        final elapsed = endTime.difference(startTime);
+        if (mounted) {
+          setState(() {
+            todayCounts[templateId] = (todayCounts[templateId] ?? 0) + 1;
+            todayMinutes[templateId] =
+                (todayMinutes[templateId] ?? 0) + elapsed.inMinutes;
+          });
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Logged ${template.name} (${elapsed.inMinutes}m ${elapsed.inSeconds % 60}s)'),
+            backgroundColor: Colors.green,
+            duration: const Duration(seconds: 2),
+          ));
+        }
+      } catch (e) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Error logging activity: $e'),
+            backgroundColor: Colors.red,
+          ));
+        }
+      }
+    }());
+  }
 
   int _computeTemplatesHash(List<ActivityRecord> records) {
     return records.length.hashCode ^
@@ -119,6 +194,8 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
         expandedCategories = expandedSections;
       });
     }
+    // Restart tick timer if a timer was running before the user navigated away
+    if (_timerService.hasAnyRunning) _startTickTimer();
   }
 
   void onSearchChanged(String query) {
@@ -279,11 +356,11 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
     }).toList();
   }
 
-  Future<void> loadTemplates() async {
+  Future<void> loadTemplates({bool silent = false}) async {
     if (!mounted) return;
     if (isLoadingData) return;
     isLoadingData = true;
-    if (!isLoading) {
+    if (!isLoading && !silent) {
       setState(() {
         isLoading = true;
       });
@@ -445,8 +522,8 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       'templateCategoryId': template.categoryId,
       'templateCategoryName': template.categoryName.isNotEmpty
           ? template.categoryName
-          : 'essential',
-      'templateCategoryType': 'essential',
+          : 'Others',
+      'templateCategoryType': template.categoryType,
       'templatePriority': template.priority,
       'templateTrackingType':
           template.trackingType.isNotEmpty ? template.trackingType : 'time',
@@ -455,6 +532,9 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       'templateDescription': template.description,
       'templateShowInFloatingTimer': template.showInFloatingTimer,
       'templateIsRecurring': template.isRecurring,
+      'templateTimeEstimateMinutes': template.timeEstimateMinutes,
+      'templateDueTime': template.hasDueTime() ? template.dueTime : null,
+      'dueDate': template.dueDate,
       'timeLogSessions': [],
       'totalTimeLogged': 0,
     };
@@ -511,29 +591,17 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
         borderRadius: BorderRadius.circular(8),
         side: BorderSide(color: FlutterFlowTheme.of(context).alternate),
       ),
-      items: [
-        const PopupMenuItem<String>(
+      items: const [
+        PopupMenuItem<String>(
           value: 'edit',
           height: 32,
-          child: Row(
-            children: [
-              Icon(Icons.edit, size: 20),
-              SizedBox(width: 8),
-              Text('Edit'),
-            ],
-          ),
+          child: Text('Edit', style: TextStyle(fontSize: 12)),
         ),
-        const PopupMenuDivider(height: 6),
-        const PopupMenuItem<String>(
+        PopupMenuDivider(height: 6),
+        PopupMenuItem<String>(
           value: 'delete',
           height: 32,
-          child: Row(
-            children: [
-              Icon(Icons.delete, size: 20, color: Colors.red),
-              SizedBox(width: 8),
-              Text('Delete', style: TextStyle(color: Colors.red)),
-            ],
-          ),
+          child: Text('Delete', style: TextStyle(fontSize: 12)),
         ),
       ],
     );
@@ -548,8 +616,17 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
   }
 
   void handleInstanceUpdated(ActivityInstanceRecord instance) {
-    // For templates page, instance updates don't apply
-    // This is just for ItemComponent compatibility
+    final templateId = instance.templateId;
+    if (templateId.isEmpty) return;
+    final idx = templates.indexWhere((t) => t.reference.id == templateId);
+    if (idx < 0) return;
+    final old = templates[idx];
+    final updatedData = Map<String, dynamic>.from(old.snapshotData)
+      ..['priority'] = instance.templatePriority;
+    setState(() {
+      templates[idx] = ActivityRecord.getDocumentFromData(updatedData, old.reference);
+      cachedGroupedByCategory = null;
+    });
   }
 
   void handleInstanceDeleted(ActivityInstanceRecord instance) {
@@ -563,6 +640,129 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       } catch (e) {}
     }
   }
+
+  /// Show a date quick-picker for a template (Today / Tomorrow / Pick / Clear).
+  /// Operates on the ActivityRecord's dueDate (not the synthetic display instance).
+  Future<void> showTemplateDateMenu(
+      BuildContext anchorContext, ActivityRecord template) async {
+    final box = anchorContext.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final size = box.size;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+    final currentDueDate = template.dueDate;
+    final isDueToday =
+        currentDueDate != null && _isSameDay(currentDueDate, today);
+    final isDueTomorrow =
+        currentDueDate != null && _isSameDay(currentDueDate, tomorrow);
+
+    final items = <PopupMenuEntry<String>>[
+      if (!isDueToday)
+        const PopupMenuItem<String>(
+            value: 'today',
+            height: 32,
+            child:
+                Text('Schedule for today', style: TextStyle(fontSize: 12))),
+      if (!isDueTomorrow)
+        const PopupMenuItem<String>(
+            value: 'tomorrow',
+            height: 32,
+            child: Text('Schedule for tomorrow',
+                style: TextStyle(fontSize: 12))),
+      const PopupMenuItem<String>(
+          value: 'pick',
+          height: 32,
+          child:
+              Text('Pick due date...', style: TextStyle(fontSize: 12))),
+      if (currentDueDate != null) ...[
+        const PopupMenuDivider(height: 6),
+        const PopupMenuItem<String>(
+            value: 'clear',
+            height: 32,
+            child: Text('Clear due date', style: TextStyle(fontSize: 12))),
+      ],
+    ];
+
+    final selected = await showMenu<String>(
+      context: anchorContext,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy + size.height,
+        overlay.size.width - position.dx - size.width,
+        overlay.size.height - position.dy,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: items,
+    );
+
+    if (selected == null || !mounted) return;
+
+    DateTime? newDueDate;
+    if (selected == 'today') {
+      newDueDate = today;
+    } else if (selected == 'tomorrow') {
+      newDueDate = tomorrow;
+    } else if (selected == 'pick') {
+      newDueDate = await showDatePicker(
+        context: context,
+        initialDate: currentDueDate ?? today,
+        firstDate: today,
+        lastDate: today.add(const Duration(days: 365 * 5)),
+      );
+      if (newDueDate == null) return;
+    } else if (selected == 'clear') {
+      newDueDate = null;
+    } else {
+      return;
+    }
+
+    // Optimistic: update the local list immediately so the icon/subtitle reflects
+    // the new date without waiting for the Firestore round-trip.
+    final idx = templates.indexWhere(
+        (t) => t.reference.id == template.reference.id);
+    if (idx >= 0 && mounted) {
+      final updated = Map<String, dynamic>.from(templates[idx].snapshotData)
+        ..['dueDate'] = newDueDate;
+      setState(() {
+        templates[idx] = ActivityRecord.getDocumentFromData(
+            updated, templates[idx].reference);
+        cachedGroupedByCategory = null;
+      });
+    }
+
+    try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+
+      await essentialService.updateessentialTemplate(
+        templateId: template.reference.id,
+        dueDate: newDueDate,
+        userId: userId,
+      );
+      await essentialService.managePendingInstanceForDueDate(
+        templateId: template.reference.id,
+        newDueDate: newDueDate,
+        userId: userId,
+      );
+      await loadTemplates(silent: true);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+              content: Text('Error updating date: $e'),
+              backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
+  bool _isSameDay(DateTime a, DateTime b) =>
+      a.year == b.year && a.month == b.month && a.day == b.day;
 
   void handleCategoryMenuAction(String action, CategoryRecord category) {
     switch (action) {
@@ -580,7 +780,7 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
       context: context,
       builder: (context) => CreateCategory(
         category: category,
-        categoryType: 'essential',
+        categoryType: 'template',
       ),
     ).then((value) {
       if (value != null && value != false) {

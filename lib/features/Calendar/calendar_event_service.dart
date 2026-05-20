@@ -647,7 +647,8 @@ class CalendarEventService {
               } else if (item.templateCategoryColor.isNotEmpty) {
                 categoryColorHex = item.templateCategoryColor;
               }
-            } else if (item.templateCategoryType == 'essential') {
+            } else if (item.templateCategoryType == 'template' ||
+                item.templateCategoryType == 'essential') {
               categoryColorHex = '#808080'; // Grey hex
             }
 
@@ -670,6 +671,7 @@ class CalendarEventService {
                   ? item.templateCategoryName
                   : null,
               categoryColorHex: categoryColorHex,
+              templatePriority: item.templatePriority,
             );
 
             completedEvents.add(CalendarEventData(
@@ -832,6 +834,7 @@ class CalendarEventService {
           categoryColorHex: item.templateCategoryColor.isNotEmpty
               ? item.templateCategoryColor
               : null,
+          templatePriority: item.templatePriority,
         );
         final isDueMarker = durationMinutes == null || durationMinutes <= 0;
         final endTime = isDueMarker
@@ -879,7 +882,7 @@ class CalendarEventService {
                 : 'activity:${r.activityId}',
             sessionIndex: -1,
             activityName: r.name,
-            activityType: r.routineId != null ? 'routine' : 'essential',
+            activityType: r.routineId != null ? 'routine' : 'template',
             templateId: r.activityId,
             categoryId: null,
             categoryName: null,

@@ -363,8 +363,9 @@ class RoutineService {
         return null;
       }
 
-      // For Essential Activities, return null - UI should show time log dialog
-      if (template.categoryType == 'essential') {
+      // For Templates, return null - UI should show time log dialog
+      if (template.categoryType == 'template' ||
+          template.categoryType == 'essential') {
         return null; // Signal to UI to show time log dialog
       }
 

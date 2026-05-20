@@ -66,8 +66,9 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
       final filteredActivitiesResult = activities.where((activity) {
         // Keep all habits (always recurring)
         if (activity.categoryType == 'habit') return true;
-        // Keep all Essential Activities
-        if (activity.categoryType == 'essential') return true;
+        // Keep all Templates
+        if (activity.categoryType == 'template' ||
+            activity.categoryType == 'essential') return true;
         // For tasks: exclude completed/skipped one-time tasks
         if (activity.categoryType == 'task') {
           // Keep recurring tasks (regardless of status)

@@ -25,7 +25,7 @@ class DailyProgressCalculator {
     final inWindowHabits = allInstances.where((inst) {
       if (!inst.isActive) return false;
       if (inst.templateCategoryType != 'habit') return false;
-      if (inst.templateCategoryType == 'essential') return false;
+      if (inst.templateCategoryType == 'template' || inst.templateCategoryType == 'essential') return false;
       if (!_isWithinWindow(inst, normalizedDate)) return false;
       return true;
     }).toList();
@@ -77,7 +77,7 @@ class DailyProgressCalculator {
     final allTasksForMath = taskInstances.where((task) {
       if (!task.isActive) return false;
       // Skip Essential Activities
-      if (task.templateCategoryType == 'essential') return false;
+      if (task.templateCategoryType == 'template' || task.templateCategoryType == 'essential') return false;
       // Include if completed on the target date
       if (task.status == 'completed' && task.completedAt != null) {
         final completedDate = DateTime(
@@ -259,7 +259,7 @@ class DailyProgressCalculator {
     final inWindowHabits = allInstances.where((inst) {
       if (!inst.isActive) return false;
       if (inst.templateCategoryType != 'habit') return false;
-      if (inst.templateCategoryType == 'essential') return false;
+      if (inst.templateCategoryType == 'template' || inst.templateCategoryType == 'essential') return false;
       if (!_isWithinWindow(inst, normalizedDate)) return false;
       return true;
     }).toList();
@@ -282,7 +282,7 @@ class DailyProgressCalculator {
     final allTasksForMath = taskInstances.where((task) {
       if (!task.isActive) return false;
       // Skip Essential Activities
-      if (task.templateCategoryType == 'essential') return false;
+      if (task.templateCategoryType == 'template' || task.templateCategoryType == 'essential') return false;
       // Include if completed today
       if (task.status == 'completed' && task.completedAt != null) {
         final completedDate = DateTime(

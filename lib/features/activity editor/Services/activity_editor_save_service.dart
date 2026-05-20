@@ -112,6 +112,18 @@ class ActivityEditorSaveService {
         : null;
   }
 
+  static dynamic _templateTargetValue(ActivityEditorDialogState state) {
+    switch (state.selectedTrackingType) {
+      case 'quantitative':
+        return state.targetNumber;
+      case 'time':
+        final mins = state.targetDuration.inMinutes;
+        return mins > 0 ? mins : null; // null = no target
+      default:
+        return null;
+    }
+  }
+
   static ActivityRecord _buildOptimisticEssentialUpdateRecord({
     required ActivityEditorDialogState state,
     required CategoryRecord selectedCategory,
@@ -119,8 +131,6 @@ class ActivityEditorSaveService {
     required String userId,
     required ActivityRecord original,
   }) {
-    final freqPayload =
-        ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
     final optimisticData = Map<String, dynamic>.from(original.snapshotData)
       ..['name'] = state.titleController.text.trim()
       ..['description'] = state.descriptionController.text.trim().isNotEmpty
@@ -128,17 +138,19 @@ class ActivityEditorSaveService {
           : null
       ..['categoryId'] = state.selectedCategoryId
       ..['categoryName'] = selectedCategory.name
-      ..['trackingType'] = 'binary'
-      ..['target'] = null
-      ..['unit'] = null
+      ..['trackingType'] = state.selectedTrackingType ?? 'binary'
+      ..['target'] = _templateTargetValue(state)
+      ..['unit'] = state.unit.isNotEmpty ? state.unit : null
+      ..['priority'] = state.priority
       ..['userId'] = userId
       ..['timeEstimateMinutes'] = _normalizedTimeEstimate(state)
+      ..['dueDate'] = state.dueDate
       ..['dueTime'] = _selectedDueTime(state)
-      ..['frequencyType'] = freqPayload.frequencyType
-      ..['everyXValue'] = freqPayload.everyXValue
-      ..['everyXPeriodType'] = freqPayload.everyXPeriodType
-      ..['specificDays'] = freqPayload.specificDays
-      ..['isRecurring'] = (freqPayload.frequencyType ?? '').isNotEmpty
+      ..['frequencyType'] = null
+      ..['everyXValue'] = null
+      ..['everyXPeriodType'] = null
+      ..['specificDays'] = null
+      ..['isRecurring'] = false
       ..['lastUpdated'] = DateTime.now()
       ..['optimisticOperationId'] = operationId
       ..['optimisticPending'] = true;
@@ -152,8 +164,6 @@ class ActivityEditorSaveService {
     required String userId,
   }) {
     final now = DateTime.now();
-    final freqPayload =
-        ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
     final optimisticData = createActivityRecordData(
       name: state.titleController.text.trim(),
       description: state.descriptionController.text.trim().isNotEmpty
@@ -161,27 +171,24 @@ class ActivityEditorSaveService {
           : null,
       categoryId: state.selectedCategoryId,
       categoryName: selectedCategory.name,
-      categoryType: 'essential',
-      trackingType: 'binary',
-      target: null,
-      unit: null,
+      categoryType: 'template',
+      trackingType: state.selectedTrackingType ?? 'binary',
+      target: _templateTargetValue(state),
+      unit: state.unit.isNotEmpty ? state.unit : null,
       isActive: true,
-      isRecurring: (freqPayload.frequencyType ?? '').isNotEmpty,
+      isRecurring: false,
       createdTime: now,
       lastUpdated: now,
       userId: userId,
-      priority: 1,
+      priority: state.priority,
       timeEstimateMinutes: _normalizedTimeEstimate(state),
+      dueDate: state.dueDate,
       dueTime: _selectedDueTime(state),
-      frequencyType: freqPayload.frequencyType,
-      everyXValue: freqPayload.everyXValue,
-      everyXPeriodType: freqPayload.everyXPeriodType,
-      specificDays: freqPayload.specificDays,
     )
       ..['optimisticOperationId'] = operationId
       ..['optimisticPending'] = true;
     final optimisticRef =
-        ActivityRecord.collectionForUser(userId).doc('tmp_essential_$operationId');
+        ActivityRecord.collectionForUser(userId).doc('tmp_template_$operationId');
     return ActivityRecord.getDocumentFromData(optimisticData, optimisticRef);
   }
 
@@ -265,14 +272,12 @@ class ActivityEditorSaveService {
     state.widget.onSave?.call(null); // Pass null or new record if available
   }
 
-  /// Create a new essential
+  /// Create a new template
   static Future<void> createNewEssential(
       ActivityEditorDialogState state, CategoryRecord selectedCategory) async {
     final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) return;
-    final freqPayload =
-        ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
-    final operationId = 'essential_create_${DateTime.now().microsecondsSinceEpoch}';
+    final operationId = 'template_create_${DateTime.now().microsecondsSinceEpoch}';
     final optimisticRecord = _buildOptimisticEssentialCreateRecord(
       state: state,
       selectedCategory: selectedCategory,
@@ -295,16 +300,14 @@ class ActivityEditorSaveService {
               : null,
           categoryId: state.selectedCategoryId,
           categoryName: selectedCategory.name,
-          trackingType: 'binary',
-          target: null,
-          unit: null,
+          trackingType: state.selectedTrackingType ?? 'binary',
+          target: _templateTargetValue(state),
+          unit: state.unit.isNotEmpty ? state.unit : null,
+          priority: state.priority,
           userId: userId,
           timeEstimateMinutes: _normalizedTimeEstimate(state),
+          dueDate: state.dueDate,
           dueTime: _selectedDueTime(state),
-          frequencyType: freqPayload.frequencyType,
-          everyXValue: freqPayload.everyXValue,
-          everyXPeriodType: freqPayload.everyXPeriodType,
-          specificDays: freqPayload.specificDays,
         );
 
         final createdDoc = await templateRef.get();
@@ -319,9 +322,18 @@ class ActivityEditorSaveService {
             ActivityRecord.getDocumentFromData(reconciledData, created.reference);
         state.widget.onSave?.call(reconciled);
 
+        // Create a pending queue instance if a due date was set
+        if (state.dueDate != null) {
+          await essentialService.managePendingInstanceForDueDate(
+            templateId: templateRef.id,
+            newDueDate: state.dueDate,
+            userId: userId,
+          );
+        }
+
         messenger?.showSnackBar(
           const SnackBar(
-            content: Text('Essential template created successfully!'),
+            content: Text('Template created successfully!'),
             backgroundColor: Colors.green,
           ),
         );
@@ -334,7 +346,7 @@ class ActivityEditorSaveService {
         state.widget.onSave?.call(failedRecord);
         messenger?.showSnackBar(
           SnackBar(
-            content: Text('Error saving essential template: $e'),
+            content: Text('Error saving template: $e'),
             backgroundColor: Colors.red,
           ),
         );
@@ -342,17 +354,15 @@ class ActivityEditorSaveService {
     }());
   }
 
-  /// Update existing essential
+  /// Update existing template
   static Future<void> updateExistingEssential(
       ActivityEditorDialogState state, CategoryRecord selectedCategory) async {
     final userId = await waitForCurrentUserUid();
     if (userId.isEmpty) return;
     final original = state.widget.activity!;
     final docRef = original.reference;
-    final freqPayload =
-        ActivityEditorFrequencyService.frequencyPayloadForEssential(state);
     final operationId =
-        'essential_update_${docRef.id}_${DateTime.now().microsecondsSinceEpoch}';
+        'template_update_${docRef.id}_${DateTime.now().microsecondsSinceEpoch}';
     final optimisticRecord = _buildOptimisticEssentialUpdateRecord(
       state: state,
       selectedCategory: selectedCategory,
@@ -377,16 +387,14 @@ class ActivityEditorSaveService {
               : null,
           categoryId: state.selectedCategoryId,
           categoryName: selectedCategory.name,
-          trackingType: 'binary',
-          target: null,
-          unit: null,
+          trackingType: state.selectedTrackingType ?? 'binary',
+          target: _templateTargetValue(state),
+          unit: state.unit.isNotEmpty ? state.unit : null,
+          priority: state.priority,
           userId: userId,
           timeEstimateMinutes: _normalizedTimeEstimate(state),
+          dueDate: state.dueDate,
           dueTime: _selectedDueTime(state),
-          frequencyType: freqPayload.frequencyType,
-          everyXValue: freqPayload.everyXValue,
-          everyXPeriodType: freqPayload.everyXPeriodType,
-          specificDays: freqPayload.specificDays,
         );
 
         final updatedDoc = await docRef.get();
@@ -404,6 +412,17 @@ class ActivityEditorSaveService {
           reconciled = ActivityRecord.getDocumentFromData(fallbackData, docRef);
         }
         state.widget.onSave?.call(reconciled);
+
+        // Manage the pending queue instance when due date changes
+        final previousDueDate = original.dueDate;
+        final newDueDate = state.dueDate;
+        if (previousDueDate != newDueDate) {
+          await essentialService.managePendingInstanceForDueDate(
+            templateId: docRef.id,
+            newDueDate: newDueDate,
+            userId: userId,
+          );
+        }
       } catch (e) {
         final rollbackData = Map<String, dynamic>.from(original.snapshotData)
           ..['optimisticOperationId'] = operationId

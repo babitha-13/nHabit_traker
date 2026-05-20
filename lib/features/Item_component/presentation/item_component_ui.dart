@@ -77,46 +77,58 @@ class ItemUIBuildingHelper {
             ? constraints.maxHeight
             : constraints.minHeight;
 
-        if (categoryType == 'essential') {
+        final priority = instance.templatePriority;
+
+        // Priority=0: dotted + faint regardless of type (unscored / tracking-only)
+        if (priority <= 0) {
           return SizedBox(
-            width: 5, // Slightly wider to accommodate double lines
+            width: 3,
+            height: height,
+            child: CustomPaint(
+              size: Size(3, height),
+              painter: DottedLinePainter(
+                color: leftStripeColor.withValues(alpha: 0.50),
+                strokeWidth: 2.5,
+                dashHeight: 3.0,
+                dashSpace: 7.0,
+              ),
+            ),
+          );
+        }
+
+        // Habit: double stripe — signals recurring nature
+        if (categoryType == 'habit') {
+          return SizedBox(
+            width: 5,
             height: height,
             child: CustomPaint(
               size: Size(5, height),
               painter: DoubleLinePainter(color: leftStripeColor),
             ),
           );
-        } else if (categoryType == 'habit') {
-          return SizedBox(
-            width: 3,
-            height: height,
-            child: CustomPaint(
-              size: Size(3, height),
-              painter: DottedLinePainter(color: leftStripeColor),
-            ),
-          );
-        } else {
-          return Container(
-            width: 4,
-            decoration: BoxDecoration(
-              color: leftStripeColor,
-              borderRadius: BorderRadius.circular(2),
-            ),
-          );
         }
+
+        // Task / Template (priority≥1): solid stripe
+        return Container(
+          width: 4,
+          decoration: BoxDecoration(
+            color: leftStripeColor,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        );
       },
     );
   }
 
-  /// Build priority stars widget for habits
-  /// Allows toggling priority by tapping stars
+  /// Build priority stars widget for habits and templates.
+  /// Tap cycles: 0→1→2→3→0. Zero stars = no points.
   static Widget buildHabitPriorityStars({
     required ActivityInstanceRecord instance,
     required BuildContext context,
     required Future<void> Function(int) updateTemplatePriority,
   }) {
     final current = instance.templatePriority;
-    final nextPriority = current >= 3 ? 1 : current + 1;
+    final nextPriority = current >= 3 ? 0 : current + 1;
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(3, (i) {
@@ -143,6 +155,7 @@ class ItemUIBuildingHelper {
     required ActivityInstanceRecord instance,
     required bool showQuickLogOnLeft,
     required VoidCallback? onQuickLog,
+    IconData? quickLogIcon,
     required bool treatAsBinary,
     required bool isUpdating,
     required bool isCompleted,
@@ -167,7 +180,7 @@ class ItemUIBuildingHelper {
             height: 48,
             alignment: Alignment.center,
             child: Icon(
-              Icons.add_circle_outline,
+              quickLogIcon ?? Icons.add_circle_outline,
               size: 24,
               color: FlutterFlowTheme.of(context).primary,
             ),

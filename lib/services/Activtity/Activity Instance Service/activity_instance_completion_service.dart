@@ -271,8 +271,9 @@ class ActivityInstanceCompletionService {
         final double accTime =
             (finalAccumulatedTime ?? instance.accumulatedTime).toDouble();
         if (val > 1000 && val == accTime) {
-          if (instance.templateCategoryType == 'essential') {
-            currentValueToStore = 1; // Essentials are binary
+          if (instance.templateCategoryType == 'template' ||
+              instance.templateCategoryType == 'essential') {
+            currentValueToStore = 1; // Templates use binary completion value
           } else if (instance.templateTrackingType == 'binary') {
             currentValueToStore = 1;
           } else {
@@ -443,8 +444,17 @@ class ActivityInstanceCompletionService {
                     print('Error broadcasting instance created event: $e');
                   }
                 }
-              } else if (!template.isRecurring &&
-                  template.categoryType != 'essential') {
+              } else if (template.categoryType == 'template' ||
+                  template.categoryType == 'essential') {
+                // Scheduled template execution completed — clear the one-off due
+                // date so the template goes back to on-demand (no pending instance)
+                if (template.dueDate != null) {
+                  await templateRef.update({
+                    'dueDate': null,
+                    'lastUpdated': now,
+                  });
+                }
+              } else if (!template.isRecurring) {
                 await templateRef.update({
                   'isActive': false,
                   'status': 'complete',

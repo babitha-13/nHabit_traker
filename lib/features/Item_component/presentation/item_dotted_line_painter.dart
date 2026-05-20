@@ -4,23 +4,30 @@ import 'package:flutter/material.dart';
 /// Used to visually distinguish essential items in routines and item components
 class DottedLinePainter extends CustomPainter {
   final Color color;
+  final double strokeWidth;
+  final double dashHeight;
+  final double dashSpace;
 
-  DottedLinePainter({required this.color});
+  const DottedLinePainter({
+    required this.color,
+    this.strokeWidth = 4.0,
+    this.dashHeight = 3.5,
+    this.dashSpace = 5.5,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
     final paint = Paint()
       ..color = color
-      ..strokeWidth = 4.0
+      ..strokeWidth = strokeWidth
       ..strokeCap = StrokeCap.round;
 
-    const double dashHeight = 3.5; // Slightly shorter dashes
-    const double dashSpace = 5.5; // Increased spacing for more visible gaps
+    final cx = size.width / 2;
     double startY = 0;
     while (startY < size.height) {
       canvas.drawLine(
-        Offset(1.5, startY),
-        Offset(1.5, startY + dashHeight),
+        Offset(cx, startY),
+        Offset(cx, startY + dashHeight),
         paint,
       );
       startY += dashHeight + dashSpace;
@@ -28,5 +35,9 @@ class DottedLinePainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+  bool shouldRepaint(DottedLinePainter old) =>
+      old.color != color ||
+      old.strokeWidth != strokeWidth ||
+      old.dashHeight != dashHeight ||
+      old.dashSpace != dashSpace;
 }

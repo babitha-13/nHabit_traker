@@ -395,7 +395,7 @@ class PieChartPainter extends CustomPainter {
         );
         patternPainter.paint(canvas, size);
         canvas.restore();
-      } else if (segment.category == 'essential') {
+      } else if (segment.category == 'template' || segment.category == 'essential') {
         // Essentials: Double diagonal pattern
         canvas.save();
         canvas.clipPath(path);
@@ -778,7 +778,7 @@ class _TimeBreakdownChartWidgetState extends State<TimeBreakdownChartWidget> {
                   ),
                 ),
               )
-            : segment.category == 'essential'
+            : (segment.category == 'template' || segment.category == 'essential')
                 ? ClipRRect(
                     borderRadius: BorderRadius.circular(2),
                     child: CustomPaint(

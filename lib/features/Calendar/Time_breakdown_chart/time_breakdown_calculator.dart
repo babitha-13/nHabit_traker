@@ -31,7 +31,7 @@ class CalendarTimeBreakdownCalculator {
         habitMinutes += minutes;
       } else if (metadata.activityType == 'task') {
         taskMinutes += minutes;
-      } else if (metadata.activityType == 'essential') {
+      } else if (metadata.activityType == 'template' || metadata.activityType == 'essential') {
         essentialMinutes += minutes;
       }
 
@@ -60,7 +60,7 @@ class CalendarTimeBreakdownCalculator {
                 '#1A1A1A'; // Dark charcoal default
           }
         }
-      } else if (metadata.activityType == 'essential') {
+      } else if (metadata.activityType == 'template' || metadata.activityType == 'essential') {
         final activityKey = metadata.activityName.isNotEmpty
             ? metadata.activityName
             : 'Unnamed Essential';

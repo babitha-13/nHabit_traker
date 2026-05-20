@@ -340,18 +340,21 @@ Future<List<ActivityRecord>> queryActivitiesRecordOnce({
     final result = await query.get();
     final activities =
         result.docs.map((doc) => ActivityRecord.fromSnapshot(doc)).toList();
-    // Filter out essential types unless explicitly requested
+    // Filter out template types unless explicitly requested
     final filteredActivities = activities.where((activity) {
-      if (!includeEssentialItems && activity.categoryType == 'essential') {
+      if (!includeEssentialItems &&
+          (activity.categoryType == 'template' ||
+              activity.categoryType == 'essential')) {
         return false;
       }
       return true;
     }).toList();
-    // Filter habits based on date boundaries (skip for Essential Activities)
+    // Filter habits based on date boundaries (skip for Templates)
     final today = DateService.todayStart;
     final activeHabits = filteredActivities.where((habit) {
-      // Essential Activities don't have date boundaries, always include them
-      if (habit.categoryType == 'essential') {
+      // Templates don't have date boundaries, always include them
+      if (habit.categoryType == 'template' ||
+          habit.categoryType == 'essential') {
         return true;
       }
       return isHabitActiveByDate(habit, today);
@@ -493,7 +496,10 @@ Future<List<CategoryRecord>> queryEssentialCategoriesOnce({
     // Filter in memory (no Firestore index needed)
     final essentialCategories = allCategories.where((c) {
       final normalizedType = c.categoryType.trim().toLowerCase();
-      return normalizedType == 'essential' || normalizedType == 'essentials';
+      return normalizedType == 'template' ||
+          normalizedType == 'templates' ||
+          normalizedType == 'essential' ||
+          normalizedType == 'essentials';
     }).toList();
     // Sort in memory
     essentialCategories.sort((a, b) => a.name.compareTo(b.name));
