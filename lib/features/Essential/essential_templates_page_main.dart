@@ -151,131 +151,68 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
           final isTimeType = template.trackingType == 'time';
           final templateId = template.reference.id;
           final timerRunning = isTemplateTimerRunning(templateId);
+          Widget? badge;
+          if (timerRunning) {
+            badge = Text(
+              timerElapsedDisplay(templateId),
+              style: FlutterFlowTheme.of(context).bodySmall.override(
+                    fontFamily: 'Readex Pro',
+                    color: FlutterFlowTheme.of(context).primary,
+                    fontSize: 12,
+                    fontWeight: FontWeight.bold,
+                  ),
+            );
+          } else if (todayCounts.containsKey(templateId)) {
+            badge = Text(
+              '${todayCounts[templateId]}x (${todayMinutes[templateId]}m)',
+              style: FlutterFlowTheme.of(context).bodySmall.override(
+                    fontFamily: 'Readex Pro',
+                    color: FlutterFlowTheme.of(context).primary,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                  ),
+            );
+          }
           slivers.add(
             SliverToBoxAdapter(
-              child: Stack(
-                clipBehavior: Clip.none,
-                children: [
-                  // Main ItemComponent
-                  ItemComponent(
-                    key: Key('essential_template_$templateId'),
-                    instance: displayInstance,
-                    isHabit: false,
-                    showTypeIcon: false,
-                    showRecurringIcon: false,
-                    showCompleted: false,
-                    showManagementActions: false,
-                    onRefresh: loadTemplates,
-                    onInstanceUpdated: handleInstanceUpdated,
-                    onInstanceDeleted: handleInstanceDeleted,
-                    onHabitUpdated: (updated) async {
-                      await loadTemplates();
-                    },
-                    onHabitDeleted: (deleted) async {
-                      deleteTemplate(template);
-                    },
-                    categoryColorHex: category.color,
-                    showQuickLogOnLeft: true,
-                    quickLogIcon: isTimeType
-                        ? (timerRunning
-                            ? Icons.stop_circle
-                            : Icons.play_circle_outline)
-                        : null,
-                    onQuickLog: isTimeType
-                        ? () => timerRunning
-                            ? stopTemplateTimer(template)
-                            : startTemplateTimer(template)
-                        : () => quickLog(template),
-                  ),
-                  // Overlay: count badge (or elapsed time while timing) + kebab
-                  Positioned.fill(
-                    child: Padding(
-                      padding: const EdgeInsets.only(right: 16 + 6),
-                      child: Align(
-                        alignment: Alignment.centerRight,
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.center,
-                          children: [
-                            if (timerRunning)
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Text(
-                                  timerElapsedDisplay(templateId),
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .primary,
-                                        fontSize: 12,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                ),
-                              )
-                            else if (todayCounts.containsKey(templateId))
-                              Padding(
-                                padding: const EdgeInsets.only(right: 8),
-                                child: Text(
-                                  '${todayCounts[templateId]}x (${todayMinutes[templateId]}m)',
-                                  style: FlutterFlowTheme.of(context)
-                                      .bodySmall
-                                      .override(
-                                        fontFamily: 'Readex Pro',
-                                        color: FlutterFlowTheme.of(context)
-                                            .primary,
-                                        fontSize: 11,
-                                        fontWeight: FontWeight.bold,
-                                      ),
-                                ),
-                              ),
-                            // Calendar / date quick-picker
-                            Builder(
-                              builder: (calCtx) => Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: () =>
-                                      showTemplateDateMenu(calCtx, template),
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6),
-                                    child: Icon(
-                                      Icons.calendar_month,
-                                      size: 20,
-                                      color: FlutterFlowTheme.of(context)
-                                          .primaryText,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 2),
-                            // Kebab menu
-                            Builder(
-                              builder: (btnContext) => Material(
-                                color: Colors.transparent,
-                                child: InkWell(
-                                  onTap: () =>
-                                      showOverflowMenu(btnContext, template),
-                                  borderRadius: BorderRadius.circular(20),
-                                  child: Container(
-                                    padding: const EdgeInsets.all(6),
-                                    child: Icon(
-                                      Icons.more_vert,
-                                      size: 20,
-                                      color: FlutterFlowTheme.of(context)
-                                          .secondaryText,
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+              child: ItemComponent(
+                key: Key('essential_template_$templateId'),
+                instance: displayInstance,
+                isHabit: false,
+                showTypeIcon: false,
+                showRecurringIcon: false,
+                showCompleted: false,
+                showManagementActions: true,
+                showPriorityStars: true,
+                forceShowActions: true,
+                trailingBadge: badge,
+                onCalendarTapOverride: (anchorCtx) =>
+                    showTemplateDateMenu(anchorCtx, template),
+                onKebabTapOverride: (anchorCtx) =>
+                    showOverflowMenu(anchorCtx, template),
+                onPriorityTapOverride: (newPriority) =>
+                    updateTemplatePriority(template, newPriority),
+                onRefresh: loadTemplates,
+                onInstanceUpdated: handleInstanceUpdated,
+                onInstanceDeleted: handleInstanceDeleted,
+                onHabitUpdated: (updated) async {
+                  await loadTemplates();
+                },
+                onHabitDeleted: (deleted) async {
+                  deleteTemplate(template);
+                },
+                categoryColorHex: category.color,
+                showQuickLogOnLeft: true,
+                quickLogIcon: isTimeType
+                    ? (timerRunning
+                        ? Icons.stop_circle
+                        : Icons.play_circle_outline)
+                    : null,
+                onQuickLog: isTimeType
+                    ? () => timerRunning
+                        ? stopTemplateTimer(template)
+                        : startTemplateTimer(template)
+                    : () => quickLog(template),
               ),
             ),
           );
@@ -294,6 +231,7 @@ class _essentialTemplatesPageState extends State<essentialTemplatesPage>
       ),
     );
   }
+
 
   Widget _buildCategoryHeader(CategoryRecord category, bool expanded,
       String categoryName, int itemCount, GlobalKey headerKey) {

@@ -558,6 +558,16 @@ mixin EssentialTemplatesPageLogic<T extends StatefulWidget> on State<T> {
     return '$hours ${hours == 1 ? 'hour' : 'hours'} $remainingMinutes min';
   }
 
+  Future<void> updateTemplatePriority(
+      ActivityRecord template, int newPriority) async {
+    final uid = await waitForCurrentUserUid();
+    if (uid.isEmpty) return;
+    await ActivityRecord.collectionForUser(uid)
+        .doc(template.reference.id)
+        .update({'priority': newPriority, 'lastUpdated': DateTime.now()});
+    await loadTemplates(silent: true);
+  }
+
   Future<void> showEditDialog(ActivityRecord template) async {
     await showDialog<ActivityRecord>(
       context: context,

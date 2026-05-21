@@ -314,8 +314,11 @@ class ReminderScheduler {
     }
 
     final dueDate = DateService.normalizeToStartOfDay(dueDateTime);
-    final today = DateService.todayStart;
-    final tomorrow = DateService.tomorrowStart;
+    // Anchor today/tomorrow to reminderTime (the delivery moment), not DateTime.now().
+    // This prevents "tomorrow" being baked in at schedule time for notifications
+    // that fire right after midnight — at delivery the due date is already "today".
+    final today = DateService.normalizeToStartOfDay(reminderTime);
+    final tomorrow = today.add(const Duration(days: 1));
 
     // Format time string (e.g., "9:45pm")
     final hour = dueDateTime.hour;

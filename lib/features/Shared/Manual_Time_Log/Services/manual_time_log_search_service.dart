@@ -109,11 +109,13 @@ class ManualTimeLogSearchService {
                               c.name == item.categoryName,
                         );
 
-                        // Update duration from template estimate if not from timer
-                        if (state.widget.initialEndTime == null &&
+                        // Apply template duration: keep endTime fixed, pull
+                        // startTime back. Skip when opened from the timer
+                        // (timer already defines both endpoints exactly).
+                        if (!state.widget.fromTimer &&
                             item.timeEstimateMinutes != null &&
                             item.timeEstimateMinutes! > 0) {
-                          state.endTime = state.startTime.add(
+                          state.startTime = state.endTime.subtract(
                               Duration(minutes: item.timeEstimateMinutes!));
                         }
 

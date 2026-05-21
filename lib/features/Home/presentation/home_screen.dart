@@ -487,7 +487,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
           targetDate: targetDateIst,
         ).then((_) {
           debugPrint('[CatchUp] Background runDayTransitionForUser completed '
-              '(${DateTime.now().difference(t0).inMilliseconds}ms from flow start)');
+              '(${DateTime.now().difference(t0).inMilliseconds}ms from flow start) — re-triggering catch-up check');
+          // The current flow already ran getCatchUpLaunchState before instances
+          // existed (race condition). Now that the cloud function has finished
+          // creating them, trigger another pass so the popup actually appears.
+          if (mounted && !_isCheckingCatchUp) {
+            unawaited(_runDayEndFlow(showDayTransitionInfo: false));
+          }
         }).catchError((e) {
           debugPrint('[CatchUp] Background runDayTransitionForUser FAILED: $e');
         }));

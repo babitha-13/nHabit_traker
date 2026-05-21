@@ -69,7 +69,7 @@ class ManualTimeLogUIBuildersService {
                             buildTypeChip(state, 'Habit', 'habit', theme),
                             const SizedBox(width: 8),
                             buildTypeChip(
-                                state, 'Essentials', 'essential', theme),
+                                state, 'Templates', 'essential', theme),
                           ],
                         ),
                         const SizedBox(height: 12),

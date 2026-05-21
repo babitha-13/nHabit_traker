@@ -23,14 +23,26 @@ class DottedLinePainter extends CustomPainter {
       ..strokeCap = StrokeCap.round;
 
     final cx = size.width / 2;
-    double startY = 0;
-    while (startY < size.height) {
+    final period = dashHeight + dashSpace;
+
+    // How many dots fit? Each dot occupies dashHeight; each gap occupies
+    // dashSpace. The last dot needs no trailing gap.
+    final nDots = ((size.height + dashSpace) / period).floor();
+    if (nDots <= 0) return;
+
+    // Visual span: from the top of the first dot to the bottom of the last dot.
+    final patternSpan = nDots * period - dashSpace;
+
+    // Centre the pattern within the available height.
+    final startY = (size.height - patternSpan) / 2;
+
+    for (int i = 0; i < nDots; i++) {
+      final y = startY + i * period;
       canvas.drawLine(
-        Offset(cx, startY),
-        Offset(cx, startY + dashHeight),
+        Offset(cx, y),
+        Offset(cx, y + dashHeight),
         paint,
       );
-      startY += dashHeight + dashSpace;
     }
   }
 

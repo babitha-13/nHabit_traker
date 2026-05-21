@@ -305,7 +305,7 @@ class TimeBreakdownData {
 
     if (essentialMinutes > 0) {
       topLevel.add(PieChartSegment(
-        label: 'Essentials',
+        label: 'Templates',
         value: essentialMinutes,
         color: Colors.grey,
         category: 'essential',

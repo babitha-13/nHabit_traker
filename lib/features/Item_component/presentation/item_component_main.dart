@@ -61,6 +61,24 @@ class ItemComponent extends StatefulWidget {
   // Used by the Routine page to persist the struck-off look for items
   // the user ticked this session, even after broadcasts reset the status.
   final bool forceVisuallyCompleted;
+  // When false, the priority-star row is suppressed in the expanded section.
+  // Use this when the host page renders stars itself (e.g. templates overlay).
+  final bool showPriorityStars;
+  // Optional widget rendered inside the right icon row, before the calendar
+  // icon. Used by the templates page for the count / timer-elapsed badge.
+  final Widget? trailingBadge;
+  // Optional override for the calendar icon tap. Receives the anchor context
+  // so the host page can position popovers/menus near the icon.
+  final void Function(BuildContext anchorContext)? onCalendarTapOverride;
+  // Optional override for the kebab (more_vert) icon tap.
+  final void Function(BuildContext anchorContext)? onKebabTapOverride;
+  // Optional override for the priority-star tap. When provided, replaces the
+  // built-in template-priority update logic.
+  final Future<void> Function(int newPriority)? onPriorityTapOverride;
+  // When true, calendar/kebab/stars render even for legacy `essential`
+  // category-type instances (which are normally suppressed by `_isessential`).
+  final bool forceShowActions;
+  final void Function(bool isExpanded)? onExpansionChanged;
   const ItemComponent(
       {super.key,
       required this.instance,
@@ -91,7 +109,14 @@ class ItemComponent extends StatefulWidget {
       this.showSwipeTimerAction = true,
       this.treatAsBinary = false,
       this.quantitativeTreatAsIncrement = false,
-      this.forceVisuallyCompleted = false});
+      this.forceVisuallyCompleted = false,
+      this.showPriorityStars = true,
+      this.trailingBadge,
+      this.onCalendarTapOverride,
+      this.onKebabTapOverride,
+      this.onPriorityTapOverride,
+      this.forceShowActions = false,
+      this.onExpansionChanged});
   @override
   State<ItemComponent> createState() => _ItemComponentState();
 }
@@ -424,6 +449,7 @@ class _ItemComponentState extends State<ItemComponent>
                         _checkForReminders();
                       }
                     });
+                    widget.onExpansionChanged?.call(_isExpanded);
                   },
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(minHeight: 50),
@@ -563,6 +589,10 @@ class _ItemComponentState extends State<ItemComponent>
                       mainAxisSize: MainAxisSize.min,
                       children: [
                         const SizedBox(width: 5),
+                        if (widget.trailingBadge != null) ...[
+                          widget.trailingBadge!,
+                          const SizedBox(width: 5),
+                        ],
                         if (widget.page == 'queue' &&
                             _hasReminders == true) ...[
                           Tooltip(
@@ -602,10 +632,14 @@ class _ItemComponentState extends State<ItemComponent>
                         ],
                         if ((widget.showManagementActions ||
                                 widget.showCalendar) &&
-                            !_isessential) ...[
+                            (!_isessential || widget.forceShowActions)) ...[
                           Builder(
                             builder: (btnCtx) => GestureDetector(
                               onTap: () {
+                                if (widget.onCalendarTapOverride != null) {
+                                  widget.onCalendarTapOverride!(btnCtx);
+                                  return;
+                                }
                                 ItemMenuLogicHelper.showScheduleMenu(
                                   context: context,
                                   anchorContext: btnCtx,
@@ -624,10 +658,15 @@ class _ItemComponentState extends State<ItemComponent>
                           ),
                           const SizedBox(width: 5),
                         ],
-                        if (widget.showManagementActions && !_isessential) ...[
+                        if (widget.showManagementActions &&
+                            (!_isessential || widget.forceShowActions)) ...[
                           Builder(
                             builder: (btnCtx) => GestureDetector(
                               onTap: () {
+                                if (widget.onKebabTapOverride != null) {
+                                  widget.onKebabTapOverride!(btnCtx);
+                                  return;
+                                }
                                 ItemManagementHelper.showHabitOverflowMenu(
                                   context: context,
                                   anchorContext: btnCtx,
@@ -657,7 +696,9 @@ class _ItemComponentState extends State<ItemComponent>
                   ),
                 ),
               ),
-              if (_isExpanded && !_isessential) ...[
+              if (_isExpanded &&
+                  (!_isessential || widget.forceShowActions) &&
+                  widget.showPriorityStars) ...[
                 Center(
                   child: _buildHabitPriorityStars(),
                 ),
@@ -700,7 +741,8 @@ class _ItemComponentState extends State<ItemComponent>
     return ItemUIBuildingHelper.buildHabitPriorityStars(
       instance: widget.instance,
       context: context,
-      updateTemplatePriority: _updateTemplatePriority,
+      updateTemplatePriority:
+          widget.onPriorityTapOverride ?? _updateTemplatePriority,
     );
   }
 

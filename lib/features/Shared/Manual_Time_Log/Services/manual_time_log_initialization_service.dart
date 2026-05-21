@@ -165,6 +165,13 @@ class ManualTimeLogInitializationService {
                       c.reference.id == template.categoryId ||
                       c.name == template.categoryName,
                 );
+                // Apply template duration: keep endTime, pull startTime back.
+                // Skip when from timer — timer endpoints are already exact.
+                final dur = template.timeEstimateMinutes;
+                if (!state.widget.fromTimer && dur != null && dur > 0) {
+                  state.startTime =
+                      state.endTime.subtract(Duration(minutes: dur));
+                }
               });
             }
           }

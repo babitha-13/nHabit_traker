@@ -275,7 +275,15 @@ class _CalendarPlannedTaskModalState extends State<CalendarPlannedTaskModal> {
     setState(() {
       _selectedTemplate = template;
       if (matchedCategory != null) _selectedCategory = matchedCategory;
+      // Apply template duration: keep endTime anchored to the long-press
+      // point (or now for FAB), pull startTime back by the template's duration.
+      final dur = template.timeEstimateMinutes;
+      if (dur != null && dur > 0) {
+        _startTime = _endTime.subtract(Duration(minutes: dur));
+      }
     });
+
+    widget.onPreviewChange?.call(_startTime, _endTime, 'task', null);
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _taskController.addListener(_onSearchChanged);
