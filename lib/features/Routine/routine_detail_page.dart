@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/features/Routine/Backend_data/routine_service.dart';
-import 'package:habit_tracker/services/Activtity/Activity%20Instance%20Service/activity_instance_service.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_instance_record.dart';
@@ -14,7 +13,10 @@ import 'package:habit_tracker/features/Routine/Create%20Routine/create_routine_p
 import 'package:collection/collection.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/services/Activtity/instance_optimistic_update.dart';
-import 'package:habit_tracker/core/utils/Date_time/date_service.dart';
+import 'package:habit_tracker/services/Activtity/today_instances/today_instance_repository.dart';
+import 'package:habit_tracker/features/Essential/essential_data_service.dart';
+import 'package:habit_tracker/features/Settings/default_time_estimates_service.dart';
+import 'package:habit_tracker/Helper/backend/cache/batch_read_service.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 import 'package:intl/intl.dart';
 
@@ -40,8 +42,17 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
   static bool get _traceRoutineSync => kDebugMode && _traceRoutineSyncEnv;
   RoutineWithInstances? _routineWithInstances;
   List<CategoryRecord> _categories = [];
+  // Cache of ActivityRecord templates for routine items, keyed by templateId.
+  // Used to build display-only instances for templates without a real
+  // today-instance, so the user can see the item and act on it without
+  // creating an empty pending Firestore row on every routine open.
+  final Map<String, ActivityRecord> _templateCache = {};
+  int? _defaultTimeEstimateMinutes;
   bool _isLoading = true;
   bool _isReordering = false;
+
+  static bool _isDisplayInstance(ActivityInstanceRecord instance) =>
+      instance.reference.id.startsWith('display_');
 
   void _logRoutineSync(
     String stage, {
@@ -140,9 +151,20 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         callerTag: 'RoutineDetailPage._loadRoutine.tasks',
       );
       final allCategories = [...habitCategories, ...taskCategories];
+      // Load the user's default time estimate for quick-log fallback.
+      try {
+        _defaultTimeEstimateMinutes =
+            await TimeLoggingPreferencesService.getDefaultDurationMinutes(
+                userId);
+      } catch (_) {
+        // Non-fatal: quick-log will fall back to 1 minute.
+      }
       RoutineWithInstances? updatedRoutineWithInstances = routineWithInstances;
       if (routineWithInstances != null) {
         final routine = routineWithInstances.routine;
+        // Pre-fetch template metadata so display stubs can be built without
+        // a per-item Firestore read.
+        await _hydrateTemplateCache(routine);
         final instances = Map<String, ActivityInstanceRecord>.from(
             routineWithInstances.instances);
         for (int i = 0; i < routine.itemIds.length; i++) {
@@ -151,6 +173,10 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               routine.itemTypes.isNotEmpty && i < routine.itemTypes.length
                   ? routine.itemTypes[i]
                   : 'habit';
+          final itemName =
+              routine.itemNames.isNotEmpty && i < routine.itemNames.length
+                  ? routine.itemNames[i]
+                  : 'Unknown Item';
           if (instances.containsKey(itemId)) {
             continue;
           }
@@ -164,26 +190,30 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               if (newInstance != null) {
                 instances[itemId] = newInstance;
               } else {
-                // createInstanceForRoutineItem returns null for essential
-                // templates even when the cached itemType says 'habit'/'task'.
-                // Fall back to the essential path so stale metadata doesn't
-                // leave the item permanently missing.
-                final essentialInstance =
-                    await _createPendingessentialInstance(itemId);
-                if (essentialInstance != null) {
-                  instances[itemId] = essentialInstance;
+                // createInstanceForRoutineItem returns null for templates
+                // even when the cached itemType says 'habit'/'task'.
+                // Fall through to the display-stub path so stale metadata
+                // doesn't leave the item permanently missing.
+                final displayInstance =
+                    _buildDisplayTemplateInstance(itemId, itemName);
+                if (displayInstance != null) {
+                  instances[itemId] = displayInstance;
                 }
               }
             } catch (e) {}
           } else if (itemType == 'template' || itemType == 'essential') {
-            try {
-              final newInstance = await _createPendingessentialInstance(itemId);
-              if (newInstance != null) {
-                instances[itemId] = newInstance;
-              }
-            } catch (e) {}
+            // Templates: render a display-only stub. No Firestore row is
+            // created until the user takes an action (quick-log). This
+            // keeps the queue clean and avoids accumulating empty pending
+            // rows every time the routine is opened.
+            final displayInstance =
+                _buildDisplayTemplateInstance(itemId, itemName);
+            if (displayInstance != null) {
+              instances[itemId] = displayInstance;
+            }
           } else {
-            // Unknown or empty itemType — try both paths as a best-effort.
+            // Unknown or empty itemType — try the task/habit creation
+            // path first; if that returns null (template), build a stub.
             try {
               final newInstance =
                   await RoutineService.createInstanceForRoutineItem(
@@ -193,10 +223,10 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
               if (newInstance != null) {
                 instances[itemId] = newInstance;
               } else {
-                final essentialInstance =
-                    await _createPendingessentialInstance(itemId);
-                if (essentialInstance != null) {
-                  instances[itemId] = essentialInstance;
+                final displayInstance =
+                    _buildDisplayTemplateInstance(itemId, itemName);
+                if (displayInstance != null) {
+                  instances[itemId] = displayInstance;
                 }
               }
             } catch (e) {}
@@ -320,6 +350,51 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     }
 
     existing ??= routineWithInstances.instances[matchedTemplateId];
+
+    // When the incoming instance is a *different* instance for the same
+    // routine slot (e.g. completing today's habit triggers creation of
+    // tomorrow's pending instance for the same template), don't blindly
+    // replace the slot — re-pick via the same selector the initial load
+    // uses, so today's completed instance keeps winning over tomorrow's
+    // pending. Reconciled events run after TodayInstanceRepository (which
+    // registers first) has applied them to its snapshot, so the picker
+    // already sees the new candidate.
+    if (!isOptimistic &&
+        existing != null &&
+        existing.reference.id != incoming.reference.id) {
+      final repickedMap = TodayInstanceRepository.instance
+          .selectRoutineItems(routine: routineWithInstances.routine);
+      final repicked = repickedMap[matchedTemplateId];
+      if (repicked != null) {
+        if (repicked.reference.id == existing.reference.id &&
+            repicked.lastUpdated == existing.lastUpdated &&
+            repicked.status == existing.status) {
+          _logRoutineSync(
+            'apply_skip_repick_unchanged',
+            templateId: matchedTemplateId,
+            instance: incoming,
+            isOptimistic: isOptimistic,
+            note: 'existing=${existing.reference.id} keeps slot',
+          );
+          return;
+        }
+        setState(() {
+          routineWithInstances.instances[matchedTemplateId!] = repicked;
+        });
+        _logRoutineSync(
+          'apply_repick',
+          templateId: matchedTemplateId,
+          instance: repicked,
+          isOptimistic: isOptimistic,
+          note:
+              'incoming=${incoming.reference.id}, picked=${repicked.reference.id}',
+        );
+        return;
+      }
+      // No repick result (e.g., essential created on-the-fly) — fall through
+      // to the legacy stale check + replace path.
+    }
+
     if (existing != null &&
         _isStaleNonOptimisticUpdate(
           existing: existing,
@@ -539,61 +614,238 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     }
   }
 
-  Future<ActivityInstanceRecord?> _createPendingessentialInstance(
-      String itemId) async {
+  /// Hydrate [_templateCache] with ActivityRecord templates for every
+  /// template/essential item referenced by the routine. Required so display
+  /// stubs and the quick-log flow have full template metadata without a
+  /// Firestore round-trip per render.
+  Future<void> _hydrateTemplateCache(RoutineRecord routine) async {
+    final templateItemIds = <String>{};
+    for (int i = 0; i < routine.itemIds.length; i++) {
+      final itemType =
+          i < routine.itemTypes.length ? routine.itemTypes[i] : 'habit';
+      if (itemType == 'template' || itemType == 'essential') {
+        templateItemIds.add(routine.itemIds[i]);
+      }
+    }
+    final missing = templateItemIds
+        .where((id) => !_templateCache.containsKey(id))
+        .toList();
+    if (missing.isEmpty) return;
+    final uid = await waitForCurrentUserUid();
+    if (uid.isEmpty) return;
+    try {
+      final fetched = await BatchReadService.batchGetTemplates(
+        templateIds: missing,
+        userId: uid,
+        useCache: true,
+      );
+      _templateCache.addAll(fetched);
+    } catch (e) {
+      debugPrint('[routine-template] _hydrateTemplateCache failed: $e');
+    }
+  }
+
+  /// Build an in-memory display-only ActivityInstanceRecord for a template
+  /// routine item. The ref id is prefixed with `display_` so action handlers
+  /// know to materialize a real instance before mutating. Mirrors the
+  /// pattern in essential_templates_page_logic.createDisplayInstance.
+  ActivityInstanceRecord? _buildDisplayTemplateInstance(
+      String itemId, String itemName) {
+    final template = _templateCache[itemId];
+    if (template == null) return null;
+    final now = DateTime.now();
+    final instanceData = <String, dynamic>{
+      'templateId': template.reference.id,
+      'status': 'pending',
+      'createdTime': now,
+      'lastUpdated': now,
+      'isActive': true,
+      'templateName': template.name.isNotEmpty ? template.name : itemName,
+      'templateCategoryId': template.categoryId,
+      'templateCategoryName': template.categoryName.isNotEmpty
+          ? template.categoryName
+          : 'Others',
+      'templateCategoryType': template.categoryType,
+      'templatePriority': template.priority,
+      'templateTrackingType':
+          template.trackingType.isNotEmpty ? template.trackingType : 'time',
+      'templateTarget': template.target,
+      'templateUnit': template.unit,
+      'templateDescription': template.description,
+      'templateShowInFloatingTimer': template.showInFloatingTimer,
+      'templateIsRecurring': template.isRecurring,
+      'templateTimeEstimateMinutes': template.timeEstimateMinutes,
+      'templateDueTime': template.hasDueTime() ? template.dueTime : null,
+      'dueDate': null,
+      'timeLogSessions': const [],
+      'totalTimeLogged': 0,
+    };
+    final ref = ActivityInstanceRecord.collectionForUser(currentUserUid)
+        .doc('display_${template.reference.id}');
+    return ActivityInstanceRecord.getDocumentFromData(instanceData, ref);
+  }
+
+  /// Quick-log a template: creates a real essential instance covering the
+  /// last [estimate] minutes and marks it completed. Mirrors the Templates
+  /// tab's quickLog. The new instance arrives via instanceCreated broadcast
+  /// and replaces the display stub in the routine slot.
+  Future<void> _quickLogTemplate(ActivityRecord template) async {
+    final now = DateTime.now();
+    int estimate = 1;
+    if (template.hasTimeEstimateMinutes() &&
+        template.timeEstimateMinutes! > 0) {
+      estimate = template.timeEstimateMinutes!;
+    } else if (_defaultTimeEstimateMinutes != null &&
+        _defaultTimeEstimateMinutes! > 0) {
+      estimate = _defaultTimeEstimateMinutes!;
+    }
+    final startTime = now.subtract(Duration(minutes: estimate));
     try {
       final userId = await waitForCurrentUserUid();
-      if (userId.isEmpty) return null;
-      final today = DateService.todayStart;
-
-      // 1. Look for any active instance belonging to today (pending or completed).
-      final byBelongsToDate =
-          await ActivityInstanceRecord.collectionForUser(userId)
-              .where('templateId', isEqualTo: itemId)
-              .where('belongsToDate', isEqualTo: today)
-              .where('isActive', isEqualTo: true)
-              .limit(1)
-              .get();
-      if (byBelongsToDate.docs.isNotEmpty) {
-        return ActivityInstanceRecord.fromSnapshot(byBelongsToDate.docs.first);
-      }
-
-      // 2. Nothing found — create a fresh pending instance for today.
-      final templateDoc =
-          await ActivityRecord.collectionForUser(userId).doc(itemId).get();
-      if (!templateDoc.exists) {
-        debugPrint(
-            '[routine-essential] template not found for itemId=$itemId');
-        return null;
-      }
-      final template = ActivityRecord.fromSnapshot(templateDoc);
-
-      final newInstanceRef =
-          await ActivityInstanceService.createActivityInstance(
-        templateId: itemId,
-        template: template,
+      if (userId.isEmpty) throw Exception('User not signed in');
+      await essentialService.createessentialInstance(
+        templateId: template.reference.id,
+        startTime: startTime,
+        endTime: now,
         userId: userId,
-        dueDate: DateTime.now(),
       );
-
-      // Avoid a second round-trip for the dummy ref returned when habit
-      // window-duration is already met (doc id = 'dummy').
-      if (newInstanceRef.id == 'dummy') {
-        debugPrint(
-            '[routine-essential] dummy ref returned for itemId=$itemId');
-        return null;
-      }
-
-      final instanceDoc = await newInstanceRef.get();
-      if (instanceDoc.exists) {
-        return ActivityInstanceRecord.fromSnapshot(instanceDoc);
-      }
-      debugPrint(
-          '[routine-essential] created instance doc missing for itemId=$itemId ref=${newInstanceRef.id}');
-      return null;
+      // No success snackbar — the optimistic strike-through (for binary
+      // taps) and the swapped-in real instance are the only feedback.
+      // From the user's POV ticking a routine template feels identical
+      // to ticking a regular task tile.
     } catch (e) {
-      debugPrint('[routine-essential] _createPendingessentialInstance failed for itemId=$itemId: $e');
-      return null;
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Error logging activity: $e'),
+          backgroundColor: Colors.red,
+        ),
+      );
+    }
+  }
+
+  /// Show a scheduling menu for a template routine item. Picking a date
+  /// creates a pending instance (`dueDate == picked`, `belongsToDate ==
+  /// picked`) WITHOUT touching the template's own `dueDate` field, so
+  /// scheduling from a routine never alters the template's defaults. The
+  /// instance appears in the queue (dueDate is non-null) and in the
+  /// routine slot for the matching day via the instanceCreated broadcast.
+  Future<void> _showRoutineTemplateScheduleMenu(
+      BuildContext anchorContext, ActivityRecord template) async {
+    final box = anchorContext.findRenderObject() as RenderBox?;
+    if (box == null) return;
+    final overlay =
+        Overlay.of(anchorContext).context.findRenderObject() as RenderBox;
+    final position = box.localToGlobal(Offset.zero, ancestor: overlay);
+    final size = box.size;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final tomorrow = today.add(const Duration(days: 1));
+
+    // "Current dueDate" for the contextual menu = the dueDate on the
+    // real instance currently held by this routine slot (if any). The
+    // template's own dueDate is intentionally ignored — routine
+    // scheduling lives on the instance, not the template.
+    DateTime? currentInstanceDueDate;
+    for (final entry
+        in _routineWithInstances?.instances.entries ?? const <MapEntry<String, ActivityInstanceRecord>>[]) {
+      final inst = entry.value;
+      if (inst.templateId == template.reference.id &&
+          !_isDisplayInstance(inst) &&
+          inst.status == 'pending') {
+        currentInstanceDueDate = inst.dueDate;
+        break;
+      }
+    }
+    final isDueToday = currentInstanceDueDate != null &&
+        _isSameDay(currentInstanceDueDate, today);
+    final isDueTomorrow = currentInstanceDueDate != null &&
+        _isSameDay(currentInstanceDueDate, tomorrow);
+
+    final items = <PopupMenuEntry<String>>[
+      if (!isDueToday)
+        const PopupMenuItem<String>(
+            value: 'today',
+            height: 32,
+            child:
+                Text('Schedule for today', style: TextStyle(fontSize: 12))),
+      if (!isDueTomorrow)
+        const PopupMenuItem<String>(
+            value: 'tomorrow',
+            height: 32,
+            child: Text('Schedule for tomorrow',
+                style: TextStyle(fontSize: 12))),
+      const PopupMenuItem<String>(
+          value: 'pick',
+          height: 32,
+          child: Text('Pick due date...', style: TextStyle(fontSize: 12))),
+      if (currentInstanceDueDate != null) ...[
+        const PopupMenuDivider(height: 6),
+        const PopupMenuItem<String>(
+            value: 'clear',
+            height: 32,
+            child: Text('Clear due date', style: TextStyle(fontSize: 12))),
+      ],
+    ];
+
+    final selected = await showMenu<String>(
+      context: anchorContext,
+      position: RelativeRect.fromLTRB(
+        position.dx,
+        position.dy + size.height,
+        overlay.size.width - position.dx - size.width,
+        overlay.size.height - position.dy,
+      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+      items: items,
+    );
+
+    if (selected == null || !mounted) return;
+
+    DateTime? newDueDate;
+    if (selected == 'today') {
+      newDueDate = today;
+    } else if (selected == 'tomorrow') {
+      newDueDate = tomorrow;
+    } else if (selected == 'pick') {
+      newDueDate = await showDatePicker(
+        context: context,
+        initialDate: currentInstanceDueDate ?? today,
+        firstDate: today,
+        lastDate: today.add(const Duration(days: 365 * 5)),
+      );
+      if (newDueDate == null) return;
+    } else if (selected == 'clear') {
+      newDueDate = null;
+    } else {
+      return;
+    }
+
+    try {
+      final userId = await waitForCurrentUserUid();
+      if (userId.isEmpty) return;
+      // Deactivate any existing pending instances for this template (so a
+      // re-schedule replaces the previous one) and, if a date was chosen,
+      // create a new pending instance carrying that dueDate. This routes
+      // through the same essential-service helper the Templates tab uses
+      // for instance-side scheduling, just without the template-side
+      // updateessentialTemplate call that would mutate the template's
+      // default dueDate.
+      await essentialService.managePendingInstanceForDueDate(
+        templateId: template.reference.id,
+        newDueDate: newDueDate,
+        userId: userId,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Error updating date: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
     }
   }
 
@@ -752,6 +1004,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
         ? instance.templateCategoryColor
         : _getCategoryColor(instance);
 
+    final isTemplateItem = instance.templateCategoryType == 'template' ||
+        instance.templateCategoryType == 'essential';
+    final template = isTemplateItem ? _templateCache[itemId] : null;
+    final isTimeType = template?.trackingType == 'time';
+
     return ItemComponent(
       key: ValueKey(instance.reference.id),
       subtitle: _buildRoutineStatusSubtitle(instance),
@@ -760,6 +1017,11 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       onRefresh:
           () async {}, // No-op — updates handled via onInstanceUpdated and NotificationCenter
       onInstanceUpdated: (updatedInstance) {
+        // Allow updates targeting display stubs through — they're local
+        // optimistic state (e.g. a binary tap that just marked the stub
+        // completed) that needs to render immediately. The real instance
+        // arrives separately via the instanceCreated broadcast and is
+        // swapped in by _applyRoutineInstanceUpdate.
         setState(() {
           if (_routineWithInstances != null) {
             _routineWithInstances!.instances[itemId] = updatedInstance;
@@ -783,6 +1045,26 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showCalendar: true,
       showCalendarSkipOnly: true,
       showManagementActions: false,
+      // Templates: surface a quick-log button as the primary action. For
+      // display stubs the regular complete/progress controls would write
+      // to a non-existent doc, so quick-log is the only safe path. For
+      // real template instances we still expose it for convenience.
+      forceShowActions: isTemplateItem,
+      showQuickLogOnLeft: isTemplateItem && template != null,
+      quickLogIcon: isTemplateItem && isTimeType
+          ? Icons.play_circle_outline
+          : null,
+      onQuickLog: isTemplateItem && template != null
+          ? () => _quickLogTemplate(template)
+          : null,
+      // Calendar tap on a template routes through the same schedule menu
+      // the Templates tab uses: picking a date updates the template's
+      // dueDate and creates a pending instance with that dueDate, which
+      // then surfaces in the queue.
+      onCalendarTapOverride: isTemplateItem && template != null
+          ? (anchorCtx) =>
+              _showRoutineTemplateScheduleMenu(anchorCtx, template)
+          : null,
     );
   }
 

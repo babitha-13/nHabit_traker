@@ -9,6 +9,14 @@ import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 
 class Routines extends StatefulWidget {
   const Routines({super.key});
+
+  /// True while the Routines tab is showing a selected routine's detail view.
+  /// Home reads this to decide whether the system back press should unwind
+  /// the detail view (handled by the inner PopScope) instead of switching
+  /// tabs back to Queue.
+  static final ValueNotifier<bool> hasSelectedRoutine =
+      ValueNotifier<bool>(false);
+
   @override
   State<Routines> createState() => _RoutinesState();
 }
@@ -17,13 +25,18 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   final scaffoldKey = GlobalKey<ScaffoldState>();
   RoutineRecord? _selectedRoutine;
 
+  void _setSelectedRoutine(RoutineRecord? routine) {
+    setState(() => _selectedRoutine = routine);
+    Routines.hasSelectedRoutine.value = routine != null;
+  }
+
   @override
   void navigateToRoutineDetail(RoutineRecord routine) {
-    setState(() => _selectedRoutine = routine);
+    _setSelectedRoutine(routine);
   }
 
   void _clearSelectedRoutine() {
-    setState(() => _selectedRoutine = null);
+    _setSelectedRoutine(null);
     loadData();
   }
 
@@ -44,6 +57,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   void dispose() {
     NotificationCenter.removeObserver(this);
     searchManager.removeListener(onSearchChanged);
+    Routines.hasSelectedRoutine.value = false;
     super.dispose();
   }
 

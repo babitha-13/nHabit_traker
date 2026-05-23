@@ -980,6 +980,35 @@ class _ItemComponentState extends State<ItemComponent>
   }
 
   Future<void> _handleBinaryCompletion(bool completed) async {
+    // Display-only stubs (e.g. untouched template items inside a routine)
+    // have a `display_` ref id and no Firestore doc yet. From the user's
+    // POV the tap should feel identical to ticking a real tile: strike
+    // through immediately, then a real instance is created in the
+    // background. The host page provides the create-real-instance flow
+    // via onQuickLog; we use it here so binary and quick-log share one
+    // backend path.
+    if (widget.instance.reference.id.startsWith('display_')) {
+      if (widget.onQuickLog == null) return;
+      if (completed) {
+        // Optimistically mark the local stub as completed so the row
+        // renders the completed state (strike-through etc.) without
+        // waiting for the backend. The real instance, created by
+        // onQuickLog below, will arrive via instanceCreated broadcast
+        // and the host's re-pick logic swaps the stub for the real one.
+        final data = Map<String, dynamic>.from(widget.instance.snapshotData);
+        final now = DateTime.now();
+        data['status'] = 'completed';
+        data['completedAt'] = now;
+        data['lastUpdated'] = now;
+        final optimistic = ActivityInstanceRecord.getDocumentFromData(
+          data,
+          widget.instance.reference,
+        );
+        widget.onInstanceUpdated?.call(optimistic);
+      }
+      widget.onQuickLog!.call();
+      return;
+    }
     await ItemBinaryControlsHelper.handleBinaryCompletion(
       completed: completed,
       instance: widget.instance,

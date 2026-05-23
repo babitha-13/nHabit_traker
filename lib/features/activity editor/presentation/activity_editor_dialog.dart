@@ -41,6 +41,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   late TextEditingController _titleController;
   late TextEditingController _unitController;
   late TextEditingController _descriptionController;
+  late TextEditingController _timeEstimateController;
   String? _selectedCategoryId;
   String? _selectedTrackingType;
   int _targetNumber = 1;
@@ -82,6 +83,11 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
     _titleController = TextEditingController(text: t?.name ?? '');
     _unitController = TextEditingController(text: t?.unit ?? '');
     _descriptionController = TextEditingController(text: t?.description ?? '');
+    _timeEstimateController = TextEditingController(
+      text: t?.hasTimeEstimateMinutes() == true
+          ? t!.timeEstimateMinutes.toString()
+          : '',
+    );
 
     // Derive kind before the init service runs (it reads kind via isEssential)
     _kind = _deriveInitialKind();
@@ -113,6 +119,7 @@ class _ActivityEditorDialogState extends State<ActivityEditorDialog> {
   TextEditingController get titleController => _titleController;
   TextEditingController get unitController => _unitController;
   TextEditingController get descriptionController => _descriptionController;
+  TextEditingController get timeEstimateController => _timeEstimateController;
   String? get selectedCategoryId => _selectedCategoryId;
   set selectedCategoryId(String? value) => _selectedCategoryId = value;
   String? get selectedTrackingType => _selectedTrackingType;

@@ -433,8 +433,7 @@ class ActivityEditorUIBuildersService {
           const SizedBox(width: 12),
           Expanded(
             child: TextFormField(
-              key: ValueKey('time_est_${state.timeEstimateMinutes}'),
-              initialValue: state.timeEstimateMinutes?.toString() ?? '',
+              controller: state.timeEstimateController,
               keyboardType: TextInputType.number,
               style: theme.bodyMedium,
               decoration: InputDecoration(
@@ -459,8 +458,10 @@ class ActivityEditorUIBuildersService {
               icon: Icon(Icons.close, size: 18, color: theme.secondaryText),
               padding: EdgeInsets.zero,
               constraints: const BoxConstraints(),
-              onPressed: () =>
-                  state.setState(() => state.timeEstimateMinutes = null),
+              onPressed: () {
+                state.timeEstimateController.clear();
+                state.setState(() => state.timeEstimateMinutes = null);
+              },
             ),
         ],
       ),

@@ -941,13 +941,63 @@ class ActivityInstanceQueryService {
               inst.templateCategoryType == 'habit' && inst.isActive)
           .toList();
 
-      // Scheduled template instances: pending with a dueDate (user set a due date)
+      // Template/essential instances relevant to the today snapshot. Mirrors
+      // TodayInstanceRepository._isRelevantForToday so completed quick-logs
+      // (status='completed', dueDate=null, belongsToDate=today) survive
+      // rehydration — otherwise routine strike-throughs and Templates page
+      // counts vanish after every app restart.
+      final today = DateService.todayStart;
+      final dayEnd = today.add(const Duration(days: 1));
+      final recentThreshold = today.subtract(const Duration(days: 2));
+      bool sameDay(DateTime? value) {
+        if (value == null) return false;
+        final n = DateTime(value.year, value.month, value.day);
+        return n.isAtSameMomentAs(today);
+      }
+      bool hasSessionToday(ActivityInstanceRecord inst) {
+        if (inst.timeLogSessions.isEmpty) return false;
+        for (final s in inst.timeLogSessions) {
+          final start = s['startTime'] as DateTime?;
+          if (start == null) continue;
+          if (!start.isBefore(today) && start.isBefore(dayEnd)) return true;
+        }
+        return false;
+      }
+      DateTime? statusTs(ActivityInstanceRecord inst) {
+        if (inst.completedAt != null) {
+          return DateTime(inst.completedAt!.year, inst.completedAt!.month,
+              inst.completedAt!.day);
+        }
+        if (inst.skippedAt != null) {
+          return DateTime(inst.skippedAt!.year, inst.skippedAt!.month,
+              inst.skippedAt!.day);
+        }
+        if (inst.lastUpdated != null) {
+          return DateTime(inst.lastUpdated!.year, inst.lastUpdated!.month,
+              inst.lastUpdated!.day);
+        }
+        if (inst.belongsToDate != null) {
+          return DateTime(inst.belongsToDate!.year, inst.belongsToDate!.month,
+              inst.belongsToDate!.day);
+        }
+        return inst.dueDate;
+      }
       final scheduledTemplateInstances = allInstances.where((inst) {
         final t = inst.templateCategoryType;
-        return inst.isActive &&
-            (t == 'template' || t == 'essential') &&
-            inst.status == 'pending' &&
-            inst.dueDate != null;
+        if (!inst.isActive) return false;
+        if (t != 'template' && t != 'essential') return false;
+        // Pending with a due date — the original "scheduled template" case.
+        if (inst.status == 'pending' && inst.dueDate != null) return true;
+        // Touched-today rows (logged, completed, has a session) — even
+        // without a dueDate. This keeps quick-log results visible after
+        // reopen, both in routines and on the Templates tab counts.
+        if (sameDay(inst.belongsToDate)) return true;
+        if (sameDay(inst.completedAt)) return true;
+        if (hasSessionToday(inst)) return true;
+        // Anything recent in the last two days, to match the parity the
+        // task/habit branches already use.
+        final ts = statusTs(inst);
+        return ts != null && !ts.isBefore(recentThreshold);
       }).toList();
       final List<ActivityInstanceRecord> finalInstanceList = [];
       // For tasks: keep the earliest pending instance per template AND any
@@ -1004,7 +1054,6 @@ class ActivityInstanceQueryService {
         final templateId = instance.templateId;
         (habitInstancesByTemplate[templateId] ??= []).add(instance);
       }
-      final today = DateService.todayStart;
       for (final templateId in habitInstancesByTemplate.keys) {
         final instances = habitInstancesByTemplate[templateId]!;
         // Sort instances by due date (earliest first)

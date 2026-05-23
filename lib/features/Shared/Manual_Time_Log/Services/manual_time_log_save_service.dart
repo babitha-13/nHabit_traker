@@ -48,6 +48,29 @@ class ManualTimeLogSaveService {
       }
     }
 
+    if (state.selectedType == 'essential' && state.selectedTemplate == null) {
+      // Mirror the habit restriction: templates must be created in the
+      // Templates tab so their tracking type, target, frequency, and
+      // category can be configured deliberately — not silently as a side
+      // effect of logging time from the calendar.
+      final exactMatch = state.allActivities.firstWhereOrNull((a) =>
+          (a.categoryType == 'template' || a.categoryType == 'essential') &&
+          a.name.toLowerCase() == name.toLowerCase());
+
+      if (exactMatch != null) {
+        state.selectedTemplate = exactMatch;
+      } else {
+        ScaffoldMessenger.of(state.context).showSnackBar(
+          const SnackBar(
+            content: Text(
+                'Please select an existing template from the list. Creating new templates is not allowed here.'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+        return;
+      }
+    }
+
     // Validate time range
     if (state.startTime.isAfter(state.endTime) ||
         state.startTime.isAtSameMomentAs(state.endTime)) {

@@ -205,7 +205,13 @@ class _CreateRoutinePageState extends State<CreateRoutinePage>
         });
       }
     });
-    return Scaffold(
+    return PopScope(
+      canPop: false,
+      onPopInvokedWithResult: (didPop, _) async {
+        if (didPop) return;
+        await _autoSaveAndExit();
+      },
+      child: Scaffold(
       backgroundColor: theme.primaryBackground,
       appBar: AppBar(
         backgroundColor: theme.primaryBackground,
@@ -739,6 +745,25 @@ class _CreateRoutinePageState extends State<CreateRoutinePage>
                 ),
               ),
             ),
+    ),
     );
+  }
+
+  /// Called when the user attempts to leave via back. If there's nothing
+  /// meaningful to save (new routine without a name or items), just exit.
+  /// Otherwise run the same save logic the Save button uses, silently —
+  /// no success snackbar — so the change is persisted as though Save had
+  /// been tapped. On save failure we still let the user leave instead of
+  /// trapping them on the page.
+  Future<void> _autoSaveAndExit() async {
+    if (isSaving) return; // an explicit Save is in flight; let it finish
+    final hasItems = selectedItems.isNotEmpty;
+    final hasName = _nameController.text.trim().isNotEmpty;
+    final isNew = widget.existingRoutine == null;
+    if ((isNew && (!hasItems || !hasName)) || !hasItems || !hasName) {
+      if (mounted) Navigator.of(context).pop();
+      return;
+    }
+    await saveRoutine(_nameController, silent: true);
   }
 }

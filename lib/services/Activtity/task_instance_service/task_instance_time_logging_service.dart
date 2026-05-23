@@ -395,7 +395,13 @@ class TaskInstanceTimeLoggingService {
             .map((doc) => ActivityInstanceRecord.fromSnapshot(doc))
             .where((instance) {
           if (!instance.isActive) return false;
-          if (instance.templateCategoryType != 'essential') return false;
+          // Accept both the post-migration 'template' and the legacy
+          // 'essential' value. Filtering on 'essential' alone hid every
+          // post-migration row from the today snapshot, which is why
+          // quick-logged routine templates lost their strike-through and
+          // Templates page counts after each app reopen.
+          final t = instance.templateCategoryType;
+          if (t != 'template' && t != 'essential') return false;
           if (!filterByDay) return true;
           final belongsToday = isSameDay(instance.belongsToDate);
           final completedToday = isSameDay(instance.completedAt);

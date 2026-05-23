@@ -214,6 +214,13 @@ class _HomeState extends State<Home> with WidgetsBindingObserver {
       NotificationCenter.post('closeSearch', null);
       return false;
     }
+    // Defer to the Routines page's inner PopScope when a routine detail is
+    // open — it will clear the selection and surface the routines list. The
+    // tab-switch fallback below would otherwise race the inner handler and
+    // jump straight to Queue.
+    if (title == "Routines" && Routines.hasSelectedRoutine.value) {
+      return false;
+    }
     if (title == "Queue") {
       final timeGap = DateTime.now().difference(preBackPress);
       final cantExit = timeGap >= const Duration(seconds: 2);

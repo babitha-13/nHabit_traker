@@ -343,14 +343,17 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
     );
   }
 
-  Future<void> saveRoutine(TextEditingController nameController) async {
+  Future<void> saveRoutine(TextEditingController nameController,
+      {bool silent = false}) async {
     if (selectedItems.isEmpty) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please add at least one item to the routine'),
-          backgroundColor: Colors.red,
-        ),
-      );
+      if (!silent) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Please add at least one item to the routine'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
       return;
     }
     setState(() {
@@ -390,13 +393,15 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           remindersEnabled: remindersEnabled,
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Routine "${nameController.text.trim()}" updated successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          if (!silent) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    'Routine "${nameController.text.trim()}" updated successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
           Navigator.of(context).pop(<String, dynamic>{
             'routineId': currentRoutine!.reference.id,
             'itemIds': itemIds,
@@ -429,13 +434,15 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
           remindersEnabled: remindersEnabled,
         );
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                  'Routine "${nameController.text.trim()}" created successfully!'),
-              backgroundColor: Colors.green,
-            ),
-          );
+          if (!silent) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(
+                    'Routine "${nameController.text.trim()}" created successfully!'),
+                backgroundColor: Colors.green,
+              ),
+            );
+          }
           Navigator.of(context).pop(<String, dynamic>{
             'routineId': ref.id,
             'itemIds': itemIds,
@@ -446,13 +453,18 @@ mixin CreateRoutinePageLogic<T extends StatefulWidget> on State<T> {
         }
       }
     } catch (e) {
-      if (mounted) {
+      if (mounted && !silent) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text('Error saving routine: $e'),
             backgroundColor: Colors.red,
           ),
         );
+      }
+      // On silent auto-save failure, still let the user leave — they're
+      // already on their way out and a blocking error would be jarring.
+      if (mounted && silent) {
+        Navigator.of(context).pop();
       }
     } finally {
       if (mounted) {

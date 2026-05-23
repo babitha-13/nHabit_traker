@@ -95,7 +95,9 @@ class ManualTimeLogUIBuildersService {
                             decoration: InputDecoration(
                               hintText: state.selectedType == 'habit'
                                   ? 'Search existing habit...'
-                                  : 'Create New or Search...',
+                                  : state.selectedType == 'essential'
+                                      ? 'Search existing template...'
+                                      : 'Create New or Search...',
                               hintStyle: TextStyle(
                                 color: theme.secondaryText,
                                 fontSize: 14,

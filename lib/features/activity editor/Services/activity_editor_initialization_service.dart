@@ -1,6 +1,7 @@
 import 'package:habit_tracker/Helper/auth/firebase_auth/auth_util.dart';
 import 'package:habit_tracker/Helper/backend/backend.dart';
 import 'package:habit_tracker/Helper/backend/schema/activity_record.dart';
+import 'package:habit_tracker/Helper/backend/schema/category_record.dart';
 import 'package:habit_tracker/features/Settings/default_time_estimates_service.dart';
 import 'package:habit_tracker/features/activity%20editor/Frequency_config/frequency_config_model.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
@@ -181,9 +182,22 @@ class ActivityEditorInitializationService {
                   callerTag: 'ActivityEditorDialog._loadCategories.tasks',
                 );
 
+      // Ensure the activity's currently-assigned category is present in the
+      // dropdown even if the type-filtered query missed it. Legacy category
+      // records can have a missing/empty `categoryType` field, which the
+      // CategoryRecord getter then resolves to 'habit' by default — that hides
+      // the record from the essential/template dropdown and breaks both
+      // auto-population and manual reselect for templates whose category was
+      // created by older code paths (e.g. the default "Others" via Calendar).
+      final mergedCategories = await _mergeActivityCategoryIfMissing(
+        userId: userId,
+        loaded: categories,
+        activity: state.widget.activity,
+      );
+
       if (state.mounted) {
         state.setState(() {
-          state.loadedCategories = categories;
+          state.loadedCategories = mergedCategories;
           state.isLoadingCategories = false;
           if (selectCategoryId != null) {
             state.selectedCategoryId = selectCategoryId;
@@ -199,6 +213,28 @@ class ActivityEditorInitializationService {
         state.setState(() => state.isLoadingCategories = false);
         print('DEBUG ActivityEditorDialog: Error loading categories: $e');
       }
+    }
+  }
+
+  /// Fetch the activity's currently-assigned category record and prepend it
+  /// to [loaded] if not already present. Skips when no activity, no
+  /// categoryId, or the lookup fails — caller should treat the original list
+  /// as the fallback in those cases.
+  static Future<List<CategoryRecord>> _mergeActivityCategoryIfMissing({
+    required String userId,
+    required List<CategoryRecord> loaded,
+    required ActivityRecord? activity,
+  }) async {
+    final categoryId = activity?.categoryId ?? '';
+    if (categoryId.isEmpty) return loaded;
+    if (loaded.any((c) => c.reference.id == categoryId)) return loaded;
+    try {
+      final ref = CategoryRecord.collectionForUser(userId).doc(categoryId);
+      final record = await CategoryRecord.getDocumentOnce(ref);
+      if (!record.isActive) return loaded;
+      return [record, ...loaded];
+    } catch (_) {
+      return loaded;
     }
   }
 
@@ -239,5 +275,6 @@ class ActivityEditorInitializationService {
     state.titleController.dispose();
     state.unitController.dispose();
     state.descriptionController.dispose();
+    state.timeEstimateController.dispose();
   }
 }
