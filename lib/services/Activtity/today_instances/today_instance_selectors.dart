@@ -357,7 +357,6 @@ class TodayInstanceSelectors {
         picked = _pickRoutineEssential(
           candidates: candidates,
           snapshot: snapshot,
-          recentThreshold: recentThreshold,
         );
       } else if (itemType == 'habit') {
         picked = _pickRoutineHabit(
@@ -384,7 +383,6 @@ class TodayInstanceSelectors {
   static ActivityInstanceRecord? _pickRoutineEssential({
     required List<ActivityInstanceRecord> candidates,
     required TodayInstanceSnapshot snapshot,
-    required DateTime recentThreshold,
   }) {
     final todayMatches = candidates.where((i) {
       final belongsToday = isSameDay(i.belongsToDate, snapshot.dayStart);
@@ -403,17 +401,17 @@ class TodayInstanceSelectors {
       return todayMatches.first;
     }
 
-    final recentCompletedOrSkipped = candidates
+    // Only surface a completed/skipped instance if the action happened today.
+    // Using a wider window (e.g. last 2 days) caused completions from a
+    // previous day to bleed into the next day's routine view.
+    final completedToday = candidates
         .where((i) =>
             (i.status == 'completed' || i.status == 'skipped') &&
-            (() {
-              final ts = statusTimestamp(i);
-              return ts != null && !ts.isBefore(recentThreshold);
-            })())
+            isSameDay(statusTimestamp(i), snapshot.dayStart))
         .toList()
       ..sort(_compareStatusTimestampDesc);
-    if (recentCompletedOrSkipped.isNotEmpty) {
-      return recentCompletedOrSkipped.first;
+    if (completedToday.isNotEmpty) {
+      return completedToday.first;
     }
 
     final pendingAny = candidates.where((i) => i.status == 'pending').toList()

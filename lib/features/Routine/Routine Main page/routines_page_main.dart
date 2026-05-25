@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:habit_tracker/Helper/backend/schema/routine_record.dart';
 import 'package:habit_tracker/core/flutter_flow_theme.dart';
 import 'package:habit_tracker/features/Routine/Routine%20Main%20page/Logic/routines_page_logic.dart';
-import 'package:habit_tracker/features/Routine/routine_detail_page.dart';
 import 'package:habit_tracker/features/Shared/Search/search_fab.dart';
 import 'package:habit_tracker/services/Activtity/notification_center_broadcast.dart';
 import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
@@ -10,41 +9,17 @@ import 'package:habit_tracker/core/utils/Date_time/time_utils.dart';
 class Routines extends StatefulWidget {
   const Routines({super.key});
 
-  /// True while the Routines tab is showing a selected routine's detail view.
-  /// Home reads this to decide whether the system back press should unwind
-  /// the detail view (handled by the inner PopScope) instead of switching
-  /// tabs back to Queue.
-  static final ValueNotifier<bool> hasSelectedRoutine =
-      ValueNotifier<bool>(false);
-
   @override
   State<Routines> createState() => _RoutinesState();
 }
 
 class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   final scaffoldKey = GlobalKey<ScaffoldState>();
-  RoutineRecord? _selectedRoutine;
-
-  void _setSelectedRoutine(RoutineRecord? routine) {
-    setState(() => _selectedRoutine = routine);
-    Routines.hasSelectedRoutine.value = routine != null;
-  }
-
-  @override
-  void navigateToRoutineDetail(RoutineRecord routine) {
-    _setSelectedRoutine(routine);
-  }
-
-  void _clearSelectedRoutine() {
-    _setSelectedRoutine(null);
-    loadData();
-  }
 
   @override
   void initState() {
     super.initState();
     loadData();
-    // Listen for search changes
     searchManager.addListener(onSearchChanged);
     NotificationCenter.addObserver(this, 'categoryUpdated', (param) {
       if (mounted) {
@@ -57,32 +32,17 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   void dispose() {
     NotificationCenter.removeObserver(this);
     searchManager.removeListener(onSearchChanged);
-    Routines.hasSelectedRoutine.value = false;
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    return PopScope(
-      canPop: _selectedRoutine == null,
-      onPopInvokedWithResult: (didPop, _) {
-        if (!didPop && _selectedRoutine != null) {
-          _clearSelectedRoutine();
-        }
-      },
-      child: Scaffold(
-        key: scaffoldKey,
-        backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
-        body: SafeArea(
-          top: true,
-          child: _selectedRoutine != null
-              ? RoutineDetailPage(
-                  key: ValueKey(_selectedRoutine!.reference.id),
-                  routine: _selectedRoutine!,
-                  embedded: true,
-                  onBack: _clearSelectedRoutine,
-                )
-              : Stack(
+    return Scaffold(
+      key: scaffoldKey,
+      backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
+      body: SafeArea(
+        top: true,
+        child: Stack(
                   children: [
                     isLoading
                         ? const Center(child: CircularProgressIndicator())
@@ -244,7 +204,6 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
                     ),
                   ],
                 ),
-        ),
       ),
     );
   }
@@ -256,7 +215,7 @@ class _RoutinesState extends State<Routines> with RoutinesPageLogic {
   }) {
     return Container(
       key: key,
-      margin: EdgeInsets.zero,
+      margin: const EdgeInsets.symmetric(vertical: 6),
       decoration: BoxDecoration(
         color: FlutterFlowTheme.of(context).secondaryBackground,
         borderRadius: BorderRadius.circular(12),

@@ -957,15 +957,14 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     }
 
     final due = instance.dueDate;
-    final dueStr = due != null ? DateFormat.MMMd().format(due) : 'No due';
-    final dueTime = instance.hasDueTime()
-        ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}'
+    final duePart = due != null
+        ? ' • Due: ${DateFormat.MMMd().format(due)}${instance.hasDueTime() ? ' @ ${TimeUtils.formatTimeForDisplay(instance.dueTime)}' : ''}'
         : '';
 
     if (whenLabel.isEmpty) {
-      return '$verb • Due: $dueStr$dueTime';
+      return '$verb$duePart';
     }
-    return '$verb $whenLabel • Due: $dueStr$dueTime';
+    return '$verb $whenLabel$duePart';
   }
 
   Widget _buildItemComponent(ActivityInstanceRecord? instance, String itemId,
@@ -1007,7 +1006,6 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     final isTemplateItem = instance.templateCategoryType == 'template' ||
         instance.templateCategoryType == 'essential';
     final template = isTemplateItem ? _templateCache[itemId] : null;
-    final isTimeType = template?.trackingType == 'time';
 
     return ItemComponent(
       key: ValueKey(instance.reference.id),
@@ -1045,15 +1043,13 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       showCalendar: true,
       showCalendarSkipOnly: true,
       showManagementActions: false,
-      // Templates: surface a quick-log button as the primary action. For
-      // display stubs the regular complete/progress controls would write
-      // to a non-existent doc, so quick-log is the only safe path. For
-      // real template instances we still expose it for convenience.
+      // Templates in a routine show a binary tick box (not a play/plus icon).
+      // Tapping the checkbox on a display stub delegates to onQuickLog, which
+      // creates the real instance. treatAsBinary forces the checkbox regardless
+      // of the template's actual tracking type.
       forceShowActions: isTemplateItem,
-      showQuickLogOnLeft: isTemplateItem && template != null,
-      quickLogIcon: isTemplateItem && isTimeType
-          ? Icons.play_circle_outline
-          : null,
+      treatAsBinary: isTemplateItem,
+      showQuickLogOnLeft: false,
       onQuickLog: isTemplateItem && template != null
           ? () => _quickLogTemplate(template)
           : null,
@@ -1077,9 +1073,16 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
       appBar: AppBar(
         backgroundColor: FlutterFlowTheme.of(context).primaryBackground,
         title: Text(
-          'Routine',
+          widget.routine.name,
           style: FlutterFlowTheme.of(context).headlineMedium,
         ),
+        actions: [
+          IconButton(
+            onPressed: _editRoutine,
+            icon: const Icon(Icons.edit),
+            tooltip: 'Edit Routine',
+          ),
+        ],
       ),
       body: body,
     );
@@ -1118,12 +1121,13 @@ class _RoutineDetailPageState extends State<RoutineDetailPage> {
     }
     return CustomScrollView(
       slivers: [
-        SliverToBoxAdapter(
-          child: _buildSectionHeader(
-            widget.routine.name,
-            _routineWithInstances!.routine.itemIds.length,
+        if (widget.embedded)
+          SliverToBoxAdapter(
+            child: _buildSectionHeader(
+              widget.routine.name,
+              _routineWithInstances!.routine.itemIds.length,
+            ),
           ),
-        ),
         if (widget.routine.description.isNotEmpty)
           SliverToBoxAdapter(
             child: Container(
