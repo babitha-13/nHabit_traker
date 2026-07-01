@@ -665,11 +665,20 @@ class ActivityInstanceSchedulingService {
                 'skippedAt': now,
                 'lastUpdated': now,
               });
+              // Broadcast the skip so any instance already visible in the UI
+              // (e.g. the oldest overdue occurrence) converges to skipped
+              // instead of lingering as pending until the next hydration.
+              final skipped = ActivityInstanceRecord.fromSnapshot(
+                  await doc.reference.get());
+              InstanceEvents.broadcastInstanceUpdated(skipped);
             }
           } else {
             // No existing instance — create one and skip it using the returned
             // DocumentReference directly. Re-querying after creation is unreliable
             // because Firestore propagation may not be immediate.
+            // broadcast:false — this placeholder exists only to be skipped, so we
+            // must not flash a transient "pending" row onto the UI. The skipped
+            // past occurrence is not relevant to today and needs no broadcast.
             final ref =
                 await ActivityInstanceCreationService.createActivityInstance(
               templateId: templateId,
@@ -678,6 +687,7 @@ class ActivityInstanceSchedulingService {
               template: template,
               userId: uid,
               sourceTag: 'skipInstancesUntil',
+              broadcast: false,
             );
             await ref.update({
               'status': 'skipped',

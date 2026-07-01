@@ -48,6 +48,11 @@ class ActivityInstanceCreationService {
     String? userId,
     bool skipOrderLookup = false, // Skip order lookup for faster task creation
     String? sourceTag,
+    // When false, suppress optimistic/reconciled instance-created broadcasts.
+    // Used by bulk flows (e.g. skipInstancesUntil) that create a placeholder
+    // instance only to immediately skip it — broadcasting a transient "pending"
+    // instance would make it flash onto the UI before the skip lands.
+    bool broadcast = true,
   }) async {
     final uid = userId ?? ActivityInstanceHelperService.getCurrentUserId();
     final now = DateService.currentDate;
@@ -190,19 +195,23 @@ class ActivityInstanceCreationService {
     final operationId = OptimisticOperationTracker.generateOperationId();
 
     // 3. Track operation with actual temp instance ID (not hardcoded 'temp')
-    // This ensures rollback and reconciliation can find the optimistic instance
-    OptimisticOperationTracker.trackOperation(
-      operationId,
-      instanceId: optimisticInstance.reference.id, // Use actual temp ID
-      operationType: 'create',
-      optimisticInstance: optimisticInstance,
-      originalInstance:
-          optimisticInstance, // For creation, use optimistic as original since there's no existing instance
-    );
+    // This ensures rollback and reconciliation can find the optimistic instance.
+    // Skipped entirely when broadcasting is suppressed — there is no optimistic
+    // UI entry to reconcile or roll back.
+    if (broadcast) {
+      OptimisticOperationTracker.trackOperation(
+        operationId,
+        instanceId: optimisticInstance.reference.id, // Use actual temp ID
+        operationType: 'create',
+        optimisticInstance: optimisticInstance,
+        originalInstance:
+            optimisticInstance, // For creation, use optimistic as original since there's no existing instance
+      );
 
-    // 4. Broadcast optimistically (IMMEDIATE)
-    InstanceEvents.broadcastInstanceCreatedOptimistic(
-        optimisticInstance, operationId);
+      // 4. Broadcast optimistically (IMMEDIATE)
+      InstanceEvents.broadcastInstanceCreatedOptimistic(
+          optimisticInstance, operationId);
+    }
 
     // 5. Perform backend creation
     try {
@@ -285,23 +294,27 @@ class ActivityInstanceCreationService {
       }
 
       // 6. Reconcile with actual instance
-      final actualInstance = ActivityInstanceRecord.fromSnapshot(
-        await result.get(),
-      );
-      OptimisticOperationTracker.reconcileInstanceCreation(
-          operationId, actualInstance);
+      if (broadcast) {
+        final actualInstance = ActivityInstanceRecord.fromSnapshot(
+          await result.get(),
+        );
+        OptimisticOperationTracker.reconcileInstanceCreation(
+            operationId, actualInstance);
 
-      // Schedule reminder if instance has due time
-      try {
-        await ReminderScheduler.scheduleReminderForInstance(actualInstance);
-      } catch (e) {
-        // Error scheduling reminder - continue without it
+        // Schedule reminder if instance has due time
+        try {
+          await ReminderScheduler.scheduleReminderForInstance(actualInstance);
+        } catch (e) {
+          // Error scheduling reminder - continue without it
+        }
       }
 
       return result;
     } catch (e) {
-      // 7. Rollback on error
-      OptimisticOperationTracker.rollbackOperation(operationId);
+      // 7. Rollback on error (only if an optimistic entry was broadcast)
+      if (broadcast) {
+        OptimisticOperationTracker.rollbackOperation(operationId);
+      }
       rethrow;
     }
   }

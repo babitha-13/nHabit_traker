@@ -490,9 +490,36 @@ class ItemTimeControlsHelper {
       final instanceRef = ActivityInstanceRecord.collectionForUser(userId)
           .doc(instance.reference.id);
 
+      // Build a time-log session for the recorded interval so it shows up on
+      // the calendar, matching the "mark complete" and "manual log" routes.
+      // "Set custom time" overwrites the recorded total, so we replace any
+      // existing sessions with a single block of the chosen duration (or clear
+      // them when the time is set to zero).
+      final completionTime = DateTime.now();
+      List<Map<String, dynamic>> customSessions = const [];
+      if (customTimeMs > 0) {
+        final stackedTimes =
+            await ActivityInstanceService.calculateStackedStartTime(
+          userId: userId,
+          completionTime: completionTime,
+          durationMs: customTimeMs,
+          instanceId: instance.reference.id,
+          currentInstanceSessions: const [],
+        );
+        customSessions = [
+          {
+            'startTime': stackedTimes.startTime,
+            'endTime': stackedTimes.endTime,
+            'loggedAt': completionTime,
+            'durationMilliseconds': customTimeMs,
+          }
+        ];
+      }
+
       final Map<String, dynamic> updateData = {
         'accumulatedTime': customTimeMs,
         'totalTimeLogged': customTimeMs,
+        'timeLogSessions': customSessions,
         'lastUpdated': DateTime.now(),
       };
       if (updatedInstance.templateTrackingType == 'time') {
@@ -510,6 +537,8 @@ class ItemTimeControlsHelper {
             InstanceEvents.createOptimisticCompletedInstance(
           updatedInstance,
           finalAccumulatedTime: customTimeMs,
+          timeLogSessions: customSessions,
+          totalTimeLogged: customTimeMs,
           finalValue: updatedInstance.templateTrackingType == 'time'
               ? customTimeMs
               : (updatedInstance.templateTrackingType == 'binary'
